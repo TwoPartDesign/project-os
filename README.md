@@ -22,7 +22,10 @@ Everything is markdown files and bash scripts. No servers, no databases, no exte
 
 - [Node.js 18+](https://nodejs.org)
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) — `npm install -g @anthropic/claude-code`
-- An Anthropic API key — [console.anthropic.com](https://console.anthropic.com)
+- A Claude account — either a [Claude.ai Pro/Max](https://claude.ai) subscription or an [Anthropic API key](https://console.anthropic.com)
+
+**Optional (based on feature toggles during `/tools:init`):**
+- [Obsidian](https://obsidian.md) — if you want graph view and backlinks for the knowledge vault
 
 ---
 
