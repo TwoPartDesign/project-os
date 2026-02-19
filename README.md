@@ -219,6 +219,39 @@ Configured in `.claude/settings.json`:
 
 ---
 
+## Obsidian Integration
+
+Project OS ships with an `.obsidian/` vault config. Open the project folder directly in Obsidian to get a second view into your knowledge base — graph view, backlinks, tag filtering, and full-text search across all your specs, decisions, and architecture docs.
+
+**What you get:**
+- **Graph view** — see how decisions, patterns, specs, and architecture files connect
+- **Backlinks** — navigate from a decision to every spec that references it
+- **Tag filtering** — filter knowledge files by `#decisions`, `#patterns`, `#bugs`, `#architecture`
+- **Full-text search** — search across all your `.claude/knowledge/` files and specs at once
+- **Live preview** — read specs and handoff files without opening a terminal
+
+**Setup:**
+1. Open Obsidian → "Open folder as vault"
+2. Select your project root (the folder containing `CLAUDE.md`)
+3. That's it — backlinks and graph are live immediately
+
+**How it works with Claude:**
+The knowledge files (`.claude/knowledge/*.md`) have YAML frontmatter with tags so Obsidian can index them. Claude ignores frontmatter, so this is transparent to the workflow. Wikilinks like `[[decisions]]` work in both tools.
+
+**What's committed vs. ignored:**
+
+| File | Status | Why |
+|---|---|---|
+| `.obsidian/app.json` | Committed | Vault settings — use wikilinks, new file location |
+| `.obsidian/core-plugins.json` | Committed | Enables graph, backlinks, tag pane, search |
+| `.obsidian/workspace.json` | Gitignored | User-specific open tabs and layout |
+| `.obsidian/workspace-mobile.json` | Gitignored | Mobile layout state |
+| `.obsidian/cache` | Gitignored | Search index |
+
+Community plugins are not required and not configured — core plugins cover everything needed.
+
+---
+
 ## License
 
 MIT

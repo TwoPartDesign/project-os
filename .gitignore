@@ -4,3 +4,8 @@ CLAUDE.local.md
 node_modules/
 .env
 .env.*
+
+# Obsidian user state (vault config is committed; workspace state is not)
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/cache

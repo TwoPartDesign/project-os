@@ -17,6 +17,7 @@ TEMPLATE_DIR="$(dirname "$SCRIPT_DIR")"
 
 mkdir -p "$PROJECT_PATH"/{.claude/{commands/{workflows,tools,pm},agents,skills/{spec-driven-dev,tdd-workflow,session-management},knowledge,sessions,specs,rules,hooks,security},docs/{prd,research},scripts,src}
 
+cp -r "$TEMPLATE_DIR/.obsidian" "$PROJECT_PATH/" 2>/dev/null || true
 cp -r "$TEMPLATE_DIR/.claude/commands" "$PROJECT_PATH/.claude/"
 cp -r "$TEMPLATE_DIR/.claude/agents" "$PROJECT_PATH/.claude/"
 cp -r "$TEMPLATE_DIR/.claude/skills" "$PROJECT_PATH/.claude/"
@@ -47,6 +48,11 @@ CLAUDE.local.md
 node_modules/
 .env
 .env.*
+
+# Obsidian user state (vault config is committed; workspace state is not)
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/cache
 GI
 
 git init

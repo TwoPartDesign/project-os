@@ -1,0 +1,8 @@
+{
+  "useMarkdownLinks": false,
+  "newFileLocation": "folder",
+  "newFileFolderPath": "docs",
+  "attachmentFolderPath": "docs/assets",
+  "alwaysUpdateLinks": true,
+  "trashOption": "local"
+}

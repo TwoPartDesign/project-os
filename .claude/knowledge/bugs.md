@@ -1,3 +1,10 @@
+---
+type: knowledge
+tags: [bugs, debugging]
+description: Bug root causes, fixes, and prevention rules
+links: "[[patterns]], [[decisions]]"
+---
+
 # Bug Root Causes
 
 ## Format

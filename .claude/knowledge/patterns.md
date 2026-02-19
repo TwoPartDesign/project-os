@@ -1,3 +1,10 @@
+---
+type: knowledge
+tags: [patterns, conventions]
+description: Established code patterns and conventions discovered during development
+links: "[[decisions]], [[architecture]]"
+---
+
 # Established Patterns
 
 ## Format

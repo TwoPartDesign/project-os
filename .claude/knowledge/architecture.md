@@ -1,3 +1,10 @@
+---
+type: knowledge
+tags: [architecture, system-design]
+description: Living system architecture documentation
+links: "[[decisions]], [[patterns]]"
+---
+
 # System Architecture
 
 ## High-Level Structure
