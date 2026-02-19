@@ -40,7 +40,10 @@ claude
 /tools:init
 ```
 
-`/tools:init` will ask a few questions, configure your global `~/.claude/CLAUDE.md`, and fill in all placeholders.
+`/tools:init` will ask a few questions, configure your global `~/.claude/CLAUDE.md`, fill in all placeholders, and offer two optional feature toggles:
+
+- **Obsidian** — enables wikilinks and YAML frontmatter in knowledge files so the vault works in both Claude and Obsidian
+- **Context7** — creates `.mcp.json` with a live library docs MCP server, governed by the security wrapper at `.claude/security/mcp-allowlist.json`
 
 ### Creating a new project
 

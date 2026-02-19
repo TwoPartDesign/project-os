@@ -118,6 +118,20 @@ Ask:
 
 Skip Round 3 if `docs/product.md` already has content beyond the template comment.
 
+### Round 4 — Feature Toggles
+
+Ask these two questions together:
+
+1. **Knowledge interface** — The project ships with an Obsidian vault config (`.obsidian/`). Do you want Claude to use Obsidian-style formatting for the knowledge vault? This means wikilinks like `[[decisions]]` and YAML frontmatter preserved in knowledge files — readable in both Claude and Obsidian.
+   - `Y` — Use Obsidian-compatible formatting (wikilinks + frontmatter)
+   - `N` — Plain markdown only (no wikilinks, no frontmatter)
+
+2. **Context7 live docs** — Context7 is an MCP server that fetches up-to-date library documentation at query time. Useful for fast-moving frameworks. A security wrapper is already configured at `.claude/security/mcp-allowlist.json`.
+   - `Y` — Enable Context7 (adds `.mcp.json` to project root)
+   - `N` — Skip
+
+Record answers as `FEATURE_OBSIDIAN` (yes/no) and `FEATURE_CONTEXT7` (yes/no).
+
 ## Step 5: Fill in all placeholders
 
 Using the answers collected, replace every placeholder found in Step 2.
@@ -132,6 +146,52 @@ Standard mappings:
 - `[jest/pytest/go test/etc.]` → test runner from Round 2
 
 For each file containing placeholders, make all replacements in a single edit pass.
+
+## Step 5a: Apply feature toggles
+
+### Obsidian (if FEATURE_OBSIDIAN = yes)
+
+Append this section to `CLAUDE.md`:
+
+```markdown
+## Obsidian
+
+This project's knowledge vault is Obsidian-compatible. Follow these rules when working with `.claude/knowledge/` files:
+- Use `[[wikilinks]]` when cross-referencing knowledge files (e.g. `[[decisions]]`, `[[patterns]]`)
+- Preserve YAML frontmatter at the top of every knowledge file — never remove or overwrite it
+- Tags live in frontmatter (`tags: [decisions, adr]`), not inline — don't add `#hashtags` to knowledge files
+
+To browse the vault: open this project folder in Obsidian → graph view, backlinks, and tag pane are ready immediately.
+```
+
+### Context7 (if FEATURE_CONTEXT7 = yes)
+
+1. Create `.mcp.json` at the project root with:
+
+```json
+{
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@latest"]
+    }
+  }
+}
+```
+
+2. Append this section to `CLAUDE.md`:
+
+```markdown
+## MCP Tools
+
+### Context7
+Context7 is enabled for this project. Use it to fetch up-to-date library documentation before implementing against third-party APIs.
+
+- Tool: `resolve-library-id` — find the Context7 library ID for a package
+- Tool: `get-library-docs` — fetch current docs for a resolved library ID
+- Security: all Context7 calls are governed by `.claude/security/mcp-allowlist.json` — only `api.context7.com` and `registry.npmjs.org` are permitted network destinations
+- Allowed tools: `resolve-library-id`, `get-library-docs` only
+```
 
 ## Step 6: Populate product and tech docs (if empty)
 
@@ -182,6 +242,7 @@ Append a new entry to `.claude/memory/vault/project-profiles.md` (create it if i
 - **Formatter**: [formatter]
 - **Test runner**: [test runner]
 - **One-liner**: [one sentence description]
+- **Features**: Obsidian=[yes/no], Context7=[yes/no]
 ```
 
 This record will be available as a recommendation source for future projects.
@@ -207,6 +268,9 @@ Summarize what was done:
 > **Global config** (`~/.claude/CLAUDE.md`): [copied / merged / replaced / skipped]
 > **Placeholders filled**: [N] across [M] files
 > **Docs updated**: [list]
+> **Features enabled**:
+> - Obsidian vault: [enabled — wikilinks + frontmatter active / disabled]
+> - Context7 MCP: [enabled — `.mcp.json` created / disabled]
 > **Memory updated**: `.claude/memory/vault/project-profiles.md`
 > **Git**: [initialized / already exists]
 >
