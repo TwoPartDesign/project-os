@@ -1,0 +1,22 @@
+{
+  "description": "Allowlist of approved external MCP servers with security constraints",
+  "approved_mcps": {
+    "context7": {
+      "package": "@upstash/context7-mcp",
+      "version_pin": "1.0.0",
+      "allowed_tools": ["resolve-library-id", "get-library-docs"],
+      "network_domains": ["api.context7.com", "registry.npmjs.org"],
+      "risk_level": "low",
+      "rationale": "Read-only library documentation. No write access. No auth tokens.",
+      "audit_date": "2026-02-19",
+      "integrity_hash": ""
+    }
+  },
+  "blocked_capabilities": [
+    "filesystem_write_outside_project",
+    "network_access_to_unlisted_domains",
+    "environment_variable_access",
+    "subprocess_execution"
+  ],
+  "review_cadence": "monthly"
+}

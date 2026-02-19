@@ -1,0 +1,6 @@
+CLAUDE.local.md
+.claude/sessions/
+.claude/settings.local.json
+node_modules/
+.env
+.env.*
