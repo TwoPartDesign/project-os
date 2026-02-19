@@ -260,4 +260,4 @@ Community plugins are not required and not configured — core plugins cover eve
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE) for details.
