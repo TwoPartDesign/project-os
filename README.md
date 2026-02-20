@@ -78,7 +78,7 @@ Six phases. Always start at the top. Never skip from idea to build.
 /workflows:ship my-feature     Final checks and mark complete
 ```
 
-Each phase reads the output of the previous and writes structured artifacts to `.claude/specs/<feature>/`. The design phase catches most mistakes — don't skip it.
+Each phase reads the output of the previous and writes structured artifacts to `docs/specs/<feature>/`. The design phase catches most mistakes — don't skip it.
 
 For small changes (< 20 lines, single file) you can skip the pipeline and describe the change directly.
 
@@ -104,7 +104,7 @@ For small changes (< 20 lines, single file) you can skip the pipeline and descri
 | `/tools:catchup` | Restore context from last session handoff |
 | `/tools:commit` | Quality-checked git commit with pre-flight scan |
 | `/tools:research [topic]` | Spawn parallel research agents on a topic |
-| `/tools:kv set/get/list` | Quick key-value notes that persist in `.claude/knowledge/kv.md` |
+| `/tools:kv set/get/list` | Quick key-value notes that persist in `docs/knowledge/kv.md` |
 
 ### Project management
 | Command | What it does |
@@ -180,8 +180,8 @@ Five layers, each with a distinct purpose and lifespan:
 |---|---|---|---|
 | Global identity | `~/.claude/CLAUDE.md` | Permanent | Personal preferences, model routing, hard rules |
 | Project constitution | `CLAUDE.md` | Project lifetime | Stack, conventions, workflow, skill triggers |
-| Knowledge vault | `.claude/knowledge/` | Project lifetime | Decisions, patterns, bugs, architecture — compounds over time |
-| Feature specs | `.claude/specs/<name>/` | Per feature | Brief → design → tasks → review artifacts |
+| Knowledge vault | `docs/knowledge/` | Project lifetime | Decisions, patterns, bugs, architecture — compounds over time |
+| Feature specs | `docs/specs/<name>/` | Per feature | Brief → design → tasks → review artifacts |
 | Session handoffs | `.claude/sessions/` | Until resumed | YAML snapshots for resuming mid-task |
 
 The knowledge vault is the most valuable long-term asset. Decisions get documented with rationale, bug root causes get recorded, patterns get named. Over time, Claude references these automatically and avoids repeating past mistakes.
@@ -239,7 +239,7 @@ Project OS ships with an `.obsidian/` vault config. Open the project folder dire
 - **Graph view** — see how decisions, patterns, specs, and architecture files connect
 - **Backlinks** — navigate from a decision to every spec that references it
 - **Tag filtering** — filter knowledge files by `#decisions`, `#patterns`, `#bugs`, `#architecture`
-- **Full-text search** — search across all your `.claude/knowledge/` files and specs at once
+- **Full-text search** — search across all your `docs/knowledge/` files and specs at once
 - **Live preview** — read specs and handoff files without opening a terminal
 
 **Setup:**
@@ -248,7 +248,7 @@ Project OS ships with an `.obsidian/` vault config. Open the project folder dire
 3. That's it — backlinks and graph are live immediately
 
 **How it works with Claude:**
-The knowledge files (`.claude/knowledge/*.md`) have YAML frontmatter with tags so Obsidian can index them. Claude ignores frontmatter, so this is transparent to the workflow. Wikilinks like `[[decisions]]` work in both tools.
+The knowledge files (`docs/knowledge/*.md`) have YAML frontmatter with tags so Obsidian can index them. Claude ignores frontmatter, so this is transparent to the workflow. Wikilinks like `[[decisions]]` work in both tools.
 
 **What's committed vs. ignored:**
 

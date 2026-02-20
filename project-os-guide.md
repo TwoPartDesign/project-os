@@ -36,7 +36,7 @@ External dependencies are attack surface, maintenance burden, and single points 
 | Parallel execution | Sub-agents via `Task` tool + Agent Teams |
 | Adversarial review | Parallel sub-agents with isolated prompts |
 | Drift detection | Sub-agent comparing `git diff` against spec |
-| Knowledge compounding | Structured `.claude/knowledge/` directory |
+| Knowledge compounding | Structured `docs/knowledge/` directory |
 | Context optimization | Skill trigger tables + aggressive compaction |
 | Model tiering | `settings.json` model config |
 | Quality gates | Gate checks at the top of each workflow command |
@@ -88,7 +88,7 @@ Loaded every session, every project. Personal preferences, interaction style, mo
 - Opus: Final adversarial review only (when explicitly invoked)
 
 ## Global Rules
-- ALWAYS check `.claude/knowledge/` before proposing a pattern — it may already be documented
+- ALWAYS check `docs/knowledge/` before proposing a pattern — it may already be documented
 - ALWAYS update ROADMAP.md when completing tasks
 - NEVER commit without running tests
 - NEVER add dependencies without documenting rationale in decisions.md
@@ -116,7 +116,7 @@ The guardrail document for the current project. Tells Claude what to do, not eve
 ## Architecture Principles
 - Prefer simplicity over abstraction
 - No premature optimization
-- Every decision gets documented in `.claude/knowledge/decisions.md`
+- Every decision gets documented in `docs/knowledge/decisions.md`
 - Code is a liability; clarity is an asset
 
 ## Conventions
@@ -126,15 +126,15 @@ The guardrail document for the current project. Tells Claude what to do, not eve
 - Commit messages: `<type>: <what changed>` (feat/fix/refactor/docs/test)
 
 ## Workflow Protocol
-- NEVER write code without a spec in `.claude/specs/`
+- NEVER write code without a spec in `docs/specs/`
 - NEVER skip the review phase for anything touching auth, data, or money
 - Update ROADMAP.md after every task completion
 - Run `/tools:handoff` before ending any session with WIP
 
 ## Memory Protocol
-- Save architectural decisions to `.claude/knowledge/decisions.md`
-- Save discovered patterns to `.claude/knowledge/patterns.md`
-- Save bug root causes to `.claude/knowledge/bugs.md`
+- Save architectural decisions to `docs/knowledge/decisions.md`
+- Save discovered patterns to `docs/knowledge/patterns.md`
+- Save bug root causes to `docs/knowledge/bugs.md`
 - Run `/tools:handoff` at ~70% context usage
 
 ## Skill Triggers
@@ -153,11 +153,11 @@ The guardrail document for the current project. Tells Claude what to do, not eve
 <!-- Add project-specific conventions, API patterns, naming schemes here -->
 ```
 
-### Layer 3 — Structured Knowledge Vault (`.claude/knowledge/`)
+### Layer 3 — Structured Knowledge Vault (`docs/knowledge/`)
 
 Topic-specific markdown files that compound over time. Not loaded by default — referenced on demand by skills and commands.
 
-**`.claude/knowledge/decisions.md`**:
+**`docs/knowledge/decisions.md`**:
 ```markdown
 # Architectural Decision Records
 
@@ -169,7 +169,7 @@ Each entry: Date, Decision, Context, Alternatives Considered, Rationale
 <!-- Entries get appended here by workflows and handoff commands -->
 ```
 
-**`.claude/knowledge/patterns.md`**:
+**`docs/knowledge/patterns.md`**:
 ```markdown
 # Established Patterns
 
@@ -181,7 +181,7 @@ Each entry: Pattern Name, When to Use, Example, Anti-pattern to Avoid
 <!-- Entries get appended here as patterns are discovered during build and review -->
 ```
 
-**`.claude/knowledge/bugs.md`**:
+**`docs/knowledge/bugs.md`**:
 ```markdown
 # Bug Root Causes
 
@@ -193,7 +193,7 @@ Each entry: Date, Symptom, Root Cause, Fix, Prevention Rule
 <!-- Entries get appended here when bugs are found and fixed -->
 ```
 
-**`.claude/knowledge/architecture.md`**:
+**`docs/knowledge/architecture.md`**:
 ```markdown
 # System Architecture
 
@@ -441,14 +441,14 @@ Do NOT ask all questions at once. Ask 1-2, listen, then follow up. Stop when you
 ## Step 2: Research feasibility
 
 Spawn up to 2 sub-agents to investigate in parallel:
-- **Agent 1**: Search the codebase for existing patterns, utilities, or prior work that's relevant. Check `.claude/knowledge/` for past decisions on similar topics.
+- **Agent 1**: Search the codebase for existing patterns, utilities, or prior work that's relevant. Check `docs/knowledge/` for past decisions on similar topics.
 - **Agent 2**: If the idea involves a library or API, check `docs/research/` for prior research. If nothing exists, note what research is needed.
 
 If no relevant prior research exists, note what research is needed and flag it for the user.
 
 ## Step 3: Write the brief
 
-Create the directory `.claude/specs/$ARGUMENTS/` and write `brief.md`:
+Create the directory `docs/specs/$ARGUMENTS/` and write `brief.md`:
 
 ```
 # Brief: [Feature Name]
@@ -490,7 +490,7 @@ Present the brief to the user. Ask:
 > "Does this capture your intent? Anything missing, wrong, or over-scoped?"
 
 Iterate until the user confirms. Then:
-1. Add to ROADMAP.md under `### Ideas`: `[ ] P2 — [Feature Name] — brief at .claude/specs/$ARGUMENTS/brief.md`
+1. Add to ROADMAP.md under `### Ideas`: `[ ] P2 — [Feature Name] — brief at docs/specs/$ARGUMENTS/brief.md`
 2. Tell the user: "Brief locked. Run `/workflows:design $ARGUMENTS` when ready to design."
 ```
 
@@ -511,15 +511,15 @@ You are entering DESIGN mode. Your job is to produce a technical design document
 
 ## Prerequisites — GATE CHECK
 
-Read `.claude/specs/$ARGUMENTS/brief.md`. If it doesn't exist, STOP:
+Read `docs/specs/$ARGUMENTS/brief.md`. If it doesn't exist, STOP:
 > "No brief found for '$ARGUMENTS'. Run `/workflows:idea $ARGUMENTS` first."
 
 ## Step 1: Load context (minimal)
 
 Read ONLY:
-- `.claude/specs/$ARGUMENTS/brief.md` (the brief)
-- `.claude/knowledge/architecture.md` (existing patterns)
-- `.claude/knowledge/decisions.md` (prior ADRs)
+- `docs/specs/$ARGUMENTS/brief.md` (the brief)
+- `docs/knowledge/architecture.md` (existing patterns)
+- `docs/knowledge/decisions.md` (prior ADRs)
 - `CLAUDE.md` (project conventions)
 
 Do NOT read the full codebase. Do NOT load other specs.
@@ -533,7 +533,7 @@ For each requirement in the brief:
    - HARD (non-negotiable — physics, security, data integrity)
    - SOFT (preference, convention, nice-to-have)
    - Flag any soft constraints being treated as hard — these hide complexity.
-3. **Pattern match**: Does the codebase already have a pattern for this? Check `.claude/knowledge/patterns.md`. Prefer reuse over invention.
+3. **Pattern match**: Does the codebase already have a pattern for this? Check `docs/knowledge/patterns.md`. Prefer reuse over invention.
 4. **Dependency check**: What does this depend on? What depends on it?
 
 ## Step 3: Design the solution
@@ -556,12 +556,12 @@ Before presenting the design, challenge it:
 
 ## Step 5: Write the design document
 
-Create `.claude/specs/$ARGUMENTS/design.md`:
+Create `docs/specs/$ARGUMENTS/design.md`:
 
 ```
 # Design: [Feature Name]
 
-**Brief**: .claude/specs/$ARGUMENTS/brief.md
+**Brief**: docs/specs/$ARGUMENTS/brief.md
 **Status**: Draft | Reviewed | Approved
 **Date**: [TODAY]
 
@@ -650,14 +650,14 @@ You are entering PLANNING mode. Your job is to produce an execution plan so prec
 
 ## Prerequisites — GATE CHECK
 
-Read `.claude/specs/$ARGUMENTS/design.md`. Verify status is "Approved". If not:
+Read `docs/specs/$ARGUMENTS/design.md`. Verify status is "Approved". If not:
 > "Design for '$ARGUMENTS' not approved. Run `/workflows:design $ARGUMENTS` first."
 
 ## Step 1: Load context (minimal)
 
 Read ONLY:
-- `.claude/specs/$ARGUMENTS/design.md`
-- `.claude/specs/$ARGUMENTS/brief.md` (success criteria for acceptance tests)
+- `docs/specs/$ARGUMENTS/design.md`
+- `docs/specs/$ARGUMENTS/brief.md` (success criteria for acceptance tests)
 - `CLAUDE.md` (Conventions section only)
 
 ## Step 2: Decompose into atomic tasks
@@ -686,12 +686,12 @@ For each task define:
 
 ## Step 4: Write the task plan
 
-Create `.claude/specs/$ARGUMENTS/tasks.md`:
+Create `docs/specs/$ARGUMENTS/tasks.md`:
 
 ```
 # Task Plan: [Feature Name]
 
-**Design**: .claude/specs/$ARGUMENTS/design.md
+**Design**: docs/specs/$ARGUMENTS/design.md
 **Total tasks**: [N]
 **Parallel groups**: [N]
 **Estimated effort**: [low/medium/high]
@@ -740,7 +740,7 @@ Create `.claude/specs/$ARGUMENTS/tasks.md`:
 
 Move the feature from `### Ideas` to `### Queued`:
 ```
-[ ] P[X] — [Feature Name] — [N] tasks — .claude/specs/$ARGUMENTS/tasks.md
+[ ] P[X] — [Feature Name] — [N] tasks — docs/specs/$ARGUMENTS/tasks.md
 ```
 
 ## Step 6: Human checkpoint
@@ -769,15 +769,15 @@ You are entering BUILD mode as the **orchestrator**. You coordinate and unblock.
 
 ## Prerequisites — GATE CHECK
 
-Read `.claude/specs/$ARGUMENTS/tasks.md`. If missing:
+Read `docs/specs/$ARGUMENTS/tasks.md`. If missing:
 > "No task plan for '$ARGUMENTS'. Run `/workflows:plan $ARGUMENTS` first."
 
-Verify design status is "Approved" in `.claude/specs/$ARGUMENTS/design.md`.
+Verify design status is "Approved" in `docs/specs/$ARGUMENTS/design.md`.
 
 ## Step 1: Load orchestration context (MINIMAL)
 
 Read ONLY:
-- `.claude/specs/$ARGUMENTS/tasks.md`
+- `docs/specs/$ARGUMENTS/tasks.md`
 - `CLAUDE.md` (Conventions section only)
 
 Do NOT load the full design. Sub-agents get their specs from tasks.md.
@@ -821,7 +821,7 @@ Wait for dependencies. Verify their acceptance criteria passed. Spawn next group
 ## Step 4: Track progress
 
 After each task:
-1. Mark `[x]` in `.claude/specs/$ARGUMENTS/tasks.md`
+1. Mark `[x]` in `docs/specs/$ARGUMENTS/tasks.md`
 2. Update ROADMAP.md count: `[-] P[X] — [Feature Name] — [completed]/[N] tasks 🏗️`
 3. If a task FAILS, mark `[!]` and report failure with error output.
 
@@ -842,7 +842,7 @@ Spawn a review sub-agent:
 You are a DRIFT DETECTOR. Compare what was planned vs. what was built.
 
 Read:
-1. .claude/specs/$ARGUMENTS/tasks.md (the plan)
+1. docs/specs/$ARGUMENTS/tasks.md (the plan)
 2. `git diff main --stat` (what changed)
 
 For each task verify:
@@ -884,13 +884,13 @@ You are the **review coordinator**. You dispatch independent reviewers, deduplic
 
 ## Prerequisites — GATE CHECK
 
-Verify `.claude/specs/$ARGUMENTS/design.md` exists.
-Verify all tasks in `.claude/specs/$ARGUMENTS/tasks.md` are marked `[x]`.
+Verify `docs/specs/$ARGUMENTS/design.md` exists.
+Verify all tasks in `docs/specs/$ARGUMENTS/tasks.md` are marked `[x]`.
 
 ## Step 1: Identify scope
 
 Run `git diff main --name-only` to get changed files.
-Read `.claude/specs/$ARGUMENTS/design.md` for intended behavior.
+Read `docs/specs/$ARGUMENTS/design.md` for intended behavior.
 
 ## Step 2: Spawn three independent reviewers
 
@@ -927,9 +927,9 @@ If NOTHING found, say so. Do not invent findings.
 You are an ARCHITECTURE REVIEWER. Verify implementation matches design.
 
 Read:
-1. .claude/specs/$ARGUMENTS/design.md
-2. .claude/knowledge/patterns.md
-3. .claude/knowledge/decisions.md
+1. docs/specs/$ARGUMENTS/design.md
+2. docs/knowledge/patterns.md
+3. docs/knowledge/decisions.md
 4. Each changed file
 
 Check for:
@@ -982,7 +982,7 @@ For each finding:
 
 ## Step 4: Write review report
 
-Create `.claude/specs/$ARGUMENTS/review.md`:
+Create `docs/specs/$ARGUMENTS/review.md`:
 
 ```
 # Review Report: [Feature Name]
@@ -1015,8 +1015,8 @@ If fixes needed, spawn targeted agents per 🔴 finding, then re-run only releva
 
 ## Step 6: Knowledge capture
 
-Add new patterns to `.claude/knowledge/patterns.md`.
-Add security lessons to `.claude/knowledge/bugs.md`.
+Add new patterns to `docs/knowledge/patterns.md`.
+Add security lessons to `docs/knowledge/bugs.md`.
 ```
 
 ---
@@ -1034,7 +1034,7 @@ description: "Final validation, cleanup, and ship"
 
 ## Prerequisites — GATE CHECK
 
-Verify `.claude/specs/$ARGUMENTS/review.md` exists with verdict PASS or PASS WITH NOTES. If not:
+Verify `docs/specs/$ARGUMENTS/review.md` exists with verdict PASS or PASS WITH NOTES. If not:
 > "Cannot ship — review not passed. Run `/workflows:review $ARGUMENTS` first."
 
 ## Step 1: Pre-flight checks
@@ -1059,8 +1059,8 @@ If messy, suggest squash: `git rebase -i main`
 
 1. Mark all tasks `[x]` in tasks.md
 2. Move in ROADMAP.md to `## Completed`: `[x] P[X] — [Feature Name] — completed [DATE] ✅`
-3. Update `.claude/knowledge/decisions.md` with decisions from this feature
-4. Update `.claude/knowledge/patterns.md` with new patterns
+3. Update `docs/knowledge/decisions.md` with decisions from this feature
+4. Update `docs/knowledge/patterns.md` with new patterns
 
 ## Step 4: Archive
 
@@ -1074,7 +1074,7 @@ Mark design status as "Shipped". Spec directory remains as documentation.
 > - Review: [verdict]
 > - Commits: [count]
 > - Files changed: [count]
-> Spec archived at `.claude/specs/$ARGUMENTS/`
+> Spec archived at `docs/specs/$ARGUMENTS/`
 ```
 
 ---
@@ -1154,9 +1154,9 @@ compact_instruction: |
 
 ## Step 3: Update knowledge
 
-Append decisions to `.claude/knowledge/decisions.md`.
-Append patterns to `.claude/knowledge/patterns.md`.
-Append bug causes to `.claude/knowledge/bugs.md`.
+Append decisions to `docs/knowledge/decisions.md`.
+Append patterns to `docs/knowledge/patterns.md`.
+Append bug causes to `docs/knowledge/bugs.md`.
 
 ## Step 4: Confirm
 
@@ -1237,7 +1237,7 @@ Break the research topic into 2-3 independent questions. Spawn a sub-agent for e
 You are a RESEARCH AGENT investigating: [specific question]
 
 Search the following sources in order:
-1. `.claude/knowledge/` — do we already know this?
+1. `docs/knowledge/` — do we already know this?
 2. `docs/research/` — has this been researched before?
 3. Project codebase — is there existing implementation to learn from?
 4. If the topic is about a library/API we use, check `node_modules/[lib]/README.md` or equivalent
@@ -1341,7 +1341,7 @@ Fast memory operations for facts that don't need a full ADR or pattern entry.
 
 ## Implementation
 
-Storage file: `.claude/knowledge/kv.md`
+Storage file: `docs/knowledge/kv.md`
 
 Format:
 ```
@@ -1502,7 +1502,7 @@ Read:
 1. `ROADMAP.md` — task counts by status
 2. `.claude/sessions/` — latest handoff (if any)
 3. `git log --oneline --since="1 week ago"` — recent activity
-4. `.claude/specs/` — active specs and their status
+4. `docs/specs/` — active specs and their status
 
 ## Synthesize
 
@@ -1588,8 +1588,8 @@ You verify that implementation matches the design specification and follows esta
 
 ## Inputs
 - Design document (provided)
-- Established patterns from `.claude/knowledge/patterns.md`
-- Prior decisions from `.claude/knowledge/decisions.md`
+- Established patterns from `docs/knowledge/patterns.md`
+- Prior decisions from `docs/knowledge/decisions.md`
 
 ## Checks
 - Design drift: implementation vs. spec deviations
@@ -1641,7 +1641,7 @@ For each finding: TYPE / FILES / ISSUE / SUGGESTED TEST (setup → action → as
 
 Before writing ANY code, verify a spec exists:
 
-1. Check `.claude/specs/[feature-name]/` for brief.md, design.md, tasks.md
+1. Check `docs/specs/[feature-name]/` for brief.md, design.md, tasks.md
 2. If ALL exist and design is "Approved": proceed with `/workflows:build`
 3. If design exists but not approved: resume `/workflows:design`
 4. If only brief exists: run `/workflows:design`
@@ -1718,9 +1718,9 @@ Run `/tools:handoff` automatically when:
 ## Memory Hygiene
 
 At session end, verify:
-- [ ] Any decisions made are in `.claude/knowledge/decisions.md`
-- [ ] Any new patterns are in `.claude/knowledge/patterns.md`
-- [ ] Any bugs found are in `.claude/knowledge/bugs.md`
+- [ ] Any decisions made are in `docs/knowledge/decisions.md`
+- [ ] Any new patterns are in `docs/knowledge/patterns.md`
+- [ ] Any bugs found are in `docs/knowledge/bugs.md`
 - [ ] ROADMAP.md reflects current task status
 - [ ] Handoff file is written if there's WIP
 ```
@@ -1910,7 +1910,7 @@ claude mcp add --scope project context7 -- npx -y @upstash/context7-mcp@1.0.0
 # Usage: ./scripts/memory-search.sh <query>
 
 QUERY="$1"
-KNOWLEDGE_DIR=".claude/knowledge"
+KNOWLEDGE_DIR="docs/knowledge"
 SESSIONS_DIR=".claude/sessions"
 
 if [ -z "$QUERY" ]; then
@@ -1931,7 +1931,7 @@ grep -rn -i --color=always "$QUERY" "docs/research/" 2>/dev/null || echo "No mat
 
 echo ""
 echo "=== Specs ==="
-grep -rn -i --color=always "$QUERY" ".claude/specs/" 2>/dev/null || echo "No matches in specs"
+grep -rn -i --color=always "$QUERY" "docs/specs/" 2>/dev/null || echo "No matches in specs"
 ```
 
 ### New Project Bootstrap
@@ -1975,7 +1975,7 @@ cp "$TEMPLATE_DIR/ROADMAP.md" "$PROJECT_PATH/"
 
 # Initialize knowledge files
 for f in decisions.md patterns.md bugs.md architecture.md; do
-  cp "$TEMPLATE_DIR/.claude/knowledge/$f" "$PROJECT_PATH/.claude/knowledge/"
+  cp "$TEMPLATE_DIR/docs/knowledge/$f" "$PROJECT_PATH/docs/knowledge/"
 done
 
 # Copy scripts
@@ -2027,13 +2027,13 @@ estimate_tokens "ROADMAP.md" "Roadmap"
 
 echo ""
 echo "--- Knowledge vault ---"
-for f in .claude/knowledge/*.md; do
+for f in docs/knowledge/*.md; do
   [ -f "$f" ] && estimate_tokens "$f" "  $(basename $f)"
 done
 
 echo ""
 echo "--- Active specs ---"
-for d in .claude/specs/*/; do
+for d in docs/specs/*/; do
   [ -d "$d" ] || continue
   echo "  $(basename $d)/"
   for f in "$d"*.md; do
@@ -2043,7 +2043,7 @@ done
 
 echo ""
 TOTAL_CHARS=0
-for f in CLAUDE.md .claude/knowledge/*.md; do
+for f in CLAUDE.md docs/knowledge/*.md; do
   [ -f "$f" ] && TOTAL_CHARS=$((TOTAL_CHARS + $(wc -c < "$f")))
 done
 TOTAL_TOKENS=$((TOTAL_CHARS / 4))
@@ -2086,7 +2086,7 @@ The `.claude/` directory IS the cross-agent shared memory. Both Claude Code and 
 
 **Codex handles**: autonomous background tasks, quick fixes, test scaffolding, documentation generation, fire-and-forget implementations.
 
-**Handoff pattern**: Claude writes the spec and decomposes tasks → individual tasks can be dispatched to Codex asynchronously. Both agents read `.claude/knowledge/` for context and write session notes to `.claude/sessions/`.
+**Handoff pattern**: Claude writes the spec and decomposes tasks → individual tasks can be dispatched to Codex asynchronously. Both agents read `docs/knowledge/` for context and write session notes to `.claude/sessions/`.
 
 ---
 

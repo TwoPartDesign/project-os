@@ -11,7 +11,7 @@ description: "Quick key-value memory — save or recall facts without ceremony"
 
 ## Storage
 
-File: `.claude/knowledge/kv.md`
+File: `docs/knowledge/kv.md`
 
 Format per entry:
 ```

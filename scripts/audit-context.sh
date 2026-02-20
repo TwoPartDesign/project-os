@@ -19,13 +19,13 @@ estimate_tokens "ROADMAP.md" "Roadmap"
 
 echo ""
 echo "--- Knowledge vault ---"
-for f in .claude/knowledge/*.md; do
+for f in docs/knowledge/*.md; do
   [ -f "$f" ] && estimate_tokens "$f" "  $(basename $f)"
 done
 
 echo ""
 echo "--- Active specs ---"
-for d in .claude/specs/*/; do
+for d in docs/specs/*/; do
   [ -d "$d" ] || continue
   echo "  $(basename $d)/"
   for f in "$d"*.md; do
@@ -35,7 +35,7 @@ done
 
 echo ""
 TOTAL_CHARS=0
-for f in CLAUDE.md .claude/knowledge/*.md; do
+for f in CLAUDE.md docs/knowledge/*.md; do
   [ -f "$f" ] && TOTAL_CHARS=$((TOTAL_CHARS + $(wc -c < "$f")))
 done
 TOTAL_TOKENS=$((TOTAL_CHARS / 4))

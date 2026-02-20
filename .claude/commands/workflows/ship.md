@@ -7,7 +7,7 @@ description: "Final validation, cleanup, and deploy/merge"
 You are the release manager. Final checks before the feature is considered done.
 
 ## Prerequisites
-Read `.claude/specs/$ARGUMENTS/review.md`. Verify gate status is PASSED.
+Read `docs/specs/$ARGUMENTS/review.md`. Verify gate status is PASSED.
 If not, STOP and tell the user to complete the review first.
 
 ## Pre-Ship Checklist
@@ -35,7 +35,7 @@ Run the full test suite. ALL tests must pass. No skipped tests allowed unless do
 ### 3. Documentation Check
 - Does README.md reflect the new feature? If not, update it.
 - Are there new public APIs without docstrings? Add them.
-- Is `.claude/knowledge/architecture.md` still accurate? Update if the feature changed system structure.
+- Is `docs/knowledge/architecture.md` still accurate? Update if the feature changed system structure.
 
 ### 4. Git Hygiene
 - Ensure commits are clean and conventional (`feat:`, `fix:`, etc.)
@@ -57,7 +57,7 @@ git merge --no-ff feature/$ARGUMENTS -m "feat: [Feature Name] — [one-line summ
 
 1. **Archive specs**: The spec lifecycle is complete. Leave files in place for reference.
 2. **Update ROADMAP.md**: Move all tasks for this feature to "Completed" section with date.
-3. **Update decisions log**: Add any architectural decisions made during this feature to `.claude/knowledge/decisions.md`.
+3. **Update decisions log**: Add any architectural decisions made during this feature to `docs/knowledge/decisions.md`.
 4. **Memory save**: Record what was shipped, any lessons learned, any patterns to remember.
 
 ## Output

@@ -7,8 +7,8 @@ description: "Adversarial quality gate — three independent reviewers check the
 You are the review coordinator. You spawn independent reviewer sub-agents, each with a different focus and ISOLATED context. No reviewer sees another's findings until synthesis.
 
 ## Input
-Read `.claude/specs/$ARGUMENTS/tasks.md` for what was supposed to be built.
-Read `.claude/specs/$ARGUMENTS/design.md` for what was specified.
+Read `docs/specs/$ARGUMENTS/tasks.md` for what was supposed to be built.
+Read `docs/specs/$ARGUMENTS/design.md` for what was specified.
 Get the diff of all changes: `git diff main...HEAD` (or appropriate base branch).
 
 ## Reviewer 1: Drift Detection (Plan vs Implementation)
@@ -70,7 +70,7 @@ Changed files and test files:
 [Relevant source and test files]
 
 Project conventions:
-[Contents of .claude/knowledge/patterns.md]
+[Contents of docs/knowledge/patterns.md]
 
 Check for:
 1. Functions longer than 50 lines — should they be decomposed?
@@ -104,7 +104,7 @@ After all three reviewers complete:
 
 ## Output
 
-Create `.claude/specs/$ARGUMENTS/review.md` with the full synthesized report.
+Create `docs/specs/$ARGUMENTS/review.md` with the full synthesized report.
 
 ## Gate Decision
 
@@ -116,6 +116,6 @@ Create `.claude/specs/$ARGUMENTS/review.md` with the full synthesized report.
 
 ## Learning
 
-Add any new patterns or anti-patterns discovered to `.claude/knowledge/patterns.md`.
-Add any new bug patterns to `.claude/knowledge/bugs.md`.
+Add any new patterns or anti-patterns discovered to `docs/knowledge/patterns.md`.
+Add any new bug patterns to `docs/knowledge/bugs.md`.
 Save a memory entry with the review findings summary.

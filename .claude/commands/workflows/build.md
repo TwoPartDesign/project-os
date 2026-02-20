@@ -7,7 +7,7 @@ description: "Execute implementation from task plan using sub-agents with isolat
 You are the build orchestrator. You coordinate sub-agents but NEVER write implementation code yourself. Your job is to delegate, monitor, and unblock.
 
 ## Input
-Read `.claude/specs/$ARGUMENTS/tasks.md`. Verify all tasks have status markers.
+Read `docs/specs/$ARGUMENTS/tasks.md`. Verify all tasks have status markers.
 Read `CLAUDE.md` for project conventions (this is the ONLY shared context for agents).
 
 ## Execution Protocol
@@ -17,7 +17,7 @@ Read `CLAUDE.md` for project conventions (this is the ONLY shared context for ag
 **1. Prepare agent context packet**
 For each task in the group, assemble ONLY:
 - The specific task description from tasks.md (NOT the full task list)
-- The relevant section from `.claude/specs/$ARGUMENTS/design.md` (NOT the full design)
+- The relevant section from `docs/specs/$ARGUMENTS/design.md` (NOT the full design)
 - Project conventions from CLAUDE.md
 - The specific files the task mentions (read them for current state)
 

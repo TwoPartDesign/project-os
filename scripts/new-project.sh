@@ -15,7 +15,7 @@ echo "Creating project: $PROJECT_NAME at $PROJECT_PATH"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE_DIR="$(dirname "$SCRIPT_DIR")"
 
-mkdir -p "$PROJECT_PATH"/{.claude/{commands/{workflows,tools,pm},agents,skills/{spec-driven-dev,tdd-workflow,session-management},knowledge,sessions,specs,rules,hooks,security},docs/{prd,research},scripts,src}
+mkdir -p "$PROJECT_PATH"/{.claude/{commands/{workflows,tools,pm},agents,skills/{spec-driven-dev,tdd-workflow,session-management},sessions,rules,hooks,security},docs/{prd,research,knowledge,specs,memory},scripts,src}
 
 cp -r "$TEMPLATE_DIR/.obsidian" "$PROJECT_PATH/" 2>/dev/null || true
 cp -r "$TEMPLATE_DIR/.claude/commands" "$PROJECT_PATH/.claude/"
@@ -31,8 +31,11 @@ cp "$TEMPLATE_DIR/ROADMAP.md" "$PROJECT_PATH/"
 cp "$TEMPLATE_DIR/global-CLAUDE.md" "$PROJECT_PATH/"
 
 for f in decisions.md patterns.md bugs.md architecture.md kv.md; do
-  cp "$TEMPLATE_DIR/.claude/knowledge/$f" "$PROJECT_PATH/.claude/knowledge/"
+  cp "$TEMPLATE_DIR/docs/knowledge/$f" "$PROJECT_PATH/docs/knowledge/"
 done
+
+touch "$PROJECT_PATH/docs/specs/.gitkeep"
+touch "$PROJECT_PATH/docs/memory/.gitkeep"
 
 cp "$TEMPLATE_DIR/scripts/memory-search.sh" "$PROJECT_PATH/scripts/"
 cp "$TEMPLATE_DIR/scripts/audit-context.sh" "$PROJECT_PATH/scripts/"
@@ -46,7 +49,6 @@ cat > .gitignore << 'GI'
 CLAUDE.local.md
 .claude/sessions/
 .claude/logs/
-.claude/memory/
 .claude/settings.local.json
 node_modules/
 .env
@@ -56,7 +58,12 @@ node_modules/
 docs/research/
 
 # Feature specs (project-specific)
-.claude/specs/
+docs/specs/*
+!docs/specs/.gitkeep
+
+# Memory (cross-session, local only)
+docs/memory/*
+!docs/memory/.gitkeep
 
 # Build output
 dist/

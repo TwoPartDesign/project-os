@@ -24,8 +24,8 @@
 ## Workflow
 - I use spec-driven development — see project CLAUDE.md for details
 - Session handoffs go to .claude/sessions/
-- Knowledge compounds in .claude/knowledge/
-- Memory persists in .claude/memory/vault/
+- Knowledge compounds in docs/knowledge/
+- Memory persists in docs/memory/
 
 ## Model Routing
 - Sub-agents use Haiku for implementation tasks

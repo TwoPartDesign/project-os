@@ -1,6 +1,5 @@
 CLAUDE.local.md
 .claude/sessions/
-.claude/memory/
 .claude/settings.local.json
 node_modules/
 .env
@@ -18,7 +17,12 @@ node_modules/
 docs/research/
 
 # Feature specs (project-specific, not template content)
-.claude/specs/
+docs/specs/*
+!docs/specs/.gitkeep
+
+# Memory (cross-session, local only)
+docs/memory/*
+!docs/memory/.gitkeep
 
 # Build output
 dist/

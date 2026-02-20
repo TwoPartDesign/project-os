@@ -14,7 +14,7 @@ Break the research topic into 2-3 independent questions. Spawn a sub-agent for e
 ### Research Agent Template
 
 Each agent searches in order:
-1. `.claude/knowledge/` — do we already know this?
+1. `docs/knowledge/` — do we already know this?
 2. `docs/research/` — has this been researched before?
 3. Project codebase — existing implementation?
 4. Local dependency docs (node_modules/README.md, etc.)

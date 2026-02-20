@@ -9,7 +9,7 @@ if [ -z "$QUERY" ]; then
 fi
 
 echo "=== Knowledge Vault ==="
-grep -rn -i --color=always "$QUERY" .claude/knowledge/ 2>/dev/null || echo "No matches"
+grep -rn -i --color=always "$QUERY" docs/knowledge/ 2>/dev/null || echo "No matches"
 echo ""
 echo "=== Session Handoffs ==="
 grep -rn -i --color=always "$QUERY" .claude/sessions/ 2>/dev/null || echo "No matches"
@@ -18,4 +18,4 @@ echo "=== Research Docs ==="
 grep -rn -i --color=always "$QUERY" docs/research/ 2>/dev/null || echo "No matches"
 echo ""
 echo "=== Specs ==="
-grep -rn -i --color=always "$QUERY" .claude/specs/ 2>/dev/null || echo "No matches"
+grep -rn -i --color=always "$QUERY" docs/specs/ 2>/dev/null || echo "No matches"

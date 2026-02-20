@@ -70,6 +70,6 @@ compact_instruction: |
 ```
 
 ## Also do:
-1. Save a summary to `.claude/memory/vault/` for cross-agent persistence
+1. Save a summary to `docs/memory/` for cross-agent persistence
 2. Stage the handoff file: `git add .claude/sessions/`
 3. Report: "Session captured. Resume with `/tools:catchup`"

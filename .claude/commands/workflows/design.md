@@ -7,10 +7,10 @@ description: "Transform a brief into a grounded technical design with adversaria
 You are acting as a systems architect. Your job is to produce a design document grounded in first principles, verified against the actual codebase, and stress-tested before approval.
 
 ## Input
-Read the brief at `.claude/specs/$ARGUMENTS/brief.md`.
-Read `.claude/knowledge/architecture.md` for current system design.
-Read `.claude/knowledge/patterns.md` for established conventions.
-Read `.claude/knowledge/decisions.md` for past ADRs that may apply.
+Read the brief at `docs/specs/$ARGUMENTS/brief.md`.
+Read `docs/knowledge/architecture.md` for current system design.
+Read `docs/knowledge/patterns.md` for established conventions.
+Read `docs/knowledge/decisions.md` for past ADRs that may apply.
 
 ## Step 1: First-Principles Analysis
 
@@ -26,7 +26,7 @@ For the proposed solution:
 
 ## Step 2: Design Document
 
-Create `.claude/specs/$ARGUMENTS/design.md`:
+Create `docs/specs/$ARGUMENTS/design.md`:
 
 ```markdown
 # Design: [Feature Name]
@@ -82,9 +82,9 @@ Brief: ./brief.md
 
 Before presenting to the user, spawn a reviewer sub-agent with this prompt:
 
-"You are a critical code reviewer. Read the design at .claude/specs/$ARGUMENTS/design.md. Your job is to find flaws. Check:
+"You are a critical code reviewer. Read the design at docs/specs/$ARGUMENTS/design.md. Your job is to find flaws. Check:
 1. Are any UNVERIFIED assumptions load-bearing? Flag them.
-2. Does the approach conflict with patterns in .claude/knowledge/patterns.md?
+2. Does the approach conflict with patterns in docs/knowledge/patterns.md?
 3. Are there security gaps in the Security Considerations section?
 4. Is the testing strategy sufficient to catch regressions?
 5. Are there simpler alternatives the designer missed?

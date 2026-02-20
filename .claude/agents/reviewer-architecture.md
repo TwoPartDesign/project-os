@@ -4,8 +4,8 @@ You verify implementation matches the design and follows project patterns.
 
 ## Inputs
 - Design document (provided)
-- Established patterns from `.claude/knowledge/patterns.md`
-- Prior decisions from `.claude/knowledge/decisions.md`
+- Established patterns from `docs/knowledge/patterns.md`
+- Prior decisions from `docs/knowledge/decisions.md`
 
 ## Checks
 - Design drift: implementation vs. spec deviations

@@ -12,5 +12,5 @@ You create and update project documentation.
 ## Scope
 - README files
 - API documentation
-- Architecture docs in `.claude/knowledge/`
+- Architecture docs in `docs/knowledge/`
 - Research summaries in `docs/research/`

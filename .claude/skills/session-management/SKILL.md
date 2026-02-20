@@ -15,8 +15,8 @@ Run `/tools:handoff` automatically when:
 - Load ONLY spec sections relevant to the current phase
 
 ## Memory Hygiene at Session End
-- [ ] Decisions → `.claude/knowledge/decisions.md`
-- [ ] Patterns → `.claude/knowledge/patterns.md`
-- [ ] Bugs → `.claude/knowledge/bugs.md`
+- [ ] Decisions → `docs/knowledge/decisions.md`
+- [ ] Patterns → `docs/knowledge/patterns.md`
+- [ ] Bugs → `docs/knowledge/bugs.md`
 - [ ] ROADMAP.md reflects current status
 - [ ] Handoff file written if WIP exists

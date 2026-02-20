@@ -21,7 +21,7 @@ Do NOT over-interview. If the idea is clear enough, skip to Step 2.
 
 Spawn up to 2 sub-agents for research. Each gets a SINGLE focused question:
 
-**Research Agent 1**: "Search the project's existing codebase and .claude/knowledge/ for anything related to [topic]. Also check .claude/memory/vault/ for past decisions on similar problems. Report: what exists, what can be reused, what conflicts."
+**Research Agent 1**: "Search the project's existing codebase and docs/knowledge/ for anything related to [topic]. Also check docs/memory/ for past decisions on similar problems. Report: what exists, what can be reused, what conflicts."
 
 **Research Agent 2**: "Search for existing solutions, libraries, or approaches to [problem]. Check if the project's current stack has native support. Report: 3 options ranked by simplicity, with tradeoffs."
 
@@ -30,7 +30,7 @@ If not, agents should note any library claims that need manual verification.
 
 ## Step 3: Synthesize into brief
 
-Create `.claude/specs/$FEATURE_NAME/brief.md` with this structure:
+Create `docs/specs/$FEATURE_NAME/brief.md` with this structure:
 
 ```markdown
 # Brief: [Feature Name]
@@ -69,6 +69,6 @@ Add an entry to ROADMAP.md under "Current Sprint":
 - [ ] [Feature Name] — Brief created, awaiting design
 ```
 
-Save a memory entry to `.claude/memory/vault/` summarizing the idea and key decisions.
+Save a memory entry to `docs/memory/` summarizing the idea and key decisions.
 
-Tell the user: "Brief created at .claude/specs/[name]/brief.md. Run `/workflows:design [name]` when ready to proceed."
+Tell the user: "Brief created at docs/specs/[name]/brief.md. Run `/workflows:design [name]` when ready to proceed."

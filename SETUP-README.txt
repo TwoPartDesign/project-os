@@ -144,7 +144,7 @@ describe the change directly.
 - Run /tools:handoff before ending any session that has work in progress.
   This saves a structured YAML snapshot so you can resume with zero context loss.
 
-- The knowledge vault (.claude/knowledge/) compounds over time. Decisions,
+- The knowledge vault (docs/knowledge/) compounds over time. Decisions,
   patterns, and bug root causes get appended there and are referenced by the
   workflow commands automatically.
 

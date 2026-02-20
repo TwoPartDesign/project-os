@@ -9,7 +9,7 @@ description: "Synthesize current project status from all sources"
 1. `ROADMAP.md` — task counts by status
 2. `.claude/sessions/` — latest handoff
 3. `git log --oneline --since="1 week ago"` — recent activity
-4. `.claude/specs/` — active specs and status
+4. `docs/specs/` — active specs and status
 
 ## Present
 

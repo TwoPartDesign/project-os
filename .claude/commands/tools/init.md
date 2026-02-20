@@ -11,7 +11,7 @@ You are performing **first-run project initialization**. Your job is to discover
 Check two sources for context on past project setups:
 
 1. **Global auto memory**: Read `~/.claude/projects/*/memory/MEMORY.md` if accessible, or check the persistent memory path known from the current environment.
-2. **Vault**: Read `.claude/memory/vault/` — look for any files named `project-profiles.md`, `stack-decisions.md`, or similar.
+2. **Vault**: Read `docs/memory/` — look for any files named `project-profiles.md`, `stack-decisions.md`, or similar.
 
 Extract from memory (if anything found):
 - What languages/stacks have been used before?
@@ -79,9 +79,9 @@ Search the following files and directories for any text matching the pattern `[A
 - `ROADMAP.md`
 - `docs/product.md`
 - `docs/tech.md`
-- `.claude/knowledge/architecture.md`
-- `.claude/knowledge/decisions.md`
-- `.claude/knowledge/patterns.md`
+- `docs/knowledge/architecture.md`
+- `docs/knowledge/decisions.md`
+- `docs/knowledge/patterns.md`
 
 Build a deduplicated list of every unique placeholder found, e.g.:
 - `[PROJECT_NAME]`
@@ -156,7 +156,7 @@ Append this section to `CLAUDE.md`:
 ```markdown
 ## Obsidian
 
-This project's knowledge vault is Obsidian-compatible. Follow these rules when working with `.claude/knowledge/` files:
+This project's knowledge vault is Obsidian-compatible. Follow these rules when working with `docs/knowledge/` files:
 - Use `[[wikilinks]]` when cross-referencing knowledge files (e.g. `[[decisions]]`, `[[patterns]]`)
 - Preserve YAML frontmatter at the top of every knowledge file — never remove or overwrite it
 - Tags live in frontmatter (`tags: [decisions, adr]`), not inline — don't add `#hashtags` to knowledge files
@@ -232,7 +232,7 @@ If `docs/tech.md` contains only the template comment, replace it with:
 
 ## Step 7: Save project profile to memory
 
-Append a new entry to `.claude/memory/vault/project-profiles.md` (create it if it doesn't exist):
+Append a new entry to `docs/memory/project-profiles.md` (create it if it doesn't exist):
 
 ```markdown
 ## [PROJECT_NAME]
@@ -271,7 +271,7 @@ Summarize what was done:
 > **Features enabled**:
 > - Obsidian vault: [enabled — wikilinks + frontmatter active / disabled]
 > - Context7 MCP: [enabled — `.mcp.json` created / disabled]
-> **Memory updated**: `.claude/memory/vault/project-profiles.md`
+> **Memory updated**: `docs/memory/project-profiles.md`
 > **Git**: [initialized / already exists]
 >
 > Ready to build. Start with `/pm:prd [feature]` or `/workflows:idea [feature]`.

@@ -6,7 +6,7 @@
 
 Before writing ANY code, verify a spec exists:
 
-1. Check `.claude/specs/[feature-name]/` for brief.md, design.md, tasks.md
+1. Check `docs/specs/[feature-name]/` for brief.md, design.md, tasks.md
 2. If ALL exist and design is "Approved": proceed with `/workflows:build`
 3. If design exists but not approved: resume `/workflows:design`
 4. If only brief exists: run `/workflows:design`

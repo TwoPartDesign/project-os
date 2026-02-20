@@ -15,10 +15,10 @@
 - Tests define done, not "it looks right"
 
 ## Architecture
-@import .claude/knowledge/architecture.md
+@import docs/knowledge/architecture.md
 
 ## Active Conventions
-@import .claude/knowledge/patterns.md
+@import docs/knowledge/patterns.md
 
 ## Workflow
 This project uses spec-driven development. The workflow is:
@@ -38,9 +38,9 @@ Never skip from idea to build. The design phase catches 80% of mistakes.
 
 ## Memory System
 - Session state: `.claude/sessions/` (structured YAML handoffs)
-- Project knowledge: `.claude/knowledge/` (decisions, patterns, bugs, architecture)
-- Persistent memory: `.claude/memory/vault/` (cross-session, searchable)
-- Specs & designs: `.claude/specs/<feature>/` (per-feature lifecycle docs)
+- Project knowledge: `docs/knowledge/` (decisions, patterns, bugs, architecture)
+- Persistent memory: `docs/memory/` (cross-session, searchable)
+- Specs & designs: `docs/specs/<feature>/` (per-feature lifecycle docs)
 
 ## Skill Triggers
 | Pattern | Skill | Loads |

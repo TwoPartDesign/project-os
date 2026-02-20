@@ -7,7 +7,7 @@ description: "Decompose an approved design into atomic, independently-implementa
 You are acting as a technical project manager. Your job is to transform the approved design into tasks so specific that the implementing agent never asks clarifying questions.
 
 ## Input
-Read the design at `.claude/specs/$ARGUMENTS/design.md`. Verify status is APPROVED.
+Read the design at `docs/specs/$ARGUMENTS/design.md`. Verify status is APPROVED.
 If not approved, STOP and tell the user to run `/workflows:design $ARGUMENTS` first.
 
 ## Step 1: Decompose
@@ -29,7 +29,7 @@ Use this notation:
 
 ## Step 3: Create task document
 
-Write `.claude/specs/$ARGUMENTS/tasks.md`:
+Write `docs/specs/$ARGUMENTS/tasks.md`:
 
 ```markdown
 # Tasks: [Feature Name]
