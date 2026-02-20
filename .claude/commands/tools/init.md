@@ -170,7 +170,7 @@ To browse the vault: open this project folder in Obsidian → graph view, backli
 
    Create `.mcp.json` at the project root with the appropriate config:
 
-   **Windows** (`%OS% == Windows_NT` or `uname` contains "MINGW"/"CYGWIN"/"Windows"):
+   **Windows** (`%OS% == Windows_NT` or `uname` contains "MINGW"/"MSYS"/"CYGWIN"/"Windows"):
    ```json
    {
      "mcpServers": {
