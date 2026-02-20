@@ -52,6 +52,16 @@ node_modules/
 .env
 .env.*
 
+# Research output
+docs/research/
+
+# Feature specs (project-specific)
+.claude/specs/
+
+# Build output
+dist/
+build/
+
 # Obsidian user state (vault config is committed; workspace state is not)
 .obsidian/workspace.json
 .obsidian/workspace-mobile.json

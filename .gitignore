@@ -13,3 +13,13 @@ node_modules/
 
 # Hook logs (session-local, not shared)
 .claude/logs/
+
+# Research output (may contain sensitive analysis)
+docs/research/
+
+# Feature specs (project-specific, not template content)
+.claude/specs/
+
+# Build output
+dist/
+build/
