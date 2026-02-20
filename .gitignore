@@ -10,3 +10,6 @@ node_modules/
 .obsidian/workspace.json
 .obsidian/workspace-mobile.json
 .obsidian/cache
+
+# Hook logs (session-local, not shared)
+.claude/logs/

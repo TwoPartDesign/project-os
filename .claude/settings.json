@@ -28,5 +28,40 @@
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "haiku",
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "50"
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \".claude/hooks/post-tool-use.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \".claude/hooks/post-write-session.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \".claude/hooks/tool-failure-log.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \".claude/hooks/compact-suggest.sh\""
+          }
+        ]
+      }
+    ]
   }
 }

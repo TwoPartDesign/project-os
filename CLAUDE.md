@@ -10,6 +10,7 @@
 - Ship working software over perfect software
 - Specs before code — never implement without a design doc
 - Context is noise — load only what the current phase needs
+- Token economics: output costs 5× input — keep agent responses concise, prefer `CLI --json | jq .field` over full MCP output
 - Every decision gets documented with rationale
 - Tests define done, not "it looks right"
 

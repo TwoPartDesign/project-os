@@ -1,8 +1,10 @@
 #!/bin/bash
 # Auto-format files after Claude edits them
 # Configure for your project's formatter
+# Receives JSON payload via stdin from Claude Code PostToolUse hook
 
-FILE="$1"
+INPUT=$(cat)
+FILE=$(echo "$INPUT" | grep -oE '"file_path"\s*:\s*"[^"]*"' | sed 's/.*"file_path"[^"]*"//;s/".*//')
 
 case "$FILE" in
   *.ts|*.tsx|*.js|*.jsx)
