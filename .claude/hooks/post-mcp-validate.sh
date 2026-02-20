@@ -24,8 +24,14 @@ RESPONSE_TEXT=$(echo "$INPUT" | jq -r '
   end
 ')
 
-# If jq failed or response is empty, skip validation gracefully
-if [ $? -ne 0 ] || [ -z "$RESPONSE_TEXT" ]; then
+# If jq failed, warn and block — don't silently pass unvalidated content
+if [ $? -ne 0 ]; then
+    echo "WARNING: Context7 response could not be parsed — validation skipped. Treat this MCP output with caution." >&2
+    exit 1
+fi
+
+# Empty response means no text content to validate — pass through
+if [ -z "$RESPONSE_TEXT" ]; then
     exit 0
 fi
 
