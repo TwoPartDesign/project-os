@@ -149,19 +149,25 @@ project-os/
 │   │   └── kv.md                # Key-value store
 │   ├── rules/                   # Glob-matched contextual rules
 │   │   ├── api.md               # Loaded when working on API files
-│   │   └── tests.md             # Loaded when working on test files
+│   │   ├── tests.md             # Loaded when working on test files
+│   │   └── escalation.md        # 2-retry cap and model escalation protocol
 │   ├── hooks/
-│   │   └── post-tool-use.sh     # Auto-formatter after file edits
+│   │   ├── post-tool-use.sh     # Auto-formatter after file edits
+│   │   ├── post-write-session.sh # Scrubs secrets from session handoff files
+│   │   ├── tool-failure-log.sh  # Logs tool failures (timestamp + name only)
+│   │   └── compact-suggest.sh   # Warns when context is filling up
 │   ├── security/
 │   │   ├── mcp-allowlist.json   # Approved external MCP servers
 │   │   └── validate-mcp-output.sh
 │   ├── specs/                   # Feature specs (created by workflow pipeline)
 │   ├── sessions/                # Session handoff files (gitignored)
-│   └── settings.json            # Model config and permission allowlist
+│   ├── logs/                    # Hook-generated logs (gitignored)
+│   └── settings.json            # Model config, permissions, and hook definitions
 └── scripts/
     ├── new-project.sh           # Bootstrap a new project from this template
     ├── memory-search.sh         # Search across all knowledge and session files
-    └── audit-context.sh         # Estimate token cost of loaded context
+    ├── audit-context.sh         # Estimate token cost of loaded context
+    └── scrub-secrets.sh         # Redact API keys and tokens from any file
 ```
 
 ---

@@ -36,6 +36,7 @@ done
 
 cp "$TEMPLATE_DIR/scripts/memory-search.sh" "$PROJECT_PATH/scripts/"
 cp "$TEMPLATE_DIR/scripts/audit-context.sh" "$PROJECT_PATH/scripts/"
+cp "$TEMPLATE_DIR/scripts/scrub-secrets.sh" "$PROJECT_PATH/scripts/"
 chmod +x "$PROJECT_PATH/scripts/"*.sh
 chmod +x "$PROJECT_PATH/.claude/hooks/"*.sh 2>/dev/null
 chmod +x "$PROJECT_PATH/.claude/security/"*.sh 2>/dev/null
@@ -44,6 +45,8 @@ cd "$PROJECT_PATH"
 cat > .gitignore << 'GI'
 CLAUDE.local.md
 .claude/sessions/
+.claude/logs/
+.claude/memory/
 .claude/settings.local.json
 node_modules/
 .env
