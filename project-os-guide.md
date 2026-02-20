@@ -1886,8 +1886,11 @@ exit 0
 If you want live library docs, install with version pinning:
 
 ```bash
-# Pin the version
+# Mac / Linux — pin the version
 claude mcp add --scope project context7 -- npx -y @upstash/context7-mcp@1.0.0
+
+# Windows (Git Bash / WSL) — requires cmd /c wrapper
+claude mcp add --scope project context7 -- cmd /c npx -y @upstash/context7-mcp@1.0.0
 
 # Add to CLAUDE.md under a conditional section:
 # ## Optional MCP: Context7
@@ -1895,6 +1898,8 @@ claude mcp add --scope project context7 -- npx -y @upstash/context7-mcp@1.0.0
 # Validate output size and content before incorporating into context.
 # Prefer local docs in node_modules/ or docs/research/ when available.
 ```
+
+> **Windows note**: The `.mcp.json` entry must use `"command": "cmd"` with `"args": ["/c", "npx", ...]` — using `npx` as the command directly will fail with a warning. `/tools:init` handles this automatically when it detects Windows.
 
 ---
 

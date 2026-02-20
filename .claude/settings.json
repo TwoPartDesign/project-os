@@ -19,11 +19,7 @@
       "Write",
       "Edit"
     ],
-    "deny": [
-      "Bash(rm -rf /)",
-      "Bash(curl:* | bash)",
-      "Bash(wget:* | bash)"
-    ]
+    "deny": ["Bash(rm -rf /)", "Bash(curl:* | bash)", "Bash(wget:* | bash)"]
   },
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "haiku",
@@ -31,6 +27,15 @@
   },
   "hooks": {
     "PostToolUse": [
+      {
+        "matcher": "mcp__context7__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \".claude/hooks/post-mcp-validate.sh\""
+          }
+        ]
+      },
       {
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [

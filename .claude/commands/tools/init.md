@@ -126,8 +126,8 @@ Ask these two questions together:
    - `Y` — Use Obsidian-compatible formatting (wikilinks + frontmatter)
    - `N` — Plain markdown only (no wikilinks, no frontmatter)
 
-2. **Context7 live docs** — Context7 is an MCP server that fetches up-to-date library documentation at query time. Useful for fast-moving frameworks. A security wrapper is already configured at `.claude/security/mcp-allowlist.json`.
-   - `Y` — Enable Context7 (adds `.mcp.json` to project root)
+2. **Context7 live docs** — Context7 is an MCP server that fetches up-to-date library documentation at query time. Useful for fast-moving frameworks. A security wrapper is already configured at `.claude/security/mcp-allowlist.json`, and a `PostToolUse` hook at `.claude/hooks/post-mcp-validate.sh` automatically validates every Context7 response for suspicious content and size.
+   - `Y` — Enable Context7 (adds `.mcp.json` to project root; hook activates automatically)
    - `N` — Skip
 
 Record answers as `FEATURE_OBSIDIAN` (yes/no) and `FEATURE_CONTEXT7` (yes/no).
@@ -166,18 +166,33 @@ To browse the vault: open this project folder in Obsidian → graph view, backli
 
 ### Context7 (if FEATURE_CONTEXT7 = yes)
 
-1. Create `.mcp.json` at the project root with:
+1. Detect the operating system. On Windows, `npx` must be wrapped with `cmd /c` to execute correctly.
 
-```json
-{
-  "mcpServers": {
-    "context7": {
-      "command": "npx",
-      "args": ["-y", "@upstash/context7-mcp@latest"]
-    }
-  }
-}
-```
+   Create `.mcp.json` at the project root with the appropriate config:
+
+   **Windows** (`%OS% == Windows_NT` or `uname` contains "MINGW"/"CYGWIN"/"Windows"):
+   ```json
+   {
+     "mcpServers": {
+       "context7": {
+         "command": "cmd",
+         "args": ["/c", "npx", "-y", "@upstash/context7-mcp@latest"]
+       }
+     }
+   }
+   ```
+
+   **Mac / Linux**:
+   ```json
+   {
+     "mcpServers": {
+       "context7": {
+         "command": "npx",
+         "args": ["-y", "@upstash/context7-mcp@latest"]
+       }
+     }
+   }
+   ```
 
 2. Append this section to `CLAUDE.md`:
 
