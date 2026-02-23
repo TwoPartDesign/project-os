@@ -10,6 +10,20 @@ You are the build orchestrator. You coordinate sub-agents but NEVER write implem
 Read `docs/specs/$ARGUMENTS/tasks.md`. Verify all tasks have status markers.
 Read `CLAUDE.md` for project conventions (this is the ONLY shared context for agents).
 
+## Pre-flight
+
+Before dispatching any agents:
+1. Verify all tasks for this feature are `[ ]` (approved), not `[?]` (draft). If any drafts remain, STOP and tell the user to run `/pm:approve $ARGUMENTS` first.
+2. Create task-specific working directories:
+   ```
+   docs/specs/$ARGUMENTS/tasks/
+   docs/specs/$ARGUMENTS/tasks/T1/
+   docs/specs/$ARGUMENTS/tasks/T2/
+   ...
+   ```
+3. For each task directory, create a `context.md` file containing ONLY that task's spec from tasks.md.
+4. Run `bash scripts/validate-roadmap.sh` to verify dependency integrity.
+
 ## Execution Protocol
 
 ### For each task group (in dependency order):

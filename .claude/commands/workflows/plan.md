@@ -71,8 +71,27 @@ T4 (independent)
 
 ## Step 4: Update tracking
 
-Update ROADMAP.md: replace the single feature entry with individual task entries.
-Each task gets its own checkbox line under the feature heading.
+Update ROADMAP.md with the new v2 format. Each task becomes a `[?]` (draft) entry under the feature heading, with `#TN` IDs and inline dependency declarations:
+
+```
+## Feature: $ARGUMENTS
+### Draft
+- [?] Task title (depends: #T1, #T2) #T3
+- [?] Independent task #T4
+### Todo
+### In Progress
+### Review
+### Done
+```
+
+Rules:
+- All new tasks start as `[?]` (draft) — they require `/pm:approve` before work can begin
+- Every task MUST have a unique `#TN` ID (sequential within the feature)
+- Dependencies use inline syntax: `(depends: #T1, #T2)`
+- Independent tasks have no depends clause
+- Run `bash scripts/validate-roadmap.sh` after updating to verify no cycles or dangling refs
+
+Notify the user: "Draft tasks require approval. Run `/pm:approve $ARGUMENTS` to promote to todo."
 
 ## Step 5: Validate
 
