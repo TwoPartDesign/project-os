@@ -91,10 +91,12 @@ For small changes (< 20 lines, single file) you can skip the pipeline and descri
 |---|---|
 | `/workflows:idea [name]` | Capture rough idea, spawn research agents, output structured brief |
 | `/workflows:design [name]` | Adversarial first-principles design with self-review |
-| `/workflows:plan [name]` | Decompose design into atomic, independently-implementable tasks |
-| `/workflows:build [name]` | Orchestrate parallel sub-agents to implement tasks |
-| `/workflows:review [name]` | Three independent reviewers: drift, security, tests |
-| `/workflows:ship [name]` | Pre-ship checklist, cleanup, mark done |
+| `/workflows:plan [name]` | Decompose design into atomic tasks with `[?]` drafts, `#TN` IDs, and dependency syntax |
+| `/workflows:build [name]` | Wave-based parallel sub-agents with worktree isolation and DAG scheduling |
+| `/workflows:review [name]` | Three worktree-isolated reviewers: drift, security, quality |
+| `/workflows:ship [name]` | Pre-ship checklist, PR generation, metrics snapshot, cleanup |
+| `/workflows:compete [name] [task]` | Spawn N competing implementations with different strategies |
+| `/workflows:compete-review [name] [task]` | Side-by-side scoring of competing implementations |
 
 ### Tools
 | Command | What it does |
@@ -105,6 +107,8 @@ For small changes (< 20 lines, single file) you can skip the pipeline and descri
 | `/tools:commit` | Quality-checked git commit with pre-flight scan |
 | `/tools:research [topic]` | Spawn parallel research agents on a topic |
 | `/tools:kv set/get/list` | Quick key-value notes that persist in `docs/knowledge/kv.md` |
+| `/tools:dashboard [path]` | Cross-project status dashboard — scans all Project OS projects |
+| `/tools:metrics [feature]` | Query activity logs and feature performance metrics |
 
 ### Project management
 | Command | What it does |
@@ -112,6 +116,7 @@ For small changes (< 20 lines, single file) you can skip the pipeline and descri
 | `/pm:prd [name]` | Guided product requirements doc via Socratic discovery |
 | `/pm:epic [name]` | Break a PRD into tracked tasks in ROADMAP.md |
 | `/pm:status` | Snapshot of current project state |
+| `/pm:approve [name]` | Governance gate — promote `[?]` drafts to `[ ]` approved tasks |
 
 ---
 
@@ -129,14 +134,20 @@ project-os/
 │   └── tech.md                  # Tech stack decisions
 ├── .claude/
 │   ├── commands/
-│   │   ├── workflows/           # idea, design, plan, build, review, ship
-│   │   ├── tools/               # init, handoff, catchup, commit, research, kv
-│   │   └── pm/                  # prd, epic, status
+│   │   ├── workflows/           # idea, design, plan, build, review, ship, compete, compete-review
+│   │   ├── tools/               # init, handoff, catchup, commit, research, kv, dashboard, metrics
+│   │   └── pm/                  # prd, epic, status, approve
 │   ├── agents/                  # Sub-agent persona definitions
 │   │   ├── implementer.md       # Writes code — no design authority
 │   │   ├── researcher.md        # Research only — no writes
 │   │   ├── reviewer-*.md        # Adversarial reviewers (arch, security, tests)
-│   │   └── documenter.md        # Docs and comments
+│   │   ├── documenter.md        # Docs and comments
+│   │   ├── roles.md             # Role definitions (Architect/Developer/Reviewer/Orchestrator)
+│   │   ├── handoffs.md          # Phase transition artifact contracts
+│   │   └── adapters/            # Agent adapter interface
+│   │       ├── INTERFACE.md     # Adapter contract spec
+│   │       ├── claude-code.sh   # Claude Code adapter (default, functional)
+│   │       └── *.sh             # Stub adapters (codex, gemini, aider, amp)
 │   ├── skills/                  # On-demand protocol injections
 │   │   ├── spec-driven-dev/     # SDD protocol (triggered by: implement, build, add)
 │   │   ├── tdd-workflow/        # Red-Green-Refactor (triggered by: test, tdd)
@@ -155,7 +166,10 @@ project-os/
 │   │   ├── post-tool-use.sh     # Auto-formatter after file edits
 │   │   ├── post-write-session.sh # Scrubs secrets from session handoff files
 │   │   ├── tool-failure-log.sh  # Logs tool failures (timestamp + name only)
-│   │   └── compact-suggest.sh   # Warns when context is filling up
+│   │   ├── compact-suggest.sh   # Warns when context is filling up
+│   │   ├── log-activity.sh      # JSONL event logging for metrics
+│   │   ├── notify-phase-change.sh # Desktop notifications for phase transitions
+│   │   └── preserve-sessions.sh # Save worktree sessions before cleanup
 │   ├── security/
 │   │   ├── mcp-allowlist.json   # Approved external MCP servers
 │   │   └── validate-mcp-output.sh
@@ -163,12 +177,46 @@ project-os/
 │   ├── sessions/                # Session handoff files (gitignored)
 │   ├── logs/                    # Hook-generated logs (gitignored)
 │   └── settings.json            # Model config, permissions, and hook definitions
+│   └── knowledge/               # Compounding project knowledge vault (also at docs/knowledge/)
+│       └── metrics.md           # Per-feature performance metrics
 └── scripts/
     ├── new-project.sh           # Bootstrap a new project from this template
     ├── memory-search.sh         # Search across all knowledge and session files
     ├── audit-context.sh         # Estimate token cost of loaded context
-    └── scrub-secrets.sh         # Redact API keys and tokens from any file
+    ├── scrub-secrets.sh         # Redact API keys and tokens from any file
+    ├── unblocked-tasks.sh       # Parse ROADMAP.md DAG, output unblocked tasks as JSON
+    ├── validate-roadmap.sh      # Validate ROADMAP.md (cycles, dangling refs, state consistency)
+    ├── create-pr.sh             # Auto-generate PR with description from specs
+    └── dashboard.sh             # Cross-project status scanner
 ```
+
+---
+
+## ROADMAP.md Format (v2)
+
+Tasks use structured markers with IDs and dependency tracking:
+
+```
+## Feature: auth
+### Draft
+- [?] Design auth middleware #T1
+- [?] Implement JWT validation (depends: #T1) #T2
+
+### Todo
+- [ ] Add rate limiting (depends: #T2) #T3
+
+### In Progress
+- [-] Write integration tests (depends: #T2) (agent: codex) #T4
+
+### Done
+- [x] Set up project scaffolding #T0
+```
+
+**Markers:** `[?]` Draft · `[ ]` Todo · `[-]` In Progress · `[~]` Review · `[>]` Competing · `[x]` Done · `[!]` Blocked
+
+**Dependency DAG:** `scripts/unblocked-tasks.sh` parses the DAG and outputs unblocked tasks as JSON. `scripts/validate-roadmap.sh` checks for cycles, dangling refs, and state inconsistencies.
+
+**Agent adapters:** Tasks can be annotated with `(agent: <name>)` to route to a specific agent adapter. See `.claude/agents/adapters/INTERFACE.md`.
 
 ---
 
@@ -227,7 +275,10 @@ Configured in `.claude/settings.json`:
 - **Use `/clear` between unrelated tasks.** A fresh context window is the single most impactful performance optimization.
 - **The knowledge vault compounds.** The longer you use a project, the smarter Claude gets about it. Document decisions and root causes as you go.
 - **Sub-agents run on Haiku by default.** Change `CLAUDE_CODE_SUBAGENT_MODEL` in `.claude/settings.json` if you want more power for implementation tasks.
-- **ROADMAP.md legend:** `[ ]` Todo · `[-]` In Progress · `[x]` Done · `[!]` Blocked
+- **ROADMAP.md legend:** `[?]` Draft · `[ ]` Todo · `[-]` In Progress · `[~]` Review · `[>]` Competing · `[x]` Done · `[!]` Blocked
+- **Use `/pm:approve` after planning** to promote `[?]` drafts to `[ ]` approved tasks before building.
+- **Competitive implementation:** Use `/workflows:compete` on critical tasks to get N parallel implementations and pick the best.
+- **Cross-project dashboard:** Run `/tools:dashboard` to see status of all Project OS projects at once.
 
 ---
 

@@ -24,10 +24,15 @@
 This project uses spec-driven development. The workflow is:
 1. `/workflows:idea` — Capture and research
 2. `/workflows:design` — Technical specification
-3. `/workflows:plan` — Atomic task decomposition
-4. `/workflows:build` — Implementation with sub-agents
-5. `/workflows:review` — Adversarial quality gate
-6. `/workflows:ship` — Final validation and deploy
+3. `/workflows:plan` — Atomic task decomposition (outputs `[?]` drafts with `#TN` IDs)
+4. `/pm:approve` — Governance gate (promotes `[?]` → `[ ]`)
+5. `/workflows:build` — Wave-based parallel implementation with worktree isolation
+6. `/workflows:review` — Adversarial quality gate (3 isolated reviewers)
+7. `/workflows:ship` — Final validation, PR generation, metrics snapshot
+
+Optional competitive path:
+- `/workflows:compete` — N parallel implementations of a single task
+- `/workflows:compete-review` — Side-by-side scoring to pick the winner
 
 Never skip from idea to build. The design phase catches 80% of mistakes.
 
@@ -35,6 +40,14 @@ Never skip from idea to build. The design phase catches 80% of mistakes.
 - **Orchestration & design**: Primary model (Sonnet/Opus depending on settings)
 - **Sub-agent implementation**: Haiku (set via CLAUDE_CODE_SUBAGENT_MODEL)
 - **Adversarial review**: Primary model with isolated context
+- **Agent adapters**: Tasks can route to non-Claude agents via `(agent: <name>)` — see `.claude/agents/adapters/INTERFACE.md`
+
+## Roles (Advisory)
+- **Architect**: Design authority — reads all, writes specs/knowledge
+- **Developer**: Implementation — reads specs, writes code/tests/docs
+- **Reviewer**: Quality gates — reads all, writes review reports
+- **Orchestrator**: Human — all permissions, all phases
+See `.claude/agents/roles.md` for full definitions.
 
 ## Memory System
 - Session state: `.claude/sessions/` (structured YAML handoffs)
