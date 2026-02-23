@@ -94,6 +94,13 @@ Output format:
 - SUGGESTION: [optional improvement] | File: [path:line]
 - PASS: [quality standard met]"
 
+## Activity Logging
+
+Before spawning reviewers: `bash .claude/hooks/log-activity.sh review-started feature=$ARGUMENTS`
+After gate decision:
+- PASSED: `bash .claude/hooks/log-activity.sh review-passed feature=$ARGUMENTS`
+- FAILED: `bash .claude/hooks/log-activity.sh review-failed feature=$ARGUMENTS`
+
 ## Synthesis
 
 After all three reviewers complete:

@@ -47,6 +47,7 @@ Wave 3 (sequential): #T6 (depends: #T2, #T3)
 
 **1. Mark tasks in-progress**
 Update ROADMAP.md: change `[ ]` to `[-]` for all tasks in this wave.
+Log each: `bash .claude/hooks/log-activity.sh task-spawned feature=$ARGUMENTS task_id=TN agent=implementer`
 
 **2. Prepare agent context packets**
 For each task in the wave, assemble ONLY:
@@ -89,9 +90,9 @@ If more tasks exist than `max_concurrent_agents`, queue the overflow and dispatc
 **4. On agent completion**
 For each agent that finishes:
 - Write `docs/specs/$ARGUMENTS/tasks/TN/completion-report.md` with: files changed, tests passed, assumptions
-- If tests pass: mark task `[~]` in ROADMAP.md (ready for review)
+- If tests pass: mark task `[~]` in ROADMAP.md (ready for review). Log: `bash .claude/hooks/log-activity.sh task-completed feature=$ARGUMENTS task_id=TN`
 - If tests fail: give the agent ONE retry with the error output
-- If retry fails: mark task `[!]` in ROADMAP.md, log blocker
+- If retry fails: mark task `[!]` in ROADMAP.md. Log: `bash .claude/hooks/log-activity.sh task-failed feature=$ARGUMENTS task_id=TN`
 - Notify: `bash .claude/hooks/notify-phase-change.sh task-unblocked <next-task-id>` for any newly unblocked tasks
 
 **5. Wave gate**
