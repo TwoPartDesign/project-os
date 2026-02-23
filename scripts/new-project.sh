@@ -18,6 +18,12 @@ if [[ "$PROJECT_PATH" == -* ]]; then
     exit 1
 fi
 
+# Reject path traversal sequences
+if [[ "$PROJECT_PATH" =~ \.\. ]]; then
+    echo "ERROR: PROJECT_PATH '${PROJECT_PATH}' must not contain '..'." >&2
+    exit 1
+fi
+
 # Validate project name: reject path traversal and special chars that break sed
 if [[ "$PROJECT_NAME" =~ \.\. ]] || [[ "$PROJECT_NAME" =~ [/\\] ]] || [[ ! "$PROJECT_NAME" =~ ^[a-zA-Z0-9._-]+$ ]]; then
     echo "ERROR: Invalid project name '${PROJECT_NAME}'. Use only alphanumeric, dots, hyphens, underscores." >&2

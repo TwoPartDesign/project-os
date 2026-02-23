@@ -29,6 +29,10 @@ cmd_health() {
 
 cmd_execute() {
     local output_dir="$2"
+    if [[ "$output_dir" =~ \.\. ]]; then
+        echo "ERROR: output_dir must not contain '..': $output_dir" >&2
+        exit 1
+    fi
     mkdir -p "$output_dir"
     echo "fail" > "$output_dir/result"
     cat > "$output_dir/completion-report.md" <<'EOF'

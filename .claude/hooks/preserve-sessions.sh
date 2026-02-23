@@ -57,7 +57,7 @@ if [ $# -ge 1 ]; then
         echo "preserve-sessions: path not under worktree base, skipping: $1" >&2
         exit 0
     fi
-    copy_sessions "$1"
+    copy_sessions "$resolved_path"
 else
     # Scan all worktrees
     if [ ! -d "$WORKTREE_BASE" ]; then
