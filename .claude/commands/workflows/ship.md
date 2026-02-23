@@ -49,11 +49,11 @@ Run the full test suite. ALL tests must pass. No skipped tests allowed unless do
 # Auto-detect default branch
 if git rev-parse --verify main &>/dev/null; then BASE="main"; else BASE="master"; fi
 git checkout "$BASE"
-git merge --no-ff feature/$ARGUMENTS -m "feat: [Feature Name] — [one-line summary]"
+git merge --no-ff "feature/$ARGUMENTS" -m "feat: [Feature Name] — [one-line summary]"
 ```
 
 ### PR Generation (preferred):
-Run `bash scripts/create-pr.sh $ARGUMENTS` to create a pull request with auto-generated description.
+Run `bash scripts/create-pr.sh "$ARGUMENTS"` to create a pull request with auto-generated description.
 This uses `gh` CLI and pulls context from tasks.md, review.md, and commit history.
 
 Log: `bash .claude/hooks/log-activity.sh pr-created feature=$ARGUMENTS`
@@ -66,7 +66,7 @@ Log: `bash .claude/hooks/log-activity.sh pr-created feature=$ARGUMENTS`
 1. **Preserve sessions**: `bash .claude/hooks/preserve-sessions.sh` — save worktree sessions before cleanup
 2. **Clean up worktrees**: Remove any remaining worktrees for this feature
 3. **Archive specs**: The spec lifecycle is complete. Leave files in place for reference.
-4. **Update ROADMAP.md**: Move all tasks for this feature to "Completed" section with date.
+4. **Update ROADMAP.md**: Move all tasks for this feature to the "Done" section. All `[~]` tasks should already be `[x]` at this point (review passes them); verify all are marked `[x]`.
 5. **Update decisions log**: Add any architectural decisions made during this feature to `docs/knowledge/decisions.md`.
 6. **Metrics snapshot**: Append a metrics entry to `docs/knowledge/metrics.md`:
    - Duration (from first task-spawned to feature-shipped in activity log)

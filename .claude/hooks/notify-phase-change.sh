@@ -36,7 +36,11 @@ case "$EVENT" in
         MSG="Feature '${DETAIL}' is ready for review"
         ;;
     review-failed)
-        MSG="Review FAILED for ${DETAIL} task ${EXTRA} — revision needed"
+        if [ -n "$EXTRA" ]; then
+            MSG="Review FAILED for '${DETAIL}' task ${EXTRA} — revision needed"
+        else
+            MSG="Review FAILED for '${DETAIL}' — revision needed"
+        fi
         ;;
     approval-needed)
         MSG="Feature '${DETAIL}' has draft tasks awaiting /pm:approve"

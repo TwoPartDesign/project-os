@@ -127,7 +127,7 @@ Create `docs/specs/$ARGUMENTS/review.md` with the full synthesized report.
 - If ANY 🚫 MUST FIX items exist → GATE FAILED.
   - Mark only the **specific tasks cited in the findings** as `[!]` in ROADMAP.md — do NOT mark unrelated tasks
   - Create `docs/specs/$ARGUMENTS/revision-request.md` listing required changes with task IDs
-  - Notify: `bash .claude/hooks/notify-phase-change.sh review-failed $ARGUMENTS`
+  - Notify: `bash .claude/hooks/notify-phase-change.sh review-failed "$ARGUMENTS"`
   - List required fixes and tell the user.
 - If only ⚠️/💡 items → GATE PASSED WITH NOTES.
   - Mark only `[~]` (review) tasks for this feature as `[x]` in ROADMAP.md — do NOT change tasks in other states

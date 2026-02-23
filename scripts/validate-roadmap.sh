@@ -40,7 +40,7 @@ declare -A task_deps
 declare -A task_desc
 declare -a task_ids=()
 
-while IFS= read -r line; do
+while IFS= read -r line || [ -n "$line" ]; do
     if [[ "$line" =~ $re_task ]]; then
         marker="${BASH_REMATCH[1]}"
         body="${BASH_REMATCH[2]}"
@@ -52,10 +52,12 @@ while IFS= read -r line; do
             errors=$((errors + 1))
         fi
 
-        # Check uniqueness
+        # Check uniqueness — skip duplicate entirely so downstream checks
+        # use only the first-encountered status for each ID
         if [ -n "${task_status[$task_id]:-}" ]; then
             echo "ERROR: Duplicate task ID #T${task_id}" >&2
             errors=$((errors + 1))
+            continue
         fi
 
         task_status["$task_id"]="$marker"

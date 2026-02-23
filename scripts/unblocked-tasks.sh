@@ -62,7 +62,7 @@ json_escape() {
 # Pass 1: Build a map of task_id -> status
 declare -A task_status
 
-while IFS= read -r line; do
+while IFS= read -r line || [ -n "$line" ]; do
     if [[ "$line" =~ $re_task ]]; then
         marker="${BASH_REMATCH[1]}"
         task_id="${BASH_REMATCH[3]}"
@@ -83,23 +83,27 @@ while IFS= read -r line; do
 done < "$ROADMAP"
 
 # Pass 2: Find unblocked tasks (status [ ] with all deps [x])
-declare -A emitted_ids
+# Track all task IDs seen in this pass — checked before the marker filter so
+# that a duplicate line with marker [ ] cannot slip through when the canonical
+# first-occurrence has a different marker (e.g. [x]).
+declare -A seen_pass2
 first=true
 echo "["
 
-while IFS= read -r line; do
+while IFS= read -r line || [ -n "$line" ]; do
     if [[ "$line" =~ $re_task ]]; then
         marker="${BASH_REMATCH[1]}"
         body="${BASH_REMATCH[2]}"
         task_id="${BASH_REMATCH[3]}"
 
-        # Only consider [ ] (Todo) tasks
-        if [ "$marker" != " " ]; then
+        # Skip duplicate IDs (first occurrence wins — regardless of marker)
+        if [ -n "${seen_pass2[$task_id]:-}" ]; then
             continue
         fi
+        seen_pass2["$task_id"]=1
 
-        # Skip duplicate IDs (pass 1 already warned; first occurrence wins)
-        if [ -n "${emitted_ids[$task_id]:-}" ]; then
+        # Only consider [ ] (Todo) tasks
+        if [ "$marker" != " " ]; then
             continue
         fi
 
@@ -166,7 +170,6 @@ while IFS= read -r line; do
         fi
 
         printf '}'
-        emitted_ids["$task_id"]=1
     fi
 done < "$ROADMAP"
 

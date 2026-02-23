@@ -69,7 +69,7 @@ If the adapter health check fails, fall back to `claude-code` and log a warning.
 
 **1. Mark tasks in-progress**
 Update ROADMAP.md: change `[ ]` to `[-]` for all tasks in this wave.
-Log each: `bash .claude/hooks/log-activity.sh task-spawned feature=$ARGUMENTS task_id=TN agent=implementer`
+Log each: `bash .claude/hooks/log-activity.sh task-spawned "feature=$ARGUMENTS" task_id=TN agent=implementer`
 
 **2. Prepare agent context packets**
 For each task in the wave, assemble ONLY:

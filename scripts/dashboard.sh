@@ -63,7 +63,8 @@ for dir in "$PROJECTS_ROOT"/*/; do
     # Get current branch
     branch=""
     if [ -d "${dir}.git" ] || [ -f "${dir}.git" ]; then
-        branch="$(git -C "$dir" branch --show-current 2>/dev/null || echo "detached")"
+        branch="$(git -C "$dir" branch --show-current 2>/dev/null)"
+        branch="${branch:-detached}"
     fi
 
     # Count task statuses from ROADMAP.md
