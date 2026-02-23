@@ -50,6 +50,38 @@ Never skip from idea to build. The design phase catches 80% of mistakes.
 | handoff, done, end session | session-management | Auto-save protocol |
 | deploy, ship, release, external | security-gate | Security checklist |
 
+## ROADMAP.md Format
+
+### Task Markers
+| Marker | Meaning | Transition |
+|--------|---------|------------|
+| `[?]` | Draft — pending `/pm:approve` | → `[ ]` on approval |
+| `[ ]` | Todo — approved, ready for work | → `[-]` when started |
+| `[-]` | In Progress — agent working | → `[~]` when complete |
+| `[~]` | Review — awaiting review pass | → `[x]` on pass, `[!]` on fail |
+| `[>]` | Competing — multiple implementations | → `[x]` when winner selected |
+| `[x]` | Done | Terminal |
+| `[!]` | Blocked | → `[-]` when unblocked |
+
+### Task ID & Dependency Syntax
+- Every task has an ID: `#TN` (e.g., `#T1`, `#T12`)
+- Dependencies declared inline: `(depends: #T1, #T2)`
+- A task is **unblocked** when all dependencies are `[x]` and task is `[ ]`
+- Optional agent annotation: `(agent: <adapter-name>)`
+
+### Feature Grouping
+```
+## Feature: <name>
+### Draft
+- [?] Task description #T1
+- [?] Task description (depends: #T1) #T2
+### Todo
+- [ ] Task description #T3
+### In Progress
+### Review
+### Done
+```
+
 ## Rules
 - Never commit with TODO, FIXME, or HACK without a linked task in ROADMAP.md
 - Never hardcode secrets, tokens, or credentials

@@ -25,6 +25,26 @@
     "CLAUDE_CODE_SUBAGENT_MODEL": "haiku",
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "50"
   },
+  "project_os": {
+    "parallel": {
+      "max_concurrent_agents": 4,
+      "worktree_base": ".claude/worktrees",
+      "auto_cleanup": true,
+      "session_handoff_location": ".claude/sessions",
+      "backoff": {
+        "initial_delay_ms": 1000,
+        "max_delay_ms": 30000,
+        "multiplier": 2
+      }
+    },
+    "compete": {
+      "default_approaches": 3,
+      "strategies": ["literal", "minimal", "extensible"]
+    },
+    "dashboard": {
+      "projects_root": "~/projects"
+    }
+  },
   "hooks": {
     "PostToolUse": [
       {

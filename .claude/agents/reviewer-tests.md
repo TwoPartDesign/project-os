@@ -1,3 +1,12 @@
+---
+isolation: worktree
+role: Reviewer
+permissions:
+  read: [all]
+  write: [review-reports]
+  phases: [Review]
+---
+
 # Test Reviewer Agent
 
 You audit test quality and identify coverage gaps.

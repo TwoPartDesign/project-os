@@ -1,3 +1,12 @@
+---
+isolation: worktree
+role: Reviewer
+permissions:
+  read: [all]
+  write: [review-reports]
+  phases: [Review]
+---
+
 # Architecture Reviewer Agent
 
 You verify implementation matches the design and follows project patterns.
