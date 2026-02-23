@@ -10,6 +10,9 @@
 #
 # Usage: bash scripts/validate-roadmap.sh [path/to/ROADMAP.md]
 # Exit: 0 if valid, 1 if errors found
+#
+# Expected task format: - [X] Description (depends: #T1) #T2
+# The #TN task ID MUST appear at end-of-line. Lines without a trailing #TN are ignored.
 
 set -euo pipefail
 
@@ -25,6 +28,8 @@ fi
 VALID_MARKERS="? -~>x! "
 
 # Regex patterns stored in variables (avoids bash ERE parsing issues)
+# Note: #TN task ID must appear at end-of-line (after optional trailing whitespace).
+# Format: - [X] Description text (depends: #T1) #T2
 re_task='^[[:space:]]*-[[:space:]]\[(.)\][[:space:]](.+)#T([0-9]+)[[:space:]]*$'
 re_deps='depends:[[:space:]]*([^)]+)'
 re_agent='agent:[[:space:]]*([^)]+)'

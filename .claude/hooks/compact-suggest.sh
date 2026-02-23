@@ -17,9 +17,14 @@ SESSION_ID=$(echo "$SESSION_ID" | tr -cd '[:alnum:]_-')
 SESSION_ID="${SESSION_ID:-default}"
 
 COUNTER_FILE="$LOG_DIR/.tool-count-$SESSION_ID"
+LOCK_FILE="${COUNTER_FILE}.lock"
+# Atomic read-modify-write with flock to prevent race conditions
+exec 200>"$LOCK_FILE"
+flock -w 2 200 || true
 COUNT=$(cat "$COUNTER_FILE" 2>/dev/null || echo 0)
 COUNT=$((COUNT + 1))
 echo "$COUNT" > "$COUNTER_FILE"
+exec 200>&-
 
 # Warn at thresholds — before the 50% auto-compact fires
 if [ "$COUNT" -eq 20 ]; then

@@ -20,7 +20,7 @@ estimate_tokens "ROADMAP.md" "Roadmap"
 echo ""
 echo "--- Knowledge vault ---"
 for f in docs/knowledge/*.md; do
-  [ -f "$f" ] && estimate_tokens "$f" "  $(basename $f)"
+  [ -f "$f" ] && estimate_tokens "$f" "  $(basename "$f")"
 done
 
 echo ""

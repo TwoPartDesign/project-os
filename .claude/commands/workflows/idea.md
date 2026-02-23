@@ -30,7 +30,7 @@ If not, agents should note any library claims that need manual verification.
 
 ## Step 3: Synthesize into brief
 
-Create `docs/specs/$FEATURE_NAME/brief.md` with this structure:
+Create `docs/specs/$ARGUMENTS/brief.md` with this structure:
 
 ```markdown
 # Brief: [Feature Name]
@@ -64,10 +64,13 @@ Status: DRAFT
 
 ## Step 4: Update tracking
 
-Add an entry to ROADMAP.md under "Current Sprint":
+Add a draft entry to ROADMAP.md under the appropriate feature section:
 ```
-- [ ] [Feature Name] — Brief created, awaiting design
+## Feature: $ARGUMENTS
+### Draft
+- [?] [Feature Name] — Brief created, awaiting design #T<next_available_id>
 ```
+Use the next available `#TN` ID (check existing tasks to avoid conflicts).
 
 Save a memory entry to `docs/memory/` summarizing the idea and key decisions.
 

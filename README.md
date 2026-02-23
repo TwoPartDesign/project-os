@@ -14,7 +14,7 @@ Project OS is a template you drop into Claude Code to turn it into a structured 
 - **Quality gates** at every phase transition so you never ship untested or unreviewed code
 - **Session handoffs** so you can stop mid-task and resume with zero context loss
 
-Everything is markdown files and bash scripts. No servers, no databases, no external services required.
+Everything is markdown files and bash scripts. No servers, no databases, no external services required. Optional tools like `jq` and `gh` CLI enhance specific features (dashboard JSON parsing, PR generation) but are not required for core functionality.
 
 ---
 

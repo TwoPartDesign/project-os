@@ -14,6 +14,12 @@ if [ -z "$FEATURE" ]; then
     exit 1
 fi
 
+# Validate feature name: reject path traversal and special characters
+if [[ "$FEATURE" =~ \.\. ]] || [[ "$FEATURE" =~ [/\\] ]] || [[ ! "$FEATURE" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+    echo "ERROR: Invalid feature name '${FEATURE}'. Use only alphanumeric, dots, hyphens, underscores." >&2
+    exit 1
+fi
+
 # Auto-detect default branch if not specified
 if [ -n "${2:-}" ]; then
     BASE="$2"

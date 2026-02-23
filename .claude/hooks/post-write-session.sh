@@ -4,15 +4,17 @@
 
 INPUT=$(cat)
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
 # Extract file_path from tool_input — handle optional whitespace around colon
 FILE_PATH=$(echo "$INPUT" | grep -oE '"file_path"\s*:\s*"[^"]*"' | sed 's/.*"file_path"[^"]*"//;s/".*//')
 
-# Only act on session files
-if echo "$FILE_PATH" | grep -q '\.claude/sessions/'; then
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-
-    if [ -f "$FILE_PATH" ]; then
+# Only act on session files — resolve to absolute path and verify it's under PROJECT_ROOT
+if [ -n "$FILE_PATH" ] && [ -f "$FILE_PATH" ]; then
+    RESOLVED="$(cd "$(dirname "$FILE_PATH")" 2>/dev/null && pwd)/$(basename "$FILE_PATH")" || exit 0
+    SESSION_DIR="${PROJECT_ROOT}/.claude/sessions"
+    if [[ "$RESOLVED" == "$SESSION_DIR"/* ]]; then
         bash "$PROJECT_ROOT/scripts/scrub-secrets.sh" "$FILE_PATH"
     fi
 fi

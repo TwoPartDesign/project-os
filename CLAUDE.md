@@ -61,7 +61,7 @@ See `.claude/agents/roles.md` for full definitions.
 | implement, build, add feature | spec-driven-dev | SDD protocol |
 | test, tdd, verify, coverage | tdd-workflow | Red-Green-Refactor |
 | handoff, done, end session | session-management | Auto-save protocol |
-| deploy, ship, release, external | security-gate | Security checklist |
+| deploy, ship, release, external | workflows:ship | Pre-ship checklist + PR generation |
 
 ## ROADMAP.md Format
 

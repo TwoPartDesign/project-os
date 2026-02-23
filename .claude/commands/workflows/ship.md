@@ -17,16 +17,16 @@ Run these checks and report results:
 
 ```bash
 # Find remaining TODOs without ROADMAP links
-grep -rn "TODO\|FIXME\|HACK\|XXX" src/ --include="*.{ts,js,py,go,rs}" || echo "Clean"
+grep -rn -e "TODO" -e "FIXME" -e "HACK" -e "XXX" --include="*.ts" --include="*.js" --include="*.py" --include="*.go" --include="*.rs" src/ || echo "Clean"
 
 # Find debug/console statements that should be removed
-grep -rn "console\.log\|debugger\|print(" src/ --include="*.{ts,js,py}" || echo "Clean"
+grep -rn -e "console\.log" -e "debugger" -e "print(" --include="*.ts" --include="*.js" --include="*.py" src/ || echo "Clean"
 
 # Find hardcoded localhost/dev URLs
-grep -rn "localhost\|127\.0\.0\.1\|0\.0\.0\.0" src/ --include="*.{ts,js,py,go}" || echo "Clean"
+grep -rn -e "localhost" -e "127\.0\.0\.1" -e "0\.0\.0\.0" --include="*.ts" --include="*.js" --include="*.py" --include="*.go" src/ || echo "Clean"
 
 # Check for large files that shouldn't be committed
-find . -name "*.{log,tmp,cache}" -o -size +1M | head -20
+find . \( -name "*.log" -o -name "*.tmp" -o -name "*.cache" -o -size +1M \) | head -20
 ```
 
 ### 2. Test Suite
@@ -40,13 +40,15 @@ Run the full test suite. ALL tests must pass. No skipped tests allowed unless do
 ### 4. Git Hygiene
 - Ensure commits are clean and conventional (`feat:`, `fix:`, etc.)
 - Squash any "WIP" or "fixup" commits
-- Verify the branch is up-to-date with main
+- Verify the branch is up-to-date with the default branch (main or master)
 
 ## Ship Actions
 
 ### For merge-to-main workflow:
 ```bash
-git checkout main
+# Auto-detect default branch
+if git rev-parse --verify main &>/dev/null; then BASE="main"; else BASE="master"; fi
+git checkout "$BASE"
 git merge --no-ff feature/$ARGUMENTS -m "feat: [Feature Name] — [one-line summary]"
 ```
 
@@ -72,7 +74,7 @@ Log: `bash .claude/hooks/log-activity.sh pr-created feature=$ARGUMENTS`
    - Wave count (from build)
    - Revision count (review cycles)
    - First-pass review rate
-   - Lines changed (`git diff --shortstat main...HEAD`)
+   - Lines changed (`git diff --shortstat ${BASE}...HEAD` — where BASE is auto-detected above)
 7. **Memory save**: Record what was shipped, any lessons learned, any patterns to remember.
 
 Log: `bash .claude/hooks/log-activity.sh feature-shipped feature=$ARGUMENTS`

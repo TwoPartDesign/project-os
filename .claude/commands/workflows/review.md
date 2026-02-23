@@ -10,7 +10,11 @@ You are the review coordinator. You spawn independent reviewer sub-agents, each 
 Read `docs/specs/$ARGUMENTS/tasks.md` for what was supposed to be built.
 Read `docs/specs/$ARGUMENTS/design.md` for what was specified.
 Read completion reports from `docs/specs/$ARGUMENTS/tasks/*/completion-report.md` (iterate all task directories) for build context.
-Get the diff of all changes: `git diff main...HEAD` (or appropriate base branch).
+Get the diff of all changes against the default branch. Auto-detect: use `main` if it exists, otherwise `master`:
+```bash
+if git rev-parse --verify main &>/dev/null; then BASE="main"; else BASE="master"; fi
+git diff "${BASE}...HEAD"
+```
 
 ## Isolation
 

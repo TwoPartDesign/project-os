@@ -24,7 +24,7 @@ Before dispatching any agents:
    ```
 3. For each task directory, create a `context.md` file containing ONLY that task's spec from tasks.md.
 4. Run `bash scripts/validate-roadmap.sh` to verify dependency integrity.
-5. Run `bash scripts/unblocked-tasks.sh` to get the initial set of unblocked tasks.
+5. Run `bash scripts/unblocked-tasks.sh` to get the initial set of unblocked tasks. **Important:** Filter the output to only tasks belonging to this feature (`$ARGUMENTS`). The script returns all unblocked tasks across all features — cross-reference each task ID against the task list in `docs/specs/$ARGUMENTS/tasks.md` and ignore tasks from other features.
 
 ## Wave Computation
 
@@ -165,7 +165,7 @@ After all tasks in a wave complete:
 2. Preserve session files: `bash .claude/hooks/preserve-sessions.sh`
 3. Check for uncommitted changes: `git status`
 4. Create atomic commits (one per task): `feat($ARGUMENTS): <task title> (TN)`
-5. Update ROADMAP.md — mark all completed tasks `[x]`
+5. Update ROADMAP.md — verify all completed tasks are marked `[~]` (ready for review). Do NOT mark them `[x]` — that transition happens only after `/workflows:review` passes.
 6. Notify: `bash .claude/hooks/notify-phase-change.sh review-requested $ARGUMENTS`
 
 ## Error Handling

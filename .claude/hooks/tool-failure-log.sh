@@ -22,7 +22,13 @@ if [ "$IS_ERROR" = "true" ]; then
     LOG_DIR="$PROJECT_ROOT/.claude/logs"
 
     mkdir -p "$LOG_DIR"
-    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) FAIL tool=${TOOL_NAME:-unknown}" >> "$LOG_DIR/tool-failures.log"
+    LOG_FILE="$LOG_DIR/tool-failures.log"
+    ENTRY="$(date -u +%Y-%m-%dT%H:%M:%SZ) FAIL tool=${TOOL_NAME:-unknown}"
+    # Atomic append with flock to prevent interleaved writes
+    (
+        flock -w 2 200 || { echo "$ENTRY" >> "$LOG_FILE"; exit 0; }
+        echo "$ENTRY" >> "$LOG_FILE"
+    ) 200>"${LOG_FILE}.lock"
 fi
 
 exit 0
