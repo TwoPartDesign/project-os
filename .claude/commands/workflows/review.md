@@ -9,7 +9,12 @@ You are the review coordinator. You spawn independent reviewer sub-agents, each 
 ## Input
 Read `docs/specs/$ARGUMENTS/tasks.md` for what was supposed to be built.
 Read `docs/specs/$ARGUMENTS/design.md` for what was specified.
+Read completion reports from `docs/specs/$ARGUMENTS/tasks/TN/completion-report.md` for build context.
 Get the diff of all changes: `git diff main...HEAD` (or appropriate base branch).
+
+## Isolation
+
+All three reviewers run with `isolation: worktree` to prevent any reviewer from modifying the implementation or seeing other reviewers' findings until synthesis. The orchestrator (you) is the only entity that reads all three reports.
 
 ## Reviewer 1: Drift Detection (Plan vs Implementation)
 
@@ -108,9 +113,17 @@ Create `docs/specs/$ARGUMENTS/review.md` with the full synthesized report.
 
 ## Gate Decision
 
-- If ANY 🚫 MUST FIX items exist → GATE FAILED. List required fixes and tell the user.
-- If only ⚠️/💡 items → GATE PASSED WITH NOTES. User decides which to fix.
-- If clean → GATE PASSED. Proceed to ship.
+- If ANY 🚫 MUST FIX items exist → GATE FAILED.
+  - Mark affected tasks `[!]` in ROADMAP.md
+  - Create `docs/specs/$ARGUMENTS/revision-request.md` listing required changes
+  - Notify: `bash .claude/hooks/notify-phase-change.sh review-failed $ARGUMENTS`
+  - List required fixes and tell the user.
+- If only ⚠️/💡 items → GATE PASSED WITH NOTES.
+  - Mark all tasks `[x]` in ROADMAP.md
+  - User decides which notes to fix.
+- If clean → GATE PASSED.
+  - Mark all tasks `[x]` in ROADMAP.md
+  - Proceed to ship.
 
 "Review complete. [Result]. Run `/workflows:ship $ARGUMENTS` when ready, or fix issues and re-run `/workflows:review $ARGUMENTS`."
 

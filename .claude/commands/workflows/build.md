@@ -1,14 +1,15 @@
 ---
-description: "Execute implementation from task plan using sub-agents with isolated context"
+description: "Execute implementation from task plan using wave-based parallel sub-agents with isolated context"
 ---
 
-# Phase 4: Implementation
+# Phase 4: Wave-Based Parallel Implementation
 
 You are the build orchestrator. You coordinate sub-agents but NEVER write implementation code yourself. Your job is to delegate, monitor, and unblock.
 
 ## Input
 Read `docs/specs/$ARGUMENTS/tasks.md`. Verify all tasks have status markers.
 Read `CLAUDE.md` for project conventions (this is the ONLY shared context for agents).
+Read `.claude/settings.json` for `project_os.parallel` config (max_concurrent_agents, backoff).
 
 ## Pre-flight
 
@@ -23,13 +24,32 @@ Before dispatching any agents:
    ```
 3. For each task directory, create a `context.md` file containing ONLY that task's spec from tasks.md.
 4. Run `bash scripts/validate-roadmap.sh` to verify dependency integrity.
+5. Run `bash scripts/unblocked-tasks.sh` to get the initial set of unblocked tasks.
+
+## Wave Computation
+
+Organize tasks into **waves** based on the dependency DAG:
+
+- **Wave 1**: All tasks with no dependencies (or all deps already `[x]`)
+- **Wave 2**: Tasks whose deps are all in Wave 1
+- **Wave N**: Tasks whose deps are all in Waves 1..N-1
+
+Display the wave plan to the user before executing:
+```
+Wave 1 (parallel): #T1, #T4, #T5
+Wave 2 (parallel): #T2, #T3 (depends: #T1)
+Wave 3 (sequential): #T6 (depends: #T2, #T3)
+```
 
 ## Execution Protocol
 
-### For each task group (in dependency order):
+### For each wave:
 
-**1. Prepare agent context packet**
-For each task in the group, assemble ONLY:
+**1. Mark tasks in-progress**
+Update ROADMAP.md: change `[ ]` to `[-]` for all tasks in this wave.
+
+**2. Prepare agent context packets**
+For each task in the wave, assemble ONLY:
 - The specific task description from tasks.md (NOT the full task list)
 - The relevant section from `docs/specs/$ARGUMENTS/design.md` (NOT the full design)
 - Project conventions from CLAUDE.md
@@ -37,8 +57,10 @@ For each task in the group, assemble ONLY:
 
 DO NOT give agents: full spec history, other tasks, the brief, research findings, or review comments. Context isolation is critical.
 
-**2. Dispatch sub-agents**
-For independent tasks within a group, dispatch as parallel sub-agents.
+**3. Dispatch sub-agents (parallel within wave)**
+Dispatch up to `max_concurrent_agents` (default: 4) sub-agents simultaneously.
+Each agent uses `isolation: worktree` for file-level isolation.
+
 Each agent's prompt:
 
 "You are an implementation agent. Your ONLY job is to complete this task:
@@ -62,26 +84,31 @@ Instructions:
 5. If you encounter an ambiguity, make the simplest choice and document it as a code comment
 6. When done, report: files created/modified, tests passed/failed, any assumptions made"
 
-**3. Validate each completed task**
-After each agent completes:
-- Verify the reported files were actually changed
-- Run the task's test suite: `[appropriate test command]`
-- If tests fail, give the agent ONE retry with the error output
-- If retry fails, mark task as BLOCKED and continue with non-dependent tasks
-- If tests pass, mark task `[x]` in tasks.md
+If more tasks exist than `max_concurrent_agents`, queue the overflow and dispatch as slots free up (within the same wave only — never start a next-wave task early).
 
-**4. Integration check after each group**
-After all tasks in a group complete:
+**4. On agent completion**
+For each agent that finishes:
+- Write `docs/specs/$ARGUMENTS/tasks/TN/completion-report.md` with: files changed, tests passed, assumptions
+- If tests pass: mark task `[~]` in ROADMAP.md (ready for review)
+- If tests fail: give the agent ONE retry with the error output
+- If retry fails: mark task `[!]` in ROADMAP.md, log blocker
+- Notify: `bash .claude/hooks/notify-phase-change.sh task-unblocked <next-task-id>` for any newly unblocked tasks
+
+**5. Wave gate**
+After all tasks in a wave complete:
 - Run the FULL test suite (not just new tests)
 - If integration tests fail, identify which task broke them
 - Fix forward or revert — do not leave the suite red
+- Only proceed to next wave when gate passes
 
-### After all groups complete:
+### After all waves complete:
 
 1. Run final full test suite
-2. Check for uncommitted changes: `git status`
-3. Create a summary commit or multiple atomic commits (one per task)
-4. Update ROADMAP.md — mark all completed tasks `[x]`
+2. Preserve session files: `bash .claude/hooks/preserve-sessions.sh`
+3. Check for uncommitted changes: `git status`
+4. Create atomic commits (one per task): `feat($ARGUMENTS): <task title> (TN)`
+5. Update ROADMAP.md — mark all completed tasks `[x]`
+6. Notify: `bash .claude/hooks/notify-phase-change.sh review-requested $ARGUMENTS`
 
 ## Error Handling
 
@@ -90,14 +117,19 @@ If a sub-agent exceeds its scope (modifies files not in its task):
 - Re-run the agent with a stricter prompt
 
 If a task is blocked:
-- Document the blocker in tasks.md
-- Continue with independent tasks
+- Document the blocker in the task's completion report
+- Mark `[!]` in ROADMAP.md
+- Continue with non-dependent tasks in the current wave
 - Report blockers to the user at the end
+
+If rate-limited or agent spawn fails:
+- Apply backoff from `project_os.parallel.backoff` config
+- Retry up to 2 times (per escalation protocol), then halt wave
 
 ## Completion
 
 Tell the user:
-"Build complete. [N/M] tasks finished, [P] blocked.
+"Build complete. [N/M] tasks finished in [W] waves, [P] blocked.
 Run `/workflows:review $ARGUMENTS` for quality gate before shipping."
 
-Save a memory entry documenting: what was built, any surprises, any blocked tasks.
+Save a memory entry documenting: what was built, wave count, any surprises, any blocked tasks.
