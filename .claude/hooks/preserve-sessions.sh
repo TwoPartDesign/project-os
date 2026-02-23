@@ -30,13 +30,17 @@ copy_sessions() {
         [ -L "$f" ] && continue
         local basename
         basename="$(basename "$f")"
+        # Reject filenames with path traversal patterns
+        case "$basename" in
+            *..* | */* | *\\*) continue ;;
+        esac
         # Only copy YAML/MD session files (not arbitrary file types)
         case "$basename" in
             *.yml|*.yaml|*.md) ;;
             *) continue ;;
         esac
         if [ ! -f "${SESSION_DIR}/${basename}" ]; then
-            cp -- "$f" "${SESSION_DIR}/${basename}"
+            cp "$f" "${SESSION_DIR}/${basename}"
             count=$((count + 1))
         fi
     done
@@ -47,7 +51,12 @@ copy_sessions() {
 }
 
 if [ $# -ge 1 ]; then
-    # Single worktree path provided
+    # Single worktree path provided — validate it's under the expected worktree base
+    resolved_path="$(cd "$1" 2>/dev/null && pwd)" || { echo "preserve-sessions: invalid path: $1" >&2; exit 1; }
+    if [[ "$resolved_path" != "$WORKTREE_BASE"/* ]]; then
+        echo "preserve-sessions: path not under worktree base, skipping: $1" >&2
+        exit 0
+    fi
     copy_sessions "$1"
 else
     # Scan all worktrees

@@ -113,6 +113,10 @@ Instructions:
     # Mark as ready for dispatch.
     echo "pass" > "$output_dir/result"
 
+    # Create output artifacts per INTERFACE.md contract
+    mkdir -p "$output_dir/files"
+    echo "# Test output will be populated by orchestrator after dispatch" > "$output_dir/test-output.txt"
+
     cat > "$output_dir/completion-report.md" <<EOF
 # Completion Report — Task ${task_id}
 

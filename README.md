@@ -67,15 +67,22 @@ claude
 
 ## The Workflow
 
-Seven phases (six commands + approval gate). Always start at the top. Never skip from idea to build.
+Seven phases (six core commands + approval gate), plus two optional competitive commands. Always start at the top. Never skip from idea to build.
 
 ```
-/workflows:idea my-feature     Capture idea, research feasibility, write brief
-/workflows:design my-feature   Turn brief into a technical spec
-/workflows:plan my-feature     Decompose spec into atomic tasks
-/workflows:build my-feature    Implement with parallel sub-agents
-/workflows:review my-feature   Adversarial quality gate (security, arch, tests)
-/workflows:ship my-feature     Final checks and mark complete
+/workflows:idea my-feature       Capture idea, research feasibility, write brief
+/workflows:design my-feature     Turn brief into a technical spec
+/workflows:plan my-feature       Decompose spec into atomic tasks with [?] drafts
+/pm:approve my-feature           Promote [?] drafts to [ ] approved tasks
+/workflows:build my-feature      Implement with wave-based parallel sub-agents
+/workflows:review my-feature     Adversarial quality gate (3 isolated reviewers)
+/workflows:ship my-feature       Final checks, PR generation, mark complete
+```
+
+Optional competitive path for critical tasks:
+```
+/workflows:compete my-feature T1          Spawn N parallel implementations
+/workflows:compete-review my-feature T1   Side-by-side scoring to pick the winner
 ```
 
 Each phase reads the output of the previous and writes structured artifacts to `docs/specs/<feature>/`. The design phase catches most mistakes — don't skip it.
@@ -126,12 +133,25 @@ For small changes (< 20 lines, single file) you can skip the pipeline and descri
 project-os/
 ├── CLAUDE.md                    # Project constitution — rules, stack, conventions
 ├── CLAUDE.template.md           # Clean template used when bootstrapping new projects
-├── ROADMAP.md                   # Task tracking (Todo / In Progress / Done / Blocked)
+├── CHANGELOG.md                 # Release history
+├── ROADMAP.md                   # Task tracking with DAG dependencies
+├── LICENSE                      # MIT license
 ├── global-CLAUDE.md             # Template for ~/.claude/CLAUDE.md (used by /tools:init)
 ├── SETUP-README.txt             # Plain-text setup guide (readable before Claude is installed)
+├── project-os-guide.md          # Extended usage guide
 ├── docs/
 │   ├── product.md               # Product vision
-│   └── tech.md                  # Tech stack decisions
+│   ├── tech.md                  # Tech stack decisions
+│   ├── knowledge/               # Compounding project knowledge vault
+│   │   ├── architecture.md      # Living system design doc
+│   │   ├── decisions.md         # Architecture decision records
+│   │   ├── patterns.md          # Established code conventions
+│   │   ├── bugs.md              # Root causes and fixes
+│   │   ├── metrics.md           # Per-feature performance metrics template
+│   │   └── kv.md                # Key-value store
+│   ├── memory/                  # Cross-session persistent memory (gitignored)
+│   ├── research/                # Research output (gitignored)
+│   └── specs/                   # Feature specs (gitignored, created by workflow pipeline)
 ├── .claude/
 │   ├── commands/
 │   │   ├── workflows/           # idea, design, plan, build, review, ship, compete, compete-review
@@ -152,18 +172,13 @@ project-os/
 │   │   ├── spec-driven-dev/     # SDD protocol (triggered by: implement, build, add)
 │   │   ├── tdd-workflow/        # Red-Green-Refactor (triggered by: test, tdd)
 │   │   └── session-management/  # Handoff protocol (triggered by: handoff, done)
-│   ├── knowledge/               # Compounding project knowledge vault
-│   │   ├── architecture.md      # Living system design doc
-│   │   ├── decisions.md         # Architecture decision records
-│   │   ├── patterns.md          # Established code conventions
-│   │   ├── bugs.md              # Root causes and fixes
-│   │   └── kv.md                # Key-value store
 │   ├── rules/                   # Glob-matched contextual rules
 │   │   ├── api.md               # Loaded when working on API files
 │   │   ├── tests.md             # Loaded when working on test files
 │   │   └── escalation.md        # 2-retry cap and model escalation protocol
 │   ├── hooks/
 │   │   ├── post-tool-use.sh     # Auto-formatter after file edits
+│   │   ├── post-mcp-validate.sh # Validates MCP server output against allowlist
 │   │   ├── post-write-session.sh # Scrubs secrets from session handoff files
 │   │   ├── tool-failure-log.sh  # Logs tool failures (timestamp + name only)
 │   │   ├── compact-suggest.sh   # Warns when context is filling up
@@ -172,8 +187,7 @@ project-os/
 │   │   └── preserve-sessions.sh # Save worktree sessions before cleanup
 │   ├── security/
 │   │   ├── mcp-allowlist.json   # Approved external MCP servers
-│   │   └── validate-mcp-output.sh
-│   ├── specs/                   # Feature specs (created by workflow pipeline)
+│   │   └── validate-mcp-output.sh # MCP output validation helper
 │   ├── sessions/                # Session handoff files (gitignored)
 │   ├── logs/                    # Hook-generated logs (gitignored)
 │   └── settings.json            # Model config, permissions, and hook definitions
@@ -206,15 +220,26 @@ Tasks use structured markers with IDs and dependency tracking:
 ### In Progress
 - [-] Write integration tests (depends: #T2) (agent: codex) #T4
 
+### Review
+- [~] Set up project scaffolding #T0
+
 ### Done
-- [x] Set up project scaffolding #T0
+- [x] Initial research #T99
 ```
 
-**Markers:** `[?]` Draft · `[ ]` Todo · `[-]` In Progress · `[~]` Review · `[>]` Competing · `[x]` Done · `[!]` Blocked
+| Marker | Meaning | Transition |
+|--------|---------|------------|
+| `[?]` | Draft — pending `/pm:approve` | `[ ]` on approval |
+| `[ ]` | Todo — approved, ready for work | `[-]` when started |
+| `[-]` | In Progress — agent working | `[~]` when complete |
+| `[~]` | Review — awaiting review pass | `[x]` on pass, `[!]` on fail |
+| `[>]` | Competing — multiple implementations | `[x]` when winner selected |
+| `[x]` | Done | Terminal |
+| `[!]` | Blocked | `[-]` when unblocked |
 
 **Dependency DAG:** `scripts/unblocked-tasks.sh` parses the DAG and outputs unblocked tasks as JSON. `scripts/validate-roadmap.sh` checks for cycles, dangling refs, and state inconsistencies.
 
-**Agent adapters:** Tasks can be annotated with `(agent: <name>)` to route to a specific agent adapter. See `.claude/agents/adapters/INTERFACE.md`.
+**Agent adapters:** Tasks can be annotated with `(agent: <name>)` to route to a specific agent adapter. Only `claude-code` is functional in v2; others (`codex`, `gemini`, `aider`, `amp`) are stubs. See `.claude/agents/adapters/INTERFACE.md`.
 
 ---
 
@@ -240,9 +265,10 @@ Project OS uses Claude Code's model tiering to keep costs low:
 
 | Role | Model | Why |
 |---|---|---|
-| Orchestration & design | Sonnet (primary session) | Complex reasoning, architectural decisions |
+| Orchestration & design | Sonnet/Opus (primary session) | Complex reasoning, architectural decisions |
 | Sub-agent implementation | Haiku (auto-routed) | Focused coding tasks — cheap and fast |
-| Adversarial review | Sonnet (isolated context) | Independent judgment, no anchoring bias |
+| Adversarial review | Primary model (isolated context) | Independent judgment, no anchoring bias |
+| Agent adapters | Configurable per-task | Route to non-Claude agents via `(agent: <name>)` |
 
 Configured in `.claude/settings.json`:
 
@@ -277,6 +303,8 @@ Configured in `.claude/settings.json`:
 - **Use `/pm:approve` after planning** to promote `[?]` drafts to `[ ]` approved tasks before building.
 - **Competitive implementation:** Use `/workflows:compete` on critical tasks to get N parallel implementations and pick the best.
 - **Cross-project dashboard:** Run `/tools:dashboard` to see status of all Project OS projects at once.
+- **Activity logging:** All workflow phases emit JSONL events to `.claude/logs/activity.jsonl`. Query with `/tools:metrics` to see task durations, model splits, and feature comparisons.
+- **For small changes** (< 20 lines, single file) you can skip the pipeline and describe the change directly.
 
 ---
 

@@ -65,8 +65,8 @@ if command -v notify-send &>/dev/null; then
     # Linux — notify-send handles escaping safely via argument passing
     notify-send "Project OS" "$SAFE_MSG" 2>/dev/null || true
 elif command -v osascript &>/dev/null; then
-    # macOS — use -s flag with stdin to avoid shell interpolation in -e
-    printf 'display notification "%s" with title "Project OS"' "$SAFE_MSG" | osascript 2>/dev/null || true
+    # macOS — pass via env var to avoid shell interpolation issues
+    NOTIFY_MSG="$SAFE_MSG" osascript -e 'display notification (system attribute "NOTIFY_MSG") with title "Project OS"' 2>/dev/null || true
 elif command -v powershell.exe &>/dev/null; then
     # Windows — pass message via environment variable to avoid interpolation
     NOTIFY_MSG="$SAFE_MSG" powershell.exe -NoProfile -Command \

@@ -87,7 +87,7 @@ entry="${entry}}"
 LOCK_FILE="${LOG_FILE}.lock"
 if command -v flock &>/dev/null; then
     (
-        flock -w 5 200 || { echo "$entry" >> "$LOG_FILE"; exit 0; }
+        flock -w 5 200 || { echo "log-activity: flock timeout, writing without lock" >&2; echo "$entry" >> "$LOG_FILE"; exit 0; }
         echo "$entry" >> "$LOG_FILE"
     ) 200>"$LOCK_FILE"
 else

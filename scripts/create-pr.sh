@@ -49,9 +49,15 @@ if ! git rev-parse --verify "$BASE" &>/dev/null; then
     exit 1
 fi
 
+# Verify there are commits to include
+COMMIT_COUNT="$(git rev-list "${BASE}..HEAD" --count)"
+if [ "$COMMIT_COUNT" -eq 0 ]; then
+    echo "ERROR: No commits between $BASE and HEAD. Nothing to create a PR for." >&2
+    exit 1
+fi
+
 # Gather context for PR description
 COMMIT_LOG="$(git log "${BASE}..HEAD" --oneline --no-decorate)"
-COMMIT_COUNT="$(git rev-list "${BASE}..HEAD" --count)"
 FILES_CHANGED="$(git diff "${BASE}..HEAD" --stat)"
 DIFF_SUMMARY="$(git diff "${BASE}..HEAD" --shortstat)"
 

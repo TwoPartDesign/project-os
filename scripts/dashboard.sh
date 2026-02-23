@@ -91,7 +91,11 @@ for dir in "$PROJECTS_ROOT"/*/; do
     if [ -f "$activity_log" ]; then
         last_line="$(tail -1 "$activity_log" 2>/dev/null || echo "")"
         if [ -n "$last_line" ]; then
-            ts="$(echo "$last_line" | grep -o '"timestamp": "[^"]*"' | head -1 | sed 's/"timestamp": "//;s/"//')"
+            if command -v jq &>/dev/null; then
+                ts="$(echo "$last_line" | jq -r '.timestamp // empty' 2>/dev/null || echo "")"
+            else
+                ts="$(echo "$last_line" | grep -o '"timestamp": "[^"]*"' | head -1 | sed 's/"timestamp": "//;s/"//')"
+            fi
             if [ -n "$ts" ] && { [ -z "$last_activity" ] || [[ "$ts" > "$last_activity" ]]; }; then
                 last_activity="$ts"
                 last_activity_project="$project_name"

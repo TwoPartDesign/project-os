@@ -83,6 +83,7 @@ while IFS= read -r line; do
 done < "$ROADMAP"
 
 # Pass 2: Find unblocked tasks (status [ ] with all deps [x])
+declare -A emitted_ids
 first=true
 echo "["
 
@@ -94,6 +95,11 @@ while IFS= read -r line; do
 
         # Only consider [ ] (Todo) tasks
         if [ "$marker" != " " ]; then
+            continue
+        fi
+
+        # Skip duplicate IDs (pass 1 already warned; first occurrence wins)
+        if [ -n "${emitted_ids[$task_id]:-}" ]; then
             continue
         fi
 
@@ -160,6 +166,7 @@ while IFS= read -r line; do
         fi
 
         printf '}'
+        emitted_ids["$task_id"]=1
     fi
 done < "$ROADMAP"
 
