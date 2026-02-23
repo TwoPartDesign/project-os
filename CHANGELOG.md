@@ -38,6 +38,15 @@
 - **Parallel config** — `.claude/settings.json` gains `project_os.parallel`, `compete`, `adapters`, `dashboard` config blocks
 - **Workflow instrumentation** — build and review commands emit activity log events
 
+### Quality & Security (pre-release hardening)
+- **Script bug fixes** — `unblocked-tasks.sh`: `|| [ -n "$line" ]` EOF fix, duplicate-ID bypass closed via `seen_pass2` before marker filter; `validate-roadmap.sh`: same EOF fix, `continue` after duplicate to prevent state overwrite
+- **Dashboard fix** — `dashboard.sh`: detached HEAD detection uses `${branch:-detached}` (git exits 0 with empty string, not non-zero)
+- **Notify fix** — `notify-phase-change.sh`: review-failed message conditional on `$EXTRA` presence
+- **Workflow quoting** — `review.md`, `ship.md`, `build.md`: `"$ARGUMENTS"` quoted in all shell examples
+- **ROADMAP section name** — `ship.md`: "Completed" → "Done" to match format spec
+- **Path traversal** — `new-project.sh`: reject `..` in PROJECT_PATH; all adapters: reject `..` in output_dir
+- **TOCTOU fix** — `preserve-sessions.sh`: copy_sessions() receives `$resolved_path`, not raw `$1`
+
 ### Documentation
 - **README.md** — updated command table, project structure, ROADMAP format section, new tips
 - **CLAUDE.md** — added ROADMAP format spec, roles section, agent adapter syntax, updated workflow
