@@ -15,7 +15,7 @@ if [ -n "$FILE_PATH" ] && [ -f "$FILE_PATH" ]; then
     RESOLVED="$(cd "$(dirname "$FILE_PATH")" 2>/dev/null && pwd)/$(basename "$FILE_PATH")" || exit 0
     SESSION_DIR="${PROJECT_ROOT}/.claude/sessions"
     if [[ "$RESOLVED" == "$SESSION_DIR"/* ]]; then
-        bash "$PROJECT_ROOT/scripts/scrub-secrets.sh" "$FILE_PATH"
+        bash "$PROJECT_ROOT/scripts/scrub-secrets.sh" "$RESOLVED"
     fi
 fi
 

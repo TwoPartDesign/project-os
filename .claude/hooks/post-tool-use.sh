@@ -18,14 +18,14 @@ else
     exit 0
 fi
 
-case "$FILE" in
+case "$RESOLVED" in
   *.ts|*.tsx|*.js|*.jsx)
-    npx prettier --write "$FILE" 2>/dev/null
+    npx prettier --write "$RESOLVED" 2>/dev/null
     ;;
   *.py)
-    python -m black "$FILE" 2>/dev/null
+    python -m black "$RESOLVED" 2>/dev/null
     ;;
   *.json)
-    npx prettier --write "$FILE" 2>/dev/null
+    npx prettier --write "$RESOLVED" 2>/dev/null
     ;;
 esac

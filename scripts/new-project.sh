@@ -1,13 +1,21 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Bootstrap a new project with the Project OS structure
 # Usage: ./scripts/new-project.sh <project-name> <project-path>
 
-PROJECT_NAME="$1"
-PROJECT_PATH="$2"
+set -euo pipefail
+
+PROJECT_NAME="${1:-}"
+PROJECT_PATH="${2:-}"
 
 if [ -z "$PROJECT_NAME" ] || [ -z "$PROJECT_PATH" ]; then
-  echo "Usage: new-project.sh <project-name> <project-path>"
+  echo "Usage: new-project.sh <project-name> <project-path>" >&2
   exit 1
+fi
+
+# Validate project name: reject path traversal and special chars that break sed
+if [[ "$PROJECT_NAME" =~ \.\. ]] || [[ "$PROJECT_NAME" =~ [/\\] ]] || [[ ! "$PROJECT_NAME" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+    echo "ERROR: Invalid project name '${PROJECT_NAME}'. Use only alphanumeric, dots, hyphens, underscores." >&2
+    exit 1
 fi
 
 echo "Creating project: $PROJECT_NAME at $PROJECT_PATH"
@@ -30,16 +38,17 @@ sed "s/\[PROJECT_NAME\]/$PROJECT_NAME/g" "$TEMPLATE_DIR/CLAUDE.template.md" > "$
 cp "$TEMPLATE_DIR/ROADMAP.md" "$PROJECT_PATH/"
 cp "$TEMPLATE_DIR/global-CLAUDE.md" "$PROJECT_PATH/"
 
-for f in decisions.md patterns.md bugs.md architecture.md kv.md; do
+for f in decisions.md patterns.md bugs.md architecture.md kv.md metrics.md; do
   cp "$TEMPLATE_DIR/docs/knowledge/$f" "$PROJECT_PATH/docs/knowledge/"
 done
 
 touch "$PROJECT_PATH/docs/specs/.gitkeep"
 touch "$PROJECT_PATH/docs/memory/.gitkeep"
 
-cp "$TEMPLATE_DIR/scripts/memory-search.sh" "$PROJECT_PATH/scripts/"
-cp "$TEMPLATE_DIR/scripts/audit-context.sh" "$PROJECT_PATH/scripts/"
-cp "$TEMPLATE_DIR/scripts/scrub-secrets.sh" "$PROJECT_PATH/scripts/"
+for script in memory-search.sh audit-context.sh scrub-secrets.sh \
+              validate-roadmap.sh unblocked-tasks.sh create-pr.sh dashboard.sh; do
+  cp "$TEMPLATE_DIR/scripts/$script" "$PROJECT_PATH/scripts/"
+done
 chmod +x "$PROJECT_PATH/scripts/"*.sh
 chmod +x "$PROJECT_PATH/.claude/hooks/"*.sh 2>/dev/null
 chmod +x "$PROJECT_PATH/.claude/security/"*.sh 2>/dev/null

@@ -27,7 +27,7 @@ echo ""
 echo "--- Active specs ---"
 for d in docs/specs/*/; do
   [ -d "$d" ] || continue
-  echo "  $(basename $d)/"
+  echo "  $(basename "$d")/"
   for f in "$d"*.md; do
     [ -f "$f" ] && estimate_tokens "$f" "    $(basename $f)"
   done
