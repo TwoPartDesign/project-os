@@ -12,7 +12,9 @@ FILE_PATH=$(echo "$INPUT" | grep -oE '"file_path"\s*:\s*"[^"]*"' | sed 's/.*"fil
 
 # Only act on session files — resolve to absolute path and verify it's under PROJECT_ROOT
 if [ -n "$FILE_PATH" ] && [ -f "$FILE_PATH" ]; then
-    RESOLVED="$(cd "$(dirname "$FILE_PATH")" 2>/dev/null && pwd)/$(basename "$FILE_PATH")" || exit 0
+    # Use realpath/readlink -f to canonicalize symlinks and prevent symlink escape
+    RESOLVED="$(realpath "$FILE_PATH" 2>/dev/null || readlink -f "$FILE_PATH" 2>/dev/null)" || exit 0
+    [ -z "$RESOLVED" ] && exit 0
     SESSION_DIR="${PROJECT_ROOT}/.claude/sessions"
     if [[ "$RESOLVED" == "$SESSION_DIR"/* ]]; then
         bash "$PROJECT_ROOT/scripts/scrub-secrets.sh" "$RESOLVED"

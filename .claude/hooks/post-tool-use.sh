@@ -10,7 +10,9 @@ FILE=$(echo "$INPUT" | grep -oE '"file_path"\s*:\s*"[^"]*"' | sed 's/.*"file_pat
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 if [ -n "$FILE" ] && [ -f "$FILE" ]; then
-    RESOLVED="$(cd "$(dirname "$FILE")" 2>/dev/null && pwd)/$(basename "$FILE")" || exit 0
+    # Use realpath/readlink -f to canonicalize symlinks and prevent symlink escape
+    RESOLVED="$(realpath "$FILE" 2>/dev/null || readlink -f "$FILE" 2>/dev/null)" || exit 0
+    [ -z "$RESOLVED" ] && exit 0
     if [[ "$RESOLVED" != "$PROJECT_ROOT"/* ]]; then
         exit 0
     fi
