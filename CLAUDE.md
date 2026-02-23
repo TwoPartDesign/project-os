@@ -69,12 +69,19 @@ Never skip from idea to build. The design phase catches 80% of mistakes.
 - A task is **unblocked** when all dependencies are `[x]` and task is `[ ]`
 - Optional agent annotation: `(agent: <adapter-name>)`
 
+### Agent Annotation
+- Optional per-task: `(agent: <adapter-name>)` — routes task to a specific adapter
+- Available adapters: `claude-code` (default), `codex`, `gemini`, `aider`, `amp`
+- Adapter scripts: `.claude/agents/adapters/<name>.sh`
+- Interface spec: `.claude/agents/adapters/INTERFACE.md`
+- v2: Only `claude-code` is functional; others are stubs
+
 ### Feature Grouping
 ```
 ## Feature: <name>
 ### Draft
 - [?] Task description #T1
-- [?] Task description (depends: #T1) #T2
+- [?] Task description (depends: #T1) (agent: codex) #T2
 ### Todo
 - [ ] Task description #T3
 ### In Progress

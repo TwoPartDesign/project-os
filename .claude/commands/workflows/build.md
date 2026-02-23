@@ -41,6 +41,22 @@ Wave 2 (parallel): #T2, #T3 (depends: #T1)
 Wave 3 (sequential): #T6 (depends: #T2, #T3)
 ```
 
+## Adapter Resolution
+
+Before dispatching, resolve which adapter to use for each task:
+
+1. Check task annotation in ROADMAP.md: `(agent: <name>)` → use `.claude/agents/adapters/<name>.sh`
+2. Check settings: `.claude/settings.json` → `project_os.adapters.default`
+3. Fallback: `claude-code` adapter
+
+For each task, verify the adapter is available:
+```bash
+bash .claude/agents/adapters/<name>.sh health
+```
+If the adapter health check fails, fall back to `claude-code` and log a warning.
+
+**v2 note:** All adapters except `claude-code` are stubs. Tasks annotated with non-Claude agents will log the annotation but dispatch via Claude Code. The annotation is preserved for v2.1+ multi-agent support.
+
 ## Execution Protocol
 
 ### For each wave:
@@ -61,6 +77,35 @@ DO NOT give agents: full spec history, other tasks, the brief, research findings
 **3. Dispatch sub-agents (parallel within wave)**
 Dispatch up to `max_concurrent_agents` (default: 4) sub-agents simultaneously.
 Each agent uses `isolation: worktree` for file-level isolation.
+
+For each task, prepare adapter context:
+```bash
+# Create context packet for the adapter
+context_dir="docs/specs/$ARGUMENTS/tasks/TN/context"
+mkdir -p "$context_dir/files"
+# Copy task.md, conventions.md, design.md, relevant source files into context_dir
+
+# Resolve adapter
+adapter="claude-code"  # default
+# Check task annotation: (agent: <name>) → override adapter
+# Check settings: project_os.adapters.default → override if no annotation
+
+# Verify adapter health
+if ! bash ".claude/agents/adapters/${adapter}.sh" health 2>/dev/null; then
+    echo "WARNING: ${adapter} adapter unavailable, falling back to claude-code"
+    adapter="claude-code"
+fi
+
+# Set adapter environment
+export ADAPTER_TASK_ID="TN"
+export ADAPTER_FEATURE="$ARGUMENTS"
+export ADAPTER_MAX_TURNS=50
+
+# Execute via adapter
+bash ".claude/agents/adapters/${adapter}.sh" execute "$context_dir" "docs/specs/$ARGUMENTS/tasks/TN/output"
+```
+
+In practice for v2, the orchestrator reads the adapter's prepared prompt and dispatches via the Task tool directly. The adapter layer exists to formalize the contract for v2.1+ multi-agent support.
 
 Each agent's prompt:
 

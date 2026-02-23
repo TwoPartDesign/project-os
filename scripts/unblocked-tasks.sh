@@ -5,12 +5,31 @@
 #   1. Its status is [ ] (Todo / approved)
 #   2. All its dependencies (depends: #TN) are [x] (Done)
 #
-# Usage: bash scripts/unblocked-tasks.sh [path/to/ROADMAP.md]
+# Usage: bash scripts/unblocked-tasks.sh [--agent <name>] [path/to/ROADMAP.md]
 # Output: JSON array of unblocked task objects
+#
+# Options:
+#   --agent <name>  Filter tasks by agent annotation (e.g., --agent codex)
+#                   Tasks with no annotation are treated as "claude-code"
 
 set -euo pipefail
 
-ROADMAP="${1:-ROADMAP.md}"
+# Parse arguments
+FILTER_AGENT=""
+ROADMAP="ROADMAP.md"
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --agent)
+            FILTER_AGENT="$2"
+            shift 2
+            ;;
+        *)
+            ROADMAP="$1"
+            shift
+            ;;
+    esac
+done
 
 if [ ! -f "$ROADMAP" ]; then
     echo "Error: $ROADMAP not found" >&2
@@ -84,6 +103,14 @@ while IFS= read -r line; do
 
         if [ "$blocked" = true ]; then
             continue
+        fi
+
+        # Apply agent filter if specified
+        if [ -n "$FILTER_AGENT" ]; then
+            effective_agent="${agent:-claude-code}"
+            if [ "$effective_agent" != "$FILTER_AGENT" ]; then
+                continue
+            fi
         fi
 
         # Output as JSON object

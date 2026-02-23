@@ -41,6 +41,11 @@
       "default_approaches": 3,
       "strategies": ["literal", "minimal", "extensible"]
     },
+    "adapters": {
+      "default": "claude-code",
+      "available": ["claude-code", "codex", "gemini", "aider", "amp"],
+      "fallback_on_failure": true
+    },
     "dashboard": {
       "projects_root": "~/projects"
     }
