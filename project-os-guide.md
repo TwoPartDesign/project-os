@@ -1,9 +1,9 @@
 # The Bleeding-Edge Claude Code Personal Project OS
 ## Architecture & Implementation Guide — Native-First Edition
 
-**Version**: 2.0 — Native-Only  
-**Purpose**: A complete, implementable specification for a single-developer orchestration system built entirely on Claude Code's native primitives, with zero required external dependencies.  
-**Usage**: Feed this document to Claude Code as a build spec. It contains every file, every command, and the full directory structure needed to stand up the system.
+**Version**: 2.0 — Wave Orchestration + Governance
+**Purpose**: A complete reference for a single-developer orchestration system built entirely on Claude Code's native primitives, with zero required external dependencies.
+**Usage**: Feed this document to Claude Code as a build spec, or use it as a reference while running the live system. It documents every file, every command, and the full directory structure.
 
 ---
 
@@ -32,8 +32,11 @@ External dependencies are attack surface, maintenance burden, and single points 
 | Workflow engine | `.claude/commands/` slash commands |
 | Memory hierarchy | Tiered markdown files + git versioning |
 | Session continuity | YAML handoff files + `/compact` instructions |
-| Task tracking | `ROADMAP.md` with checkbox progression |
-| Parallel execution | Sub-agents via `Task` tool + Agent Teams |
+| Task tracking | `ROADMAP.md` with 7-state markers, `#TN` IDs, dependency syntax |
+| Parallel execution | Wave-based sub-agents via `Task` tool + `isolation: worktree` |
+| DAG scheduling | `scripts/unblocked-tasks.sh` (JSON output), `scripts/validate-roadmap.sh` (cycle detection) |
+| Governance gate | `/pm:approve` promotes `[?]` drafts → `[ ]` approved |
+| Competitive implementation | `/workflows:compete` — N parallel strategies, human picks winner |
 | Adversarial review | Parallel sub-agents with isolated prompts |
 | Drift detection | Sub-agent comparing `git diff` against spec |
 | Knowledge compounding | Structured `docs/knowledge/` directory |
@@ -42,6 +45,9 @@ External dependencies are attack surface, maintenance burden, and single points 
 | Quality gates | Gate checks at the top of each workflow command |
 | Code conventions | `.claude/rules/` glob-matched contextual rules |
 | Auto-formatting | `.claude/hooks/` lifecycle hooks |
+| Activity logging | JSONL event log via `log-activity.sh`, queried via `/tools:metrics` |
+| Cross-project visibility | `scripts/dashboard.sh` + `/tools:dashboard` |
+| Agent routing | `(agent: <name>)` annotations + adapter interface (`.claude/agents/adapters/`) |
 | Cross-agent memory | Shared `.claude/` directory readable by any agent (Claude Code, Codex, etc.) |
 
 ### Optional external (with security wrapper)
@@ -228,40 +234,58 @@ If you want to add semantic search over your memory vault later, a local SQLite 
 ```
 project-root/
 ├── CLAUDE.md                           # Layer 2: Project constitution
+├── CLAUDE.template.md                  # Bootstrap template (copy → CLAUDE.md for new projects)
 ├── CLAUDE.local.md                     # Personal overrides (gitignored)
-├── ROADMAP.md                          # Task tracking with checkbox progression
+├── ROADMAP.md                          # Task DAG: 7-state markers, #TN IDs, dependencies
 │
 ├── .claude/
-│   ├── settings.json                   # Model config, permissions, env
+│   ├── settings.json                   # Model config, permissions, env, v2 config blocks
+│   ├── logs/
+│   │   └── activity.jsonl              # JSONL event log (created on first build)
 │   │
 │   ├── commands/                       # Slash commands
 │   │   ├── workflows/                  # Multi-phase orchestrations
 │   │   │   ├── idea.md                 # /workflows:idea — capture + research
-│   │   │   ├── design.md              # /workflows:design — spec generation
-│   │   │   ├── plan.md               # /workflows:plan — task decomposition
-│   │   │   ├── build.md              # /workflows:build — parallel implementation
-│   │   │   ├── review.md             # /workflows:review — adversarial quality gate
-│   │   │   └── ship.md               # /workflows:ship — final validation + deploy
-│   │   ├── tools/                     # Single-purpose utilities
-│   │   │   ├── handoff.md            # /tools:handoff — session state capture
-│   │   │   ├── catchup.md            # /tools:catchup — reload WIP context
-│   │   │   ├── research.md           # /tools:research — parallel research agents
-│   │   │   ├── commit.md             # /tools:commit — quality-checked git commit
-│   │   │   └── kv.md                 # /tools:kv — quick key-value memory operations
-│   │   └── pm/                        # Product management
-│   │       ├── prd.md                # /pm:prd — guided PRD creation
-│   │       ├── epic.md               # /pm:epic — PRD → task breakdown
-│   │       └── status.md             # /pm:status — project status synthesis
+│   │   │   ├── design.md               # /workflows:design — spec generation
+│   │   │   ├── plan.md                 # /workflows:plan — task decomp → [?] drafts
+│   │   │   ├── build.md                # /workflows:build — wave-based parallel impl
+│   │   │   ├── review.md               # /workflows:review — adversarial quality gate
+│   │   │   ├── ship.md                 # /workflows:ship — final validation + PR
+│   │   │   ├── compete.md              # /workflows:compete — N competing implementations
+│   │   │   └── compete-review.md       # /workflows:compete-review — score + pick winner
+│   │   ├── tools/                      # Single-purpose utilities
+│   │   │   ├── handoff.md              # /tools:handoff — session state capture
+│   │   │   ├── catchup.md              # /tools:catchup — reload WIP context
+│   │   │   ├── init.md                 # /tools:init — first-run project setup
+│   │   │   ├── research.md             # /tools:research — parallel research agents
+│   │   │   ├── commit.md               # /tools:commit — quality-checked git commit
+│   │   │   ├── kv.md                   # /tools:kv — quick key-value memory operations
+│   │   │   ├── metrics.md              # /tools:metrics — query activity logs
+│   │   │   └── dashboard.md            # /tools:dashboard — cross-project status view
+│   │   └── pm/                         # Product management
+│   │       ├── prd.md                  # /pm:prd — guided PRD creation
+│   │       ├── epic.md                 # /pm:epic — PRD → task breakdown
+│   │       ├── approve.md              # /pm:approve — governance gate [?] → [ ]
+│   │       └── status.md               # /pm:status — project status synthesis
 │   │
-│   ├── agents/                        # Sub-agent persona definitions
-│   │   ├── researcher.md             # Parallel research agent
-│   │   ├── implementer.md            # Scoped code implementation agent
-│   │   ├── reviewer-security.md      # Security-focused reviewer
-│   │   ├── reviewer-architecture.md  # Architecture drift reviewer
-│   │   ├── reviewer-tests.md         # Test coverage reviewer
-│   │   └── documenter.md             # Documentation agent
+│   ├── agents/                         # Sub-agent persona definitions (with YAML frontmatter)
+│   │   ├── researcher.md               # Architect role — research agent
+│   │   ├── implementer.md              # Developer role — scoped implementation
+│   │   ├── reviewer-security.md        # Reviewer role — security gate
+│   │   ├── reviewer-architecture.md    # Reviewer role — architecture drift
+│   │   ├── reviewer-tests.md           # Reviewer role — test coverage
+│   │   ├── documenter.md               # Developer role — documentation agent
+│   │   ├── roles.md                    # Role permission matrix
+│   │   ├── handoffs.md                 # Phase handoff artifact contracts
+│   │   └── adapters/                   # Agent adapter scripts
+│   │       ├── INTERFACE.md            # Adapter 3-command contract spec
+│   │       ├── claude-code.sh          # Default adapter (functional)
+│   │       ├── codex.sh                # Stub (v2.1+)
+│   │       ├── gemini.sh               # Stub (v2.1+)
+│   │       ├── aider.sh                # Stub (v2.1+)
+│   │       └── amp.sh                  # Stub (v2.1+)
 │   │
-│   ├── skills/                        # On-demand capability protocols
+│   ├── skills/                         # On-demand capability protocols
 │   │   ├── spec-driven-dev/
 │   │   │   └── SKILL.md
 │   │   ├── tdd-workflow/
@@ -269,44 +293,62 @@ project-root/
 │   │   └── session-management/
 │   │       └── SKILL.md
 │   │
-│   ├── knowledge/                     # Compounding project knowledge
-│   │   ├── decisions.md
-│   │   ├── patterns.md
-│   │   ├── bugs.md
-│   │   └── architecture.md
-│   │
-│   ├── sessions/                      # Session handoff files
+│   ├── sessions/                       # Session handoff files (gitignored)
 │   │   └── (handoff-YYYY-MM-DD-HHMM.yaml files)
 │   │
-│   ├── specs/                         # Feature specifications
+│   ├── specs/                          # Feature specifications
 │   │   └── (feature-name)/
 │   │       ├── brief.md
 │   │       ├── design.md
 │   │       ├── tasks.md
-│   │       └── review.md
+│   │       ├── review.md
+│   │       └── tasks/                  # Per-task work dirs (created by /workflows:build)
+│   │           └── TN/
+│   │               ├── context/        # Context packet fed to agent
+│   │               ├── completion-report.md
+│   │               └── compete-*.md    # If /workflows:compete was used
 │   │
-│   ├── rules/                         # Glob-matched contextual rules
+│   ├── rules/                          # Glob-matched contextual rules
 │   │   ├── tests.md
 │   │   └── api.md
 │   │
-│   ├── hooks/                         # Lifecycle hooks
-│   │   └── post-tool-use.sh
+│   ├── hooks/                          # Lifecycle hooks (8 total)
+│   │   ├── post-tool-use.sh            # Auto-format on Write/Edit
+│   │   ├── post-write-session.sh       # Session checkpoint on Write/Edit
+│   │   ├── post-mcp-validate.sh        # Validate Context7 MCP output
+│   │   ├── log-activity.sh             # JSONL event logging (13 event types)
+│   │   ├── notify-phase-change.sh      # Desktop notifications on phase transitions
+│   │   ├── preserve-sessions.sh        # Save worktree sessions before cleanup
+│   │   ├── tool-failure-log.sh         # Log tool failures for diagnostics
+│   │   └── compact-suggest.sh          # Suggest /compact when context is high
 │   │
-│   └── security/                      # Security wrappers for optional external tools
+│   └── security/                       # Security wrappers for optional external tools
 │       ├── mcp-allowlist.json
 │       └── validate-mcp-output.sh
 │
 ├── docs/
-│   ├── product.md                     # Product vision
-│   ├── tech.md                        # Tech decisions
-│   └── research/                      # Research artifacts
+│   ├── product.md                      # Product vision
+│   ├── tech.md                         # Tech decisions
+│   ├── memory/                         # Cross-session searchable memory
+│   ├── knowledge/                      # Compounding project knowledge
+│   │   ├── decisions.md
+│   │   ├── patterns.md
+│   │   ├── bugs.md
+│   │   ├── architecture.md
+│   │   └── metrics.md                  # Per-feature metrics snapshots
+│   └── research/                       # Research artifacts
 │
-├── scripts/
-│   ├── memory-search.sh              # Local FTS over knowledge vault
-│   ├── new-project.sh                # Bootstrap a new project with this structure
-│   └── audit-context.sh              # Report context token estimates
+├── scripts/                            # Utility scripts (8 total)
+│   ├── new-project.sh                  # Bootstrap a new project
+│   ├── memory-search.sh                # Full-text search over knowledge vault
+│   ├── audit-context.sh                # Report context token estimates
+│   ├── unblocked-tasks.sh              # Output unblocked [ ] tasks as JSON
+│   ├── validate-roadmap.sh             # Detect cycles, dangling refs, duplicate IDs
+│   ├── dashboard.sh                    # ASCII status table for all projects
+│   ├── create-pr.sh                    # Generate PR descriptions from specs + history
+│   └── scrub-secrets.sh                # Scan for accidental credential exposure
 │
-└── src/                               # Source code
+└── src/                                # Source code
 ```
 
 ---
@@ -319,49 +361,79 @@ project-root/
   "model": "sonnet",
   "permissions": {
     "allow": [
-      "Bash(git:*)",
-      "Bash(npm:*)",
-      "Bash(npx:*)",
-      "Bash(node:*)",
-      "Bash(python*:*)",
-      "Bash(pip:*)",
-      "Bash(cat:*)",
-      "Bash(ls:*)",
-      "Bash(find:*)",
-      "Bash(grep:*)",
-      "Bash(head:*)",
-      "Bash(tail:*)",
-      "Bash(wc:*)",
-      "Bash(sort:*)",
-      "Bash(date:*)",
-      "Bash(mkdir:*)",
-      "Bash(cp:*)",
-      "Bash(mv:*)",
-      "Bash(chmod:*)",
-      "Bash(diff:*)",
-      "Bash(sed:*)",
-      "Bash(awk:*)",
-      "Bash(jq:*)",
-      "Bash(sha256sum:*)",
-      "Bash(scripts/*)",
+      "Bash(git *)",
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(grep *)",
+      "Bash(find *)",
+      "Bash(cat *)",
+      "Bash(ls *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(sort *)",
+      "Bash(awk *)",
+      "Bash(sed *)",
       "Read",
       "Write",
-      "Edit",
-      "MultiEdit",
-      "Task",
-      "Agent"
+      "Edit"
     ],
     "deny": [
       "Bash(rm -rf /)",
-      "Bash(rm -rf ~)",
-      "Bash(> /dev/sda*)",
-      "Bash(eval *)",
-      "Bash(sudo *)"
+      "Bash(curl:* | bash)",
+      "Bash(wget:* | bash)"
     ]
   },
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "haiku",
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "50"
+  },
+  "project_os": {
+    "parallel": {
+      "max_concurrent_agents": 4,
+      "worktree_base": ".claude/worktrees",
+      "auto_cleanup": true,
+      "session_handoff_location": ".claude/sessions",
+      "backoff": {
+        "initial_delay_ms": 1000,
+        "max_delay_ms": 30000,
+        "multiplier": 2
+      }
+    },
+    "compete": {
+      "default_approaches": 3,
+      "strategies": ["literal", "minimal", "extensible"]
+    },
+    "adapters": {
+      "default": "claude-code",
+      "available": ["claude-code", "codex", "gemini", "aider", "amp"],
+      "fallback_on_failure": true
+    },
+    "dashboard": {
+      "projects_root": "~/projects"
+    }
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__context7__.*",
+        "hooks": [{ "type": "command", "command": "bash \".claude/hooks/post-mcp-validate.sh\"" }]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          { "type": "command", "command": "bash \".claude/hooks/post-tool-use.sh\"" },
+          { "type": "command", "command": "bash \".claude/hooks/post-write-session.sh\"" }
+        ]
+      },
+      {
+        "matcher": ".*",
+        "hooks": [
+          { "type": "command", "command": "bash \".claude/hooks/tool-failure-log.sh\"" },
+          { "type": "command", "command": "bash \".claude/hooks/compact-suggest.sh\"" }
+        ]
+      }
+    ]
   }
 }
 ```
@@ -374,21 +446,37 @@ project-root/
 # Roadmap
 
 ## Legend
-- `[ ]` — Todo
-- `[-]` — In Progress 🏗️
-- `[x]` — Completed ✅
-- `[!]` — Blocked ⛔
-- Priority: `P0` (critical) → `P3` (nice-to-have)
+
+| Marker | Meaning | Transition |
+|--------|---------|------------|
+| `[?]` | Draft — pending `/pm:approve` | → `[ ]` on approval |
+| `[ ]` | Todo — approved, ready for work | → `[-]` when started |
+| `[-]` | In Progress — agent working | → `[~]` when complete |
+| `[~]` | Review — awaiting review pass | → `[x]` on pass, `[!]` on fail |
+| `[>]` | Competing — multiple implementations | → `[x]` when winner selected |
+| `[x]` | Done | Terminal |
+| `[!]` | Blocked | → `[-]` when unblocked |
+
+Every task has a unique `#TN` ID. Dependencies are declared inline: `(depends: #T1, #T2)`.
+Optional agent annotation: `(agent: codex)`.
 
 ---
 
-## Current Sprint
+## Feature: [feature-name]
 
-### Active
-<!-- Tasks currently being worked on -->
+### Draft
+<!-- New tasks start here. Run /pm:approve to promote to Todo. -->
+- [?] Task description #T1
+- [?] Task description (depends: #T1) #T2
 
-### Queued
-<!-- Tasks ready to start -->
+### Todo
+<!-- Approved tasks ready for work -->
+
+### In Progress
+
+### Review
+
+### Done
 
 ---
 
@@ -399,11 +487,6 @@ project-root/
 
 ### Icebox
 <!-- Parked ideas. Revisit quarterly. -->
-
----
-
-## Completed
-<!-- Move finished tasks here with completion date -->
 
 ---
 
@@ -641,115 +724,105 @@ Iterate until approved. Update status to "Approved". Tell the user:
 
 ```markdown
 ---
-description: "Decompose an approved design into atomic, independently implementable tasks"
+description: "Decompose an approved design into atomic, independently-implementable tasks"
 ---
 
-# Plan Workflow
+# Phase 3: Task Decomposition
 
-You are entering PLANNING mode. Your job is to produce an execution plan so precise that implementation agents never ask clarifying questions and never conflict with each other.
+You are acting as a technical project manager. Your job is to transform the approved design into tasks so specific that the implementing agent never asks clarifying questions.
 
-## Prerequisites — GATE CHECK
+## Input
+Read the design at `docs/specs/$ARGUMENTS/design.md`. Verify status is APPROVED.
+If not approved, STOP and tell the user to run `/workflows:design $ARGUMENTS` first.
 
-Read `docs/specs/$ARGUMENTS/design.md`. Verify status is "Approved". If not:
-> "Design for '$ARGUMENTS' not approved. Run `/workflows:design $ARGUMENTS` first."
+## Step 1: Decompose
 
-## Step 1: Load context (minimal)
+Break the design into atomic tasks. Each task must satisfy ALL of these:
+- **Single responsibility**: One task, one concern
+- **No file conflicts**: Tasks that can run in parallel must not touch the same files
+- **Complete specification**: Exact file paths, function signatures, patterns to follow
+- **Acceptance criteria**: Testable conditions that define "done"
+- **Estimated size**: Small (< 50 lines changed), Medium (50-150), Large (150+)
+  - If Large, decompose further
 
-Read ONLY:
-- `docs/specs/$ARGUMENTS/design.md`
-- `docs/specs/$ARGUMENTS/brief.md` (success criteria for acceptance tests)
-- `CLAUDE.md` (Conventions section only)
+## Step 2: Dependency graph
 
-## Step 2: Decompose into atomic tasks
+Order tasks by dependencies. Independent tasks can be parallelized.
+Use this notation:
+- `T1 → T2` means T2 depends on T1
+- `T1 | T2` means T1 and T2 are independent (parallelizable)
+
+## Step 3: Create task document
+
+Write `docs/specs/$ARGUMENTS/tasks.md`:
+
+```markdown
+# Tasks: [Feature Name]
+Created: [date]
+Design: ./design.md
+Total tasks: [N]
+Parallelizable groups: [N]
+
+## Dependency Graph
+T1 → T3 → T5
+T2 → T3
+T4 (independent)
+
+## Group 1 (parallel)
+### T1: [Title]
+- **Files**: `src/path/file.ts` (create), `src/path/other.ts` (modify lines 45-60)
+- **Pattern**: Follow the pattern in `src/existing/similar.ts`
+- **Implementation**:
+  - Create [specific thing] with [specific interface]
+  - Handle [specific edge case] by [specific approach]
+- **Tests**:
+  - `tests/path/file.test.ts`:
+    - Test: [name] — Setup: [what], Assert: [what], Expected: [what]
+    - Test: [name] — Setup: [what], Assert: [what], Expected: [what]
+- **Acceptance Criteria**:
+  - [ ] [Specific, testable criterion]
+  - [ ] [Specific, testable criterion]
+- **Size**: Small
+- **Status**: [ ]
+
+## Group 2 (after Group 1)
+### T3: [Title]
+- **Depends on**: T1, T2
+[Same structure]
+```
+
+## Step 4: Update tracking
+
+Update ROADMAP.md with the v2 format. Each task becomes a `[?]` (draft) entry under the feature heading, with `#TN` IDs and inline dependency declarations:
+
+```
+## Feature: $ARGUMENTS
+### Draft
+- [?] Task title (depends: #T1, #T2) #T3
+- [?] Independent task #T4
+### Todo
+### In Progress
+### Review
+### Done
+```
 
 Rules:
-1. **Each task modifies at most 3 files.** More than that → split it.
-2. **Each task completable in one sub-agent session** (~15 minutes of work).
-3. **No two tasks modify the same file** unless one explicitly depends on the other.
-4. **Each task has a verification step** — a test or command that proves it works.
-5. **Tasks ordered by dependency**, not importance. Foundation first.
+- All new tasks start as `[?]` (draft) — they require `/pm:approve` before work can begin
+- Every task MUST have a unique `#TN` ID — scan the existing ROADMAP.md for the highest `#TN` and start from `N+1`
+- Dependencies use inline syntax: `(depends: #T1, #T2)`
+- Run `bash scripts/validate-roadmap.sh` after updating to verify no cycles, dangling refs, or duplicate IDs
 
-For each task define:
-- **ID**: Sequential (T1, T2, etc.)
-- **Title**: Verb phrase describing what this task does
-- **Depends on**: Task IDs or "None"
-- **Files**: Exact paths to create/modify
-- **Specification**: Exactly what to build — code patterns, signatures, types from the design
-- **Acceptance criteria**: Specific, testable conditions with the verification command
-- **Parallel group**: Tasks with no mutual dependencies share a group letter (A, B, C...)
+Notify the user: "Draft tasks require approval. Run `/pm:approve $ARGUMENTS` to promote to todo."
 
-## Step 3: Identify parallel execution groups
+## Step 5: Validate
 
-- **Group A**: Independent tasks with no shared file dependencies
-- **Group B**: Tasks depending on Group A
-- **Group C**: Integration tasks connecting everything
+Run a self-check:
+- Are any tasks missing acceptance criteria? → Add them
+- Do any parallel tasks share files? → Resequence them
+- Are there tasks larger than 150 lines? → Decompose further
+- Does every test case have setup + assertion + expected result? → Complete them
 
-## Step 4: Write the task plan
-
-Create `docs/specs/$ARGUMENTS/tasks.md`:
-
-```
-# Task Plan: [Feature Name]
-
-**Design**: docs/specs/$ARGUMENTS/design.md
-**Total tasks**: [N]
-**Parallel groups**: [N]
-**Estimated effort**: [low/medium/high]
-
-## Execution Order
-
-### Group A (parallel — no dependencies)
-
-#### T1: [Title]
-- **Depends on**: None
-- **Files**: `src/path/file.ts` (CREATE)
-- **Spec**:
-  [Detailed specification with code patterns, signatures, examples
-   pulled directly from the design document.]
-- **Acceptance**:
-  - [ ] File exists with correct exports
-  - [ ] Tests pass: `[test command]`
-  - [ ] No type errors
-
-#### T2: [Title]
-- **Depends on**: None
-- **Files**: `src/path/other.ts` (CREATE)
-- **Spec**: [...]
-- **Acceptance**: [...]
-
-### Group B (depends on Group A)
-
-#### T3: [Title]
-- **Depends on**: T1, T2
-- **Files**: `src/path/integration.ts` (CREATE)
-- **Spec**: [...]
-- **Acceptance**: [...]
-
-### Group C (integration)
-
-#### T4: [Title — Integration & smoke test]
-- **Depends on**: T1, T2, T3
-- **Files**: `tests/integration/feature.test.ts` (CREATE)
-- **Acceptance**:
-  - [ ] All unit tests pass
-  - [ ] Integration test passes
-  - [ ] No regressions
-```
-
-## Step 5: Update ROADMAP.md
-
-Move the feature from `### Ideas` to `### Queued`:
-```
-[ ] P[X] — [Feature Name] — [N] tasks — docs/specs/$ARGUMENTS/tasks.md
-```
-
-## Step 6: Human checkpoint
-
-Present task count, group structure, and dependency graph. Ask:
-> "Plan ready. [N] tasks in [M] parallel groups. Anything too coarse or too fine-grained?"
-
-After approval:
-> "Plan locked. Run `/workflows:build $ARGUMENTS` to start implementation."
+Tell the user: "Plan created with [N] tasks in [M] groups. Run `/pm:approve $ARGUMENTS` to approve, then `/workflows:build $ARGUMENTS` to implement."
 ```
 
 ---
@@ -760,111 +833,265 @@ After approval:
 
 ```markdown
 ---
-description: "Execute task plan with parallel sub-agents. Orchestrator never writes code."
+description: "Execute implementation from task plan using wave-based parallel sub-agents with isolated context"
 ---
 
-# Build Workflow
+# Phase 4: Wave-Based Parallel Implementation
 
-You are entering BUILD mode as the **orchestrator**. You coordinate and unblock. You NEVER write application code yourself. Sub-agents do all implementation.
+You are the build orchestrator. You coordinate sub-agents but NEVER write implementation code yourself. Your job is to delegate, monitor, and unblock.
 
-## Prerequisites — GATE CHECK
+## Input
+Read `docs/specs/$ARGUMENTS/tasks.md`. Verify all tasks have status markers.
+Read `CLAUDE.md` for project conventions (this is the ONLY shared context for agents).
+Read `.claude/settings.json` for `project_os.parallel` config (max_concurrent_agents, backoff).
 
-Read `docs/specs/$ARGUMENTS/tasks.md`. If missing:
-> "No task plan for '$ARGUMENTS'. Run `/workflows:plan $ARGUMENTS` first."
+## Pre-flight
 
-Verify design status is "Approved" in `docs/specs/$ARGUMENTS/design.md`.
+Before dispatching any agents:
+1. Verify no tasks for this feature are `[?]` (draft). If any drafts remain, STOP and tell the user to run `/pm:approve $ARGUMENTS` first.
+2. Create task-specific working directories: `docs/specs/$ARGUMENTS/tasks/T1/`, etc.
+3. For each task directory, create a `context.md` file containing ONLY that task's spec.
+4. Run `bash scripts/validate-roadmap.sh` to verify dependency integrity.
+5. Run `bash scripts/unblocked-tasks.sh` to get the initial set of unblocked tasks (filter to this feature only).
 
-## Step 1: Load orchestration context (MINIMAL)
+## Wave Computation
 
-Read ONLY:
-- `docs/specs/$ARGUMENTS/tasks.md`
-- `CLAUDE.md` (Conventions section only)
+Organize tasks into **waves** based on the dependency DAG:
 
-Do NOT load the full design. Sub-agents get their specs from tasks.md.
+- **Wave 1**: All `[ ]` tasks with no dependencies (or all deps already `[x]`)
+- **Wave 2**: `[ ]` tasks whose deps are all in Wave 1 or already `[x]`
+- **Wave N**: `[ ]` tasks whose deps are all in Waves 1..N-1 or already `[x]`
+- **Skip**: Tasks marked `[!]` (blocked) are excluded entirely
 
-## Step 2: Update ROADMAP.md
-
-Move feature to `### Active`:
+Display the wave plan before executing:
 ```
-[-] P[X] — [Feature Name] — 0/[N] tasks complete 🏗️
-```
-
-## Step 3: Execute by group
-
-For each parallel group (A, B, C...):
-
-### Parallel tasks (same group, no dependencies):
-
-Spawn sub-agents using the Task tool. Each receives ONLY:
-
-```
-You are implementing a single task for the [PROJECT_NAME] project.
-
-## Project Conventions
-[Paste ONLY the Conventions section from CLAUDE.md]
-
-## Your Task
-[Paste the full task block from tasks.md — ID, title, files, spec, acceptance]
-
-## Rules
-1. Implement EXACTLY what the spec says. Do not add features, refactor adjacent code, or "improve" things outside scope.
-2. Write tests FIRST (red), then implement (green), then clean up (refactor).
-3. Run the acceptance criteria commands and verify they pass.
-4. If you encounter a blocker, STOP and report it. Do not work around it silently.
-5. Commit your work: "feat($ARGUMENTS): [task title] (T[N])"
+Wave 1 (parallel): #T1, #T4, #T5
+Wave 2 (parallel): #T2, #T3 (depends: #T1)
+Wave 3 (sequential): #T6 (depends: #T2, #T3)
 ```
 
-### Dependent tasks (next group):
+## Adapter Resolution
 
-Wait for dependencies. Verify their acceptance criteria passed. Spawn next group.
+Before dispatching, resolve which adapter to use for each task:
+1. Check task annotation: `(agent: <name>)` in ROADMAP.md
+2. Check settings: `project_os.adapters.default`
+3. Fallback: `claude-code`
 
-## Step 4: Track progress
+Validate adapter name (alphanumeric + hyphen only — no path traversal) and run health check. Fall back to `claude-code` if health check fails.
 
-After each task:
-1. Mark `[x]` in `docs/specs/$ARGUMENTS/tasks.md`
-2. Update ROADMAP.md count: `[-] P[X] — [Feature Name] — [completed]/[N] tasks 🏗️`
-3. If a task FAILS, mark `[!]` and report failure with error output.
+**v2 note:** All adapters except `claude-code` are stubs. The annotation is preserved for v2.1+ multi-agent support.
 
-## Step 5: Integration verification
+## Execution Protocol
 
-After ALL tasks:
-1. Run full test suite
-2. Check for type/lint errors
-3. Verify no unexpected untracked files: `git status`
+### For each wave:
 
-If integration fails, spawn a targeted fix agent with ONLY the failing output and relevant task spec.
+**1. Mark tasks in-progress**
+Update ROADMAP.md: change `[ ]` to `[-]` for all tasks in this wave.
+Log each: `bash .claude/hooks/log-activity.sh task-spawned "feature=$ARGUMENTS" task_id=TN agent=implementer`
 
-## Step 6: Drift check
+**2. Prepare agent context packets**
+For each task, assemble ONLY:
+- The specific task description from tasks.md (NOT the full task list)
+- The relevant section from the design doc (NOT the full design)
+- Project conventions from CLAUDE.md
+- The specific files the task mentions
 
-Spawn a review sub-agent:
+**3. Dispatch sub-agents (parallel within wave)**
+Dispatch up to `max_concurrent_agents` (default: 4) simultaneously.
+Each agent uses `isolation: worktree` for file-level isolation.
+
+Each agent's prompt:
+```
+You are an implementation agent. Your ONLY job is to complete this task:
+
+[TASK DESCRIPTION]
+
+Conventions to follow: [RELEVANT CLAUDE.md EXCERPT]
+Design context: [RELEVANT DESIGN SECTION ONLY]
+Current file state: [RELEVANT FILES IF MODIFYING]
+
+Instructions:
+1. Write the implementation code
+2. Write the tests specified in the task
+3. Run the tests — they must pass
+4. Do NOT modify any files not listed in this task
+5. If you encounter an ambiguity, make the simplest choice and document it in a code comment
+6. When done, report: files created/modified, tests passed/failed, any assumptions made
+```
+
+**4. On agent completion**
+- Write `docs/specs/$ARGUMENTS/tasks/TN/completion-report.md`
+- Tests pass → mark task `[~]` in ROADMAP.md (ready for review). Log: `bash .claude/hooks/log-activity.sh task-completed feature=$ARGUMENTS task_id=TN`
+- Tests fail → give ONE retry with error output
+- Retry fails → mark `[!]`. Log: `bash .claude/hooks/log-activity.sh task-failed feature=$ARGUMENTS task_id=TN`
+- Notify newly unblocked tasks: `bash .claude/hooks/notify-phase-change.sh task-unblocked <next-task-id>`
+
+**5. Wave gate**
+After all tasks in a wave complete:
+- Run the FULL test suite (not just new tests)
+- If integration tests fail, fix forward or revert — do not leave the suite red
+- Only proceed to next wave when gate passes
+
+### After all waves complete:
+
+1. Run final full test suite
+2. Preserve sessions: `bash .claude/hooks/preserve-sessions.sh`
+3. Create atomic commits (one per task): `feat($ARGUMENTS): <task title> (TN)`
+4. All completed tasks are `[~]` (ready for review) — NOT `[x]`. The `[x]` transition happens only after `/workflows:review` passes.
+5. Notify: `bash .claude/hooks/notify-phase-change.sh review-requested $ARGUMENTS`
+
+## Completion
+
+Tell the user:
+"Build complete. [N/M] tasks finished in [W] waves, [P] blocked.
+Run `/workflows:review $ARGUMENTS` for quality gate before shipping."
+```
+
+---
+
+### Phase 4b: Competitive Implementation (`/workflows:compete`)
+
+**File**: `.claude/commands/workflows/compete.md`
+
+```markdown
+---
+description: "Spawn multiple competing implementations for a task and select the best"
+---
+
+# Competitive Implementation
+
+You spawn N parallel implementations of the same task with different strategic prompts. The human (Orchestrator) selects the winner.
+
+## Input
+Read `docs/specs/$ARGUMENTS/tasks.md` and identify the target task.
+Usage: `/workflows:compete <feature> <task_id>` (e.g., `/workflows:compete auth T3`).
+Read `.claude/settings.json` for `project_os.compete` config.
+
+## Step 1: Validate
+
+1. Verify the task exists and is `[ ]` (approved) in ROADMAP.md
+2. Verify the task is NOT already `[>]` (competing) — if it is, warn and ask to restart or resume
+3. Mark task as `[>]` (competing) in ROADMAP.md
+
+## Step 2: Define approaches
+
+Default strategies (from settings `project_os.compete.strategies`):
+
+- **Literal**: "Implement exactly as specified. Follow the spec to the letter."
+- **Minimal**: "Implement with the minimum code possible. Favor simplicity over abstraction."
+- **Extensible**: "Implement with future extensibility in mind. Use clear abstractions and well-named interfaces."
+
+User can supply custom strategy prompts.
+
+## Step 3: Spawn competing agents
+
+For each approach:
+1. Create a worktree-isolated sub-agent with `isolation: worktree`
+2. Provide the same task context packet (identical to `/workflows:build`)
+3. Prepend the strategy instruction to the prompt
+4. All agents run in parallel (respecting `max_concurrent_agents`)
+
+## Step 4: Collect results
+
+Save output to `docs/specs/$ARGUMENTS/tasks/TN/compete-<strategy>.md`:
+- Files changed, tests passed/failed, lines of code added, assumptions, self-assessed complexity
+- Disqualify approaches where tests fail
+
+## Step 5: Generate comparison
+
+Create `docs/specs/$ARGUMENTS/tasks/TN/compete-comparison.md`:
+
+```markdown
+# Competitive Comparison: TN — [Task Title]
+
+## Summary Table
+| Metric | Literal | Minimal | Extensible |
+|--------|---------|---------|------------|
+| Lines added | N | N | N |
+| Files touched | N | N | N |
+| Tests passed | Y/N | Y/N | Y/N |
+| Complexity | low/med/high | ... | ... |
+
+## Recommendation
+[Which approach best fits this project's principles — cite CLAUDE.md]
+```
+
+## Step 6: Human selection
+
+Present comparison. Ask user to select: a specific approach, a hybrid, or none (rethink).
+
+## Step 7: Apply winner
+
+1. Merge the winning worktree's changes into the feature branch (NOT main — review gate required)
+2. Run full test suite after merge — if tests fail, report and do NOT proceed
+3. Clean up losing worktrees
+4. Mark task as `[~]` in ROADMAP.md
+5. Notify: `bash .claude/hooks/notify-phase-change.sh compete-complete $ARGUMENTS TN`
+
+Tell the user: "Competition complete for TN. Winner: [strategy]. Run `/workflows:review $ARGUMENTS` when ready."
+```
+
+---
+
+### Phase 4c: Competitive Review (`/workflows:compete-review`)
+
+**File**: `.claude/commands/workflows/compete-review.md`
+
+```markdown
+---
+description: "Compare and review competing implementations side-by-side"
+---
+
+# Competitive Review
+
+Review and score competing implementations generated by `/workflows:compete`.
+
+## Input
+Usage: `/workflows:compete-review <feature> <task_id>`
+Read `docs/specs/<feature>/tasks/<task_id>/compete-*.md`
+
+## Step 1: Load all approaches
+
+For each `compete-<strategy>.md` file:
+1. Read the implementation summary (primary source — persists after worktree cleanup)
+2. If the worktree is still available, read the actual diff for detailed review
+3. Note test results
+
+## Step 2: Deep comparison
+
+Spawn a reviewer sub-agent for each approach (parallel, isolated):
+
+"Evaluate [STRATEGY] on these axes:
+1. **Correctness**: Does it satisfy all acceptance criteria? (1-5)
+2. **Simplicity**: Is it the simplest solution that works? (1-5)
+3. **Robustness**: How does it handle edge cases and errors? (1-5)
+4. **Readability**: Can another developer understand it quickly? (1-5)
+5. **Testability**: Are tests thorough and maintainable? (1-5)
+6. **Convention alignment**: Does it follow CLAUDE.md patterns? (1-5)
+
+Score each axis 1-5. Provide specific code references."
+
+## Step 3: Synthesize
+
+Create a unified comparison matrix:
 
 ```
-You are a DRIFT DETECTOR. Compare what was planned vs. what was built.
-
-Read:
-1. docs/specs/$ARGUMENTS/tasks.md (the plan)
-2. `git diff main --stat` (what changed)
-
-For each task verify:
-- Were the specified files created/modified? (no extras, no missing)
-- Do changes match the spec?
-- Were any unplanned files modified?
-
-Output:
-- MATCH: [task] — implemented as planned
-- DRIFT: [task] — [what differs and why]
-- UNPLANNED: [file] — modified but not in any task spec
+                  Literal   Minimal   Extensible
+Correctness       [1-5]     [1-5]     [1-5]
+Simplicity        [1-5]     [1-5]     [1-5]
+Robustness        [1-5]     [1-5]     [1-5]
+Readability       [1-5]     [1-5]     [1-5]
+Testability       [1-5]     [1-5]     [1-5]
+Convention fit    [1-5]     [1-5]     [1-5]
+──────────────────────────────────────────────
+TOTAL             [sum]     [sum]     [sum]
 ```
 
-## Step 7: Report
+## Step 4: Recommendation
 
-Present: tasks completed, integration results, drift check, files changed.
+Recommend the approach with the best balance. Call out if any approach is clearly superior. Flag if all approaches share the same weakness (task spec issue).
 
-If clean:
-> "Build complete. Run `/workflows:review $ARGUMENTS` for adversarial review, or `/workflows:ship $ARGUMENTS` to ship."
-
-If drifts found:
-> "Build complete with [N] drifts. Review the drift report before proceeding."
+Update `docs/specs/<feature>/tasks/<task_id>/compete-comparison.md` with detailed review scores.
 ```
 
 ---
@@ -1358,7 +1585,252 @@ For `search`: Grep kv.md for the query term and return matching entries.
 
 ---
 
+### First-Run Setup (`/tools:init`)
+
+**File**: `.claude/commands/tools/init.md`
+
+```markdown
+---
+description: "First-run project setup — find blank variables, ask questions, fill them in using memory for recommendations"
+---
+
+# Project Init
+
+You are performing **first-run project initialization**. Discover every unfilled placeholder in this project, gather answers from the user, and write them in — leaving a fully configured project ready for work.
+
+## Step 1: Load memory for recommendations
+
+Check `docs/memory/project-profiles.md` for past project setups.
+Extract prior language/stack/testing/formatter choices as recommendations.
+
+## Step 2: Global CLAUDE.md merge
+
+Check if `global-CLAUDE.md` exists in the project root. If so, compare it against `~/.claude/CLAUDE.md` and offer 4 options:
+1. **Merge** — Add missing sections to existing file
+2. **Replace** — Overwrite with template
+3. **Review section-by-section** — Walk through differences
+4. **Skip** — Leave as-is
+
+If no `~/.claude/CLAUDE.md` exists, offer to copy the template.
+
+## Step 3: Scan for placeholders
+
+Search `CLAUDE.md`, `ROADMAP.md`, `docs/product.md`, `docs/tech.md`, `docs/knowledge/*.md` for `[ALL_CAPS_IN_BRACKETS]` patterns. Build a deduplicated list with all file locations.
+
+## Step 4: Ask about the project (2-3 questions at a time)
+
+- **Round 1 — Identity**: Project name, project type, one-sentence description
+- **Round 2 — Stack**: Language/runtime, framework, database, formatter, test runner (offer memory-based recommendations)
+- **Round 3 — Scope** (only if `docs/product.md` is empty): One-liner, v0.1 scope, out-of-scope items
+- **Round 4 — Feature Toggles**:
+  - **Obsidian**: Enable wikilinks + YAML frontmatter in knowledge vault? (Y/N)
+  - **Context7**: Enable live library docs MCP? (Y/N — security wrapper already configured)
+
+## Step 5: Fill all placeholders
+
+Replace every `[BRACKET]` placeholder with collected answers across all scanned files.
+Apply feature toggles: Obsidian → append conventions to CLAUDE.md; Context7 → create `.mcp.json` (Windows-aware: uses `cmd /c npx` on Windows, `npx` on Mac/Linux), append MCP section to CLAUDE.md.
+
+## Step 6: Save project profile to memory
+
+Append to `docs/memory/project-profiles.md`:
+```markdown
+## [PROJECT_NAME]
+- **Date**: [TODAY]
+- **Type**: [project type]
+- **Stack**: [PRIMARY_STACK]
+- **Formatter**: [formatter]
+- **Test runner**: [test runner]
+- **Features**: Obsidian=[yes/no], Context7=[yes/no]
+```
+
+## Step 7: Initialize git (if needed)
+
+If `.git/` doesn't exist, offer to run `git init && git add . && git commit -m "chore: initialize project"`.
+
+## Step 8: Report
+
+> **Project initialized: [PROJECT_NAME]**
+> - Placeholders filled: N across M files
+> - Features: Obsidian=[enabled/disabled], Context7=[enabled/disabled]
+> - Memory updated: `docs/memory/project-profiles.md`
+> - Git: [initialized / already exists]
+>
+> Ready to build. Start with `/pm:prd [feature]` or `/workflows:idea [feature]`.
+```
+
+---
+
+### Activity Metrics (`/tools:metrics`)
+
+**File**: `.claude/commands/tools/metrics.md`
+
+```markdown
+---
+description: "Query activity logs and feature metrics"
+---
+
+# Metrics Viewer
+
+Query the activity log and feature metrics snapshots.
+
+## Input
+- Empty: summary of all features
+- Feature name: detailed metrics for that feature
+- `--slow`: slowest tasks across all features
+- `--compare <feat1> <feat2>`: side-by-side comparison
+
+## Data Sources
+1. `.claude/logs/activity.jsonl` — event-level JSONL activity log (13 event types)
+2. `docs/knowledge/metrics.md` — feature-level metrics snapshots
+
+## Views
+
+### Summary (no arguments)
+```
+Feature Metrics Summary
+═══════════════════════════════════════════
+Feature          Tasks  Waves  Duration  Review Rate
+───────────────────────────────────────────
+auth             12     3      4 days    83%
+api-v2           8      2      2 days    100%
+```
+
+### Feature Detail (`/tools:metrics auth`)
+```
+Feature: auth
+══════════════
+Duration: 4 days (2026-02-15 → 2026-02-19)
+Tasks: 12 total, 10 done, 2 blocked
+Waves: 3 | Revisions: 1 | First-pass rate: 83%
+Compete: 2 tasks | Lines: +450 / -120
+
+Timeline:
+  2026-02-15 10:00  plan-approved
+  2026-02-15 10:05  task-spawned T1, T2, T3 (wave 1)
+  ...
+```
+
+### Slow Tasks (`/tools:metrics --slow`)
+Compute duration per task (spawned → completed), show top 10.
+
+### Compare (`/tools:metrics --compare auth api-v2`)
+Side-by-side comparison on all metric dimensions.
+
+## Activity Log Format
+```json
+{"timestamp": "2026-02-15T10:00:00Z", "event": "task-spawned", "metadata": {"feature": "auth", "task_id": "T1"}}
+```
+
+If the activity log doesn't exist yet, fall back to `docs/knowledge/metrics.md` only.
+```
+
+---
+
+### Cross-Project Dashboard (`/tools:dashboard`)
+
+**File**: `.claude/commands/tools/dashboard.md`
+
+```markdown
+---
+description: "Cross-project dashboard — see status of all Project OS projects"
+---
+
+# Project Dashboard
+
+Show the status of all Project OS projects from a single view.
+
+## Configuration
+Read `.claude/settings.json` → `project_os.dashboard.projects_root`. Default: `~/projects`.
+
+## Execution
+Run `bash scripts/dashboard.sh [projects_root]` to scan and display.
+
+## Display
+
+```
+Project OS Dashboard
+═══════════════════════════════════════════════════════════════
+Project          Branch          Todo  WIP  Review  Done  Blocked
+───────────────────────────────────────────────────────────────
+my-app           feature/auth    3     2    1       8     0
+api-service      master          0     0    0       15    0
+───────────────────────────────────────────────────────────────
+Totals                           8     3    1       26    2
+Active worktrees: 3
+Last activity: 2026-02-23 14:30 (my-app)
+```
+
+If `$ARGUMENTS` is a specific project name, show expanded detail: full task list, active worktrees, recent activity log entries (last 10).
+```
+
+---
+
 ## Product Management Commands
+
+### Governance Gate (`/pm:approve`)
+
+**File**: `.claude/commands/pm/approve.md`
+
+```markdown
+---
+description: "Governance gate: promote draft tasks [?] to approved todo [ ] status"
+---
+
+# Approval Gate
+
+You are the governance gatekeeper. This command promotes draft tasks to approved status, ensuring no work begins without explicit human sign-off.
+
+## Input
+Read ROADMAP.md and find all `[?]` (draft) tasks for the feature `$ARGUMENTS`.
+If no feature name given, show ALL draft tasks across all features.
+
+## Step 1: Display draft tasks
+
+Show the user a summary of pending drafts:
+
+```
+Feature: $ARGUMENTS
+
+Draft Tasks Pending Approval:
+  [?] Task description #T1
+  [?] Task description (depends: #T1) #T2
+
+Dependency Tree:
+  #T1
+  └── #T2
+
+Total: N drafts
+```
+
+## Step 2: Ask for approval
+
+Options:
+1. **Approve all** — promote all `[?]` to `[ ]` for this feature
+2. **Approve selected** — promote only specified task IDs
+3. **Reject** — leave all as `[?]` (user should revisit the plan)
+
+## Step 3: Promote approved tasks
+
+For each approved task:
+1. Verify dependency consistency: a task should not become `[ ]` if any dependency is still `[?]`
+   - If so, block and tell the user: "Cannot approve #TN — depends on #TM which is still in draft. Approve #TM first."
+   - Exception: when approving both task and dependency in the same batch, promote in dependency order
+2. Validate that the task IDs exist in ROADMAP.md — reject unknown IDs with an error
+3. Change `[?]` to `[ ]` in ROADMAP.md for each validated task
+
+## Step 4: Validate
+
+Run `bash scripts/validate-roadmap.sh` to confirm no inconsistencies.
+
+## Step 5: Report
+
+"Approved [N] task(s) for feature '$ARGUMENTS'.
+[M] task(s) are now unblocked and ready for `/workflows:build $ARGUMENTS`.
+[P] task(s) remain in draft."
+```
+
+---
 
 ### PRD Creation (`/pm:prd`)
 
@@ -1530,11 +2002,22 @@ Present:
 
 ## Sub-Agent Definitions
 
+All agent `.md` files carry YAML frontmatter declaring their `isolation` mode, `role`, and `permissions`. Permissions are **advisory** in v2 — agents self-enforce based on frontmatter. Hard enforcement is planned for v2.1+.
+
 ### Implementer Agent
 
 **File**: `.claude/agents/implementer.md`
 
 ```markdown
+---
+isolation: worktree
+role: Developer
+permissions:
+  read: [specs, knowledge, task-description]
+  write: [code, tests, docs, completion-report]
+  phases: [Build]
+---
+
 # Implementer Agent
 
 You are a focused implementation agent. You receive a single task and execute it precisely.
@@ -1557,9 +2040,18 @@ Report: DONE (with test results) or BLOCKED (with specific blocker description)
 **File**: `.claude/agents/reviewer-security.md`
 
 ```markdown
+---
+isolation: worktree
+role: Reviewer
+permissions:
+  read: [all]
+  write: [review-reports]
+  phases: [Review]
+---
+
 # Security Reviewer Agent
 
-You review code for security vulnerabilities. You are thorough but honest — do not fabricate findings to appear diligent.
+You review code for security vulnerabilities. Be thorough but honest — do not fabricate findings.
 
 ## Checklist
 - Input validation (injection, XSS, path traversal)
@@ -1582,9 +2074,18 @@ If nothing found: "No security issues identified."
 **File**: `.claude/agents/reviewer-architecture.md`
 
 ```markdown
+---
+isolation: worktree
+role: Reviewer
+permissions:
+  read: [all]
+  write: [review-reports]
+  phases: [Review]
+---
+
 # Architecture Reviewer Agent
 
-You verify that implementation matches the design specification and follows established project patterns.
+You verify implementation matches the design and follows project patterns.
 
 ## Inputs
 - Design document (provided)
@@ -1595,8 +2096,8 @@ You verify that implementation matches the design specification and follows esta
 - Design drift: implementation vs. spec deviations
 - Pattern violations: code contradicts established conventions
 - Decision contradictions: changes conflict with prior ADRs
-- Unnecessary complexity: over-engineering for the stated requirements
-- Missing error handling: unhandled failure modes from the design
+- Unnecessary complexity: over-engineering for stated requirements
+- Missing error handling: unhandled failure modes from design
 - Naming consistency with CLAUDE.md conventions
 
 ## Output Format
@@ -1608,21 +2109,103 @@ For each finding: TYPE / FILE:LINES / ISSUE / DESIGN REF / RECOMMENDATION
 **File**: `.claude/agents/reviewer-tests.md`
 
 ```markdown
+---
+isolation: worktree
+role: Reviewer
+permissions:
+  read: [all]
+  write: [review-reports]
+  phases: [Review]
+---
+
 # Test Reviewer Agent
 
-You audit test quality and identify gaps in test coverage.
+You audit test quality and identify coverage gaps.
 
 ## Checks
 - Untested functions/branches
 - Happy-path-only tests (no error paths)
-- Missing edge cases: null, empty, boundary, overflow, concurrent access
+- Missing edge cases: null, empty, boundary, overflow, concurrent
 - Test independence: shared state, execution order dependencies
 - Assertion specificity: vague assertions like `assert result`
-- Flaky indicators: timing-dependent, unseceded randomness
+- Flaky indicators: timing-dependent, unseeded randomness
 
 ## Output Format
 For each finding: TYPE / FILES / ISSUE / SUGGESTED TEST (setup → action → assertion)
 ```
+
+---
+
+## Roles
+
+**File**: `.claude/agents/roles.md`
+
+Roles define what each agent type can do. Permissions are **advisory** in v2 — agents self-enforce based on their frontmatter. Hard enforcement planned for v2.1+.
+
+```
+             Read                  Write              Phases
+Architect    all                   specs/knowledge    Idea, Design
+Developer    specs/knowledge/src   code/tests/docs    Build
+Reviewer     all                   review-reports     Review
+Orchestrator all                   all                all
+```
+
+| Role | Agents | Responsibility |
+|------|--------|----------------|
+| **Architect** | researcher | Investigate, design, document decisions. Never write implementation code. |
+| **Developer** | implementer, documenter | Implement exactly what the spec says. Stay within task scope. |
+| **Reviewer** | reviewer-architecture, reviewer-security, reviewer-tests | Evaluate quality, security, alignment. Never modify source code. |
+| **Orchestrator** | human (via Claude Code CLI) | Coordinate workflow, approve drafts, resolve conflicts, make final decisions. |
+
+---
+
+## Agent Adapters
+
+**Interface spec**: `.claude/agents/adapters/INTERFACE.md`
+
+Adapters provide a uniform 3-command contract for dispatching tasks to different AI coding agents. The orchestrator calls the same interface regardless of which agent runs the task.
+
+### Commands
+
+| Command | Description | Exit Code |
+|---------|-------------|-----------|
+| `info` | Print adapter metadata as JSON | 0 |
+| `health` | Check if the agent CLI is available | 0=available, 1=unavailable |
+| `execute <context_dir> <output_dir>` | Run a task given context directory | 0=success, 1=failure |
+
+### Execute Protocol
+
+**Input** (`context_dir/`):
+- `task.md` — task description and acceptance criteria
+- `conventions.md` — project conventions (from CLAUDE.md)
+- `design.md` — relevant design section
+- `files/` — read-only reference copies of files the task will modify
+
+**Output** (`output_dir/`):
+- `completion-report.md` — what was done, files changed, assumptions
+- `result` — exit status: `pass` or `fail`
+- `test-output.txt` — test run output (if applicable)
+- `files/` — modified/created files to apply back
+
+**Environment variables**: `ADAPTER_TASK_ID`, `ADAPTER_FEATURE`, `ADAPTER_MAX_TURNS`, `ADAPTER_MODEL`
+
+### Adapter Resolution Order
+
+1. Task annotation: `(agent: codex)` in ROADMAP.md → use that adapter
+2. Settings default: `.claude/settings.json` → `project_os.adapters.default`
+3. Fallback: `claude-code` adapter
+
+### Available Adapters (v2)
+
+| Adapter | File | Status |
+|---------|------|--------|
+| `claude-code` | `.claude/agents/adapters/claude-code.sh` | Functional (default) |
+| `codex` | `.claude/agents/adapters/codex.sh` | Stub (v2.1+) |
+| `gemini` | `.claude/agents/adapters/gemini.sh` | Stub (v2.1+) |
+| `aider` | `.claude/agents/adapters/aider.sh` | Stub (v2.1+) |
+| `amp` | `.claude/agents/adapters/amp.sh` | Stub (v2.1+) |
+
+> **v2 limitation**: Only `claude-code` is functional. Stub adapters exit 1 with "not yet implemented"; tasks fall back to `claude-code`. Hard multi-agent dispatch planned for v2.1+.
 
 ---
 
@@ -1770,29 +2353,74 @@ description: "Rules applied when working with API code"
 
 ## Hooks
 
-### Post-Tool-Use Hook
+Eight hooks provide automation, logging, and security across the workflow. All hooks live in `.claude/hooks/` and are wired via `settings.json`.
 
-**File**: `.claude/hooks/post-tool-use.sh`
+### `post-tool-use.sh`
+
+**Trigger**: `PostToolUse` on `Write|Edit|MultiEdit`
+
+Auto-formats files after edits and scrubs secrets. Resolves symlinks via `realpath`/`readlink -f` before operating to prevent path traversal. Delegates formatting to Prettier (TS/JS/JSON) or Black (Python) if installed; silently skips if formatter is absent. Calls `scrub-secrets.sh` after formatting.
+
+### `post-write-session.sh`
+
+**Trigger**: `PostToolUse` on `Write|Edit|MultiEdit`
+
+Saves a lightweight session state file to `.claude/sessions/` after every write. Ensures session context is never lost on context compaction or crash. Uses the same symlink-resolved path as `post-tool-use.sh`.
+
+### `post-mcp-validate.sh`
+
+**Trigger**: `PostToolUse` on `mcp__context7__.*`
+
+Validates Context7 MCP output before it enters the context window. Parses the JSON payload from stdin via `jq`. Checks: (1) response size ≤ 50KB — warns if exceeded, (2) hard-block on `<script>` / `javascript:` injection patterns, (3) advisory warning on code heuristics (`eval(`, `subprocess`, `__proto__`, `constructor[`). Requires `jq`; warns and exits 1 if missing.
+
+### `log-activity.sh`
+
+**Trigger**: Called directly by workflow commands (not wired in `settings.json`)
+
+Appends JSONL events to `.claude/logs/activity.jsonl`. Supports 13 event types:
+
+```
+task-spawned   task-completed   task-failed   review-started    review-passed
+review-failed  revision-started compete-spawned compete-selected  pr-created
+feature-shipped plan-approved   session-preserved
+```
+
+Uses `flock` for concurrent-safe writes when available. Detects current worktree from git. All key/value metadata is JSON-escaped before writing.
 
 ```bash
-#!/bin/bash
-# Auto-format files after Claude edits them
-# Configure this for your project's formatter
-
-FILE="$1"
-
-case "$FILE" in
-  *.ts|*.tsx|*.js|*.jsx)
-    npx prettier --write "$FILE" 2>/dev/null
-    ;;
-  *.py)
-    python -m black "$FILE" 2>/dev/null
-    ;;
-  *.json)
-    npx prettier --write "$FILE" 2>/dev/null
-    ;;
-esac
+# Usage
+bash .claude/hooks/log-activity.sh task-spawned feature=auth task_id=T3 agent=implementer
 ```
+
+### `notify-phase-change.sh`
+
+**Trigger**: Called directly by workflow commands
+
+Emits terminal output and OS-level desktop notifications on phase transitions. Supports 6 event types: `task-unblocked`, `review-requested`, `review-failed`, `approval-needed`, `compete-complete`, `feature-complete`. Cross-platform: `notify-send` (Linux), `osascript` via env var (macOS), `powershell.exe` via env var (Windows). Message is sanitized before OS dispatch to strip control chars and injection sequences.
+
+```bash
+# Usage
+bash .claude/hooks/notify-phase-change.sh review-requested auth
+bash .claude/hooks/notify-phase-change.sh review-failed auth T3
+```
+
+### `preserve-sessions.sh`
+
+**Trigger**: Called before worktree cleanup (or manually)
+
+Copies `.yml`/`.yaml`/`.md` session files from worktrees to the project root `.claude/sessions/` before cleanup. Prevents session loss on worktree removal (Claude Code worktree bug). Validates that all paths are under `.claude/worktrees/`; rejects symlinks and filenames containing `..`.
+
+### `tool-failure-log.sh`
+
+**Trigger**: `PostToolUse` on `.*` (all tools)
+
+Logs tool failures to `.claude/logs/tool-failures.jsonl` for debugging. Only writes on non-zero exit codes. Useful for diagnosing flaky hook chains or permission errors.
+
+### `compact-suggest.sh`
+
+**Trigger**: `PostToolUse` on `.*` (all tools)
+
+Monitors context window usage and emits a `/compact` suggestion to stderr when usage exceeds a configured threshold (default: 70%). Helps maintain lean context across long sessions without requiring manual monitoring.
 
 ---
 
@@ -1944,63 +2572,98 @@ grep -rn -i --color=always "$QUERY" "docs/specs/" 2>/dev/null || echo "No matche
 **File**: `scripts/new-project.sh`
 
 ```bash
-#!/bin/bash
-# Bootstrap a new project with the full Project OS structure
+#!/usr/bin/env bash
+# Bootstrap a new project with the Project OS structure
 # Usage: ./scripts/new-project.sh <project-name> <project-path>
 
-PROJECT_NAME="$1"
-PROJECT_PATH="$2"
+set -euo pipefail
+
+PROJECT_NAME="${1:-}"
+PROJECT_PATH="${2:-}"
 
 if [ -z "$PROJECT_NAME" ] || [ -z "$PROJECT_PATH" ]; then
-  echo "Usage: new-project.sh <project-name> <project-path>"
+  echo "Usage: new-project.sh <project-name> <project-path>" >&2
   exit 1
+fi
+
+# Reject path traversal and leading-dash values
+if [[ "$PROJECT_PATH" == -* ]]; then
+    echo "ERROR: PROJECT_PATH must not start with '-'." >&2; exit 1
+fi
+if [[ "$PROJECT_PATH" =~ \.\. ]]; then
+    echo "ERROR: PROJECT_PATH must not contain '..'." >&2; exit 1
+fi
+if [[ "$PROJECT_NAME" =~ \.\. ]] || [[ "$PROJECT_NAME" =~ [/\\] ]] || \
+   [[ ! "$PROJECT_NAME" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+    echo "ERROR: Invalid project name '${PROJECT_NAME}'." >&2; exit 1
 fi
 
 echo "Creating project: $PROJECT_NAME at $PROJECT_PATH"
 
-# Create directory structure
-mkdir -p "$PROJECT_PATH"/{.claude/{commands/{workflows,tools,pm},agents,skills/{spec-driven-dev,tdd-workflow,session-management},knowledge,sessions,specs,rules,hooks,security},docs/research,scripts,src}
-
-# Copy template files (assumes this script lives in an existing project-os repo)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE_DIR="$(dirname "$SCRIPT_DIR")"
 
-# Copy all .claude/ contents
-cp -r "$TEMPLATE_DIR/.claude/commands" "$PROJECT_PATH/.claude/"
-cp -r "$TEMPLATE_DIR/.claude/agents" "$PROJECT_PATH/.claude/"
-cp -r "$TEMPLATE_DIR/.claude/skills" "$PROJECT_PATH/.claude/"
-cp -r "$TEMPLATE_DIR/.claude/rules" "$PROJECT_PATH/.claude/"
-cp -r "$TEMPLATE_DIR/.claude/hooks" "$PROJECT_PATH/.claude/"
-cp -r "$TEMPLATE_DIR/.claude/security" "$PROJECT_PATH/.claude/"
-cp "$TEMPLATE_DIR/.claude/settings.json" "$PROJECT_PATH/.claude/"
+mkdir -p "$PROJECT_PATH"/{.claude/{commands/{workflows,tools,pm},agents,\
+skills/{spec-driven-dev,tdd-workflow,session-management},sessions,rules,\
+hooks,security},docs/{prd,research,knowledge,specs,memory},scripts,src}
 
-# Copy and customize CLAUDE.md
-sed "s/\[PROJECT_NAME\]/$PROJECT_NAME/g" "$TEMPLATE_DIR/CLAUDE.md" > "$PROJECT_PATH/CLAUDE.md"
-cp "$TEMPLATE_DIR/ROADMAP.md" "$PROJECT_PATH/"
+cp -r "$TEMPLATE_DIR/.obsidian"             "$PROJECT_PATH/" 2>/dev/null || true
+cp -r "$TEMPLATE_DIR/.claude/commands"      "$PROJECT_PATH/.claude/"
+cp -r "$TEMPLATE_DIR/.claude/agents"        "$PROJECT_PATH/.claude/"
+cp -r "$TEMPLATE_DIR/.claude/skills"        "$PROJECT_PATH/.claude/"
+cp -r "$TEMPLATE_DIR/.claude/rules"         "$PROJECT_PATH/.claude/"
+cp -r "$TEMPLATE_DIR/.claude/hooks"         "$PROJECT_PATH/.claude/"
+cp -r "$TEMPLATE_DIR/.claude/security"      "$PROJECT_PATH/.claude/"
+cp    "$TEMPLATE_DIR/.claude/settings.json" "$PROJECT_PATH/.claude/"
 
-# Initialize knowledge files
-for f in decisions.md patterns.md bugs.md architecture.md; do
+sed "s/\[PROJECT_NAME\]/$PROJECT_NAME/g" \
+    "$TEMPLATE_DIR/CLAUDE.template.md" > "$PROJECT_PATH/CLAUDE.md"
+cp "$TEMPLATE_DIR/ROADMAP.md"        "$PROJECT_PATH/"
+cp "$TEMPLATE_DIR/global-CLAUDE.md"  "$PROJECT_PATH/"
+
+for f in decisions.md patterns.md bugs.md architecture.md kv.md metrics.md; do
   cp "$TEMPLATE_DIR/docs/knowledge/$f" "$PROJECT_PATH/docs/knowledge/"
 done
 
-# Copy scripts
-cp "$TEMPLATE_DIR/scripts/memory-search.sh" "$PROJECT_PATH/scripts/"
-chmod +x "$PROJECT_PATH/scripts/"*.sh
+touch "$PROJECT_PATH/docs/specs/.gitkeep"
+touch "$PROJECT_PATH/docs/memory/.gitkeep"
 
-# Initialize git
+for script in memory-search.sh audit-context.sh scrub-secrets.sh \
+              validate-roadmap.sh unblocked-tasks.sh create-pr.sh dashboard.sh; do
+  cp "$TEMPLATE_DIR/scripts/$script" "$PROJECT_PATH/scripts/"
+done
+chmod +x "$PROJECT_PATH/scripts/"*.sh
+chmod +x "$PROJECT_PATH/.claude/hooks/"*.sh 2>/dev/null
+chmod +x "$PROJECT_PATH/.claude/security/"*.sh 2>/dev/null
+
 cd "$PROJECT_PATH"
+cat > .gitignore << 'GI'
+CLAUDE.local.md
+.claude/sessions/
+.claude/logs/
+.claude/settings.local.json
+node_modules/
+.env
+.env.*
+docs/research/
+docs/specs/*
+!docs/specs/.gitkeep
+docs/memory/*
+!docs/memory/.gitkeep
+dist/
+build/
+GI
+
 git init
-echo "CLAUDE.local.md" >> .gitignore
-echo ".claude/sessions/" >> .gitignore
 git add .
 git commit -m "chore: initialize project with Project OS scaffold"
 
 echo ""
-echo "✅ Project '$PROJECT_NAME' initialized at $PROJECT_PATH"
+echo "Project '$PROJECT_NAME' initialized at $PROJECT_PATH"
 echo ""
 echo "Next steps:"
-echo "  cd $PROJECT_PATH"
-echo "  claude"
+echo "  cd $PROJECT_PATH && claude"
+echo "  /tools:init               # Fill in project variables (run this first)"
 echo "  /pm:prd [feature-name]    # Start with product thinking"
 echo "  /workflows:idea [name]    # Or jump into a feature spec"
 ```
@@ -2057,6 +2720,107 @@ PCT=$(echo "scale=2; $TOTAL_TOKENS * 100 / 200000" | bc 2>/dev/null || echo "?")
 echo "=== TOTAL always-loaded context: ~${TOTAL_TOKENS} tokens (${PCT}% of 200K window) ==="
 ```
 
+### Unblocked Tasks
+
+**File**: `scripts/unblocked-tasks.sh`
+
+Parses `ROADMAP.md` and outputs a JSON array of all tasks that are ready to run: status `[ ]` (Todo) with all dependencies in `[x]` (Done).
+
+```bash
+# Usage
+bash scripts/unblocked-tasks.sh                    # all unblocked tasks
+bash scripts/unblocked-tasks.sh --agent codex      # filter by agent annotation
+bash scripts/unblocked-tasks.sh path/to/ROADMAP.md # alternate roadmap path
+
+# Output (JSON array)
+[
+  {"id": "T3", "title": "Add rate limiting", "agent": "claude-code",
+   "deps": ["T1", "T2"]},
+  ...
+]
+```
+
+Used by `/workflows:build` to compute dependency waves. Tasks with no `(agent: ...)` annotation default to `claude-code`.
+
+### Validate Roadmap
+
+**File**: `scripts/validate-roadmap.sh`
+
+Validates `ROADMAP.md` structure and catches consistency errors before they propagate into build waves.
+
+**Checks performed:**
+1. All task IDs are unique (no duplicates)
+2. All `(depends: #TN)` references point to existing task IDs
+3. No dependency cycles (DFS-based cycle detection)
+4. State consistency (e.g., a `[ ]` task cannot depend on a `[!]` blocked task)
+5. Orphan detection (tasks whose dependencies have all been removed)
+
+```bash
+# Usage
+bash scripts/validate-roadmap.sh              # validates ROADMAP.md
+bash scripts/validate-roadmap.sh path/to/ROADMAP.md
+
+# Exit: 0 if valid, 1 if errors found (with details on stderr)
+```
+
+Run automatically by `/workflows:plan` (after task creation) and `/pm:approve` (before promotion).
+
+### Dashboard
+
+**File**: `scripts/dashboard.sh`
+
+Scans all Project OS projects on the filesystem and prints a cross-project status table.
+
+```bash
+# Usage
+bash scripts/dashboard.sh [root_dir]   # default: $HOME
+
+# Output (ASCII table)
+PROJECT          BRANCH   TODO  WIP  REVIEW  DONE  BLOCKED
+auth-service     main       3    1      0      12      0
+billing-api      feature    1    2      1       5      1
+...
+```
+
+The `root_dir` is searched recursively for directories containing both `ROADMAP.md` and `.claude/`. Uses `git branch --show-current` with detached-HEAD detection (`${branch:-detached}`). Invoked by `/tools:dashboard`.
+
+### Create PR
+
+**File**: `scripts/create-pr.sh`
+
+Generates a pull request with an AI-assisted description assembled from: the feature spec (`docs/specs/<feature>/design.md`), the latest review report, and the commit history (`git log --oneline`).
+
+```bash
+# Usage
+bash scripts/create-pr.sh <feature_name> [base_branch]
+
+# Requires: gh CLI authenticated
+# Validates: feature_name (alphanumeric, dots, hyphens, underscores only)
+# Auto-detects base branch (main → master → error)
+```
+
+Invoked by `/workflows:ship` as the final step before PR creation.
+
+### Scrub Secrets
+
+**File**: `scripts/scrub-secrets.sh`
+
+Scrubs known secret patterns from a file in-place. Called by `post-tool-use.sh` after every write.
+
+**Pattern families covered:**
+- OpenAI: `sk-proj-*`, `sk-*`
+- Anthropic: `sk-ant-*`
+- GitHub: `ghp_*`, `gho_*`, `ghu_*`, `ghs_*`, `ghr_*`, `github_pat_*`
+- AWS: `AKIA*` (long-term), `ASIA*` (STS temporary)
+- Stripe: `sk_live_*`, `rk_live_*`
+- Perplexity, HuggingFace, Replicate, generic bearer tokens
+
+```bash
+# Usage
+bash scripts/scrub-secrets.sh <filepath>
+# Prints count of secrets redacted to stderr
+```
+
 ---
 
 ## Context Optimization Techniques
@@ -2097,15 +2861,23 @@ The `.claude/` directory IS the cross-agent shared memory. Both Claude Code and 
 
 ## Implementation Order
 
-Don't build everything at once. Highest-leverage sequence:
+Don't build everything at once. Highest-leverage sequence for bootstrapping a new project from the v2 template:
 
-**Week 1 — Foundation**: Create the directory structure, CLAUDE.md, settings.json, ROADMAP.md. Implement `/tools:handoff` and `/tools:catchup`. Start using session continuity immediately. This alone eliminates the "starting from scratch" problem.
+**Week 1 — Foundation**: Clone the template repo. Run `scripts/new-project.sh` to bootstrap the structure. Open the new project in Claude Code and run `/tools:init` to fill in placeholders and configure feature toggles (Obsidian, Context7, Windows). Start using `/tools:handoff` and `/tools:catchup` immediately. This alone eliminates the "starting from scratch" problem.
 
-**Week 2 — Workflow Pipeline**: Implement the six workflow commands (`/workflows:idea` through `/workflows:ship`). Start using the spec-driven approach for every new feature. The pipeline prevents the most expensive failure: building the wrong thing.
+**Week 2 — Workflow Pipeline (Core)**: Use `/workflows:idea` → `/workflows:design` → `/workflows:plan` → `/pm:approve` → `/workflows:build` for your first real feature. Learn the rhythm. The pipeline catches 80% of mistakes before they become code.
 
-**Week 3 — Quality & PM**: Add the adversarial review agents, contextual rules, and hooks. Implement `/pm:prd`, `/pm:epic`, `/pm:status`. Set up the knowledge compounding habit.
+**Week 3 — Quality Gates**: Enable `/workflows:review` (three adversarial reviewers: security, architecture, tests). Add contextual rules (`.claude/rules/`). Set up `post-tool-use.sh` formatting hook for your stack (Prettier, Black). Start running `scripts/audit-context.sh` to track context weight.
 
-**Week 4 — Optimize**: Run `scripts/audit-context.sh` and trim. Implement utility scripts. Add the security wrapper if using Context7. Start the new-project bootstrap for future projects.
+**Week 4 — PM & Governance**: Implement the product management layer: `/pm:prd`, `/pm:epic`, `/pm:status`. Start using `[?]` draft tasks and `/pm:approve` as your governance gate. Never let unapproved work enter the build queue.
+
+**Week 5 — Parallel Builds**: Enable wave-based parallel builds in `settings.json` (`project_os.parallel.enabled: true`). Set `max_concurrent_agents` based on your machine's capacity. Run `scripts/validate-roadmap.sh` before every build to catch dependency errors early.
+
+**Week 6 — Observability**: Enable activity logging (`log-activity.sh`). Use `/tools:metrics` to view feature velocity, slow tasks, and agent performance. Set up `notify-phase-change.sh` for desktop notifications. Run `/tools:dashboard` to see cross-project status.
+
+**Week 7 — Competitive Flows**: Try `/workflows:compete` on a task where you're unsure of the right approach. Use `/workflows:compete-review` to score implementations on 6 axes. Reserve this for genuinely ambiguous architectural decisions — it's expensive.
+
+**Week 8 — Ship & Bootstrap**: Use `/workflows:ship` for your first full PR with auto-generated description. Run `scripts/scrub-secrets.sh` as a final check. Bootstrap your second project with `scripts/new-project.sh` — the muscle memory from project 1 makes project 2 much faster.
 
 ---
 
