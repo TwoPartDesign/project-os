@@ -42,11 +42,13 @@ Never skip from idea to build. The design phase catches 80% of mistakes.
 - **Adversarial review**: Primary model with isolated context
 - **Agent adapters**: Tasks can route to non-Claude agents via `(agent: <name>)`
 
-## Roles (Advisory)
+## Roles (Advisory — v2)
 - **Architect**: Design authority — reads all, writes specs/knowledge
 - **Developer**: Implementation — reads specs, writes code/tests/docs
 - **Reviewer**: Quality gates — reads all, writes review reports
 - **Orchestrator**: Human — all permissions, all phases
+
+Role permissions are **advisory only** in v2 — agents self-enforce based on frontmatter. Hard enforcement is planned for v2.1.
 
 ## Memory System
 - Session state: `.claude/sessions/` (structured YAML handoffs)

@@ -6,7 +6,23 @@
 
 set -euo pipefail
 
-PROJECTS_ROOT="${1:-$HOME/projects}"
+# Read projects_root from settings.json if available, else use default
+SETTINGS_FILE=".claude/settings.json"
+DEFAULT_ROOT="$HOME/projects"
+
+if [ -n "${1:-}" ]; then
+    PROJECTS_ROOT="$1"
+elif [ -f "$SETTINGS_FILE" ] && command -v jq &>/dev/null; then
+    config_root="$(jq -r '.project_os.dashboard.projects_root // empty' "$SETTINGS_FILE" 2>/dev/null || echo "")"
+    if [ -n "$config_root" ]; then
+        # Expand ~ to $HOME
+        PROJECTS_ROOT="${config_root/#\~/$HOME}"
+    else
+        PROJECTS_ROOT="$DEFAULT_ROOT"
+    fi
+else
+    PROJECTS_ROOT="$DEFAULT_ROOT"
+fi
 
 if [ ! -d "$PROJECTS_ROOT" ]; then
     echo "Projects directory not found: $PROJECTS_ROOT" >&2

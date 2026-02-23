@@ -21,6 +21,10 @@ ROADMAP="ROADMAP.md"
 while [ $# -gt 0 ]; do
     case "$1" in
         --agent)
+            if [ $# -lt 2 ]; then
+                echo "Error: --agent requires a value" >&2
+                exit 1
+            fi
             FILTER_AGENT="$2"
             shift 2
             ;;
@@ -36,10 +40,24 @@ if [ ! -f "$ROADMAP" ]; then
     exit 1
 fi
 
+# Valid markers
+VALID_MARKERS="? -~>x! "
+
 # Regex patterns stored in variables (avoids bash ERE parsing issues)
-re_task='^[[:space:]]*-[[:space:]]\[(.)\][[:space:]](.+)#T([0-9]+)[[:space:]]*$'
+re_task='^[[:space:]]*-[[:space:]]\[(.)][[:space:]](.+)#T([0-9]+)[[:space:]]*$'
 re_deps='depends:[[:space:]]*([^)]+)'
 re_agent='agent:[[:space:]]*([^)]+)'
+
+# JSON-escape a string (handles backslash, double-quote, control chars)
+json_escape() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
+}
 
 # Pass 1: Build a map of task_id -> status
 declare -A task_status
@@ -48,6 +66,18 @@ while IFS= read -r line; do
     if [[ "$line" =~ $re_task ]]; then
         marker="${BASH_REMATCH[1]}"
         task_id="${BASH_REMATCH[3]}"
+
+        # Warn on unrecognized markers
+        if [[ "$VALID_MARKERS" != *"$marker"* ]]; then
+            echo "Warning: Unrecognized marker [$marker] on task #T${task_id}" >&2
+        fi
+
+        # Warn on duplicate IDs (first wins)
+        if [ -n "${task_status[$task_id]:-}" ]; then
+            echo "Warning: Duplicate task ID #T${task_id} — using first occurrence" >&2
+            continue
+        fi
+
         task_status["$task_id"]="$marker"
     fi
 done < "$ROADMAP"
@@ -122,11 +152,11 @@ while IFS= read -r line; do
 
         printf '  {"id": "#T%s", "description": "%s", "depends": [%s]' \
             "$task_id" \
-            "$(echo "$description" | sed 's/"/\\"/g')" \
+            "$(json_escape "$description")" \
             "$dep_list"
 
         if [ -n "$agent" ]; then
-            printf ', "agent": "%s"' "$agent"
+            printf ', "agent": "%s"' "$(json_escape "$agent")"
         fi
 
         printf '}'

@@ -27,6 +27,17 @@ if [ -z "$EVENT" ]; then
     exit 1
 fi
 
+# JSON-escape a string (handles backslash, double-quote, control chars)
+json_escape() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
+}
+
 # Build JSON metadata from key=value pairs
 metadata="{"
 first=true
@@ -35,8 +46,9 @@ for arg in "$@"; do
     value="${arg#*=}"
     # Sanitize: only allow alphanumeric, underscore, hyphen in keys
     key="$(echo "$key" | sed 's/[^a-zA-Z0-9_-]//g')"
-    # Escape quotes in value
-    value="$(echo "$value" | sed 's/"/\\"/g')"
+    [ -z "$key" ] && continue
+    # Properly escape value for JSON
+    value="$(json_escape "$value")"
     if [ "$first" = true ]; then
         first=false
     else
@@ -57,11 +69,11 @@ if git rev-parse --is-inside-work-tree &>/dev/null; then
     fi
 fi
 
-# Build the log entry
-entry="{\"timestamp\": \"${TIMESTAMP}\", \"event\": \"${EVENT}\""
+# Build the log entry (escape all interpolated values)
+entry="{\"timestamp\": \"${TIMESTAMP}\", \"event\": \"$(json_escape "$EVENT")\""
 
 if [ -n "$WORKTREE" ]; then
-    entry="${entry}, \"worktree\": \"${WORKTREE}\""
+    entry="${entry}, \"worktree\": \"$(json_escape "$WORKTREE")\""
 fi
 
 if [ "$metadata" != "{}" ]; then
@@ -70,5 +82,14 @@ fi
 
 entry="${entry}}"
 
-# Append atomically
-echo "$entry" >> "$LOG_FILE"
+# Append with file locking to handle concurrent writers
+# Use flock if available, otherwise fall back to simple append
+LOCK_FILE="${LOG_FILE}.lock"
+if command -v flock &>/dev/null; then
+    (
+        flock -w 5 200 || { echo "$entry" >> "$LOG_FILE"; exit 0; }
+        echo "$entry" >> "$LOG_FILE"
+    ) 200>"$LOCK_FILE"
+else
+    echo "$entry" >> "$LOG_FILE"
+fi

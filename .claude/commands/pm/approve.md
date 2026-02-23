@@ -40,10 +40,11 @@ Ask the user which tasks to approve. Options:
 ## Step 3: Promote approved tasks
 
 For each approved task:
-1. Change `[?]` to `[ ]` in ROADMAP.md
-2. Verify dependency consistency: a `[ ]` task should not depend on a `[?]` task
-   - If it does, warn the user: "Warning: #TN depends on #TM which is still in draft"
-   - Suggest approving the dependency first
+1. Verify dependency consistency BEFORE promoting: a task should not become `[ ]` if any dependency is still `[?]`
+   - If it does, **block the promotion** and tell the user: "Cannot approve #TN — depends on #TM which is still in draft. Approve #TM first."
+   - Exception: if the user is approving both the task and its dependency in the same batch, promote in dependency order (deps first)
+2. Validate that the specified task IDs actually exist in ROADMAP.md — reject unknown IDs with an error
+3. Change `[?]` to `[ ]` in ROADMAP.md for each validated task
 
 ## Step 4: Validate
 

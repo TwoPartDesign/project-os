@@ -13,8 +13,8 @@ The user specifies: `/workflows:compete-review <feature> <task_id>`
 ## Step 1: Load all approaches
 
 For each `compete-<strategy>.md` file:
-1. Read the implementation summary
-2. Read the actual diff from the corresponding worktree (if still available)
+1. Read the implementation summary (this is the primary source of truth — it persists after worktree cleanup)
+2. If the corresponding worktree is still available, read the actual diff for detailed code review. If not, rely on the summary and any saved diffs in the completion report.
 3. Note test results
 
 ## Step 2: Deep comparison

@@ -21,6 +21,9 @@ if [ ! -f "$ROADMAP" ]; then
     exit 1
 fi
 
+# Valid markers
+VALID_MARKERS="? -~>x! "
+
 # Regex patterns stored in variables (avoids bash ERE parsing issues)
 re_task='^[[:space:]]*-[[:space:]]\[(.)\][[:space:]](.+)#T([0-9]+)[[:space:]]*$'
 re_deps='depends:[[:space:]]*([^)]+)'
@@ -37,6 +40,12 @@ while IFS= read -r line; do
         marker="${BASH_REMATCH[1]}"
         body="${BASH_REMATCH[2]}"
         task_id="${BASH_REMATCH[3]}"
+
+        # Validate marker
+        if [[ "$VALID_MARKERS" != *"$marker"* ]]; then
+            echo "ERROR: Unrecognized marker [$marker] on task #T${task_id}" >&2
+            errors=$((errors + 1))
+        fi
 
         # Check uniqueness
         if [ -n "${task_status[$task_id]:-}" ]; then
@@ -150,6 +159,8 @@ dfs() {
             if [ "$state" -eq 1 ]; then
                 echo "ERROR: Dependency cycle detected involving #T${node} -> #T${dep_id}" >&2
                 errors=$((errors + 1))
+                # Mark done before returning to avoid stale in-stack state
+                visited["$node"]=2
                 return
             elif [ "$state" -eq 0 ]; then
                 dfs "$dep_id"

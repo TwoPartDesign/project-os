@@ -26,10 +26,17 @@ copy_sessions() {
     local count=0
     for f in "$wt_session_dir"/*; do
         [ -f "$f" ] || continue
+        # Skip symlinks to prevent arbitrary file copy
+        [ -L "$f" ] && continue
         local basename
         basename="$(basename "$f")"
+        # Only copy YAML/MD session files (not arbitrary file types)
+        case "$basename" in
+            *.yml|*.yaml|*.md) ;;
+            *) continue ;;
+        esac
         if [ ! -f "${SESSION_DIR}/${basename}" ]; then
-            cp "$f" "${SESSION_DIR}/${basename}"
+            cp -- "$f" "${SESSION_DIR}/${basename}"
             count=$((count + 1))
         fi
     done

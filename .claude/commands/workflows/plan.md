@@ -86,10 +86,10 @@ Update ROADMAP.md with the new v2 format. Each task becomes a `[?]` (draft) entr
 
 Rules:
 - All new tasks start as `[?]` (draft) — they require `/pm:approve` before work can begin
-- Every task MUST have a unique `#TN` ID (sequential within the feature)
+- Every task MUST have a unique `#TN` ID. Before assigning IDs, scan the existing ROADMAP.md for the highest `#TN` value and start new IDs from `N+1` to avoid collisions with tasks from other features.
 - Dependencies use inline syntax: `(depends: #T1, #T2)`
 - Independent tasks have no depends clause
-- Run `bash scripts/validate-roadmap.sh` after updating to verify no cycles or dangling refs
+- Run `bash scripts/validate-roadmap.sh` after updating to verify no cycles, dangling refs, or duplicate IDs
 
 Notify the user: "Draft tasks require approval. Run `/pm:approve $ARGUMENTS` to promote to todo."
 

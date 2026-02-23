@@ -13,12 +13,17 @@
 
 set -euo pipefail
 
+if [ $# -lt 1 ]; then
+    echo "Usage: notify-phase-change.sh <event> [details] [extra]" >&2
+    exit 1
+fi
+
 EVENT="${1:-}"
 DETAIL="${2:-}"
 EXTRA="${3:-}"
 
 if [ -z "$EVENT" ]; then
-    echo "Usage: notify-phase-change.sh <event> [details]" >&2
+    echo "Usage: notify-phase-change.sh <event> [details] [extra]" >&2
     exit 1
 fi
 
@@ -52,15 +57,19 @@ TIMESTAMP="$(date '+%H:%M:%S')"
 # Terminal notification (works in most terminals)
 echo "[${TIMESTAMP}] PROJECT-OS: ${MSG}" >&2
 
+# Sanitize message for safe shell interpolation (strip control chars, quotes, backslashes)
+SAFE_MSG="$(printf '%s' "$MSG" | tr -d '\000-\037\\\"'"'"'`$')"
+
 # Try OS-level notification if available
 if command -v notify-send &>/dev/null; then
-    # Linux
-    notify-send "Project OS" "$MSG" 2>/dev/null || true
+    # Linux — notify-send handles escaping safely via argument passing
+    notify-send "Project OS" "$SAFE_MSG" 2>/dev/null || true
 elif command -v osascript &>/dev/null; then
-    # macOS
-    osascript -e "display notification \"${MSG}\" with title \"Project OS\"" 2>/dev/null || true
+    # macOS — use -s flag with stdin to avoid shell interpolation in -e
+    printf 'display notification "%s" with title "Project OS"' "$SAFE_MSG" | osascript 2>/dev/null || true
 elif command -v powershell.exe &>/dev/null; then
-    # Windows (from Git Bash)
-    powershell.exe -NoProfile -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; [System.Windows.Forms.MessageBox]::Show('${MSG}','Project OS','OK','Information')" 2>/dev/null &
+    # Windows — pass message via environment variable to avoid interpolation
+    NOTIFY_MSG="$SAFE_MSG" powershell.exe -NoProfile -Command \
+        '[System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms") | Out-Null; [System.Windows.Forms.MessageBox]::Show($env:NOTIFY_MSG,"Project OS","OK","Information")' 2>/dev/null &
     disown 2>/dev/null || true
 fi

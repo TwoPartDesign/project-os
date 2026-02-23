@@ -14,7 +14,7 @@ Read `.claude/settings.json` for `project_os.parallel` config (max_concurrent_ag
 ## Pre-flight
 
 Before dispatching any agents:
-1. Verify all tasks for this feature are `[ ]` (approved), not `[?]` (draft). If any drafts remain, STOP and tell the user to run `/pm:approve $ARGUMENTS` first.
+1. Verify no tasks for this feature are `[?]` (draft). If any drafts remain, STOP and tell the user to run `/pm:approve $ARGUMENTS` first. Tasks in other states (`[-]`, `[~]`, `[x]`, `[!]`) are allowed — this enables rebuilding after partial completion or unblocking.
 2. Create task-specific working directories:
    ```
    docs/specs/$ARGUMENTS/tasks/
@@ -30,9 +30,10 @@ Before dispatching any agents:
 
 Organize tasks into **waves** based on the dependency DAG:
 
-- **Wave 1**: All tasks with no dependencies (or all deps already `[x]`)
-- **Wave 2**: Tasks whose deps are all in Wave 1
-- **Wave N**: Tasks whose deps are all in Waves 1..N-1
+- **Wave 1**: All `[ ]` tasks with no dependencies (or all deps already `[x]`)
+- **Wave 2**: `[ ]` tasks whose deps are all in Wave 1 or already `[x]`
+- **Wave N**: `[ ]` tasks whose deps are all in Waves 1..N-1 or already `[x]`
+- **Skip**: Tasks marked `[!]` (blocked) are excluded from waves entirely. If an unblocked task depends on a `[!]` task, it stays queued until the blocked task is resolved. Report all blocked dependencies to the user at wave plan display time.
 
 Display the wave plan to the user before executing:
 ```
@@ -51,7 +52,12 @@ Before dispatching, resolve which adapter to use for each task:
 
 For each task, verify the adapter is available:
 ```bash
-bash .claude/agents/adapters/<name>.sh health
+# Validate adapter name: only allow alphanumeric, hyphen (no slashes, dots, or path traversal)
+if [[ ! "$adapter" =~ ^[a-zA-Z0-9-]+$ ]]; then
+    echo "WARNING: Invalid adapter name '${adapter}', falling back to claude-code" >&2
+    adapter="claude-code"
+fi
+bash ".claude/agents/adapters/${adapter}.sh" health
 ```
 If the adapter health check fails, fall back to `claude-code` and log a warning.
 
@@ -89,6 +95,12 @@ mkdir -p "$context_dir/files"
 adapter="claude-code"  # default
 # Check task annotation: (agent: <name>) → override adapter
 # Check settings: project_os.adapters.default → override if no annotation
+
+# Validate adapter name (prevent path traversal)
+if [[ ! "$adapter" =~ ^[a-zA-Z0-9-]+$ ]]; then
+    echo "WARNING: Invalid adapter name '${adapter}', falling back to claude-code" >&2
+    adapter="claude-code"
+fi
 
 # Verify adapter health
 if ! bash ".claude/agents/adapters/${adapter}.sh" health 2>/dev/null; then

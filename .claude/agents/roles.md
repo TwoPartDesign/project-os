@@ -33,11 +33,11 @@ Roles define what each agent type can do. Permissions are advisory in v2 (enforc
 ## Permission Model
 
 ```
-           Read              Write              Phases
-Architect  all               specs/knowledge    Idea, Design
-Developer  specs/knowledge   code/tests/docs    Build
-Reviewer   all               review-reports     Review
-Orchestrator all             all                all
+             Read                  Write              Phases
+Architect    all                   specs/knowledge    Idea, Design
+Developer    specs/knowledge/src   code/tests/docs    Build
+Reviewer     all                   review-reports     Review
+Orchestrator all                   all                all
 ```
 
 Enforcement is advisory in v2. Agents should self-enforce based on their frontmatter.

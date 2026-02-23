@@ -8,10 +8,21 @@
 set -euo pipefail
 
 FEATURE="${1:-}"
-BASE="${2:-master}"
 
 if [ -z "$FEATURE" ]; then
     echo "Usage: create-pr.sh <feature_name> [base_branch]" >&2
+    exit 1
+fi
+
+# Auto-detect default branch if not specified
+if [ -n "${2:-}" ]; then
+    BASE="$2"
+elif git rev-parse --verify main &>/dev/null; then
+    BASE="main"
+elif git rev-parse --verify master &>/dev/null; then
+    BASE="master"
+else
+    echo "ERROR: Could not detect default branch. Specify explicitly: create-pr.sh <feature> <base>" >&2
     exit 1
 fi
 
@@ -21,10 +32,20 @@ if ! command -v gh &>/dev/null; then
     exit 1
 fi
 
-# Verify we're on a feature branch
+# Verify we're on a named branch (not detached HEAD)
 CURRENT_BRANCH="$(git branch --show-current)"
+if [ -z "$CURRENT_BRANCH" ]; then
+    echo "ERROR: Detached HEAD state. Switch to a feature branch first." >&2
+    exit 1
+fi
 if [ "$CURRENT_BRANCH" = "$BASE" ]; then
     echo "ERROR: Cannot create PR from $BASE branch. Switch to a feature branch first." >&2
+    exit 1
+fi
+
+# Verify base branch exists
+if ! git rev-parse --verify "$BASE" &>/dev/null; then
+    echo "ERROR: Base branch '$BASE' does not exist." >&2
     exit 1
 fi
 

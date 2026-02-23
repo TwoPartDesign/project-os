@@ -8,7 +8,7 @@ A spec-driven development scaffold for Claude Code. Gives you a full workflow pi
 
 Project OS is a template you drop into Claude Code to turn it into a structured development environment. Instead of starting from scratch each session, you get:
 
-- **A 6-phase workflow** that takes a raw idea through design, planning, implementation, review, and shipping
+- **A 7-phase workflow** that takes a raw idea through design, planning, approval, implementation, review, and shipping
 - **A memory system** that compounds knowledge across sessions — decisions, patterns, bugs, architecture all persist
 - **Sub-agent orchestration** that routes expensive work to cheaper models automatically
 - **Quality gates** at every phase transition so you never ship untested or unreviewed code
@@ -67,7 +67,7 @@ claude
 
 ## The Workflow
 
-Six phases. Always start at the top. Never skip from idea to build.
+Seven phases (six commands + approval gate). Always start at the top. Never skip from idea to build.
 
 ```
 /workflows:idea my-feature     Capture idea, research feasibility, write brief
@@ -93,7 +93,7 @@ For small changes (< 20 lines, single file) you can skip the pipeline and descri
 | `/workflows:design [name]` | Adversarial first-principles design with self-review |
 | `/workflows:plan [name]` | Decompose design into atomic tasks with `[?]` drafts, `#TN` IDs, and dependency syntax |
 | `/workflows:build [name]` | Wave-based parallel sub-agents with worktree isolation and DAG scheduling |
-| `/workflows:review [name]` | Three worktree-isolated reviewers: drift, security, quality |
+| `/workflows:review [name]` | Three worktree-isolated reviewers: drift detection, security, quality & maintainability |
 | `/workflows:ship [name]` | Pre-ship checklist, PR generation, metrics snapshot, cleanup |
 | `/workflows:compete [name] [task]` | Spawn N competing implementations with different strategies |
 | `/workflows:compete-review [name] [task]` | Side-by-side scoring of competing implementations |
@@ -177,8 +177,6 @@ project-os/
 │   ├── sessions/                # Session handoff files (gitignored)
 │   ├── logs/                    # Hook-generated logs (gitignored)
 │   └── settings.json            # Model config, permissions, and hook definitions
-│   └── knowledge/               # Compounding project knowledge vault (also at docs/knowledge/)
-│       └── metrics.md           # Per-feature performance metrics
 └── scripts/
     ├── new-project.sh           # Bootstrap a new project from this template
     ├── memory-search.sh         # Search across all knowledge and session files

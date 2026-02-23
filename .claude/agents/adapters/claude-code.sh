@@ -20,13 +20,14 @@ EOF
 }
 
 cmd_health() {
+    # Claude Code adapter works via the Task tool (orchestrator dispatch), not the CLI directly.
+    # Health is always OK when running inside Claude Code — the CLI check is informational only.
     if command -v claude &>/dev/null; then
-        echo "claude-code: available" >&2
-        exit 0
+        echo "claude-code: available (CLI in PATH)" >&2
     else
-        echo "claude-code: 'claude' CLI not found in PATH" >&2
-        exit 1
+        echo "claude-code: available (Task tool dispatch — CLI not required in PATH)" >&2
     fi
+    exit 0
 }
 
 cmd_execute() {
@@ -44,6 +45,16 @@ cmd_execute() {
     if [ ! -f "$context_dir/task.md" ]; then
         echo "ERROR: task.md not found in context_dir" >&2
         echo "fail" > "$output_dir/result"
+        local task_id="${ADAPTER_TASK_ID:-unknown}"
+        cat > "$output_dir/completion-report.md" <<EREOF
+# Completion Report — Task ${task_id}
+
+## Status
+FAILED — task.md not found in context directory.
+
+## Error
+Missing required file: ${context_dir}/task.md
+EREOF
         exit 1
     fi
 

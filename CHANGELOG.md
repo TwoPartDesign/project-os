@@ -27,7 +27,7 @@
 
 ### Agent Adapters
 - **Adapter interface** — uniform 3-command contract (info/health/execute) for multi-agent dispatch (`.claude/agents/adapters/INTERFACE.md`)
-- **Claude Code adapter** — functional default adapter
+- **Claude Code adapter** — default adapter (prepares prompts for orchestrator dispatch via Task tool)
 - **Stub adapters** — Codex, Gemini, Aider, Amp (v2.1+ for actual dispatch)
 - **`(agent: <name>)` annotation** — per-task agent routing in ROADMAP.md
 - **`--agent` filter** — `scripts/unblocked-tasks.sh --agent codex` filters by agent
@@ -48,7 +48,7 @@
 - 8 workflow commands (was 6)
 - 8 tool commands (was 6)
 - 4 PM commands (was 3)
-- 8 agent definitions (was 6)
+- 6 agent definitions + 2 governance docs (`roles.md`, `handoffs.md`)
 - 5 adapter scripts (new)
 - 8 hooks (was 5)
 - 8 utility scripts (was 4)
