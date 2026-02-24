@@ -35,9 +35,13 @@ cmd_execute() {
     local context_dir="$1"
     local output_dir="$2"
 
-    # Reject path traversal in output_dir
+    # Reject path traversal
     if [[ "$output_dir" =~ \.\. ]]; then
         echo "ERROR: output_dir must not contain '..': $output_dir" >&2
+        exit 1
+    fi
+    if [[ "$context_dir" =~ \.\. ]]; then
+        echo "ERROR: context_dir must not contain '..': $context_dir" >&2
         exit 1
     fi
 

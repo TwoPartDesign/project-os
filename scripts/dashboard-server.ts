@@ -11,8 +11,8 @@ import { homedir } from "os";
 let port = 3400;
 let projectsRoot = "";
 for (let i = 2; i < process.argv.length; i++) {
-  if (process.argv[i] === "--port") { port = parseInt(process.argv[++i], 10); if (isNaN(port) || port < 1 || port > 65535) { console.error("Invalid port"); process.exit(1); } }
-  if (process.argv[i] === "--projects-root") projectsRoot = process.argv[++i];
+  if (process.argv[i] === "--port") { if (++i >= process.argv.length) { console.error("Missing value for --port"); process.exit(1); } port = parseInt(process.argv[i], 10); if (isNaN(port) || port < 1 || port > 65535) { console.error("Invalid port"); process.exit(1); } }
+  if (process.argv[i] === "--projects-root") { if (++i >= process.argv.length) { console.error("Missing value for --projects-root"); process.exit(1); } projectsRoot = process.argv[i]; }
 }
 
 if (!projectsRoot) {
@@ -127,7 +127,7 @@ function getPage(): string {
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" integrity="sha384-L1dWfspMTHU/ApYnFiMz2QID/PlP1xCW9visvBdbEkOLkSSWsP6ZJWhPw6apiXxU" crossorigin="anonymous">
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js" integrity="sha384-jFhLSLFn4m565eRAS0CDMWubMqOtfZWWbE8kqgGdU+VHbJ3B2G/4X8u+0BM8MtdU" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/htmx-ext-sse@2.3.0/sse.js" integrity="sha384-+OPxV2Vizn3ii7CD53iM1YjHZjzsE1RP/GEn5AVQt1yGvr/rakwpk9y8u1Olb6Uk" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/htmx-ext-sse@2.2.4/sse.js" integrity="sha384-QA9wXqexhwzXTuTvuF5QP82pddm3R2hy81UzXi7ioNTqNF2b75hlkkSGjafohhL3" crossorigin="anonymous"></script>
 <style>
 body{padding:20px}h1{margin-bottom:8px}h2{font-size:18px;margin:20px 0 12px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px}
@@ -147,7 +147,7 @@ table{width:100%}
 </div>
 <div class="card"><h2>Activity Feed</h2><div id="activity" hx-get="/api/activity" hx-trigger="sse:refresh, load" hx-swap="innerHTML"><div class="load">Loading...</div></div></div>
 </main>
-<script>mermaid.initialize({startOnLoad:false,theme:'default'});
+<script>mermaid.initialize({startOnLoad:false,theme:'default',securityLevel:'strict'});
 document.body.addEventListener('htmx:afterSwap',function(e){
   if(e.detail.target.id==='dag'){mermaid.run({nodes:e.detail.target.querySelectorAll('.mermaid')})}
 });</script></body></html>`;
