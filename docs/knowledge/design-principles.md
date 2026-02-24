@@ -146,6 +146,10 @@ External dependencies are attack surface, maintenance burden, and single points 
 
 The only genuinely hard-to-replicate external capability is live library documentation (Context7 MCP), for which we provide an optional security-wrapped integration pattern.
 
+### Exception: Live Dashboard
+
+The dashboard server (`scripts/dashboard-server.ts`) is an acknowledged exception to the zero-external-deps principle. It uses Bun (embedded in Claude Code) and CDN-loaded libraries (Mermaid.js, htmx, Pico CSS). It is an optional addon — the core scaffold remains bash+markdown only. The ASCII `dashboard.sh` continues to work without it.
+
 ---
 
 ## When to Use Each Workflow Phase

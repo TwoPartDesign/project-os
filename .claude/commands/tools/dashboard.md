@@ -38,6 +38,17 @@ Active worktrees: 3
 Last activity: 2026-02-23 14:30 (my-app)
 ```
 
+## Live Dashboard
+
+For a live-updating web view with DAG visualization:
+
+```bash
+node scripts/dashboard-server.ts [--port 3400] [--projects-root ~/projects]
+```
+
+Opens at http://localhost:3400. Auto-refreshes via SSE when ROADMAP.md or activity.jsonl change.
+Requires Node 22.6+ (native TypeScript) or Bun. Requires internet for CDN-loaded Mermaid.js, htmx, and Pico CSS.
+
 ## Additional Details
 
 If `$ARGUMENTS` is a specific project name, show expanded detail:
