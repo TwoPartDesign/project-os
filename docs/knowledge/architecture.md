@@ -9,7 +9,11 @@ links: "[[decisions]], [[patterns]]"
 
 ## High-Level Structure
 
-Project OS is a governance and quality layer for AI-driven development, built on bash + markdown.
+Project OS is a solo-developer governance layer for AI-driven development, built on bash + markdown.
+It preserves human authority through three mechanisms:
+- **Phase checkpoints** — explicit human approval required at idea→design, plan→build (pm:approve), and build→ship
+- **Quality gates** — adversarial review (3 isolated reviewers) before any feature reaches main
+- **Audit trail** — ROADMAP.md state machine + JSONL activity log capture every decision
 
 ```
 User ──→ Workflow Commands ──→ Orchestrator ──→ Sub-agents (isolated worktrees)
