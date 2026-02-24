@@ -18,6 +18,8 @@ Read `.claude/settings.json` for `project_os.compete` config.
 3. Mark task as `[>]` (competing) in ROADMAP.md
 4. Read the task spec from tasks.md
 
+**Important**: The `[>]` marker indicates competing implementations are in progress. This prevents accidental duplicate competitions and signals to other workflows that the task is under active evaluation.
+
 ## Step 2: Define approaches
 
 Use the configured strategies (default: `["literal", "minimal", "extensible"]`):
@@ -94,7 +96,9 @@ Present the comparison to the user. Ask them to select:
 1. Merge the winning worktree's changes into the **current feature branch** (NOT main/master — the review gate must pass first)
 2. Run the full test suite after merge — if tests fail, report the failure and do NOT proceed
 3. Clean up losing worktrees
-4. Mark task as `[~]` (review) in ROADMAP.md
+4. Update ROADMAP.md markers:
+   - Mark task as `[~]` (review) in ROADMAP.md — this is the winner moving to review
+   - (Future optimization: If keeping a log of competing approaches, mark losing tasks `[x]` with note "superseded by TN" — currently not tracked separately since they exist only during competition)
 5. Write completion report to `docs/specs/$ARGUMENTS/tasks/TN/completion-report.md`
 6. Notify: `bash .claude/hooks/notify-phase-change.sh compete-complete $ARGUMENTS TN`
 

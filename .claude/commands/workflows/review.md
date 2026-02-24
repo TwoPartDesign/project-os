@@ -129,6 +129,9 @@ Create `docs/specs/$ARGUMENTS/review.md` with the full synthesized report.
   - Create `docs/specs/$ARGUMENTS/revision-request.md` listing required changes with task IDs
   - Notify: `bash .claude/hooks/notify-phase-change.sh review-failed "$ARGUMENTS"`
   - List required fixes and tell the user.
+
+  **Next Steps:** Run `/workflows:rebuild $ARGUMENTS` to unblock failed tasks and re-implement fixes. The rebuild command reads `revision-request.md` to understand what needs fixing and guides agents accordingly.
+
 - If only ⚠️/💡 items → GATE PASSED WITH NOTES.
   - Mark only `[~]` (review) tasks for this feature as `[x]` in ROADMAP.md — do NOT change tasks in other states
   - User decides which notes to fix.

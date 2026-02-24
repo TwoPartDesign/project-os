@@ -69,7 +69,26 @@ T4 (independent)
 [Same structure]
 ```
 
-## Step 4: Update tracking
+## Step 4: Create per-task context directories
+
+For each task in `docs/specs/$ARGUMENTS/tasks.md`, create a per-task context directory:
+
+```bash
+mkdir -p "docs/specs/$ARGUMENTS/tasks/TN"
+```
+
+For each task TN, extract its section from `tasks.md` and save as `docs/specs/$ARGUMENTS/tasks/TN/context.md`. Include:
+- Task title and description
+- Files to create/modify
+- Pattern references
+- Implementation details
+- Tests
+- Acceptance criteria
+- Size and status
+
+This allows the build phase to isolate each task's context without duplicating the full task list.
+
+## Step 5: Update tracking
 
 Update ROADMAP.md with the new v2 format. Each task becomes a `[?]` (draft) entry under the feature heading, with `#TN` IDs and inline dependency declarations:
 
@@ -93,7 +112,7 @@ Rules:
 
 Notify the user: "Draft tasks require approval. Run `/pm:approve $ARGUMENTS` to promote to todo."
 
-## Step 5: Validate
+## Step 6: Validate
 
 Run a self-check:
 - Are any tasks missing acceptance criteria? → Add them

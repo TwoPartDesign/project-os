@@ -66,7 +66,10 @@ Log: `bash .claude/hooks/log-activity.sh pr-created feature=$ARGUMENTS`
 1. **Preserve sessions**: `bash .claude/hooks/preserve-sessions.sh` — save worktree sessions before cleanup
 2. **Clean up worktrees**: Remove any remaining worktrees for this feature
 3. **Archive specs**: The spec lifecycle is complete. Leave files in place for reference.
-4. **Update ROADMAP.md**: Move all tasks for this feature to the "Done" section. All `[~]` tasks should already be `[x]` at this point (review passes them); verify all are marked `[x]`.
+4. **Update ROADMAP.md**: Move all tasks for this feature to the "Done" section.
+   - Check if any tasks are still `[~]` (not yet `[x]`)
+   - If found, list them and ask the user: "These tasks passed review with notes but haven't been marked done. Mark them `[x]` now, or address the outstanding notes first?"
+   - Only proceed after all feature tasks are confirmed `[x]`
 5. **Update decisions log**: Add any architectural decisions made during this feature to `docs/knowledge/decisions.md`.
 6. **Metrics snapshot**: Append a metrics entry to `docs/knowledge/metrics.md`:
    - Duration (from first task-spawned to feature-shipped in activity log)

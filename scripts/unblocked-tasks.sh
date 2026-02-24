@@ -5,17 +5,20 @@
 #   1. Its status is [ ] (Todo / approved)
 #   2. All its dependencies (depends: #TN) are [x] (Done)
 #
-# Usage: bash scripts/unblocked-tasks.sh [--agent <name>] [path/to/ROADMAP.md]
+# Usage: bash scripts/unblocked-tasks.sh [--agent <name>] [--include-states "<markers>"] [path/to/ROADMAP.md]
 # Output: JSON array of unblocked task objects
 #
 # Options:
-#   --agent <name>  Filter tasks by agent annotation (e.g., --agent codex)
-#                   Tasks with no annotation are treated as "claude-code"
+#   --agent <name>        Filter tasks by agent annotation (e.g., --agent codex)
+#                         Tasks with no annotation are treated as "claude-code"
+#   --include-states STR  Additional task markers to include (e.g., "- ~" for WIP and review)
+#                         Default: only [ ] (Todo). Always includes unblocked [ ] tasks.
 
 set -euo pipefail
 
 # Parse arguments
 FILTER_AGENT=""
+INCLUDE_STATES=""
 ROADMAP="ROADMAP.md"
 
 while [ $# -gt 0 ]; do
@@ -26,6 +29,14 @@ while [ $# -gt 0 ]; do
                 exit 1
             fi
             FILTER_AGENT="$2"
+            shift 2
+            ;;
+        --include-states)
+            if [ $# -lt 2 ]; then
+                echo "Error: --include-states requires a value" >&2
+                exit 1
+            fi
+            INCLUDE_STATES="$2"
             shift 2
             ;;
         *)
@@ -42,6 +53,19 @@ fi
 
 # Valid markers
 VALID_MARKERS="? -~>x! "
+
+# Build accepted markers list: always include [ ] (space), plus any from --include-states
+ACCEPTED_MARKERS=" "
+if [ -n "$INCLUDE_STATES" ]; then
+    # Append each character from INCLUDE_STATES to accepted list
+    for ((i = 0; i < ${#INCLUDE_STATES}; i++)); do
+        char="${INCLUDE_STATES:$i:1}"
+        # Skip spaces in the input string itself
+        if [ "$char" != " " ]; then
+            ACCEPTED_MARKERS="${ACCEPTED_MARKERS}${char}"
+        fi
+    done
+fi
 
 # Regex patterns stored in variables (avoids bash ERE parsing issues)
 re_task='^[[:space:]]*-[[:space:]]\[(.)][[:space:]](.+)#T([0-9]+)[[:space:]]*$'
@@ -102,8 +126,8 @@ while IFS= read -r line || [ -n "$line" ]; do
         fi
         seen_pass2["$task_id"]=1
 
-        # Only consider [ ] (Todo) tasks
-        if [ "$marker" != " " ]; then
+        # Only consider tasks with accepted markers (default: [ ] only)
+        if [[ "$ACCEPTED_MARKERS" != *"$marker"* ]]; then
             continue
         fi
 

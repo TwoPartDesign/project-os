@@ -22,7 +22,10 @@ Before dispatching any agents:
    docs/specs/$ARGUMENTS/tasks/T2/
    ...
    ```
-3. For each task directory, create a `context.md` file containing ONLY that task's spec from tasks.md.
+3. For each task directory, create a `context.md` file:
+   - If per-task context files already exist (from a prior plan phase), use them as-is
+   - If not, extract the relevant section from `docs/specs/$ARGUMENTS/tasks.md` and save it as `docs/specs/$ARGUMENTS/tasks/TN/context.md`
+   - This fallback ensures build is resilient to both old-style (single tasks.md) and new-style (per-task dirs) plans
 4. Run `bash scripts/validate-roadmap.sh` to verify dependency integrity.
 5. Run `bash scripts/unblocked-tasks.sh` to get the initial set of unblocked tasks. **Important:** Filter the output to only tasks belonging to this feature (`$ARGUMENTS`). The script returns all unblocked tasks across all features — cross-reference each task ID against the task list in `docs/specs/$ARGUMENTS/tasks.md` and ignore tasks from other features.
 
@@ -69,6 +72,7 @@ If the adapter health check fails, fall back to `claude-code` and log a warning.
 
 **1. Mark tasks in-progress**
 Update ROADMAP.md: change `[ ]` to `[-]` for all tasks in this wave.
+**Important:** Task markers (`[ ]`, `[-]`, `[~]`, `[!]`, `[x]`) are the sole source of truth for task state. Section headings ("### In Progress", "### Done") are optional organizational grouping only. Always reference markers, not headings, when determining task status.
 Log each: `bash .claude/hooks/log-activity.sh task-spawned "feature=$ARGUMENTS" task_id=TN agent=implementer`
 
 **2. Prepare agent context packets**
@@ -155,8 +159,11 @@ For each agent that finishes:
 **5. Wave gate**
 After all tasks in a wave complete:
 - Run the FULL test suite (not just new tests)
-- If integration tests fail, identify which task broke them
-- Fix forward or revert — do not leave the suite red
+- If integration tests fail:
+  1. Identify which task's changes broke the tests (review each task's file changes against failures)
+  2. Re-dispatch to the same agent (or escalate to a higher-tier model if the fix is non-trivial) to resolve
+  3. If the agent cannot fix, stash that task's changes to preserve them: `git stash push -m "revert TN: [reason]" -- [task files]` and mark the task `[!]` in ROADMAP.md with a blocker note. Avoid `git checkout --` which permanently discards work.
+  4. Never leave the test suite red between waves
 - Only proceed to next wave when gate passes
 
 ### After all waves complete:

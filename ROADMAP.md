@@ -1,6 +1,8 @@
 # Roadmap
 
-## Legend
+**Format spec**: See `docs/knowledge/roadmap-format.md` for complete marker legend, `#TN` ID rules, dependency syntax, and state transitions.
+
+## Legend (Quick Reference)
 - `[?]` Draft (pending approval)
 - `[ ]` Todo (approved, ready for work)
 - `[-]` In Progress

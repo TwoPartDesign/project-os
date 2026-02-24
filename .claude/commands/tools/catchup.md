@@ -14,7 +14,7 @@ If no handoff files exist:
 
 From the handoff file, read:
 1. The `objective` and `phase`
-2. The `in_flight` files (only the focus ranges, not entire files)
+2. The `in_progress` files (only the focus ranges, not entire files)
 3. The `next_steps`
 4. The `compact_instruction`
 

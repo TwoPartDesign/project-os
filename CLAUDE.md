@@ -7,12 +7,15 @@
 - Stack: Markdown + Bash (scaffold template)
 
 ## Principles
+
+Core principles guide all architecture decisions. See `docs/knowledge/design-principles.md` for full details.
+
 - Ship working software over perfect software
 - Specs before code — never implement without a design doc
 - Context is noise — load only what the current phase needs
-- Token economics: output costs 5x input — keep agent responses concise, prefer `CLI --json | jq .field` over full MCP output
-- Every decision gets documented with rationale
-- Tests define done, not "it looks right"
+- Code is a liability; judgement is an asset
+- Audit the auditor — separate build and review contexts
+- Token economics: output costs 5x input — keep agent responses concise
 
 ## Architecture
 @import docs/knowledge/architecture.md
