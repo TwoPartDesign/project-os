@@ -43,7 +43,7 @@
     },
     "adapters": {
       "default": "claude-code",
-      "available": ["claude-code", "codex", "gemini", "aider", "amp"],
+      "available": ["claude-code", "codex"],
       "fallback_on_failure": true
     },
     "dashboard": {
