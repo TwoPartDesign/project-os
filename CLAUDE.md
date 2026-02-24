@@ -3,7 +3,7 @@
 ## Identity
 - Project: Project OS
 - Type: Personal project
-- Identity: Solo-developer governance layer
+- Role: Solo-developer governance layer
 - Owner: [YOUR_NAME]
 - Stack: Markdown + Bash
 

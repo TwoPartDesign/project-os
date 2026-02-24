@@ -51,13 +51,13 @@ Each feature groups tasks by lifecycle phase:
 ### Todo
 ### In Progress
 ### Review
-- [~] Verification pass — terminology audit, governance term presence, @import check (depends: #T14, #T15, #T16, #T17, #T18) #T19
-- [~] README.md — governance layer headline and "What It Is" opening #T14
-- [~] CLAUDE.md — identity block update (Type, Stack, Workflow line) #T15
-- [~] design-principles.md — replace intro with governance framing opener #T16
-- [~] architecture.md — expand governance description with 3-mechanism bullets #T17
-- [~] project-os-guide.md — title and intro block (version bump to 2.1) #T18
 ### Done
+- [x] README.md — governance layer headline and "What It Is" opening #T14
+- [x] CLAUDE.md — identity block update (Type, Stack, Workflow line) #T15
+- [x] design-principles.md — replace intro with governance framing opener #T16
+- [x] architecture.md — expand governance description with 3-mechanism bullets #T17
+- [x] project-os-guide.md — title and intro block (version bump to 2.1) #T18
+- [x] Verification pass — terminology audit, governance term presence, @import check (depends: #T14, #T15, #T16, #T17, #T18) #T19
 
 ## Feature: agent-teams-spike
 ### Draft
