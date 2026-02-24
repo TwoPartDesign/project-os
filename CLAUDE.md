@@ -3,8 +3,9 @@
 ## Identity
 - Project: Project OS
 - Type: Personal project
+- Identity: Solo-developer governance layer
 - Owner: [YOUR_NAME]
-- Stack: Markdown + Bash (scaffold template)
+- Stack: Markdown + Bash
 
 ## Principles
 
@@ -24,7 +25,7 @@ Core principles guide all architecture decisions. See `docs/knowledge/design-pri
 @import docs/knowledge/patterns.md
 
 ## Workflow
-This project uses spec-driven development:
+This project uses spec-first, governance-gated development:
 1. `/workflows:idea` — Capture and research
 2. `/workflows:design` — Technical specification
 3. `/workflows:plan` — Atomic task decomposition (outputs `[?]` drafts with `#TN` IDs)
