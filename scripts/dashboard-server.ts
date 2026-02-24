@@ -11,7 +11,7 @@ import { homedir } from "os";
 let port = 3400;
 let projectsRoot = "";
 for (let i = 2; i < process.argv.length; i++) {
-  if (process.argv[i] === "--port") port = parseInt(process.argv[++i], 10);
+  if (process.argv[i] === "--port") { port = parseInt(process.argv[++i], 10); if (isNaN(port) || port < 1 || port > 65535) { console.error("Invalid port"); process.exit(1); } }
   if (process.argv[i] === "--projects-root") projectsRoot = process.argv[++i];
 }
 
@@ -21,6 +21,7 @@ if (!projectsRoot) {
   catch { projectsRoot = "~/projects"; }
 }
 projectsRoot = projectsRoot.replace(/^~/, homedir());
+// projectsRoot is parsed for future cross-project scanning (matching dashboard.sh behavior)
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
@@ -118,15 +119,15 @@ createServer((req: IncomingMessage, res: ServerResponse) => {
     return;
   }
   send(res, "Not found", "text/plain", 404);
-}).listen(port, "127.0.0.1");
+}).listen(port, "127.0.0.1").on("error", (e: Error) => { console.error(`Failed to start: ${e.message}`); process.exit(1); });
 
 function getPage(): string {
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Project OS Dashboard</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
-<script src="https://unpkg.com/htmx.org@2.0.4"></script>
-<script src="https://unpkg.com/htmx-ext-sse@2.3.0/sse.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" integrity="sha384-L1dWfspMTHU/ApYnFiMz2QID/PlP1xCW9visvBdbEkOLkSSWsP6ZJWhPw6apiXxU" crossorigin="anonymous">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js" integrity="sha384-jFhLSLFn4m565eRAS0CDMWubMqOtfZWWbE8kqgGdU+VHbJ3B2G/4X8u+0BM8MtdU" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/htmx-ext-sse@2.3.0/sse.js" integrity="sha384-+OPxV2Vizn3ii7CD53iM1YjHZjzsE1RP/GEn5AVQt1yGvr/rakwpk9y8u1Olb6Uk" crossorigin="anonymous"></script>
 <style>
 body{padding:20px}h1{margin-bottom:8px}h2{font-size:18px;margin:20px 0 12px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px}

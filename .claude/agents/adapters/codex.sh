@@ -43,7 +43,7 @@ validate_file_scope() {
 
     # Extract allowed files from task.md (lines under ## Files section)
     local allowed_files
-    allowed_files=$(sed -n '/^## Files$/,/^##/p' "$context_dir/task.md" | sed '1d;$d' | tr -d ' ' | sort -u)
+    allowed_files=$(sed -n '/^## Files$/,/^##/p' "$context_dir/task.md" | sed '1d;$d' | sed 's/^[[:space:]]*-[[:space:]]*//' | sed 's/[[:space:]]*$//' | grep -v '^$' | sort -u)
 
     # Get pre and post snapshots
     local pre_snapshot post_snapshot changes
@@ -60,7 +60,7 @@ validate_file_scope() {
     local unauthorized=""
     while IFS= read -r file; do
         [ -z "$file" ] && continue
-        if ! echo "$allowed_files" | grep -F "$file" >/dev/null 2>&1; then
+        if ! echo "$allowed_files" | grep -Fx "$file" >/dev/null 2>&1; then
             unauthorized="$unauthorized$file"$'\n'
         fi
     done <<< "$changes"
@@ -72,11 +72,13 @@ validate_file_scope() {
         } >&2
         echo "$unauthorized" > "$output_dir/unauthorized-changes.txt"
 
-        # Revert unauthorized files
+        # Revert unauthorized files (tracked: checkout, untracked: rm)
         while IFS= read -r file; do
             [ -z "$file" ] && continue
-            if git checkout HEAD -- "$file" 2>/dev/null; then
-                echo "Reverted: $file" >&2
+            if git ls-files --error-unmatch "$file" &>/dev/null; then
+                git checkout HEAD -- "$file" 2>/dev/null && echo "Reverted: $file" >&2
+            else
+                rm -f "$file" 2>/dev/null && echo "Removed untracked: $file" >&2
             fi
         done <<< "$unauthorized"
 
@@ -90,9 +92,13 @@ cmd_execute() {
     local context_dir="$1"
     local output_dir="$2"
 
-    # Reject path traversal in output_dir
+    # Reject path traversal
     if [[ "$output_dir" =~ \.\. ]]; then
         echo "ERROR: output_dir must not contain '..': $output_dir" >&2
+        exit 1
+    fi
+    if [[ "$context_dir" =~ \.\. ]]; then
+        echo "ERROR: context_dir must not contain '..': $context_dir" >&2
         exit 1
     fi
 
@@ -177,15 +183,15 @@ Instructions:
         echo "WARNING: Prompt exceeds 102400 bytes (${prompt_size}). Codex may truncate." >&2
     fi
 
-    # Pre-execution snapshot
-    git diff --name-only HEAD > "$output_dir/pre-snapshot.txt" 2>/dev/null || true
+    # Pre-execution snapshot (tracked changes + untracked files)
+    { git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort -u > "$output_dir/pre-snapshot.txt" || true
 
     # Execute via codex CLI
     local codex_exit=0
     codex exec -s danger-full-access "$(cat "$prompt_file")" > "$output_dir/codex-output.txt" 2>&1 || codex_exit=$?
 
-    # Post-execution snapshot
-    git diff --name-only HEAD > "$output_dir/post-snapshot.txt" 2>/dev/null || true
+    # Post-execution snapshot (tracked changes + untracked files)
+    { git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort -u > "$output_dir/post-snapshot.txt" || true
 
     # Validate file scope
     if ! validate_file_scope "$context_dir" "$output_dir"; then
