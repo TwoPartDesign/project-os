@@ -1,8 +1,8 @@
-# The Bleeding-Edge Claude Code Personal Project OS
-## Architecture & Implementation Guide — Native-First Edition
+# Project OS — Solo-Developer Governance Layer for AI-Driven Development
+## Architecture & Implementation Guide — v2.1
 
-**Version**: 2.0 — Wave Orchestration + Governance
-**Purpose**: A complete reference for a single-developer orchestration system built entirely on Claude Code's native primitives, with zero required external dependencies.
+**Version**: 2.1 — Governance Layer + Native Dashboard
+**Purpose**: A complete reference for a solo-developer governance system built entirely on Claude Code's native primitives. Phase checkpoints, adversarial quality gates, and human approval at every transition — zero external dependencies.
 **Usage**: Feed this document to Claude Code as a build spec, or use it as a reference while running the live system. It documents every file, every command, and the full directory structure.
 
 ---
