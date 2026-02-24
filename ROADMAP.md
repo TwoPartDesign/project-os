@@ -46,10 +46,29 @@ Each feature groups tasks by lifecycle phase:
 - [x] Add legacy note to preserve-sessions.sh #T10
 - [x] Build live dashboard server (depends: #T7, #T8) #T11
 
+## Feature: strategic-repositioning
+### Draft
+### Todo
+### In Progress
+### Review
+- [~] Verification pass — terminology audit, governance term presence, @import check (depends: #T14, #T15, #T16, #T17, #T18) #T19
+- [~] README.md — governance layer headline and "What It Is" opening #T14
+- [~] CLAUDE.md — identity block update (Type, Stack, Workflow line) #T15
+- [~] design-principles.md — replace intro with governance framing opener #T16
+- [~] architecture.md — expand governance description with 3-mechanism bullets #T17
+- [~] project-os-guide.md — title and intro block (version bump to 2.1) #T18
+### Done
+
+## Feature: agent-teams-spike
+### Draft
+- [ ] Spike: CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 — assess compatibility and integration path (report at docs/specs/agent-teams-spike/spike-report.md) #T13
+### Todo
+### In Progress
+### Review
+### Done
+
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->
-- [ ] Strategic repositioning — update README, CLAUDE.md, guide, design-principles for "governance layer" positioning
-- [ ] Agent Teams spike — 2hr time-boxed investigation of CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 
 ## Completed
 <!-- Moved here after /workflows:ship -->
