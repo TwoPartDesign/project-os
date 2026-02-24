@@ -1,5 +1,5 @@
 ---
-description: "Execute implementation from task plan using wave-based parallel sub-agents with isolated context"
+description: "Execute implementation from task plan using wave-based parallel sub-agents with native Tasks tracking and worktree isolation"
 ---
 
 # Phase 4: Wave-Based Parallel Implementation
@@ -10,6 +10,8 @@ You are the build orchestrator. You coordinate sub-agents but NEVER write implem
 Read `docs/specs/$ARGUMENTS/tasks.md`. Verify all tasks have status markers.
 Read `CLAUDE.md` for project conventions (this is the ONLY shared context for agents).
 Read `.claude/settings.json` for `project_os.parallel` config (max_concurrent_agents, backoff).
+
+**Runtime state:** Native Tasks (TaskCreate/TaskUpdate/TaskList) are used as a structured convenience layer for runtime status tracking during build execution. ROADMAP.md remains the authoritative source of truth. See "Native Tasks Sync" section below.
 
 ## Pre-flight
 
@@ -29,6 +31,36 @@ Before dispatching any agents:
 4. Run `bash scripts/validate-roadmap.sh` to verify dependency integrity.
 5. Run `bash scripts/unblocked-tasks.sh` to get the initial set of unblocked tasks. **Important:** Filter the output to only tasks belonging to this feature (`$ARGUMENTS`). The script returns all unblocked tasks across all features — cross-reference each task ID against the task list in `docs/specs/$ARGUMENTS/tasks.md` and ignore tasks from other features.
 
+## Native Tasks Sync (Optional)
+
+After pre-flight, attempt to mirror ROADMAP tasks into native Tasks for structured runtime state tracking. This is a **convenience layer** — if it fails, the build continues with ROADMAP.md-only wave computation.
+
+**At build start:**
+For each unblocked task belonging to this feature:
+```
+TaskCreate(
+  subject: "T{N}: {title}",
+  description: "{context from tasks/TN/context.md}",
+  activeForm: "Implementing T{N}"
+)
+TaskUpdate(taskId, addBlockedBy: [dependency task IDs])
+```
+If `TaskCreate` fails (API unavailable, context limit, etc.), log a warning and skip — wave computation proceeds from ROADMAP.md parsing alone.
+
+**During build:**
+When updating ROADMAP.md markers, also update the corresponding native Task:
+- On dispatch: `TaskUpdate(taskId, status: "in_progress")`
+- On success: `TaskUpdate(taskId, status: "completed")`
+- On failure: leave native Task status as-is (ROADMAP.md `[!]` marker is authoritative)
+
+**At wave boundary (consistency check):**
+Re-read ROADMAP.md markers as ground truth. Cross-check against `TaskList` output. If mismatch: log a warning and trust ROADMAP.md markers. This ensures resilience against native Task state drift during long builds or compaction events.
+
+**At build end:**
+Sync final states back to ROADMAP.md markers:
+- Native Task `completed` → ROADMAP `[~]` (ready for review)
+- Native Task still `in_progress` after failure → ROADMAP `[!]` (blocked)
+
 ## Wave Computation
 
 Organize tasks into **waves** based on the dependency DAG:
@@ -47,11 +79,19 @@ Wave 3 (sequential): #T6 (depends: #T2, #T3)
 
 ## Adapter Resolution
 
-Before dispatching, resolve which adapter to use for each task:
+Before dispatching, resolve which adapter and model to use for each task:
 
+0. Check task annotation in ROADMAP.md: `(model: <name>)` → set `ADAPTER_MODEL=<name>`, use `claude-code` adapter
 1. Check task annotation in ROADMAP.md: `(agent: <name>)` → use `.claude/agents/adapters/<name>.sh`
 2. Check settings: `.claude/settings.json` → `project_os.adapters.default`
-3. Fallback: `claude-code` adapter
+3. Fallback: `claude-code` adapter with `ADAPTER_MODEL=haiku`
+
+**Examples:**
+```markdown
+- [ ] Critical security task #T1 (model: opus)       → claude-code adapter, ADAPTER_MODEL=opus
+- [ ] Routine task #T2                                → claude-code adapter, ADAPTER_MODEL=haiku
+- [ ] Codex-specific task #T3 (agent: codex)          → codex adapter (if healthy, else fallback)
+```
 
 For each task, verify the adapter is available:
 ```bash
@@ -64,7 +104,7 @@ bash ".claude/agents/adapters/${adapter}.sh" health
 ```
 If the adapter health check fails, fall back to `claude-code` and log a warning.
 
-**v2 note:** All adapters except `claude-code` are stubs. Tasks annotated with non-Claude agents will log the annotation but dispatch via Claude Code. The annotation is preserved for v2.1+ multi-agent support.
+**v2.1 note:** Model routing via `(model: X)` annotations is the primary dispatch mechanism. The Codex adapter is functional for users with `codex` CLI installed. Other adapter stubs (gemini, aider, amp) remain as contract templates for future implementations.
 
 ## Execution Protocol
 
@@ -86,19 +126,21 @@ DO NOT give agents: full spec history, other tasks, the brief, research findings
 
 **3. Dispatch sub-agents (parallel within wave)**
 Dispatch up to `max_concurrent_agents` (default: 4) sub-agents simultaneously.
-Each agent uses `isolation: worktree` for file-level isolation.
+Each agent is dispatched via the Task tool with `isolation: "worktree"`, which automatically creates an isolated git worktree in `.claude/worktrees/` and cleans it up after the agent completes (kept with a branch name if changes were made).
 
-For each task, prepare adapter context:
+For each task, prepare adapter context and resolve the adapter:
 ```bash
 # Create context packet for the adapter
 context_dir="docs/specs/$ARGUMENTS/tasks/TN/context"
 mkdir -p "$context_dir/files"
 # Copy task.md, conventions.md, design.md, relevant source files into context_dir
 
-# Resolve adapter
+# Resolve adapter and model (see Adapter Resolution section above)
 adapter="claude-code"  # default
-# Check task annotation: (agent: <name>) → override adapter
-# Check settings: project_os.adapters.default → override if no annotation
+resolved_model="haiku"  # default
+# Step 0: Check task annotation: (model: <name>) → set resolved_model, use claude-code
+# Step 1: Check task annotation: (agent: <name>) → override adapter
+# Step 2: Check settings: project_os.adapters.default → override if no annotation
 
 # Validate adapter name (prevent path traversal)
 if [[ ! "$adapter" =~ ^[a-zA-Z0-9-]+$ ]]; then
@@ -116,12 +158,19 @@ fi
 export ADAPTER_TASK_ID="TN"
 export ADAPTER_FEATURE="$ARGUMENTS"
 export ADAPTER_MAX_TURNS=50
-
-# Execute via adapter
-bash ".claude/agents/adapters/${adapter}.sh" execute "$context_dir" "docs/specs/$ARGUMENTS/tasks/TN/output"
+export ADAPTER_MODEL="${resolved_model:-haiku}"
 ```
 
-In practice for v2, the orchestrator reads the adapter's prepared prompt and dispatches via the Task tool directly. The adapter layer exists to formalize the contract for v2.1+ multi-agent support.
+The orchestrator then reads the adapter's prepared prompt and dispatches via the Task tool:
+```
+Task(
+  prompt: "<agent prompt from adapter output>",
+  subagent_type: "general-purpose",
+  model: "$ADAPTER_MODEL",
+  isolation: "worktree"
+)
+```
+For non-Claude adapters (e.g., Codex), the adapter's `execute` command handles dispatch directly instead of going through the Task tool.
 
 Each agent's prompt:
 
@@ -169,7 +218,7 @@ After all tasks in a wave complete:
 ### After all waves complete:
 
 1. Run final full test suite
-2. Preserve session files: `bash .claude/hooks/preserve-sessions.sh`
+2. Session preservation is handled automatically by native worktree cleanup. `preserve-sessions.sh` remains available for manual use if needed.
 3. Check for uncommitted changes: `git status`
 4. Create atomic commits (one per task): `feat($ARGUMENTS): <task title> (TN)`
 5. Update ROADMAP.md — verify all completed tasks are marked `[~]` (ready for review). Do NOT mark them `[x]` — that transition happens only after `/workflows:review` passes.
