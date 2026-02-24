@@ -1,6 +1,6 @@
 # Design Principles
 
-This document consolidates the core principles that guide Project OS architecture and decision-making.
+Project OS is a solo-developer governance layer for AI-driven development. Every principle below serves one meta-principle: **human authority is sovereign at every phase transition**. The system exists to ensure AI accelerates your work without substituting your judgement. Specs before code. Audit before ship. Agency over automation.
 
 ---
 
