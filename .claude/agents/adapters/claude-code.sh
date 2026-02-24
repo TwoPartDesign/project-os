@@ -14,7 +14,8 @@ cmd_info() {
   "version": "1.0",
   "supports_isolation": true,
   "supports_streaming": false,
-  "model_default": "haiku"
+  "model_default": "haiku",
+  "supports_model_routing": true
 }
 EOF
 }
@@ -101,6 +102,7 @@ Instructions:
     local task_id="${ADAPTER_TASK_ID:-unknown}"
     local max_turns="${ADAPTER_MAX_TURNS:-50}"
     local model="${ADAPTER_MODEL:-}"
+    model="${model:-haiku}"
 
     # Claude Code native execution — uses Task tool with isolation: worktree
     # In practice, the build orchestrator dispatches via the Task tool directly.
@@ -110,6 +112,7 @@ Instructions:
     echo "  context_dir: ${context_dir}" >&2
     echo "  output_dir: ${output_dir}" >&2
     echo "  max_turns: ${max_turns}" >&2
+    echo "  model: ${model}" >&2
 
     # Write the prompt for the orchestrator to use
     echo "$prompt" > "$output_dir/prompt.md"
@@ -133,7 +136,7 @@ Adapter prepared prompt for orchestrator dispatch.
 Claude Code Task tool with \`isolation: worktree\`
 
 ## Model
-${model:-haiku (default)}
+${model}
 EOF
 
     echo "claude-code adapter: prompt ready at ${output_dir}/prompt.md" >&2
