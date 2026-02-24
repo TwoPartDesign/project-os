@@ -1,10 +1,10 @@
 # Project OS
 
-A spec-driven development scaffold for Claude Code. Full workflow pipeline, memory system, sub-agent orchestration, and quality gates — zero external dependencies.
+A solo-developer governance layer for AI-driven development. Phase checkpoints, adversarial quality gates, and human approval at every transition — zero external dependencies.
 
 ## What It Is
 
-Project OS is a template you drop into Claude Code to turn it into a structured development environment. You get:
+Project OS is a solo-developer governance layer for AI-driven development. It enforces phase checkpoints, adversarial quality gates, and human approval at every transition — built entirely on Claude Code native primitives with zero external dependencies. Drop it into any Claude Code project and get a spec-first workflow from idea to shipped PR. You get:
 
 - **A 7-phase workflow** — idea through design, planning, approval, implementation, review, and shipping
 - **A memory system** that compounds knowledge across sessions
