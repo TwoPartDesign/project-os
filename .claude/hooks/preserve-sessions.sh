@@ -6,6 +6,12 @@
 #   bash .claude/hooks/preserve-sessions.sh [worktree_path]
 #
 # If no worktree_path given, scans all worktrees under .claude/worktrees/
+#
+# v2.1 NOTE: With native worktree isolation (isolation: "worktree" on Task tool),
+# worktree lifecycle is managed automatically. This script remains available for:
+# - Manual session preservation before custom worktree removal
+# - Recovery scenarios where native cleanup didn't fire
+# - Backward compatibility with v2.0 build workflows
 
 set -euo pipefail
 
