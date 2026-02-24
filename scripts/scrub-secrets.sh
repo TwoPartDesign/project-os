@@ -28,6 +28,12 @@ scrub() {
 scrub 'sk-proj-[a-zA-Z0-9_-]{20,}' 'REDACTED:OPENAI_PROJECT_KEY'
 scrub 'sk-[a-zA-Z0-9]{20,}' 'REDACTED:OPENAI_KEY'
 
+# Codex CLI uses standard OpenAI keys (sk- and sk-proj- prefixes)
+# No additional patterns needed — already covered above
+
+# Google AI / Gemini API keys
+scrub 'AIza[a-zA-Z0-9_-]{35}' 'REDACTED:GOOGLE_AI_KEY'
+
 # Anthropic keys
 scrub 'sk-ant-[a-zA-Z0-9_-]{20,}' 'REDACTED:ANTHROPIC_KEY'
 
