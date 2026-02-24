@@ -31,20 +31,20 @@ Each feature groups tasks by lifecycle phase:
 ## Feature: native-foundations
 ### Draft
 ### Todo
-- [~] Add native Tasks API convenience layer to build workflow #T1
-- [~] Replace custom worktree shell commands with native isolation #T2
-- [~] Add model routing to build workflow adapter resolution #T3
-- [~] Update claude-code adapter to surface ADAPTER_MODEL in dispatch metadata #T4
-- [~] Implement working Codex adapter #T5
-- [~] Integration pass — verify build.md coherence after T1+T2+T3 (depends: #T1, #T2, #T3) #T6
-- [~] Update INTERFACE.md and settings.json for v2.1 adapter landscape (depends: #T6) #T7
-- [~] Document ROADMAP↔Tasks dual-track pattern #T8
-- [~] Add Codex/OpenAI secret patterns to scrub-secrets.sh #T9
-- [~] Add legacy note to preserve-sessions.sh #T10
-- [~] Build live dashboard server (depends: #T7, #T8) #T11
 ### In Progress
 ### Review
 ### Done
+- [x] Add native Tasks API convenience layer to build workflow #T1
+- [x] Replace custom worktree shell commands with native isolation #T2
+- [x] Add model routing to build workflow adapter resolution #T3
+- [x] Update claude-code adapter to surface ADAPTER_MODEL in dispatch metadata #T4
+- [x] Implement working Codex adapter #T5
+- [x] Integration pass — verify build.md coherence after T1+T2+T3 (depends: #T1, #T2, #T3) #T6
+- [x] Update INTERFACE.md and settings.json for v2.1 adapter landscape (depends: #T6) #T7
+- [x] Document ROADMAP↔Tasks dual-track pattern #T8
+- [x] Add Codex/OpenAI secret patterns to scrub-secrets.sh #T9
+- [x] Add legacy note to preserve-sessions.sh #T10
+- [x] Build live dashboard server (depends: #T7, #T8) #T11
 
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->
