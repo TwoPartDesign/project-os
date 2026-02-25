@@ -21,6 +21,18 @@ Track per-feature implementation metrics. Updated by `/workflows:ship` and query
 
 <!-- Entries added by /workflows:ship -->
 
+### Feature: strategic-repositioning
+- **Duration**: 2026-02-24 (single day, single session)
+- **Tasks**: 6 total, 6 completed, 0 blocked
+- **Waves**: 2 (Wave 1: T14–T18 parallel, Wave 2: T19 verification)
+- **Revisions**: 1 review cycle (passed on first attempt — GATE PASSED WITH NOTES)
+- **First-pass review rate**: 100% (6/6 tasks passed)
+- **Compete usage**: 0 tasks
+- **Model split**: 100% Haiku (sub-agents), Sonnet orchestration
+- **Lines changed**: +43 / -19 across 7 files (including ship commit)
+- **Commits**: 7 (5 implementation, 1 tracking/verification, 1 ship)
+- **Key finding**: T15 fallback path triggered — `grep "Type: Personal"` matched 9 files across scripts/docs, so `Identity:` was added as new field rather than replacing `Type:`. Unique target strings in edit tasks must be scoped to the exact file, not repo-wide patterns.
+
 ### Feature: native-foundations (v2.1)
 - **Duration**: 2026-02-24 (single day, multi-session)
 - **Tasks**: 11 total, 11 completed, 0 blocked
