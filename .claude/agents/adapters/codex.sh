@@ -6,6 +6,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Source shared prompt template
+source "$(dirname "${BASH_SOURCE[0]}")/_prompt-template.sh"
+
 cmd_info() {
     cat <<'EOF'
 {
@@ -88,7 +91,7 @@ validate_file_scope() {
     return 0
 }
 
-cmd_execute() {
+validate_paths() {
     local context_dir="$1"
     local output_dir="$2"
 
@@ -108,8 +111,12 @@ cmd_execute() {
     fi
 
     mkdir -p "$output_dir"
+}
 
-    # Read task description
+load_task_description() {
+    local context_dir="$1"
+    local output_dir="$2"
+
     if [ ! -f "$context_dir/task.md" ]; then
         echo "ERROR: task.md not found in context_dir" >&2
         echo "fail" > "$output_dir/result"
@@ -126,105 +133,72 @@ EREOF
         exit 1
     fi
 
-    local task_desc
-    task_desc="$(cat "$context_dir/task.md")"
+    cat "$context_dir/task.md"
+}
 
-    # Build conventions context
-    local conventions=""
-    if [ -f "$context_dir/conventions.md" ]; then
-        conventions="$(cat "$context_dir/conventions.md")"
+build_context() {
+    local context_dir="$1"
+    local file_name="$2"
+
+    if [ -f "$context_dir/$file_name" ]; then
+        cat "$context_dir/$file_name"
+    else
+        echo ""
     fi
+}
 
-    # Build design context
-    local design=""
-    if [ -f "$context_dir/design.md" ]; then
-        design="$(cat "$context_dir/design.md")"
-    fi
+create_prompt_file() {
+    local output_dir="$1"
+    local prompt="$2"
 
-    # Assemble prompt
-    local prompt="You are an implementation agent. Your ONLY job is to complete this task:
-
-${task_desc}
-
-Conventions to follow:
-${conventions}
-
-Design context:
-${design}
-
-Instructions:
-1. Write the implementation code
-2. Write the tests specified in the task
-3. Run the tests — they must pass
-4. Do NOT modify any files not listed in this task
-5. If you encounter an ambiguity, make the simplest choice and document it
-6. When done, report: files created/modified, tests passed/failed, assumptions made"
-
-    local task_id="${ADAPTER_TASK_ID:-unknown}"
-    local max_turns="${ADAPTER_MAX_TURNS:-50}"
-    local model="${ADAPTER_MODEL:-}"
-
-    echo "codex adapter: executing task ${task_id}" >&2
-    echo "  context_dir: ${context_dir}" >&2
-    echo "  output_dir: ${output_dir}" >&2
-    echo "  max_turns: ${max_turns}" >&2
-
-    # Create temp file for prompt
     local prompt_file
     prompt_file="$(mktemp "$output_dir/prompt-XXXXXX.txt")"
-    trap 'rm -f "$prompt_file"' EXIT
-
     echo "$prompt" > "$prompt_file"
+    echo "$prompt_file"
+}
 
-    # Size guard: warn if prompt exceeds 102400 bytes
+check_prompt_size() {
+    local prompt_file="$1"
+
     local prompt_size
     prompt_size=$(wc -c < "$prompt_file")
     if [ "$prompt_size" -gt 102400 ]; then
         echo "WARNING: Prompt exceeds 102400 bytes (${prompt_size}). Codex may truncate." >&2
     fi
+}
 
-    # Pre-execution snapshot (tracked changes + untracked files)
+create_pre_snapshot() {
+    local output_dir="$1"
+
     { git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort -u > "$output_dir/pre-snapshot.txt" || true
+}
 
-    # Execute via codex CLI
+create_post_snapshot() {
+    local output_dir="$1"
+
+    { git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort -u > "$output_dir/post-snapshot.txt" || true
+}
+
+execute_codex() {
+    local output_dir="$1"
+    local prompt_file="$2"
+
     local codex_exit=0
     codex exec -s danger-full-access "$(cat "$prompt_file")" > "$output_dir/codex-output.txt" 2>&1 || codex_exit=$?
+    echo "$codex_exit"
+}
 
-    # Post-execution snapshot (tracked changes + untracked files)
-    { git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort -u > "$output_dir/post-snapshot.txt" || true
+generate_completion_report() {
+    local output_dir="$1"
+    local task_id="$2"
+    local result_status="$3"
+    local model="$4"
 
-    # Validate file scope
-    if ! validate_file_scope "$context_dir" "$output_dir"; then
-        echo "fail" > "$output_dir/result"
-        local task_id="${ADAPTER_TASK_ID:-unknown}"
-        cat > "$output_dir/completion-report.md" <<EOF
-# Completion Report — Task ${task_id}
-
-## Status
-FAILED — unauthorized file changes detected.
-
-## Details
-See \`unauthorized-changes.txt\` for details. Unauthorized files have been reverted.
-EOF
-        exit 1
-    fi
-
-    # Determine success/failure
-    if [ $codex_exit -eq 0 ]; then
-        echo "pass" > "$output_dir/result"
-        result_status="PASSED"
-    else
-        echo "fail" > "$output_dir/result"
-        result_status="FAILED"
-    fi
-
-    # Create output artifacts
     mkdir -p "$output_dir/files"
     if [ -f "$output_dir/codex-output.txt" ]; then
         cp "$output_dir/codex-output.txt" "$output_dir/test-output.txt"
     fi
 
-    # Generate completion report
     cat > "$output_dir/completion-report.md" <<EOF
 # Completion Report — Task ${task_id}
 
@@ -240,6 +214,82 @@ ${model:-o4-mini (default)}
 ## Output
 See \`codex-output.txt\` for full execution output.
 EOF
+}
+
+cmd_execute() {
+    local context_dir="$1"
+    local output_dir="$2"
+
+    # Phase 1: Validation
+    validate_paths "$context_dir" "$output_dir"
+
+    # Phase 2: Load task and context
+    local task_desc
+    task_desc=$(load_task_description "$context_dir" "$output_dir")
+
+    local conventions
+    conventions=$(build_context "$context_dir" "conventions.md")
+
+    local design
+    design=$(build_context "$context_dir" "design.md")
+
+    # Phase 3: Build prompt
+    local prompt
+    prompt=$(build_prompt "$task_desc" "$conventions" "$design")
+
+    local task_id="${ADAPTER_TASK_ID:-unknown}"
+    local max_turns="${ADAPTER_MAX_TURNS:-50}"
+    local model="${ADAPTER_MODEL:-}"
+
+    echo "codex adapter: executing task ${task_id}" >&2
+    echo "  context_dir: ${context_dir}" >&2
+    echo "  output_dir: ${output_dir}" >&2
+    echo "  max_turns: ${max_turns}" >&2
+
+    # Phase 4: Prepare prompt file
+    local prompt_file
+    prompt_file=$(create_prompt_file "$output_dir" "$prompt")
+    trap 'rm -f "$prompt_file"' EXIT
+
+    check_prompt_size "$prompt_file"
+
+    # Phase 5: Create pre-snapshot
+    create_pre_snapshot "$output_dir"
+
+    # Phase 6: Execute codex
+    local codex_exit
+    codex_exit=$(execute_codex "$output_dir" "$prompt_file")
+
+    # Phase 7: Create post-snapshot
+    create_post_snapshot "$output_dir"
+
+    # Phase 8: Validate file scope
+    if ! validate_file_scope "$context_dir" "$output_dir"; then
+        echo "fail" > "$output_dir/result"
+        cat > "$output_dir/completion-report.md" <<EOF
+# Completion Report — Task ${task_id}
+
+## Status
+FAILED — unauthorized file changes detected.
+
+## Details
+See \`unauthorized-changes.txt\` for details. Unauthorized files have been reverted.
+EOF
+        exit 1
+    fi
+
+    # Phase 9: Determine result status
+    local result_status
+    if [ "$codex_exit" -eq 0 ]; then
+        echo "pass" > "$output_dir/result"
+        result_status="PASSED"
+    else
+        echo "fail" > "$output_dir/result"
+        result_status="FAILED"
+    fi
+
+    # Phase 10: Generate completion report
+    generate_completion_report "$output_dir" "$task_id" "$result_status" "$model"
 
     echo "codex adapter: task ${task_id} completed with status: ${result_status}" >&2
 }

@@ -6,6 +6,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Source shared prompt template
+source "$(dirname "${BASH_SOURCE[0]}")/_prompt-template.sh"
+
 cmd_info() {
     cat <<'EOF'
 {
@@ -84,24 +87,9 @@ EREOF
         design="$(cat "$context_dir/design.md")"
     fi
 
-    # Assemble prompt
-    local prompt="You are an implementation agent. Your ONLY job is to complete this task:
-
-${task_desc}
-
-Conventions to follow:
-${conventions}
-
-Design context:
-${design}
-
-Instructions:
-1. Write the implementation code
-2. Write the tests specified in the task
-3. Run the tests — they must pass
-4. Do NOT modify any files not listed in this task
-5. If you encounter an ambiguity, make the simplest choice and document it
-6. When done, report: files created/modified, tests passed/failed, assumptions made"
+    # Assemble prompt using shared template
+    local prompt
+    prompt=$(build_prompt "$task_desc" "$conventions" "$design")
 
     local task_id="${ADAPTER_TASK_ID:-unknown}"
     local max_turns="${ADAPTER_MAX_TURNS:-50}"
