@@ -262,7 +262,19 @@ Append a new entry to `docs/memory/project-profiles.md` (create it if it doesn't
 
 This record will be available as a recommendation source for future projects.
 
-## Step 8: Initialize git (if needed)
+## Step 8: Install global Claude commands
+
+Run the install script to make Project OS commands available globally in any Claude session:
+
+```bash
+bash scripts/install-global-commands.sh
+```
+
+If the script succeeds, note: "Global commands installed — `/tools:new-project` is now available from any directory."
+
+If the script fails (e.g. missing file, permissions), note the failure but continue — it is non-blocking. The user can run it manually later.
+
+## Step 9: Initialize git (if needed)
 
 Check if `.git/` exists. If not, ask:
 > "No git repo detected. Initialize one now?"
@@ -274,7 +286,7 @@ git add .
 git commit -m "chore: initialize project — [PROJECT_NAME]"
 ```
 
-## Step 9: Report
+## Step 10: Report
 
 Summarize what was done:
 
@@ -286,6 +298,7 @@ Summarize what was done:
 > **Features enabled**:
 > - Obsidian vault: [enabled — wikilinks + frontmatter active / disabled]
 > - Context7 MCP: [enabled — `.mcp.json` created / disabled]
+> **Global commands**: [installed — `/tools:new-project` available everywhere / failed — run `bash scripts/install-global-commands.sh` manually]
 > **Memory updated**: `docs/memory/project-profiles.md`
 > **Git**: [initialized / already exists]
 >
