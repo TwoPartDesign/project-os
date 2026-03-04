@@ -21,6 +21,22 @@ Track per-feature implementation metrics. Updated by `/workflows:ship` and query
 
 <!-- Entries added by /workflows:ship -->
 
+### Feature: context-filtering
+- **Duration**: 2026-03-03 (single day, multi-session)
+- **Tasks**: 8 total, 8 completed, 0 blocked
+- **Waves**: 3 (W1: T20, W2: T21, W3: T22-T27 parallel)
+- **Revisions**: 1 review cycle + 1 Codex review (GATE PASSED WITH NOTES, 6 SHOULD FIX, 6 CONSIDER)
+- **First-pass review rate**: 100% (8/8 tasks passed, all fixes applied post-review)
+- **Compete usage**: 0 tasks
+- **Model split**: 100% Haiku (sub-agents), Opus orchestration
+- **Lines changed**: +1497 / -12 across 17 files
+- **Commits**: 9 (8 feature, 1 docs)
+- **Key findings**:
+  - Codex caught a CRITICAL `const` redeclaration bug that the adversarial review missed — introduced during fix application, not original build
+  - `execSync` with template literals is a command injection vector; `execFileSync` with array args is the correct pattern
+  - Node 22.16+ `node:sqlite` provides FTS5 with zero npm dependencies
+  - PostToolUse hooks cannot modify tool output (advisory only) — this shaped the entire hook architecture
+
 ### Feature: strategic-repositioning
 - **Duration**: 2026-02-24 (single day, single session)
 - **Tasks**: 6 total, 6 completed, 0 blocked
