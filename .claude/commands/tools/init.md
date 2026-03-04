@@ -262,15 +262,15 @@ Append a new entry to `docs/memory/project-profiles.md` (create it if it doesn't
 
 This record will be available as a recommendation source for future projects.
 
-## Step 8: Install global Claude commands
+## Step 8: Install /tools:new-project globally
 
-Run the install script to make Project OS commands available globally in any Claude session:
+Run the install script to make `/tools:new-project` available in any Claude session (not just this project):
 
 ```bash
 bash scripts/install-global-commands.sh
 ```
 
-If the script succeeds, note: "Global commands installed — `/tools:new-project` is now available from any directory."
+If the script succeeds, note: "`/tools:new-project` installed globally — available from any directory."
 
 If the script fails (e.g. missing file, permissions), note the failure but continue — it is non-blocking. The user can run it manually later.
 

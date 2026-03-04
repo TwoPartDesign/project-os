@@ -1,44 +1,29 @@
 #!/usr/bin/env bash
-# Install Project OS global Claude commands to ~/.claude/commands/
-# Run this once after cloning, or re-run to pick up updates.
+# Install the /tools:new-project command globally so it's available in any Claude session.
+# All other commands are project-local and don't need global installation.
 # Usage: bash scripts/install-global-commands.sh
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_COMMANDS_DIR="$SCRIPT_DIR/../.claude/commands"
-GLOBAL_COMMANDS_DIR="$HOME/.claude/commands"
+SRC="$SCRIPT_DIR/../.claude/commands/tools/new-project.md"
+DEST_DIR="$HOME/.claude/commands/tools"
+DEST="$DEST_DIR/new-project.md"
 
-if [ ! -d "$REPO_COMMANDS_DIR" ]; then
-  echo "ERROR: .claude/commands/ not found in repo (expected at $REPO_COMMANDS_DIR)" >&2
+if [ ! -f "$SRC" ]; then
+  echo "ERROR: source not found: $SRC" >&2
   exit 1
 fi
 
-echo "Installing Project OS global commands..."
-echo "  Source : $REPO_COMMANDS_DIR"
-echo "  Target : $GLOBAL_COMMANDS_DIR"
-echo ""
+mkdir -p "$DEST_DIR"
 
-mkdir -p "$GLOBAL_COMMANDS_DIR"
+if [ -f "$DEST" ]; then
+  echo "  [update] tools/new-project.md"
+else
+  echo "  [new]    tools/new-project.md"
+fi
 
-# Copy all command files, preserving subdirectory structure
-find "$REPO_COMMANDS_DIR" -name "*.md" | while IFS= read -r src; do
-  # Compute relative path from REPO_COMMANDS_DIR
-  rel="${src#$REPO_COMMANDS_DIR/}"
-  dest="$GLOBAL_COMMANDS_DIR/$rel"
-  dest_dir="$(dirname "$dest")"
-
-  mkdir -p "$dest_dir"
-
-  if [ -f "$dest" ]; then
-    echo "  [update] $rel"
-  else
-    echo "  [new]    $rel"
-  fi
-
-  cp "$src" "$dest"
-done
+cp "$SRC" "$DEST"
 
 echo ""
-echo "Done. Commands available globally in any Claude session."
-echo "Run /tools:new-project from any directory to bootstrap a new project."
+echo "Done. /tools:new-project is now available in any Claude session."
