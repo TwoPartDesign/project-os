@@ -27,3 +27,6 @@ docs/memory/*
 # Build output
 dist/
 build/
+
+# Context filter index (rebuilt from source files)
+.claude/index/

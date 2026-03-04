@@ -48,6 +48,18 @@
     },
     "dashboard": {
       "projects_root": "~/projects"
+    },
+    "context_filter": {
+      "enabled": true,
+      "threshold_bytes": 5120,
+      "index_path": ".claude/index/knowledge.db",
+      "max_search_results": 10,
+      "freshness": {
+        "stale_threshold_days": 90,
+        "decay_halflife_days": 30,
+        "warn_on_stale": true,
+        "auto_detect_dates": true
+      }
     }
   },
   "hooks": {
@@ -76,6 +88,15 @@
           {
             "type": "command",
             "command": "bash \".claude/hooks/post-write-session.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Read|Grep|WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \".claude/hooks/output-index.sh\""
           }
         ]
       },
