@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Bootstrap a new project with the Project OS structure
-# Usage: ./scripts/new-project.sh <project-name> <project-path>
+# Usage: ./scripts/new-project.sh <project-name> <parent-path>
+# Creates: <parent-path>/<project-name>/
 
 set -euo pipefail
 
@@ -30,42 +31,49 @@ if [[ "$PROJECT_NAME" =~ \.\. ]] || [[ "$PROJECT_NAME" =~ [/\\] ]] || [[ ! "$PRO
     exit 1
 fi
 
-echo "Creating project: $PROJECT_NAME at $PROJECT_PATH"
+FULL_PATH="$PROJECT_PATH/$PROJECT_NAME"
+
+echo "Creating project: $PROJECT_NAME at $FULL_PATH"
+
+if [ -d "$FULL_PATH" ]; then
+    echo "ERROR: Directory already exists: $FULL_PATH" >&2
+    exit 1
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE_DIR="$(dirname "$SCRIPT_DIR")"
 
-mkdir -p "$PROJECT_PATH"/{.claude/{commands/{workflows,tools,pm},agents,skills/{spec-driven-dev,tdd-workflow,session-management},sessions,rules,hooks,security},docs/{prd,research,knowledge,specs,memory},scripts,src}
+mkdir -p "$FULL_PATH"/{.claude/{commands/{workflows,tools,pm},agents,skills/{spec-driven-dev,tdd-workflow,session-management},sessions,rules,hooks,security},docs/{prd,research,knowledge,specs,memory},scripts,src}
 
-cp -r "$TEMPLATE_DIR/.obsidian" "$PROJECT_PATH/" 2>/dev/null || true
-cp -r "$TEMPLATE_DIR/.claude/commands" "$PROJECT_PATH/.claude/"
-cp -r "$TEMPLATE_DIR/.claude/agents" "$PROJECT_PATH/.claude/"
-cp -r "$TEMPLATE_DIR/.claude/skills" "$PROJECT_PATH/.claude/"
-cp -r "$TEMPLATE_DIR/.claude/rules" "$PROJECT_PATH/.claude/"
-cp -r "$TEMPLATE_DIR/.claude/hooks" "$PROJECT_PATH/.claude/"
-cp -r "$TEMPLATE_DIR/.claude/security" "$PROJECT_PATH/.claude/"
-cp "$TEMPLATE_DIR/.claude/settings.json" "$PROJECT_PATH/.claude/"
+cp -r "$TEMPLATE_DIR/.obsidian" "$FULL_PATH/" 2>/dev/null || true
+cp -r "$TEMPLATE_DIR/.claude/commands" "$FULL_PATH/.claude/"
+cp -r "$TEMPLATE_DIR/.claude/agents" "$FULL_PATH/.claude/"
+cp -r "$TEMPLATE_DIR/.claude/skills" "$FULL_PATH/.claude/"
+cp -r "$TEMPLATE_DIR/.claude/rules" "$FULL_PATH/.claude/"
+cp -r "$TEMPLATE_DIR/.claude/hooks" "$FULL_PATH/.claude/"
+cp -r "$TEMPLATE_DIR/.claude/security" "$FULL_PATH/.claude/"
+cp "$TEMPLATE_DIR/.claude/settings.json" "$FULL_PATH/.claude/"
 
-sed "s/\[PROJECT_NAME\]/$PROJECT_NAME/g" "$TEMPLATE_DIR/CLAUDE.template.md" > "$PROJECT_PATH/CLAUDE.md"
-cp "$TEMPLATE_DIR/ROADMAP.md" "$PROJECT_PATH/"
-cp "$TEMPLATE_DIR/global-CLAUDE.md" "$PROJECT_PATH/"
+sed "s/\[PROJECT_NAME\]/$PROJECT_NAME/g" "$TEMPLATE_DIR/CLAUDE.template.md" > "$FULL_PATH/CLAUDE.md"
+cp "$TEMPLATE_DIR/ROADMAP.md" "$FULL_PATH/"
+cp "$TEMPLATE_DIR/global-CLAUDE.md" "$FULL_PATH/"
 
 for f in decisions.md patterns.md bugs.md architecture.md kv.md metrics.md; do
-  cp "$TEMPLATE_DIR/docs/knowledge/$f" "$PROJECT_PATH/docs/knowledge/"
+  cp "$TEMPLATE_DIR/docs/knowledge/$f" "$FULL_PATH/docs/knowledge/"
 done
 
-touch "$PROJECT_PATH/docs/specs/.gitkeep"
-touch "$PROJECT_PATH/docs/memory/.gitkeep"
+touch "$FULL_PATH/docs/specs/.gitkeep"
+touch "$FULL_PATH/docs/memory/.gitkeep"
 
 for script in memory-search.sh audit-context.sh scrub-secrets.sh \
               validate-roadmap.sh unblocked-tasks.sh create-pr.sh dashboard.sh; do
-  cp "$TEMPLATE_DIR/scripts/$script" "$PROJECT_PATH/scripts/"
+  cp "$TEMPLATE_DIR/scripts/$script" "$FULL_PATH/scripts/"
 done
-chmod +x "$PROJECT_PATH/scripts/"*.sh
-chmod +x "$PROJECT_PATH/.claude/hooks/"*.sh 2>/dev/null
-chmod +x "$PROJECT_PATH/.claude/security/"*.sh 2>/dev/null
+chmod +x "$FULL_PATH/scripts/"*.sh
+chmod +x "$FULL_PATH/.claude/hooks/"*.sh 2>/dev/null
+chmod +x "$FULL_PATH/.claude/security/"*.sh 2>/dev/null
 
-cd "$PROJECT_PATH"
+cd "$FULL_PATH"
 cat > .gitignore << 'GI'
 CLAUDE.local.md
 .claude/sessions/
@@ -101,10 +109,10 @@ git add .
 git commit -m "chore: initialize project with Project OS scaffold"
 
 echo ""
-echo "Project '$PROJECT_NAME' initialized at $PROJECT_PATH"
+echo "Project '$PROJECT_NAME' initialized at $FULL_PATH"
 echo ""
 echo "Next steps:"
-echo "  cd $PROJECT_PATH"
+echo "  cd $FULL_PATH"
 echo "  claude"
 echo "  /tools:init               # Fill in project variables (run this first)"
 echo "  /pm:prd [feature-name]    # Start with product thinking"
