@@ -3,6 +3,7 @@ type: knowledge
 tags: [decisions, adr]
 description: Architecture decision records — what was decided, why, and what was rejected
 links: "[[architecture]], [[patterns]]"
+date: "2026-03-03"
 ---
 
 # Architectural Decision Records

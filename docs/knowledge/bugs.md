@@ -3,6 +3,7 @@ type: knowledge
 tags: [bugs, debugging]
 description: Bug root causes, fixes, and prevention rules
 links: "[[patterns]], [[decisions]]"
+date: "2026-03-03"
 ---
 
 # Bug Root Causes

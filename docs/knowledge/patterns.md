@@ -3,6 +3,7 @@ type: knowledge
 tags: [patterns, conventions]
 description: Established code patterns and conventions discovered during development
 links: "[[decisions]], [[architecture]]"
+date: "2026-03-03"
 ---
 
 # Established Patterns

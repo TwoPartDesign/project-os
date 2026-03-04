@@ -67,6 +67,22 @@ Each feature groups tasks by lifecycle phase:
 ### Review
 ### Done
 
+## Feature: context-filtering
+Source: docs/specs/PRD-context-filtering-v2.md
+### Draft
+### Todo
+### In Progress
+### Review
+### Done
+- [x] P0 — Configuration + gitignore (S) #T20
+- [x] P0 — Knowledge index — FTS5 + freshness + config subcommand (L) (depends: #T20) #T21
+- [x] P1 — Update memory-search.sh to use knowledge index (S) (depends: #T21) #T22
+- [x] P1 — Freshness validation subcommands + wrapper (M) (depends: #T21) #T23
+- [x] P1 — Context filter script — intent-based output filtering (M) (depends: #T21) #T24
+- [x] P1 — PostToolUse advisory hook — index + additionalContext hints (M) (depends: #T21) #T25
+- [x] P0 — SKILL.md — primary filtering mechanism with proactive routing (S) (depends: #T21) #T26
+- [x] P2 — Workflow integration + knowledge vault docs (M) (depends: #T21) #T27
+
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->
 
