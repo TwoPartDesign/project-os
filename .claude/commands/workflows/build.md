@@ -30,6 +30,7 @@ Before dispatching any agents:
    - This fallback ensures build is resilient to both old-style (single tasks.md) and new-style (per-task dirs) plans
 4. Run `bash scripts/validate-roadmap.sh` to verify dependency integrity.
 5. Run `bash scripts/unblocked-tasks.sh` to get the initial set of unblocked tasks. **Important:** Filter the output to only tasks belonging to this feature (`$ARGUMENTS`). The script returns all unblocked tasks across all features — cross-reference each task ID against the task list in `docs/specs/$ARGUMENTS/tasks.md` and ignore tasks from other features.
+6. Run `node scripts/knowledge-index.ts index-vault` to ensure the knowledge index is current before spawning sub-agents.
 
 ## Native Tasks Sync (Optional)
 

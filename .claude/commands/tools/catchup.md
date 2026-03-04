@@ -21,6 +21,7 @@ From the handoff file, read:
 Additionally:
 - `git log --oneline -5` for recent changes
 - `git diff --stat` for uncommitted work
+- `node scripts/knowledge-index.ts index-vault` to rebuild the knowledge index
 - `ROADMAP.md` for overall status
 
 Do NOT load full specs or designs unless the phase requires it.

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // dashboard-server.ts — Live-updating Project OS dashboard with SSE and Mermaid DAG
 // Usage: node scripts/dashboard-server.ts [--port 3400] [--projects-root ~/projects]
-// Requires Node 22.6+ (native TypeScript) or bun
+// Requires Node 22.16+ (native TypeScript, node:sqlite FTS5) or bun
 
 import { existsSync, readFileSync, watch } from "fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "http";

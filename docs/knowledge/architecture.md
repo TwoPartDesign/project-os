@@ -3,6 +3,7 @@ type: knowledge
 tags: [architecture, system-design]
 description: Living system architecture documentation
 links: "[[decisions]], [[patterns]]"
+date: "2026-03-03"
 ---
 
 # System Architecture
@@ -67,6 +68,26 @@ activity.jsonl ─────────────┘         │
                                       ├── /api/activity (HTML)
                                       └── /api/status.json (JSON)
 ```
+
+## Context Filtering &amp; Knowledge Index
+
+Project OS includes an FTS5-based knowledge index for efficient context management:
+
+- **Index engine**: `scripts/knowledge-index.ts` — uses `node:sqlite` FTS5 (Node 22.16+, zero deps)
+- **Subcommands**: `index`, `index-vault`, `search`, `rebuild`, `stats`, `stale`, `config`
+- **Filter script**: `scripts/context-filter.sh` — routes large outputs through intent-based filtering
+- **Advisory hook**: `.claude/hooks/output-index.sh` — indexes large tool outputs automatically
+- **SKILL**: `.claude/skills/context-filter/SKILL.md` — teaches proactive routing for large content
+
+### Freshness System
+
+Content freshness is tracked with three confidence levels:
+- **high**: Has `date:` field in YAML frontmatter
+- **medium**: Dated via git history
+- **low**: Dated via file modification time only
+
+Content older than 90 days without validation is marked `[STALE]` in search results.
+Use `node scripts/knowledge-index.ts validate &lt;source&gt;` to reset the stale clock.
 
 ---
 
