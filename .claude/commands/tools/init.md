@@ -21,27 +21,25 @@ Extract from memory (if anything found):
 
 If nothing found in memory, note it and proceed — you will build recommendations from the conversation instead.
 
-## Step 2: Global CLAUDE.md merge
+## Step 2: Global CLAUDE.md (optional, lightweight)
+
+This step is **optional**. All functional behavior — bash rules, model routing, workflow — is handled at the project level. The global config only adds cross-project identity and safety rules.
 
 Check if `global-CLAUDE.md` exists in the project root. If it does not exist, skip this step entirely.
 
-If it exists:
+If it exists, attempt to read `~/.claude/CLAUDE.md` (on Windows: `C:\Users\<username>\.claude\CLAUDE.md`).
 
-### 2a — Read both files
+### 2a — No existing global config
 
-- Read `global-CLAUDE.md` (the template shipped with Project OS)
-- Attempt to read `~/.claude/CLAUDE.md` (the user's actual global config)
-  - On Windows this resolves to `C:\Users\<username>\.claude\CLAUDE.md`
-  - Use the home directory of the current user
+If `~/.claude/CLAUDE.md` does not exist, ask:
+> "No global `~/.claude/CLAUDE.md` found. Project OS includes a minimal one with your name and safety rules. Create it? (Recommended — takes 10 seconds)"
+>
+> 1. **Yes** — create `~/.claude/CLAUDE.md` from `global-CLAUDE.md`
+> 2. **Skip** — all project features work without it
 
-### 2b — No existing global config
+If yes: copy `global-CLAUDE.md` to `~/.claude/CLAUDE.md`. Add it to the placeholder scan in Step 3.
 
-If `~/.claude/CLAUDE.md` does not exist, tell the user:
-> "No global `~/.claude/CLAUDE.md` found. This project includes a recommended one (`global-CLAUDE.md`). Copy it to `~/.claude/CLAUDE.md`?"
-
-If yes: copy `global-CLAUDE.md` to `~/.claude/CLAUDE.md`. Note it for the Step 2 placeholder scan — the user will fill in its placeholders as part of Step 4. Skip to Step 3.
-
-### 2c — Existing global config found
+### 2b — Existing global config found
 
 Parse both files into their `##` sections. Build a comparison:
 
@@ -56,7 +54,7 @@ Present this table to the user, then ask:
 > 1. **Merge** — Add sections from `global-CLAUDE.md` that are missing from your file. Existing sections are untouched.
 > 2. **Replace** — Overwrite `~/.claude/CLAUDE.md` with `global-CLAUDE.md` (you will re-fill placeholders in Step 4).
 > 3. **Review section-by-section** — Walk through each differing section and choose keep/replace per section.
-> 4. **Skip** — Leave `~/.claude/CLAUDE.md` as-is.
+> 4. **Skip** — Leave `~/.claude/CLAUDE.md` as-is. *(default)*
 
 Execute the chosen option:
 
@@ -67,9 +65,9 @@ Execute the chosen option:
 
 After any write operation, confirm: "Global config updated at `~/.claude/CLAUDE.md`."
 
-### 2d — Include global config in placeholder scan
+### 2c — Include global config in placeholder scan
 
-If `~/.claude/CLAUDE.md` was written or updated in this step, add it to the list of files to scan for placeholders in Step 3 so any `[BRACKET]` values get filled in during Step 4.
+If `~/.claude/CLAUDE.md` was written or updated, add it to the placeholder scan in Step 3.
 
 ## Step 3: Scan for placeholders
 
@@ -82,6 +80,7 @@ Search the following files and directories for any text matching the pattern `[A
 - `docs/knowledge/architecture.md`
 - `docs/knowledge/decisions.md`
 - `docs/knowledge/patterns.md`
+- `.claude/rules/preferences.md`
 
 Build a deduplicated list of every unique placeholder found, e.g.:
 - `[PROJECT_NAME]`
@@ -132,6 +131,93 @@ Ask these two questions together:
 
 Record answers as `FEATURE_OBSIDIAN` (yes/no) and `FEATURE_CONTEXT7` (yes/no).
 
+### Round 5 — Model Hierarchy
+
+Ask:
+
+> "Which Claude subscription tier are you on? This sets the model routing for orchestration and sub-agents."
+>
+> 1. **Max** — Opus for orchestration, Sonnet for sub-agents
+> 2. **Pro** — Sonnet for orchestration, Haiku for sub-agents *(default)*
+> 3. **Custom** — I'll specify models manually
+
+If **Custom**, ask:
+- Orchestration model ID (e.g. `claude-opus-4-6`, `claude-sonnet-4-6`)
+- Sub-agent model ID (e.g. `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`)
+
+Record as:
+- `MODEL_ORCHESTRATION` — the primary/orchestration model ID
+- `MODEL_SUBAGENT` — the sub-agent model ID
+
+Standard tier mappings:
+| Tier | Orchestration | Sub-agent |
+|---|---|---|
+| Max | `claude-opus-4-6` | `claude-sonnet-4-6` |
+| Pro | `claude-sonnet-4-6` | `claude-haiku-4-5-20251001` |
+
+### Round 6 — Code Review Tool (optional)
+
+Ask:
+
+> "Do you use an external code review tool? This adds review instructions to `.claude/rules/code-review.md`."
+>
+> 1. **Codex** — OpenAI Codex CLI (invoked via `codex` in PowerShell/terminal)
+> 2. **GitHub Copilot CLI** — `gh copilot` suggestions
+> 3. **Other** — I'll describe it
+> 4. **None / Skip** — Claude handles reviews internally *(default)*
+
+If **None / Skip**: skip to Step 5. No file is created.
+
+If **Codex**:
+- Ask: "Is Codex invoked from PowerShell (`codex`) or bash (`codex`)?" (Windows vs. Mac/Linux)
+- Record as `CODE_REVIEW_TOOL=codex`, `CODE_REVIEW_SHELL=[powershell|bash]`
+
+If **GitHub Copilot CLI**:
+- Record as `CODE_REVIEW_TOOL=copilot`
+
+If **Other**:
+- Ask: "How do you invoke it? (command + any flags)"
+- Record as `CODE_REVIEW_TOOL=other`, `CODE_REVIEW_COMMAND=[command]`
+
+Create `.claude/rules/code-review.md` with the appropriate content:
+
+**Codex (PowerShell):**
+```markdown
+# Code Reviews
+
+Use Codex for code review and checks.
+- Read-only review: write prompt to `$env:TEMP\codex-prompt.txt`, then run via a `.ps1` script: `Set-Location '<project>'; $p = Get-Content "$env:TEMP\codex-prompt.txt" -Raw; & codex exec -s read-only "$p"`
+- File edits (no TTY): `codex exec -s danger-full-access "prompt"`
+- Claude Code's Bash tool has no TTY — never use `--full-auto`
+```
+
+**Codex (bash):**
+```markdown
+# Code Reviews
+
+Use Codex for code review and checks.
+- Read-only review: `codex exec -s read-only "prompt"`
+- File edits: `codex exec -s danger-full-access "prompt"`
+```
+
+**GitHub Copilot CLI:**
+```markdown
+# Code Reviews
+
+Use GitHub Copilot CLI for code suggestions.
+- Explain code: `gh copilot explain "..."`
+- Suggest fixes: `gh copilot suggest "..."`
+```
+
+**Other:**
+```markdown
+# Code Reviews
+
+Use <command> for code review.
+```
+
+Replace `<command>` with the actual invocation the user provided before writing the file.
+
 ## Step 5: Fill in all placeholders
 
 Using the answers collected, replace every placeholder found in Step 2.
@@ -146,6 +232,27 @@ Standard mappings:
 - `[jest/pytest/go test/etc.]` → test runner from Round 2
 
 For each file containing placeholders, make all replacements in a single edit pass.
+
+Also apply model routing from Round 5: update the `## Model Routing` section of `CLAUDE.md` to reflect the chosen models:
+
+```markdown
+## Model Routing
+- **Orchestration & design**: [MODEL_ORCHESTRATION]
+- **Sub-agent implementation**: [MODEL_SUBAGENT] (via `CLAUDE_CODE_SUBAGENT_MODEL`)
+```
+
+Set `CLAUDE_CODE_SUBAGENT_MODEL=[MODEL_SUBAGENT]` in `.claude/models.env` (create the file if it doesn't exist):
+
+```bash
+# Model routing — managed by /tools:init and /tools:set-models
+export CLAUDE_CODE_SUBAGENT_MODEL=[MODEL_SUBAGENT]
+export CLAUDE_ORCHESTRATION_MODEL=[MODEL_ORCHESTRATION]
+```
+
+Tell the user how to activate sub-agent routing in their shell profile:
+
+- **bash/zsh**: `echo 'source /path/to/project/.claude/models.env' >> ~/.bashrc`
+- **PowerShell**: Add `. /path/to/project/.claude/models.env` to `$PROFILE` (or set the env vars manually in PowerShell)
 
 ## Step 5a: Apply feature toggles
 
@@ -258,9 +365,11 @@ Append a new entry to `docs/memory/project-profiles.md` (create it if it doesn't
 - **Test runner**: [test runner]
 - **One-liner**: [one sentence description]
 - **Features**: Obsidian=[yes/no], Context7=[yes/no]
+- **Code review**: [Codex/Copilot/other/none]
+- **Model tier**: [Max/Pro/Custom] — orchestration=[MODEL_ORCHESTRATION], sub-agent=[MODEL_SUBAGENT]
 ```
 
-This record will be available as a recommendation source for future projects.
+This record will be available as a recommendation source for future projects. In Round 5, offer the saved tier as the default recommendation for the next project.
 
 ## Step 8: Install /tools:new-project globally
 
@@ -283,7 +392,14 @@ If yes:
 ```bash
 git init
 git add .
-git commit -m "chore: initialize project — [PROJECT_NAME]"
+```
+Then write the commit message to `/tmp/commit-msg.txt` and commit:
+```bash
+# Write message first (avoids inline shell injection with special chars in project name)
+cat > /tmp/commit-msg.txt << 'EOF'
+chore: initialize project — [PROJECT_NAME]
+EOF
+git commit -F /tmp/commit-msg.txt
 ```
 
 ## Step 10: Report
@@ -298,6 +414,11 @@ Summarize what was done:
 > **Features enabled**:
 > - Obsidian vault: [enabled — wikilinks + frontmatter active / disabled]
 > - Context7 MCP: [enabled — `.mcp.json` created / disabled]
+> - Code review: [Codex / GitHub Copilot CLI / other / none — Claude handles reviews internally]
+> **Model routing** ([Max/Pro/Custom]):
+> - Orchestration: [MODEL_ORCHESTRATION]
+> - Sub-agents: [MODEL_SUBAGENT] (`CLAUDE_CODE_SUBAGENT_MODEL`)
+> - Config: `.claude/models.env` — source in shell profile to activate
 > **Global commands**: [installed — `/tools:new-project` available everywhere / failed — run `bash scripts/install-global-commands.sh` manually]
 > **Memory updated**: `docs/memory/project-profiles.md`
 > **Git**: [initialized / already exists]
