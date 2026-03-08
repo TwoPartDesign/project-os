@@ -19,7 +19,7 @@
       "Write",
       "Edit"
     ],
-    "deny": ["Bash(rm -rf /)", "Bash(curl:* | bash)", "Bash(wget:* | bash)"]
+    "deny": ["Bash(rm -rf /)"]
   },
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "haiku",
