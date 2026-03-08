@@ -21,6 +21,54 @@ Extract from memory (if anything found):
 
 If nothing found in memory, note it and proceed — you will build recommendations from the conversation instead.
 
+## Step 1b: Discover existing project docs
+
+Before asking any questions, scan the project for existing documentation that might already answer them. This reduces how much the user has to type.
+
+### Locations to check (in priority order)
+
+1. **README.md** / **README.rst** — often has project name, description, and stack
+2. **docs/product.md** — may have vision/scope already filled
+3. **docs/tech.md** — may have stack decisions already filled
+4. **docs/specs/** — any spec files that describe the feature set
+5. **PRD.md**, **prd.md**, `docs/PRD.md`, `docs/prd.md` — external product requirements doc
+6. **SPEC.md**, `docs/SPEC.md` — external spec
+7. **package.json** — reveals language (Node/TS), framework, test runner, formatter
+8. **pyproject.toml** / **setup.py** — reveals Python stack
+9. **go.mod** — reveals Go stack
+10. **Cargo.toml** — reveals Rust stack
+11. ***.md** files in the project root (any docs the user may have dropped in)
+
+Use Glob to find which of these exist, then Read any that do.
+
+### Extract from found docs
+
+Build a pre-fill map from what you find:
+
+| Field | Extraction hint |
+|---|---|
+| Project name | README `#` heading, package.json `name`, or folder name |
+| Description / one-liner | README first paragraph, package.json `description` |
+| Stack (language/runtime) | `package.json` → Node/TS, `pyproject.toml` → Python, `go.mod` → Go, etc. |
+| Framework | `package.json` dependencies (`next`, `express`, `fastapi`, etc.) |
+| Database | Dependencies or tech doc mentions (`sqlite`, `postgres`, `prisma`, etc.) |
+| Test runner | `package.json` `scripts.test`, `devDependencies` (`vitest`, `jest`, `pytest`) |
+| Formatter | `devDependencies` or config files (`prettier`, `eslint`, `black`) |
+| Scope / v0.1 | PRD or spec "scope", "MVP", or "v0.1" sections |
+| Out of scope | PRD "out of scope" or "non-goals" sections |
+
+Store extracted values in a pre-fill map. Any field with a confident value from docs is **pre-filled** — show it for confirmation in Step 4 rather than asking from scratch.
+
+**Conflict resolution — docs vs memory**: When a doc-derived value (e.g. `package.json` says Jest) conflicts with a memory-based recommendation (e.g. memory says always use Vitest), surface both and ask which to use. Don't silently pick one.
+
+### Summarize what was found
+
+Before proceeding to Step 2, briefly tell the user:
+
+> "Found existing docs: [list of files]. Pre-filled: [field list]. Will ask about: [remaining fields]."
+
+If no relevant docs found, note it and proceed normally.
+
 ## Step 2: Global CLAUDE.md (optional, lightweight)
 
 This step is **optional**. All functional behavior — bash rules, model routing, workflow — is handled at the project level. The global config only adds cross-project identity and safety rules.
@@ -91,43 +139,99 @@ Build a deduplicated list of every unique placeholder found, e.g.:
 
 Also note which files each placeholder appears in — you will need to replace it in all locations.
 
-## Step 4: Ask about the project (2-3 questions at a time)
+## Step 4: Ask about the project (one round at a time)
 
-Start with the high-level questions. Do NOT ask everything at once.
+**Formatting rule — ALWAYS use numbered picklists for questions with finite options.** Format them exactly like this so Claude Code renders them as a selectable list:
+
+```
+> "Question text?"
+>
+> 1. Option A
+> 2. Option B
+> 3. Option C *(default)*
+```
+
+For open-ended questions (name, description, etc.) use a plain prompt. Within a round, you may include a picklist and one or two open-ended questions in the same message — but keep them clearly separated. Never mix questions from different rounds in the same message.
+
+**One round at a time.** Present a round, wait for answers, then proceed to the next. Do NOT skip ahead or combine rounds.
+
+**For any field already pre-filled in Step 1b**: show the extracted value as the default and ask for confirmation rather than asking from scratch:
+
+```
+> Found project name `NightOwl` from README. Correct? (Enter to confirm, or type the correct name)
+```
+
+**Skip an entire round** if all its fields are pre-filled and confirmed.
+
+---
 
 ### Round 1 — Identity
-Ask:
-1. What is the project name?
-2. What type of project is this? (web app, CLI tool, API/backend, library, data pipeline, automation script, other)
-3. One sentence: what does it do?
+
+In a single message, ask only the fields not pre-filled. Open-ended fields (name, description) go above or below the picklist as plain prompts:
+
+- "What is the project name?" *(if not pre-filled)*
+- "One sentence: what does it do?" *(if not pre-filled)*
+
+> What type of project is this? *(if not pre-filled)*
+>
+> 1. Web app (frontend + backend)
+> 2. API / backend service
+> 3. CLI tool
+> 4. Library / package
+> 5. Data pipeline
+> 6. Automation / scripting
+> 7. Other
+
+---
 
 ### Round 2 — Stack
-Present your recommendations based on memory findings (e.g. "Based on your past projects you've used TypeScript + Vitest — recommend the same here unless this is a different type of project"). Then ask:
 
-1. Primary language and runtime (e.g. TypeScript/Node, Python/3.12, Go 1.22)
-2. Framework, if any (e.g. Next.js, FastAPI, Express, none)
-3. Database, if any (e.g. SQLite, Postgres, none)
-4. Formatter and test runner (offer recommendations from memory or defaults)
+Present your recommendations based on memory findings (e.g. "Based on your past projects you've used TypeScript + Vitest — recommend the same here"). For any field pre-filled from docs, show detected value for confirmation. Ask only fields not pre-filled.
 
-### Round 3 — Scope (only if docs/product.md is empty)
-Ask:
-1. What's the one-liner for this project? (for docs/product.md)
-2. What does v0.1 look like — the smallest useful version?
-3. What's explicitly OUT of scope for now?
+For language/runtime, use a picklist if the project type suggests standard choices:
 
-Skip Round 3 if `docs/product.md` already has content beyond the template comment.
+> Primary language and runtime?
+>
+> 1. TypeScript / Node.js
+> 2. Python 3.x
+> 3. Go
+> 4. Rust
+> 5. Bash / shell scripts
+> 6. Other (I'll specify)
+
+For framework, database, formatter, and test runner — offer a short picklist based on the detected language, with memory-based recommendations marked *(recommended)*. E.g. for TypeScript:
+
+> Test runner?
+>
+> 1. Vitest *(recommended — used in past projects)*
+> 2. Jest
+> 3. None
+> 4. Other
+
+---
+
+### Round 3 — Scope (only if docs/product.md is empty AND not pre-filled from PRD/spec)
+
+Ask open-ended:
+1. "What's the one-liner for this project?" (for docs/product.md)
+2. "What does v0.1 look like — the smallest useful version?"
+3. "What's explicitly OUT of scope for now?"
+
+Skip Round 3 entirely if `docs/product.md` already has content beyond the template comment, OR if a PRD/spec doc in Step 1b provided all three fields.
 
 ### Round 4 — Feature Toggles
 
-Ask these two questions together:
+Present both toggles in the same message, each as its own numbered picklist block.
 
-1. **Knowledge interface** — The project ships with an Obsidian vault config (`.obsidian/`). Do you want Claude to use Obsidian-style formatting for the knowledge vault? This means wikilinks like `[[decisions]]` and YAML frontmatter preserved in knowledge files — readable in both Claude and Obsidian.
-   - `Y` — Use Obsidian-compatible formatting (wikilinks + frontmatter)
-   - `N` — Plain markdown only (no wikilinks, no frontmatter)
+> **Knowledge interface** — The project ships with an Obsidian vault config (`.obsidian/`). Use Obsidian-style formatting for the knowledge vault? (wikilinks like `[[decisions]]` + YAML frontmatter, readable in both Claude and Obsidian)
+>
+> 1. Yes — Obsidian-compatible formatting *(wikilinks + frontmatter)*
+> 2. No — Plain markdown only *(default)*
 
-2. **Context7 live docs** — Context7 is an MCP server that fetches up-to-date library documentation at query time. Useful for fast-moving frameworks. A security wrapper is already configured at `.claude/security/mcp-allowlist.json`, and a `PostToolUse` hook at `.claude/hooks/post-mcp-validate.sh` automatically validates every Context7 response for suspicious content and size.
-   - `Y` — Enable Context7 (adds `.mcp.json` to project root; hook activates automatically)
-   - `N` — Skip
+> **Context7 live docs** — MCP server that fetches up-to-date library docs at query time. Useful for fast-moving frameworks. Security wrapper + PostToolUse validation hook already configured.
+>
+> 1. Yes — Enable Context7 *(adds `.mcp.json`; hook activates automatically)*
+> 2. No — Skip *(default)*
 
 Record answers as `FEATURE_OBSIDIAN` (yes/no) and `FEATURE_CONTEXT7` (yes/no).
 
@@ -317,7 +421,7 @@ Context7 is enabled for this project. Use it to fetch up-to-date library documen
 
 ## Step 6: Populate product and tech docs (if empty)
 
-If `docs/product.md` contains only the template comment, replace it with:
+If `docs/product.md` contains only the template comment, replace it with content from Round 3 answers **or** from the pre-fill map if a PRD/spec was discovered in Step 1b. When using a discovered PRD, note the source file in a comment at the top of the doc.
 
 ```markdown
 # Product Vision
