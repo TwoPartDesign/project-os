@@ -9,6 +9,7 @@ The scanner flags these patterns - mostly false positives on machines with space
 - **Quoted characters in flag names** - any `"..."` in the command. Worsens with `&&`
 - **Newlines that could separate commands** - multi-line scripts or loops
 - **`$()` command substitution** - any `$(...)` inline
+- **`${}` parameter expansion** - any `${var}` or `${i}` in a command, including inside for loops (e.g. `mkdir -p "path/T${i}"`)
 - **Backslash-escaped whitespace** - `path\ with\ spaces`
 - **Piped commands** - `command | command`, even `ls | grep`
 - **Output redirection in compound command** - `2>/dev/null`, `>file`, `>>file` combined with `cd &&` or `;`
@@ -49,6 +50,10 @@ find "path/one" -type f && find "path/two" -type f
    - Line counts → `wc -l file1 file2 file3 ...` with an **explicit list** (no `$(...)`)
    - File content → **Read** tool
    - Pattern: `for i in 1 2 3; do echo "$(wc -l < "path/T${i}/file")"; done` → use Glob to confirm existence, then a single `wc -l path/T1/file path/T2/file path/T3/file` call
+3a. **`${}` parameter expansion in loops** - `for i in 1 2 3; do mkdir -p "path/T${i}"; done` triggers on `${i}`. Options:
+   - Pre-approve the specific pattern: `{ "permissions": { "allow": ["Bash(for * in *; do mkdir *; done)"] } }`
+   - Or spell out all paths explicitly in a single `mkdir -p path/T1 path/T2 path/T3` call (no loop needed)
+   - `$var` (no braces) does NOT trigger — use `$i` instead of `${i}` when the brace form isn't needed for disambiguation
 4. **Split `$()` into two Bash calls** - run the subcommand first to capture output, then use the literal result in the next call. Never embed `$(command)` in a longer command
 5. **Pre-approve in `.claude/settings.json`** - use `permissions.allow` (not `allowedTools`; that doesn't exist). Glob `*` supported with word boundaries
    ```json
