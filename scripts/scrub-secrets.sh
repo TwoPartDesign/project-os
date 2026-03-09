@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Scrub known secret patterns from a file in-place.
 # Usage: bash scripts/scrub-secrets.sh <filepath>
 # Prints count of secrets redacted to stderr.
@@ -6,22 +6,28 @@
 set -euo pipefail
 
 FILE="${1:-}"
-if [ -z "$FILE" ] || [ ! -f "$FILE" ]; then
-    echo "Usage: scrub-secrets.sh <filepath>" >&2
-    exit 1
+if [[ -z "$FILE" || ! -f "$FILE" ]]; then
+  echo "Usage: scrub-secrets.sh <filepath>" >&2
+  exit 1
+fi
+
+if [[ ! -w "$FILE" ]]; then
+  echo "ERROR: File is not writable: $FILE" >&2
+  exit 1
 fi
 
 COUNT=0
 
 scrub() {
-    local pattern="$1"
-    local label="$2"
-    local before
-    before=$(grep -cE "$pattern" "$FILE" 2>/dev/null || true)
-    if [ "$before" -gt 0 ]; then
-        sed -i -E "s|$pattern|[$label]|g" "$FILE"
-        COUNT=$((COUNT + before))
-    fi
+  local pattern="$1"
+  local label="$2"
+  local before
+
+  before=$(grep -cE "$pattern" "$FILE" 2>/dev/null || true)
+  if [[ "$before" -gt 0 ]]; then
+    sed -i -E "s|$pattern|[$label]|g" "$FILE"
+    COUNT=$((COUNT + before))
+  fi
 }
 
 # OpenAI keys — project keys first (contain hyphens not matched by generic pattern)
@@ -63,8 +69,8 @@ scrub 'eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+' 'REDACTED:JWT'
 scrub 'Bearer [a-zA-Z0-9_-]{20,}' 'Bearer REDACTED:BEARER_TOKEN'
 scrub 'bearer [a-zA-Z0-9_-]{20,}' 'bearer REDACTED:BEARER_TOKEN'
 
-if [ "$COUNT" -gt 0 ]; then
-    echo "scrub-secrets: redacted $COUNT secret(s) from $FILE" >&2
+if [[ "$COUNT" -gt 0 ]]; then
+  echo "scrub-secrets: redacted $COUNT secret(s) from $FILE" >&2
 fi
 
 exit 0

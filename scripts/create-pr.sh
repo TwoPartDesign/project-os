@@ -21,44 +21,54 @@ if [[ "$FEATURE" =~ \.\. ]] || [[ "$FEATURE" =~ [/\\] ]] || [[ ! "$FEATURE" =~ ^
 fi
 
 # Auto-detect default branch if not specified
-if [ -n "${2:-}" ]; then
+if [[ -n "${2:-}" ]]; then
     BASE="$2"
-elif git rev-parse --verify main &>/dev/null; then
+elif git rev-parse --verify main >/dev/null 2>&1; then
     BASE="main"
-elif git rev-parse --verify master &>/dev/null; then
+elif git rev-parse --verify master >/dev/null 2>&1; then
     BASE="master"
 else
     echo "ERROR: Could not detect default branch. Specify explicitly: create-pr.sh <feature> <base>" >&2
     exit 1
 fi
 
-# Verify gh is available
-if ! command -v gh &>/dev/null; then
+if [[ ! "$BASE" =~ ^[a-zA-Z0-9._/-]+$ ]]; then
+    echo "ERROR: Invalid base branch '${BASE}'." >&2
+    exit 1
+fi
+
+# Verify gh is available and authenticated
+if ! command -v gh >/dev/null 2>&1; then
     echo "ERROR: gh CLI not found. Install from https://cli.github.com/" >&2
+    exit 1
+fi
+
+if ! gh auth status >/dev/null 2>&1; then
+    echo "ERROR: gh CLI is not authenticated. Run 'gh auth login'." >&2
     exit 1
 fi
 
 # Verify we're on a named branch (not detached HEAD)
 CURRENT_BRANCH="$(git branch --show-current)"
-if [ -z "$CURRENT_BRANCH" ]; then
+if [[ -z "$CURRENT_BRANCH" ]]; then
     echo "ERROR: Detached HEAD state. Switch to a feature branch first." >&2
     exit 1
 fi
-if [ "$CURRENT_BRANCH" = "$BASE" ]; then
-    echo "ERROR: Cannot create PR from $BASE branch. Switch to a feature branch first." >&2
+if [[ "$CURRENT_BRANCH" == "$BASE" ]]; then
+    echo "ERROR: Cannot create PR from ${BASE} branch. Switch to a feature branch first." >&2
     exit 1
 fi
 
 # Verify base branch exists
-if ! git rev-parse --verify "$BASE" &>/dev/null; then
-    echo "ERROR: Base branch '$BASE' does not exist." >&2
+if ! git rev-parse --verify "$BASE" >/dev/null 2>&1; then
+    echo "ERROR: Base branch '${BASE}' does not exist." >&2
     exit 1
 fi
 
 # Verify there are commits to include
 COMMIT_COUNT="$(git rev-list "${BASE}..HEAD" --count)"
-if [ "$COMMIT_COUNT" -eq 0 ]; then
-    echo "ERROR: No commits between $BASE and HEAD. Nothing to create a PR for." >&2
+if [[ "$COMMIT_COUNT" -eq 0 ]]; then
+    echo "ERROR: No commits between ${BASE} and HEAD. Nothing to create a PR for." >&2
     exit 1
 fi
 

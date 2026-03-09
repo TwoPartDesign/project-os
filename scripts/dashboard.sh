@@ -164,16 +164,7 @@ for dir in "$PROJECTS_ROOT"/*/; do
     fi
 done
 
-# JSON-escape a string: backslashes, double quotes, and control characters
-json_escape() {
-    local s="$1"
-    s="${s//\\/\\\\}"
-    s="${s//\"/\\\"}"
-    s="${s//$'\n'/\\n}"
-    s="${s//$'\r'/\\r}"
-    s="${s//$'\t'/\\t}"
-    printf '%s' "$s"
-}
+source "$(dirname "${BASH_SOURCE[0]}")/lib/json.sh"
 
 # Output in requested format
 if [ "$OUTPUT_JSON" = true ]; then

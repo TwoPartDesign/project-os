@@ -66,9 +66,12 @@ touch "$FULL_PATH/docs/specs/.gitkeep"
 touch "$FULL_PATH/docs/memory/.gitkeep"
 
 for script in memory-search.sh audit-context.sh scrub-secrets.sh \
-              validate-roadmap.sh unblocked-tasks.sh create-pr.sh dashboard.sh; do
+              validate-roadmap.sh unblocked-tasks.sh create-pr.sh dashboard.sh \
+              sync-agent-rules.sh; do
   cp "$TEMPLATE_DIR/scripts/$script" "$FULL_PATH/scripts/"
 done
+mkdir -p "$FULL_PATH/scripts/lib"
+cp -r "$TEMPLATE_DIR/scripts/lib/." "$FULL_PATH/scripts/lib/"
 chmod +x "$FULL_PATH/scripts/"*.sh
 chmod +x "$FULL_PATH/.claude/hooks/"*.sh 2>/dev/null
 chmod +x "$FULL_PATH/.claude/security/"*.sh 2>/dev/null

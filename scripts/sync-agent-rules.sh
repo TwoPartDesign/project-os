@@ -38,7 +38,7 @@ for file in "${RULES[@]}"; do
         source_content=$(cat "$file")
     fi
 
-    current_hash=$(echo "$source_content" | sha256sum | cut -d' ' -f1)
+    current_hash=$(printf '%s' "$source_content" | sha256sum | cut -d' ' -f1)
 
     # Extract stored hash from the section (if present)
     stored_hash=$(grep -o "<!-- source-hash: [a-f0-9]* -->" "$file" | grep -o "[a-f0-9]\{64\}" | head -1 || true)
