@@ -72,16 +72,7 @@ re_task='^[[:space:]]*-[[:space:]]\[(.)][[:space:]](.+)#T([0-9]+)[[:space:]]*$'
 re_deps='depends:[[:space:]]*([^)]+)'
 re_agent='agent:[[:space:]]*([^)]+)'
 
-# JSON-escape a string (handles backslash, double-quote, control chars)
-json_escape() {
-    local s="$1"
-    s="${s//\\/\\\\}"
-    s="${s//\"/\\\"}"
-    s="${s//$'\n'/\\n}"
-    s="${s//$'\r'/\\r}"
-    s="${s//$'\t'/\\t}"
-    printf '%s' "$s"
-}
+source "$(dirname "${BASH_SOURCE[0]}")/lib/json.sh"
 
 # Pass 1: Build a map of task_id -> status
 declare -A task_status

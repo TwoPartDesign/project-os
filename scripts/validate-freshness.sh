@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 # Thin wrapper for freshness validation commands
 # Usage: ./scripts/validate-freshness.sh validate <source>
 #        ./scripts/validate-freshness.sh validate-vault

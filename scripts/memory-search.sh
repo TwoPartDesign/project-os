@@ -1,8 +1,9 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 # Search across all knowledge files
 # Usage: ./scripts/memory-search.sh <query>
 
-QUERY="$1"
+QUERY="${1:-}"
 if [ -z "$QUERY" ]; then
   echo "Usage: memory-search.sh <query>"
   exit 1

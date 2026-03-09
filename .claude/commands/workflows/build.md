@@ -43,7 +43,7 @@ Before dispatching any agents:
      Then rewrite the file: replace (or append) a '## Agent Rules' section at the end with:
        1. A comment on the first line: <!-- source-hash: [CURRENT_HASH] -->
           where [CURRENT_HASH] is the sha256 of all file content above the ## Agent Rules section.
-          Compute this by running: sed '/^## Agent Rules/,\$d' [STALE_FILE_PATH] | sha256sum | cut -d' ' -f1
+          Compute this by running: sed '/^## Agent Rules/,$d' [STALE_FILE_PATH] | sha256sum | cut -d' ' -f1
        2. The distilled bullet list of actionable rules.
      Do not modify any content above ## Agent Rules.",
        subagent_type: "general-purpose"

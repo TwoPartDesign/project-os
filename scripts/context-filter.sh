@@ -74,19 +74,23 @@ THRESHOLD=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --file)
+      if [[ $# -lt 2 ]]; then echo "Error: --file requires a value" >&2; exit 1; fi
       FILE="$2"
       shift 2
       ;;
     --intent)
+      if [[ $# -lt 2 ]]; then echo "Error: --intent requires a value" >&2; exit 1; fi
       INTENT="$2"
       shift 2
       ;;
     --threshold)
+      if [[ $# -lt 2 ]]; then echo "Error: --threshold requires a value" >&2; exit 1; fi
       THRESHOLD="$2"
       shift 2
       ;;
     *)
-      shift
+      echo "Error: Unknown option: $1" >&2
+      exit 1
       ;;
   esac
 done
