@@ -154,3 +154,25 @@ Sub-agents do not inherit CLAUDE.md. When spawning sub-agents that will run Bash
 
 - For git commits, write message to `/tmp/commit-msg.txt` then `git commit -F /tmp/commit-msg.txt`
 - Use `git -C "path"` instead of `cd "path" && git ...`
+
+## Agent Rules
+
+<!-- source-hash: 66b18dbb96aec8d63125001d0ab7d57adb15e9a5961779a0aebc15858373b50d -->
+
+- Never chain commands with `&&`, `||`, or `;` — use separate Bash tool calls
+- Never use `&&` with quoted strings (includes `cd "path" && command`)
+- Always use forward slashes in paths: `C:/Users/...` not `C:\Users\...`
+- Always double-quote absolute paths with spaces: `"C:/path with spaces/file"`
+- Never backslash-escape spaces in paths: avoid `path\ with\ spaces`
+- Never embed `$(...)` inline — split into two Bash calls
+- Never use `--flag="value"` — use `--flag "value"` (space-separated)
+- Never pipe commands (`|`) — use Glob, Grep, or Read tools instead
+- Never combine output redirection (`2>/dev/null`, `>file`, `>>file`) with compound commands (`cd &&`, `;`)
+- Run scripts with full absolute paths — no `cd` needed
+- Use `git -C "path" command` instead of `cd "path" && git command`
+- Use relative paths when working directory is project root
+- Use single-line loops only — no newlines: `for f in *.sh; do ...; done`
+- Use dedicated tools for operations: Glob (file search), Grep (content search), Read (file content), Write (create files)
+- For multi-step operations: write temporary files to `/tmp/` then reference them in subsequent calls
+- Use `git commit -F /tmp/commit-msg.txt` for commit messages instead of inline `-m`
+- Use `powershell -WorkingDirectory "path" -Command "..."` instead of `cd "path" && powershell -Command "..."`
