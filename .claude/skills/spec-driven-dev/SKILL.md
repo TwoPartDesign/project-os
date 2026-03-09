@@ -7,7 +7,7 @@
 Before writing ANY code, verify a spec exists:
 
 1. Check `docs/specs/[feature-name]/` for brief.md, design.md, tasks.md
-2. If ALL exist and design is "Approved": proceed with `/workflows:build`
+2. If ALL exist and design is "Approved": verify no `[?]` tasks remain in ROADMAP.md for this feature (i.e., `/pm:approve` has been run). If `[?]` tasks exist, run `/pm:approve` first. Then proceed with `/workflows:build`
 3. If design exists but not approved: resume `/workflows:design`
 4. If only brief exists: run `/workflows:design`
 5. If NOTHING exists: run `/workflows:idea`

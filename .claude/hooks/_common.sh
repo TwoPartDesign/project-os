@@ -20,7 +20,10 @@ resolve_project_path() {
 
     # Canonicalize: resolve symlinks and relative paths
     local resolved
-    resolved="$(realpath "$file" 2>/dev/null || readlink -f "$file" 2>/dev/null)" || return 1
+    resolved="$(realpath "$file" 2>/dev/null || readlink -f "$file" 2>/dev/null)" || {
+        echo "WARNING: cannot canonicalize '$file' (realpath/readlink unavailable)" >&2
+        return 1
+    }
 
     # If resolution produced empty string, fail
     [ -z "$resolved" ] && return 1

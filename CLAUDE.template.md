@@ -3,6 +3,7 @@
 ## Identity
 - Project: [PROJECT_NAME]
 - Type: Personal project
+- Role: [YOUR_ROLE]
 - Owner: [YOUR_NAME]
 - Stack: [PRIMARY_STACK]
 
@@ -60,6 +61,7 @@ See `.claude/agents/roles.md` for full definitions.
 | test, tdd, verify, coverage | tdd-workflow | Red-Green-Refactor |
 | handoff, done, end session | session-management | Auto-save protocol |
 | deploy, ship, release, external | workflows:ship | Pre-ship checklist + PR generation |
+| filter, compress, large output, stale, fresh | context-filter | Filter protocol |
 
 ## Rules
 - Never commit with TODO, FIXME, or HACK without a linked task in ROADMAP.md

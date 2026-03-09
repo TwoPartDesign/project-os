@@ -24,11 +24,15 @@ if [ "$IS_ERROR" = "true" ]; then
     mkdir -p "$LOG_DIR"
     LOG_FILE="$LOG_DIR/tool-failures.log"
     ENTRY="$(date -u +%Y-%m-%dT%H:%M:%SZ) FAIL tool=${TOOL_NAME:-unknown}"
-    # Atomic append with flock to prevent interleaved writes
-    (
-        flock -w 2 200 || { echo "$ENTRY" >> "$LOG_FILE"; exit 0; }
+    # Atomic append with flock to prevent interleaved writes (fall back to direct append if flock unavailable)
+    if command -v flock >/dev/null 2>&1; then
+        (
+            flock -w 2 200 || { echo "$ENTRY" >> "$LOG_FILE"; exit 0; }
+            echo "$ENTRY" >> "$LOG_FILE"
+        ) 200>"${LOG_FILE}.lock"
+    else
         echo "$ENTRY" >> "$LOG_FILE"
-    ) 200>"${LOG_FILE}.lock"
+    fi
 fi
 
 exit 0

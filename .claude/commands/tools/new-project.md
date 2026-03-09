@@ -161,7 +161,7 @@ Attempt to open a new terminal window with Claude running in that directory:
 cmd.exe /c "start /D \"<full-project-path>\" cmd /k claude"
 ```
 
-**Important**: Use the literal backslash path format for `cmd.exe /D` (e.g. `C:\Users\Jacob\Projects\my-app`). Convert forward slashes in the project path to backslashes for this command only.
+**Important**: Use the literal backslash path format for `cmd.exe /D` (e.g. `C:\Users\YourName\Projects\my-app`). Convert forward slashes in the project path to backslashes for this command only. The `claude` command is resolved from PATH — no hardcoded binary path.
 
 If the command fails or the environment is not Windows, print this fallback instead:
 > "Could not open automatically. To get started:

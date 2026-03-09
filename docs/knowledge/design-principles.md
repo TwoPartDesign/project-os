@@ -51,7 +51,7 @@ If the builder has to guess, the planner failed. Every task must have:
 
 Every phase has a human checkpoint. The system preserves your intent and decision-making authority.
 
-**Implication**: No silent retry loops. No auto-pushing to main. No hidden rollbacks. Every critical phase asks for explicit approval before proceeding.
+**Implication**: No silent retry loops. No auto-pushing to main. No hidden rollbacks. Every critical phase asks for explicit approval before proceeding. Note: adapter-level scope enforcement (e.g., codex.sh reverting unauthorized file changes) is not a "hidden rollback" — it is logged to stderr and bounded to files outside the task contract.
 
 ### 7. Ship Working Software Over Perfect Software
 

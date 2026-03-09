@@ -19,16 +19,16 @@ For each v0.1 scope item:
 
 ## Output
 
-Update ROADMAP.md under `### Queued`:
+Add to ROADMAP.md under the relevant feature section. Use `[?]` draft markers and `#TN` IDs (increment from the last used ID). Tasks created here still require `/pm:approve` before building:
 
 ```
 ## Epic: [Feature Name]
 Source: docs/prd/$ARGUMENTS.md
 
-[ ] P0 — [Task 1] (S) — no deps
-[ ] P0 — [Task 2] (M) — no deps
-[ ] P1 — [Task 3] (M) — depends on Task 1
-[ ] P2 — [Task 4] (S) — depends on Task 2, 3
+[?] #T1 P0 — [Task 1] (S) — no deps
+[?] #T2 P0 — [Task 2] (M) — no deps
+[?] #T3 P1 — [Task 3] (M) — depends on #T1
+[?] #T4 P2 — [Task 4] (S) — depends on #T2, #T3
 ```
 
-> "Epic: [N] tasks. Run `/workflows:idea [task]` for the spec pipeline, or tackle (S) tasks directly."
+> "Epic: [N] tasks added as drafts. Run `/pm:approve` to approve tasks for building, or `/workflows:idea [feature]` to go through the full spec pipeline first."

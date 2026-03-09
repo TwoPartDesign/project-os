@@ -191,7 +191,7 @@ if [ -n "$INTENT" ]; then
 
   if [ -z "$SEARCH_RESULTS" ]; then
     # Fallback: grep-based search
-    MATCHED=$(echo "$CONTENT" | grep -Fin -- "$INTENT" | head -5)
+    MATCHED=$(echo "$CONTENT" | grep -Fin -- "$INTENT" | head -5) || MATCHED=""
     MATCH_COUNT=$(echo "$MATCHED" | grep -c . || echo 0)
   else
     # Parse search results (simplified)
@@ -245,4 +245,4 @@ else
   echo "[Full content indexed. Search: node scripts/knowledge-index.ts search \"<terms>\"]"
 fi
 
-exit 2
+exit 0

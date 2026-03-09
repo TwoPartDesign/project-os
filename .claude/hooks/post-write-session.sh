@@ -16,7 +16,9 @@ SESSION_DIR="${PROJECT_ROOT}/.claude/sessions"
 
 # Only act on session files
 if [[ "$RESOLVED" == "$SESSION_DIR"/* ]]; then
-    bash "$PROJECT_ROOT/scripts/scrub-secrets.sh" "$RESOLVED"
+    if ! bash "$PROJECT_ROOT/scripts/scrub-secrets.sh" "$RESOLVED"; then
+        echo "WARNING: scrub-secrets failed for $RESOLVED" >&2
+    fi
 fi
 
 exit 0
