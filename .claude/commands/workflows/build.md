@@ -24,9 +24,9 @@ Before dispatching any agents:
    docs/specs/$ARGUMENTS/tasks/T2/
    ...
    ```
-3. For each task directory, create a `context.md` file:
-   - If per-task context files already exist (from a prior plan phase), use them as-is
-   - If not, extract the relevant section from `docs/specs/$ARGUMENTS/tasks.md` and save it as `docs/specs/$ARGUMENTS/tasks/TN/context.md`
+3. For each task directory, create a `context/` subdirectory:
+   - If per-task context dirs already exist (from a prior plan phase), use them as-is
+   - If not, create `docs/specs/$ARGUMENTS/tasks/TN/context/` and write the relevant section from `docs/specs/$ARGUMENTS/tasks.md` into it as `task.md`
    - This fallback ensures build is resilient to both old-style (single tasks.md) and new-style (per-task dirs) plans
 4. Run `bash scripts/validate-roadmap.sh` to verify dependency integrity.
 5. Run `bash scripts/unblocked-tasks.sh` to get the initial set of unblocked tasks. **Important:** Filter the output to only tasks belonging to this feature (`$ARGUMENTS`). The script returns all unblocked tasks across all features — cross-reference each task ID against the task list in `docs/specs/$ARGUMENTS/tasks.md` and ignore tasks from other features.
@@ -248,7 +248,7 @@ After all tasks in a wave complete:
 ## Error Handling
 
 If a sub-agent exceeds its scope (modifies files not in its task):
-- Revert those changes: `git checkout -- [unauthorized files]`
+- Hard-revert those unauthorized files: `git checkout HEAD -- [unauthorized files]` (untracked: `rm -f [file]`). Unlike the wave gate recovery above, unauthorized scope changes should not be preserved — they are outside the task contract.
 - Re-run the agent with a stricter prompt
 
 If a task is blocked:

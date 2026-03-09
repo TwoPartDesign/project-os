@@ -12,7 +12,7 @@ This document defines the authoritative format for ROADMAP.md, used to track tas
 | `[ ]` | Todo | Approved, ready for work | `/pm:approve` | → `[-]` | No |
 | `[-]` | In Progress | Agent actively working | Builder on task start | → `[~]` | No |
 | `[~]` | Review | Awaiting review pass | Builder on completion | → `[x]` or `[!]` | No |
-| `[>]` | Competing | Multiple implementations racing | `/workflows:compete` | → `[x]` | No |
+| `[>]` | Competing | Multiple implementations racing | `/workflows:compete` | → `[~]` | No |
 | `[x]` | Done | Completed and merged | `/workflows:review` PASS | — | Yes |
 | `[!]` | Blocked | Cannot proceed | Any phase | → `[-]` | No |
 
@@ -167,7 +167,7 @@ Each feature gets its own top-level section:
 | `[~]` | `[!]` | Review FAIL | Reviewer |
 | `[!]` | `[-]` | Blocker resolved | Builder |
 | `[ ]` | `[>]` | `/workflows:compete` | User |
-| `[>]` | `[x]` | `/workflows:compete-review` winner selected | User |
+| `[>]` | `[~]` | `/workflows:compete-review` winner selected | User |
 
 ### Invalid Transitions
 
@@ -176,7 +176,7 @@ These transitions are errors and indicate miscommunication:
 - `[?]` → `[-]` (must approve first)
 - `[x]` → anything (terminal state)
 - `[!]` → `[~]` (must return to `[-]` first)
-- `[>]` → `[~]` (competing tasks don't go to review; winner goes to `[x]`)
+- `[>]` → `[x]` (winner must pass `/workflows:review` first, transitioning through `[~]`)
 
 ---
 

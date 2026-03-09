@@ -67,11 +67,14 @@ touch "$FULL_PATH/docs/memory/.gitkeep"
 
 for script in memory-search.sh audit-context.sh scrub-secrets.sh \
               validate-roadmap.sh unblocked-tasks.sh create-pr.sh dashboard.sh \
-              sync-agent-rules.sh; do
+              sync-agent-rules.sh context-filter.sh validate-freshness.sh; do
   cp "$TEMPLATE_DIR/scripts/$script" "$FULL_PATH/scripts/"
 done
 mkdir -p "$FULL_PATH/scripts/lib"
 cp -r "$TEMPLATE_DIR/scripts/lib/." "$FULL_PATH/scripts/lib/"
+for ts_script in knowledge-index.ts dashboard-server.ts; do
+  [ -f "$TEMPLATE_DIR/scripts/$ts_script" ] && cp "$TEMPLATE_DIR/scripts/$ts_script" "$FULL_PATH/scripts/"
+done
 chmod +x "$FULL_PATH/scripts/"*.sh
 chmod +x "$FULL_PATH/.claude/hooks/"*.sh 2>/dev/null
 chmod +x "$FULL_PATH/.claude/security/"*.sh 2>/dev/null

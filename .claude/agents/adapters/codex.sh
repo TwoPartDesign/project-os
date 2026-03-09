@@ -44,9 +44,16 @@ validate_file_scope() {
     local context_dir="$1"
     local output_dir="$2"
 
-    # Extract allowed files from task.md (lines under ## Files section)
+    # Extract allowed files from task.md (- **Files**: `path` (action), ... format)
     local allowed_files
-    allowed_files=$(sed -n '/^## Files$/,/^##/p' "$context_dir/task.md" | sed '1d;$d' | sed 's/^[[:space:]]*-[[:space:]]*//' | sed 's/[[:space:]]*$//' | grep -v '^$' | sort -u)
+    allowed_files=$(grep -E '^\s*-\s*\*\*Files\*\*:' "$context_dir/task.md" \
+        | sed 's/.*\*\*Files\*\*:[[:space:]]*//' \
+        | tr ',' '\n' \
+        | grep -oE '`[^`]+`' \
+        | tr -d '`' \
+        | sed 's/[[:space:]].*//' \
+        | grep -v '^$' \
+        | sort -u) || allowed_files=""
 
     # Get pre and post snapshots
     local pre_snapshot post_snapshot changes

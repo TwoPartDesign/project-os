@@ -18,7 +18,7 @@ You can rebuild in two modes based on severity of review findings:
 
 ### Mode 1: Re-implement (default)
 Use when reviewers flagged code-level issues (bugs, security, quality) in completed tasks.
-- Mark `[!]` tasks as `[ ]` (unblocked, ready for re-implementation)
+- Mark `[!]` tasks as `[-]` (in progress, ready for re-implementation)
 - Re-run build phase with ONLY the unblocked tasks
 - Fixes iterate on existing code
 
@@ -46,7 +46,7 @@ Before unblocking:
 If user chooses re-implement:
 
 1. **Unblock tasks**
-   Update ROADMAP.md: mark all `[!]` tasks for this feature as `[ ]` (todo, ready for work).
+   Update ROADMAP.md: mark all `[!]` tasks for this feature as `[-]` (in progress, unblocked for re-implementation).
 
 2. **Report findings**
    Create `docs/specs/$ARGUMENTS/rebuild-context.md` containing:

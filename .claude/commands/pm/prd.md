@@ -63,4 +63,4 @@ Create `docs/prd/$ARGUMENTS.md`:
 - [Unresolved]
 ```
 
-Add to ROADMAP.md under `### Ideas`.
+Save the PRD to `docs/specs/[feature-slug]/brief.md`. ROADMAP.md entries are created later by `/workflows:plan` once a design is approved — do not add to ROADMAP.md here.

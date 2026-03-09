@@ -25,7 +25,7 @@ Each phase transition produces and consumes specific artifacts. No phase may sta
 - **Validation**: No `[?]` tasks remain for the feature being built
 
 ## Build → Review
-- **Produces**: Per-task `docs/specs/<feature>/completion-report-TN.md`
+- **Produces**: Per-task `docs/specs/<feature>/tasks/TN/completion-report.md`
 - **Required fields**: files changed, tests passed, assumptions made
 - **Produces**: ROADMAP.md entries moved to `[~]` (Review)
 - **Validation**: All tasks marked `[~]` or `[x]`, completion reports exist
