@@ -23,3 +23,10 @@ Staying on Opus for easy follow-up tasks is wasteful.
 When hitting the retry cap, output:
 > "Retry cap reached on [operation]. Blocker: [specific issue]. Suggested next: [action]."
 Then stop and wait for user direction.
+
+## Agent Rules
+<!-- source-hash: d54ee78e8a78f8cfd6b5b394cdab41e15ba69c09b294ed0b7aba80ac8b0d0f7e -->
+
+- Maximum **2 retries** per task. After 2 consecutive failures: STOP and surface the blocker.
+- Never silently retry the same action a third time — it wastes quota and masks the real problem.
+- When hitting the retry cap, output: "Retry cap reached on [operation]. Blocker: [specific issue]. Suggested next: [action]." Then stop and wait for direction.

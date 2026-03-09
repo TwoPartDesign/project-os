@@ -31,6 +31,25 @@ Before dispatching any agents:
 4. Run `bash scripts/validate-roadmap.sh` to verify dependency integrity.
 5. Run `bash scripts/unblocked-tasks.sh` to get the initial set of unblocked tasks. **Important:** Filter the output to only tasks belonging to this feature (`$ARGUMENTS`). The script returns all unblocked tasks across all features — cross-reference each task ID against the task list in `docs/specs/$ARGUMENTS/tasks.md` and ignore tasks from other features.
 6. Run `node scripts/knowledge-index.ts index-vault` to ensure the knowledge index is current before spawning sub-agents.
+7. Run `bash scripts/sync-agent-rules.sh` to check whether `## Agent Rules` sections in the relevant rule files are current.
+   - If exit 0: sections are fresh, continue.
+   - If exit 1: the script prints stale file paths (one per line). For each stale file, spawn a sub-agent:
+     ```
+     Task(
+       prompt: "You are a rules distiller. Read the file at [STALE_FILE_PATH].
+     Extract every actionable rule: imperative statements, specific dos/don'ts, concrete patterns to follow or avoid.
+     Omit: explanatory prose, rationale, 'why' context, examples of bad patterns, and section headers.
+     For escalation.md, only extract the retry cap rule — omit the escalation ladder and downshift rule (those are orchestrator concerns, not agent concerns).
+     Then rewrite the file: replace (or append) a '## Agent Rules' section at the end with:
+       1. A comment on the first line: <!-- source-hash: [CURRENT_HASH] -->
+          where [CURRENT_HASH] is the sha256 of all file content above the ## Agent Rules section.
+          Compute this by running: sed '/^## Agent Rules/,\$d' [STALE_FILE_PATH] | sha256sum | cut -d' ' -f1
+       2. The distilled bullet list of actionable rules.
+     Do not modify any content above ## Agent Rules.",
+       subagent_type: "general-purpose"
+     )
+     ```
+   - Wait for all distillation agents to complete before proceeding to wave computation.
 
 ## Native Tasks Sync (Optional)
 
@@ -121,6 +140,7 @@ For each task in the wave, assemble ONLY:
 - The specific task description from tasks.md (NOT the full task list)
 - The relevant section from `docs/specs/$ARGUMENTS/design.md` (NOT the full design)
 - Project conventions from CLAUDE.md
+- Agent rules: extract the `## Agent Rules` section from `.claude/rules/bash.md`, `.claude/rules/tests.md`, and `.claude/rules/escalation.md` and concatenate them into the conventions block. These are the distilled, actionable rules sub-agents must follow. Do NOT include the full rule files — only the `## Agent Rules` section from each.
 - The specific files the task mentions (read them for current state)
 
 DO NOT give agents: full spec history, other tasks, the brief, research findings, or review comments. Context isolation is critical.
