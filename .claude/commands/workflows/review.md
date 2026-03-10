@@ -20,11 +20,16 @@ git diff "${BASE}...HEAD"
 
 All three reviewers run with `isolation: worktree` for filesystem isolation (prevents reviewers from modifying the working tree). Cross-reviewer isolation is enforced by **prompt separation** — each sub-agent receives only its own instructions and review focus. The orchestrator (you) is the only entity that reads all three reports.
 
+Before spawning any reviewer, read `.claude/rules/bash.md` and extract the full content of its `## Agent Rules` section (everything after that heading, excluding the `<!-- source-hash -->` comment line). Store this as `BASH_AGENT_RULES` — substitute it into each reviewer prompt where indicated below.
+
 ## Reviewer 1: Drift Detection (Plan vs Implementation)
 
 Spawn a sub-agent with this prompt:
 
 "You are a drift detection auditor. Your job is to find mismatches between what was planned and what was built.
+
+CRITICAL — BASH COMMAND RULES:
+[BASH_AGENT_RULES]
 
 PLANNED (source of truth):
 [Contents of tasks.md — the task descriptions and acceptance criteria]
@@ -48,6 +53,9 @@ Output format:
 Spawn a sub-agent with this prompt:
 
 "You are a security auditor. Review ONLY the changed files for security issues.
+
+CRITICAL — BASH COMMAND RULES:
+[BASH_AGENT_RULES]
 
 Changed files:
 [git diff output — filenames and content]
@@ -74,6 +82,9 @@ Output format:
 Spawn a sub-agent with this prompt:
 
 "You are a code quality reviewer. Review the changed files for maintainability.
+
+CRITICAL — BASH COMMAND RULES:
+[BASH_AGENT_RULES]
 
 Changed files and test files:
 [Relevant source and test files]
