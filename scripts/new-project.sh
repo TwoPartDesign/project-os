@@ -67,7 +67,8 @@ touch "$FULL_PATH/docs/memory/.gitkeep"
 
 for script in memory-search.sh audit-context.sh scrub-secrets.sh \
               validate-roadmap.sh unblocked-tasks.sh create-pr.sh dashboard.sh \
-              sync-agent-rules.sh context-filter.sh validate-freshness.sh; do
+              sync-agent-rules.sh context-filter.sh validate-freshness.sh \
+              codex-review.sh; do
   cp "$TEMPLATE_DIR/scripts/$script" "$FULL_PATH/scripts/"
 done
 mkdir -p "$FULL_PATH/scripts/lib"
