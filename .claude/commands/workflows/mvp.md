@@ -13,7 +13,7 @@ You are the MVP orchestrator. You drive a feature from wherever it currently sit
 ```
 
 - `$FEATURE` — feature slug (matches `docs/specs/$FEATURE/` directory and ROADMAP.md entries)
-- `--from <phase>` — override phase detection; start from this phase. Valid values: `idea`, `design`, `plan`, `approve`, `build`, `review`, `ship`
+- `--from <phase>` — override phase detection; start from this phase. Valid values: `idea`, `design`, `plan`, `approve`, `build`, `rebuild`, `review`, `ship`
 - `--dry-run` — detect phase and print planned gate decisions without executing anything
 
 ## Status Banner Format
@@ -50,6 +50,12 @@ On a hard stop:
   Next: fix issues and re-run /workflows:mvp $FEATURE
 ```
 
+## Input Validation
+
+Before doing anything else, validate `$FEATURE`:
+- Must match `^[a-z0-9][a-z0-9-]*$` (lowercase alphanumeric and hyphens only, no path separators)
+- If invalid: output `Error: feature slug "$FEATURE" is invalid. Use lowercase letters, digits, and hyphens only.` and STOP.
+
 ## State File
 
 MVP persists cross-run state to `docs/specs/$FEATURE/mvp-state.yaml`. Create it on first run; update it between phases.
@@ -58,7 +64,7 @@ MVP persists cross-run state to `docs/specs/$FEATURE/mvp-state.yaml`. Create it 
 feature: $FEATURE
 started_at: <ISO timestamp>
 detected_phase: <phase>
-review_cycles: 0        # incremented each time /workflows:review runs
+review_attempt: 0       # incremented at the START of each /workflows:review invocation
 last_review_result: ""  # PASSED | FAILED
 ```
 
@@ -86,17 +92,22 @@ If an idea document is found → proceed to Step 2.
 
 ### Step 2: Check downstream artifacts
 
+Check in this exact order — **terminal states first** (first match wins):
+
 | Artifact state | Detected phase |
 |---|---|
-| Idea doc found, `docs/specs/$FEATURE/design.md` absent | `design` |
-| `design.md` exists, `docs/specs/$FEATURE/tasks.md` absent | `plan` |
-| `tasks.md` exists, feature has `[?]` tasks in ROADMAP.md (plan-phase tasks, not the idea draft entry) | `approve` |
-| All feature tasks are `[ ]` or `[-]`, none `[?]` | `build` |
-| Any feature task is `[!]` OR `docs/specs/$FEATURE/revision-request.md` exists | `rebuild` |
-| Any feature task is `[~]` (review-ready) and no `[!]` tasks | `review` |
 | `docs/specs/$FEATURE/review.md` exists and contains `GATE PASSED` | `ship` |
+| Any feature task is `[~]` (review-ready) and no `[!]` tasks | `review` |
+| Any feature task is `[!]` (blocked) | `rebuild` |
+| `tasks.md` exists, feature has `[?]` tasks in ROADMAP.md (plan-phase tasks, not the idea draft entry) | `approve` |
+| All feature tasks are `[ ]` or `[-]`, `tasks.md` exists, none `[?]` | `build` |
+| `design.md` exists, `docs/specs/$FEATURE/tasks.md` absent | `plan` |
+| Idea doc found, `docs/specs/$FEATURE/design.md` absent | `design` |
 
-**Note on `[?]` detection (fixes skip-plan bug):** `idea` writes one draft ROADMAP entry before `tasks.md` exists. When checking for `[?]` tasks, **require `tasks.md` to exist first**. If `tasks.md` is absent, the `[?]` entries are from the idea phase — route to `plan`, not `approve`.
+**Evaluation notes:**
+- `ship` is checked first because a `GATE PASSED` review.md is definitive even if tasks still show `[~]`
+- `rebuild` uses only `[!]` task markers — `revision-request.md` alone is not sufficient (stale artifact after a prior run that was manually fixed)
+- **Note on `[?]` detection (fixes skip-plan bug):** `idea` writes one draft ROADMAP entry before `tasks.md` exists. When checking for `[?]` tasks, **require `tasks.md` to exist first**. If `tasks.md` is absent, the `[?]` entries are from the idea phase — route to `plan`, not `approve`.
 
 ## Gate Policy Reference
 
@@ -193,7 +204,7 @@ After completion:
 Instead, MVP applies "approve all" directly:
 
 1. Read ROADMAP.md and find all `[?]` task entries for `$FEATURE` that have a `#TN` ID (these are plan-phase tasks, not the idea draft entry)
-2. For each `[?]` task: check that all its declared dependencies are `[ ]` or already non-draft. Promote in dependency order (deps first)
+2. For each `[?]` task: check that all its declared dependencies are in state `[ ]`, `[~]`, or `[x]` only — do NOT promote tasks whose dependencies are `[!]` (blocked). Promote in dependency order (deps first)
 3. Change every qualifying `[?]` to `[ ]` in ROADMAP.md
 4. Run `bash scripts/validate-roadmap.sh` to confirm no inconsistencies
 
@@ -207,14 +218,14 @@ After completion:
 **Invoke**: `/workflows:build $FEATURE`
 
 After completion:
-- Read ROADMAP.md and count any `[!]` tasks for this feature
+- Read ROADMAP.md and check task states for this feature
 
-**No `[!]` tasks:**
+**All tasks are `[~]` or `[x]`** (build fully completed):
 - Print: `✓ [build]   N tasks completed`
 - Update `mvp-state.yaml` with `detected_phase: review`
 - Proceed to **review**
 
-**Any `[!]` tasks exist:**
+**Any `[!]` tasks exist** (blocked):
 - Print:
   ```
   ⏸ [build]   M task(s) blocked [!] — cannot proceed to review with incomplete implementation.
@@ -224,6 +235,15 @@ After completion:
       2. Run /workflows:rebuild $FEATURE to unblock and re-implement
   ```
 - STOP. Do not proceed to review with blocked tasks.
+
+**Any tasks still `[-]`** (in-progress — build stalled):
+- Print:
+  ```
+  ⏸ [build]   M task(s) still in-progress [-] — build may have stalled or been interrupted.
+    In-progress tasks: [list task IDs]
+    Re-run /workflows:build $FEATURE to resume, then re-run /workflows:mvp $FEATURE
+  ```
+- STOP.
 
 ### Phase: rebuild (inlined Mode 1)
 
@@ -246,9 +266,14 @@ MVP inlines Mode 1 (re-implement) directly rather than invoking `/workflows:rebu
    ```
 5. Invoke `/workflows:build $FEATURE`
 
-After build completes, increment `review_cycles` in `mvp-state.yaml`, then proceed directly to **review**.
+After build completes, proceed directly to **review**. Do NOT modify `review_attempt` here — that is managed exclusively by the review phase.
 
 ### Phase: review
+
+**At the START of this phase** (before invoking the skill):
+- Read `review_attempt` from `mvp-state.yaml` (default 0 if not set)
+- Increment: `review_attempt += 1`
+- Write updated `review_attempt` back to `mvp-state.yaml`
 
 **Invoke**: `/workflows:review $FEATURE`
 
@@ -258,25 +283,23 @@ After completion, read `docs/specs/$FEATURE/review.md` and check for `GATE PASSE
 - Output: `Retry cap reached on [review gate]. Blocker: review.md missing or gate result unparseable. Suggested next: run /workflows:review $FEATURE manually and verify it writes a gate decision.`
 - STOP.
 
-Read `mvp-state.yaml` for `review_cycles` to determine attempt count.
-
 **GATE PASSED:**
 - Print: `✓ [review]  GATE PASSED`
 - Update `mvp-state.yaml`: `last_review_result: PASSED`
 - Proceed to **ship**
 
-**GATE FAILED — attempt 1** (`review_cycles` was 0 before this review):
-- Increment `review_cycles` to 1 in `mvp-state.yaml`, set `last_review_result: FAILED`
+**GATE FAILED — attempt 1** (`review_attempt` is 1 after the increment above):
+- Update `mvp-state.yaml`: `last_review_result: FAILED`
 - Print:
   ```
   ⚠ [review]  GATE FAILED — MUST FIX items found
     Auto-rebuild (Mode 1) triggered — attempt 1.
   ```
-- Execute **rebuild (inlined Mode 1)** (see above)
-- Then run **review** again (this will be attempt 2)
+- Execute **rebuild (inlined Mode 1)** (see above) — do NOT modify `review_attempt` in rebuild
+- Then return to the **start of this phase** (review attempt 2 will be `review_attempt: 2`)
 
-**GATE FAILED — attempt 2** (`review_cycles` was 1 before this review):
-- Update `mvp-state.yaml`: `review_cycles: 2, last_review_result: FAILED`
+**GATE FAILED — attempt 2** (`review_attempt` is 2 after the increment above):
+- Update `mvp-state.yaml`: `last_review_result: FAILED`
 - Print:
   ```
   ✗ [review]  GATE FAILED again — human review required.
