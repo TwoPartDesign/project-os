@@ -43,9 +43,15 @@ Before dispatching any agents:
      Then rewrite the file: replace (or append) a '## Agent Rules' section at the end with:
        1. A comment on the first line: <!-- source-hash: [CURRENT_HASH] -->
           where [CURRENT_HASH] is the sha256 of all file content above the ## Agent Rules section.
-          Compute this by running: sed '/^## Agent Rules/,$d' [STALE_FILE_PATH] | sha256sum | cut -d' ' -f1
+          Compute this in two separate Bash calls (do NOT pipe — pipes cause security prompts):
+            Call 1: sed '/^## Agent Rules/,$d' [STALE_FILE_PATH] > /tmp/hash-input.txt
+            Call 2: sha256sum /tmp/hash-input.txt
+          Extract the first field (the hash) from the sha256sum output.
        2. The distilled bullet list of actionable rules.
-     Do not modify any content above ## Agent Rules.",
+     Do not modify any content above ## Agent Rules.
+
+     CRITICAL — BASH COMMAND RULES:
+     [BASH_AGENT_RULES]",
        subagent_type: "general-purpose"
      )
      ```
@@ -136,11 +142,13 @@ Update ROADMAP.md: change `[ ]` to `[-]` for all tasks in this wave.
 Log each: `bash .claude/hooks/log-activity.sh task-spawned "feature=$ARGUMENTS" task_id=TN agent=implementer`
 
 **2. Prepare agent context packets**
+Before assembling any packets, read `.claude/rules/bash.md` and extract the full content of its `## Agent Rules` section (everything after that heading, excluding the `<!-- source-hash -->` comment line). Store this as `BASH_AGENT_RULES` — it will be substituted into every agent prompt below.
+
 For each task in the wave, assemble ONLY:
 - The specific task description from tasks.md (NOT the full task list)
 - The relevant section from `docs/specs/$ARGUMENTS/design.md` (NOT the full design)
 - Project conventions from CLAUDE.md
-- Agent rules: extract the `## Agent Rules` section from `.claude/rules/bash.md`, `.claude/rules/tests.md`, and `.claude/rules/escalation.md` and concatenate them into the conventions block. These are the distilled, actionable rules sub-agents must follow. Do NOT include the full rule files — only the `## Agent Rules` section from each.
+- Agent rules: extract the `## Agent Rules` section from `.claude/rules/tests.md` and `.claude/rules/escalation.md` and include in the conventions block. Do NOT include the full rule files — only the `## Agent Rules` section from each. Bash rules go in the dedicated CRITICAL section below, not here.
 - The specific files the task mentions (read them for current state)
 
 DO NOT give agents: full spec history, other tasks, the brief, research findings, or review comments. Context isolation is critical.
@@ -198,6 +206,9 @@ Each agent's prompt:
 "You are an implementation agent. Your ONLY job is to complete this task:
 
 [TASK DESCRIPTION]
+
+CRITICAL — BASH COMMAND RULES:
+[BASH_AGENT_RULES]
 
 Conventions to follow:
 [RELEVANT CLAUDE.md EXCERPT]

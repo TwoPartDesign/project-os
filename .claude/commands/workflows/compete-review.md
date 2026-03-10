@@ -21,9 +21,14 @@ For each `compete-<strategy>.md` file:
 
 ## Step 2: Deep comparison
 
+Before spawning reviewers, read `.claude/rules/bash.md` and extract the full content of its `## Agent Rules` section (everything after that heading, excluding the `<!-- source-hash -->` comment line). Store this as `BASH_AGENT_RULES` — substitute it into each reviewer prompt where indicated below.
+
 Spawn a reviewer sub-agent for each approach (parallel, isolated):
 
 "You are reviewing a competitive implementation.
+
+CRITICAL — BASH COMMAND RULES:
+[BASH_AGENT_RULES]
 
 Strategy: [STRATEGY NAME]
 Task spec: [TASK DESCRIPTION]
