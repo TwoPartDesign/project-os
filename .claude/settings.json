@@ -15,6 +15,9 @@
       "Bash(sort *)",
       "Bash(awk *)",
       "Bash(sed *)",
+      "Bash(bash scripts/*)",
+      "Bash(bash .claude/hooks/*)",
+      "Bash(node scripts/*)",
       "Read",
       "Write",
       "Edit"
