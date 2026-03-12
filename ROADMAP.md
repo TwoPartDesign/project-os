@@ -61,6 +61,7 @@ Each feature groups tasks by lifecycle phase:
 
 ## Feature: agent-teams-spike
 ### Draft
+- [x] (placeholder) Task ID #T12 reserved — removed during planning consolidation #T12
 - [ ] Spike: CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 — assess compatibility and integration path (report at docs/specs/agent-teams-spike/spike-report.md) #T13
 ### Todo
 ### In Progress

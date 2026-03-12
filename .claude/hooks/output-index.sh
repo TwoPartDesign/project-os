@@ -4,6 +4,9 @@
 # Behavior: If output exceeds threshold, index it and print hint to stderr (becomes additionalContext)
 # Does NOT modify tool output — advisory only.
 
+set -euo pipefail
+trap 'exit 0' ERR  # Advisory hook — never surface errors to Claude Code
+
 # Check if context filtering is disabled
 if [ "${CONTEXT_FILTER_DISABLED:-0}" = "1" ]; then
     exit 0
@@ -17,20 +20,32 @@ source "$SCRIPT_DIR/_common.sh"
 
 INPUT=$(cat)
 
-# Extract all needed fields from JSON in a single node call
-eval "$(node -e "
+# Write input to temp file so node can read it (heredoc consumes stdin)
+INPUT_FILE=$(mktemp)
+EXTRACT_FILE=$(mktemp)
+printf '%s' "$INPUT" > "$INPUT_FILE"
+trap "rm -f '$INPUT_FILE' '$EXTRACT_FILE'" EXIT
+
+INPUT_PATH="$INPUT_FILE" node > "$EXTRACT_FILE" 2>/dev/null << 'EXTRACT_SCRIPT' || exit 0
 try {
-  const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-  const esc = s => (s || '').replace(/'/g, \"'\\\\''\");
-  console.log('TOOL_NAME=\\'' + esc(d.tool_name) + '\\'');
-  console.log('OUTPUT=\\'' + esc(d.output) + '\\'');
+  const d = JSON.parse(require('fs').readFileSync(process.env.INPUT_PATH, 'utf8'));
   const args = d.arguments || {};
-  console.log('ARG_COMMAND=\\'' + esc(args.command || '').substring(0,50) + '\\'');
-  console.log('ARG_FILE_PATH=\\'' + esc(args.file_path || '') + '\\'');
-  console.log('ARG_PATTERN=\\'' + esc(args.pattern || '').substring(0,50) + '\\'');
-  console.log('ARG_URL=\\'' + esc(args.url || '').substring(0,100) + '\\'');
+  const esc = s => (s || '').replace(/\\/g, '\\\\').replace(/'/g, "'\\''");
+  const lines = [
+    "TOOL_NAME='" + esc(d.tool_name || '') + "'",
+    "OUTPUT='" + esc(d.output || '') + "'",
+    "ARG_COMMAND='" + esc((args.command || '').substring(0,50)) + "'",
+    "ARG_FILE_PATH='" + esc(args.file_path || '') + "'",
+    "ARG_PATTERN='" + esc((args.pattern || '').substring(0,50)) + "'",
+    "ARG_URL='" + esc((args.url || '').substring(0,100)) + "'"
+  ];
+  console.log(lines.join('\n'));
 } catch { process.exit(1); }
-" <<< "$INPUT")" 2>/dev/null || exit 0
+EXTRACT_SCRIPT
+
+# Safely read extracted fields using eval on a controlled temp file
+# Each line is key='value' format with shell-escaped content
+eval "$(cat "$EXTRACT_FILE")" || exit 0
 
 # If no output, nothing to do
 [ -z "$OUTPUT" ] && exit 0
@@ -49,7 +64,7 @@ fi
 
 # Output exceeds threshold — index it
 TEMP_FILE=$(mktemp)
-trap "rm -f '$TEMP_FILE'" EXIT
+trap "rm -f '$INPUT_FILE' '$EXTRACT_FILE' '$TEMP_FILE'" EXIT
 
 # Write output to temp file safely (printf avoids echo's backslash/flag issues)
 printf '%s' "$OUTPUT" > "$TEMP_FILE"

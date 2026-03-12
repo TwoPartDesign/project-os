@@ -46,7 +46,7 @@ resolve_project_path() {
 # Returns: file path string, or empty if not found
 extract_file_path() {
     local input="$1"
-    echo "$input" | grep -oE '"file_path"\s*:\s*"[^"]*"' | sed 's/.*"file_path"[^"]*"//;s/".*//'
+    echo "$input" | grep -oE '"file_path"\s*:\s*"[^"]*"' | sed 's/.*"file_path"[^"]*"//;s/".*//' || true
 }
 
 # Get project root (useful for referencing project-relative paths in hooks)

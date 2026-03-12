@@ -3,6 +3,9 @@
 # Auto-compact fires at 50% context (CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50).
 # Tool count is an imperfect proxy — warn early so user can /tools:handoff first.
 
+set -euo pipefail
+trap 'exit 0' ERR  # Advisory hook — never surface errors to Claude Code
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 LOG_DIR="$PROJECT_ROOT/.claude/logs"
@@ -11,20 +14,31 @@ mkdir -p "$LOG_DIR"
 
 # Extract session_id for per-session counting
 INPUT=$(cat)
-SESSION_ID=$(echo "$INPUT" | grep -oE '"session_id"\s*:\s*"[^"]*"' | sed 's/.*"session_id"[^"]*"//;s/".*//' | head -1)
+SESSION_ID=$(echo "$INPUT" | grep -oE '"session_id"\s*:\s*"[^"]*"' | sed 's/.*"session_id"[^"]*"//;s/".*//' | head -1 || true)
 # Sanitize: strip path traversal chars, allow only alphanumeric/hyphen/underscore
 SESSION_ID=$(echo "$SESSION_ID" | tr -cd '[:alnum:]_-')
 SESSION_ID="${SESSION_ID:-default}"
 
 COUNTER_FILE="$LOG_DIR/.tool-count-$SESSION_ID"
-LOCK_FILE="${COUNTER_FILE}.lock"
-# Atomic read-modify-write with flock to prevent race conditions
-exec 200>"$LOCK_FILE"
-flock -w 2 200 || true
-COUNT=$(cat "$COUNTER_FILE" 2>/dev/null || echo 0)
-COUNT=$((COUNT + 1))
-echo "$COUNT" > "$COUNTER_FILE"
-exec 200>&-
+
+# Atomic read-modify-write with flock (if available) to prevent race conditions
+if command -v flock >/dev/null 2>&1; then
+    LOCK_FILE="${COUNTER_FILE}.lock"
+    exec 200>"$LOCK_FILE"
+    if ! flock -w 2 200; then
+        # Lock failed — drop this event instead of writing unsafely
+        exit 0
+    fi
+    COUNT=$(cat "$COUNTER_FILE" 2>/dev/null || echo 0)
+    COUNT=$((COUNT + 1))
+    echo "$COUNT" > "$COUNTER_FILE"
+    exec 200>&-
+else
+    # No flock — best-effort without locking
+    COUNT=$(cat "$COUNTER_FILE" 2>/dev/null || echo 0)
+    COUNT=$((COUNT + 1))
+    echo "$COUNT" > "$COUNTER_FILE"
+fi
 
 # Warn at thresholds — before the 50% auto-compact fires
 if [ "$COUNT" -eq 20 ]; then

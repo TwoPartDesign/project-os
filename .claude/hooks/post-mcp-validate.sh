@@ -4,6 +4,8 @@
 # Exit 1 surfaces a warning message to Claude; it does not prevent the response
 # from entering context, but Claude will treat flagged content with caution.
 
+set -euo pipefail
+
 INPUT=$(cat)
 
 # Require jq — warn and exit if missing

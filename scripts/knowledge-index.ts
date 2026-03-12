@@ -5,9 +5,10 @@
 // Requires Node 22.16+ for node:sqlite
 
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, readFileSync, mkdirSync, statSync, readdirSync, renameSync } from "node:fs";
+import { existsSync, readFileSync, mkdirSync, statSync, readdirSync, renameSync, realpathSync } from "node:fs";
 import { resolve, relative, join, dirname } from "node:path";
 import { execSync, execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 // ============================================================================
 // Type Definitions
@@ -88,10 +89,10 @@ interface Config {
 }
 
 // ============================================================================
-// Utilities
+// Utilities (exported for testing)
 // ============================================================================
 
-function getProjectRoot(): string {
+export function getProjectRoot(): string {
   let current = process.cwd();
   for (let i = 0; i < 10; i++) {
     if (existsSync(resolve(current, ".claude"))) return current;
@@ -102,7 +103,7 @@ function getProjectRoot(): string {
   return process.cwd();
 }
 
-function loadConfig(): Config {
+export function loadConfig(): Config {
   const projectRoot = getProjectRoot();
   const settingsPath = resolve(projectRoot, ".claude/settings.json");
 
@@ -189,7 +190,7 @@ function initializeDatabase(dbPath: string): DatabaseSync {
   return db;
 }
 
-function parseYamlFrontmatter(content: string): { frontmatter: Record<string, string>; body: string } {
+export function parseYamlFrontmatter(content: string): { frontmatter: Record<string, string>; body: string } {
   const lines = content.split("\n");
   if (!lines[0]?.startsWith("---")) {
     return { frontmatter: {}, body: content };
@@ -258,7 +259,7 @@ function extractDate(frontmatter: Record<string, string>, filePath: string): { d
   return { date: new Date().toISOString(), confidence: "low" };
 }
 
-function chunkContent(content: string): { heading: string; content: string; chunk_type: "code" | "list" | "prose" }[] {
+export function chunkContent(content: string): { heading: string; content: string; chunk_type: "code" | "list" | "prose" }[] {
   const lines = content.split("\n");
   const chunks: { heading: string; content: string; chunk_type: "code" | "list" | "prose" }[] = [];
 
@@ -336,13 +337,13 @@ function chunkContent(content: string): { heading: string; content: string; chun
   return chunks;
 }
 
-function getSourceType(filePath: string): "knowledge" | "spec" | "other" {
+export function getSourceType(filePath: string): "knowledge" | "spec" | "other" {
   if (filePath.includes("docs/knowledge/")) return "knowledge";
   if (filePath.includes("docs/specs/")) return "spec";
   return "other";
 }
 
-function calculateFreshness(
+export function calculateFreshness(
   contentDate: string,
   threshold: number,
   confidence: "high" | "low"
@@ -356,7 +357,7 @@ function calculateFreshness(
   };
 }
 
-function normalizeFilePath(filePath: string): string {
+export function normalizeFilePath(filePath: string): string {
   return filePath.replace(/\\/g, "/");
 }
 
@@ -370,13 +371,20 @@ function cmdIndex(filePath: string, args: string[]): void {
   const fullPath = resolve(projectRoot, filePath);
 
   // Path traversal guard: resolved path must stay inside project root
-  if (!fullPath.startsWith(projectRoot)) {
+  if (!fullPath.startsWith(projectRoot + "/") && fullPath !== projectRoot) {
     console.error(`Error: Path escapes project root: ${filePath}`);
     process.exit(1);
   }
 
   if (!existsSync(fullPath)) {
     console.error(`Error: File not found: ${fullPath}`);
+    process.exit(1);
+  }
+
+  // Resolve symlinks and re-check boundary
+  const canonicalPath = realpathSync(fullPath);
+  if (!canonicalPath.startsWith(projectRoot + "/") && canonicalPath !== projectRoot) {
+    console.error(`Error: Path escapes project root after symlink resolution: ${filePath}`);
     process.exit(1);
   }
 
@@ -536,8 +544,13 @@ function cmdSearch(query: string, args: string[]): void {
   let noStale = false;
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--limit") limit = parseInt(args[++i], 10);
-    else if (args[i] === "--type") type = args[++i] as "code" | "prose" | "all";
+    if (args[i] === "--limit") {
+      limit = parseInt(args[++i], 10);
+      if (isNaN(limit)) {
+        console.error("Error: --limit must be a valid integer");
+        process.exit(1);
+      }
+    } else if (args[i] === "--type") type = args[++i] as "code" | "prose" | "all";
     else if (args[i] === "--fresh") fresh = true;
     else if (args[i] === "--after") afterDate = args[++i];
     else if (args[i] === "--no-stale") noStale = true;
@@ -927,8 +940,16 @@ function scanDirectory(dir: string, extension: string): string[] {
 }
 
 // ============================================================================
-// Main
+// Main (only runs when executed directly, not when imported)
 // ============================================================================
+
+const __filename = fileURLToPath(import.meta.url);
+const isMain = process.argv[1] && resolve(process.argv[1]) === resolve(__filename);
+
+if (!isMain) {
+  // Imported as a module — skip CLI dispatch
+  // Functions are available via named exports
+} else {
 
 const nodeVersion = process.versions.node;
 const [major, minor] = nodeVersion.split(".").map(Number);
@@ -1013,3 +1034,5 @@ try {
   console.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
   process.exit(1);
 }
+
+} // end isMain

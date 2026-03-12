@@ -3,6 +3,9 @@
 # Logs ONLY: timestamp, tool name. Never logs tool output or content.
 # This log enables post-session failure analysis.
 
+set -euo pipefail
+trap 'exit 0' ERR  # Advisory hook — never surface errors to Claude Code
+
 INPUT=$(cat)
 
 # Check for error indicators in the response (minimal string matching)
@@ -13,7 +16,7 @@ fi
 
 if [ "$IS_ERROR" = "true" ]; then
     # Extract tool name only — never log content/output
-    TOOL_NAME=$(echo "$INPUT" | grep -oE '"tool_name"\s*:\s*"[^"]*"' | sed 's/.*"tool_name"[^"]*"//;s/".*//')
+    TOOL_NAME=$(echo "$INPUT" | grep -oE '"tool_name"\s*:\s*"[^"]*"' | sed 's/.*"tool_name"[^"]*"//;s/".*//' || true)
     # Sanitize: allow only alphanumeric, underscore, hyphen to prevent log injection
     TOOL_NAME=$(echo "${TOOL_NAME:-unknown}" | tr -cd '[:alnum:]_-')
 
@@ -24,10 +27,10 @@ if [ "$IS_ERROR" = "true" ]; then
     mkdir -p "$LOG_DIR"
     LOG_FILE="$LOG_DIR/tool-failures.log"
     ENTRY="$(date -u +%Y-%m-%dT%H:%M:%SZ) FAIL tool=${TOOL_NAME:-unknown}"
-    # Atomic append with flock to prevent interleaved writes (fall back to direct append if flock unavailable)
+    # Atomic append with flock to prevent interleaved writes (drop event on lock failure)
     if command -v flock >/dev/null 2>&1; then
         (
-            flock -w 2 200 || { echo "$ENTRY" >> "$LOG_FILE"; exit 0; }
+            flock -w 2 200 || { echo "tool-failure-log: flock timeout, dropping event" >&2; exit 0; }
             echo "$ENTRY" >> "$LOG_FILE"
         ) 200>"${LOG_FILE}.lock"
     else

@@ -28,11 +28,29 @@ cmd_health() {
 }
 
 cmd_execute() {
+    local context_dir="$1"
     local output_dir="$2"
-    if [[ "$output_dir" =~ \.\. ]]; then
-        echo "ERROR: output_dir must not contain '..': $output_dir" >&2
+    local project_root
+    local resolved_output
+
+    # Get project root
+    project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+    # Canonicalize output_dir and verify it's inside project root
+    resolved_output="$(realpath "$output_dir" 2>/dev/null || echo "$output_dir")"
+
+    # Reject if output_dir is a symlink
+    if [ -L "$output_dir" ]; then
+        echo "ERROR: output_dir must not be a symlink: $output_dir" >&2
         exit 1
     fi
+
+    # Verify resolved output_dir would be inside project root
+    if [[ "$resolved_output" != "$project_root"/* ]]; then
+        echo "ERROR: output_dir must be inside project root: $resolved_output" >&2
+        exit 1
+    fi
+
     mkdir -p "$output_dir"
     echo "fail" > "$output_dir/result"
     cat > "$output_dir/completion-report.md" <<'EOF'

@@ -37,19 +37,49 @@ cmd_health() {
 cmd_execute() {
     local context_dir="$1"
     local output_dir="$2"
+    local project_root
+    local resolved_context resolved_output
 
-    # Reject path traversal
-    if [[ "$output_dir" =~ \.\. ]]; then
-        echo "ERROR: output_dir must not contain '..': $output_dir" >&2
-        exit 1
-    fi
-    if [[ "$context_dir" =~ \.\. ]]; then
-        echo "ERROR: context_dir must not contain '..': $context_dir" >&2
-        exit 1
-    fi
+    # Get project root
+    project_root="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+    # Validate context_dir exists and canonicalize
     if [ ! -d "$context_dir" ]; then
         echo "ERROR: context_dir not found: $context_dir" >&2
+        exit 1
+    fi
+
+    resolved_context="$(realpath "$context_dir" 2>/dev/null)" || {
+        echo "ERROR: cannot canonicalize context_dir: $context_dir" >&2
+        exit 1
+    }
+
+    # Reject if context_dir is a symlink that escapes project root
+    if [ -L "$context_dir" ]; then
+        if [[ "$resolved_context" != "$project_root"/* ]]; then
+            echo "ERROR: context_dir symlink escapes project root: $context_dir" >&2
+            exit 1
+        fi
+    fi
+
+    # Verify resolved context_dir is inside project root
+    if [[ "$resolved_context" != "$project_root"/* ]]; then
+        echo "ERROR: context_dir must be inside project root: $resolved_context" >&2
+        exit 1
+    fi
+
+    # Canonicalize output_dir and verify it's inside project root
+    resolved_output="$(realpath "$output_dir" 2>/dev/null || echo "$output_dir")"
+
+    # Reject if output_dir is a symlink
+    if [ -L "$output_dir" ]; then
+        echo "ERROR: output_dir must not be a symlink: $output_dir" >&2
+        exit 1
+    fi
+
+    # Verify resolved output_dir would be inside project root
+    if [[ "$resolved_output" != "$project_root"/* ]]; then
+        echo "ERROR: output_dir must be inside project root: $resolved_output" >&2
         exit 1
     fi
 

@@ -3,6 +3,9 @@
 # Configure for your project's formatter
 # Receives JSON payload via stdin from Claude Code PostToolUse hook
 
+set -euo pipefail
+trap 'exit 0' ERR  # Advisory hook — never surface errors to Claude Code
+
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
 INPUT=$(cat)

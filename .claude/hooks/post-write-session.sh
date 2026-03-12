@@ -2,6 +2,9 @@
 # PostToolUse hook: scrub secrets from session files after they are written.
 # Receives JSON payload via stdin. Only acts on writes to .claude/sessions/.
 
+set -euo pipefail
+trap 'exit 0' ERR  # Advisory hook — never surface errors to Claude Code
+
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
 INPUT=$(cat)
