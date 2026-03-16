@@ -50,8 +50,12 @@ eval "$(cat "$EXTRACT_FILE")" || exit 0
 # If no output, nothing to do
 [ -z "$OUTPUT" ] && exit 0
 
+# Check if knowledge-index.ts exists — skip indexing entirely if not
+INDEX_SCRIPT="$PROJECT_ROOT/scripts/knowledge-index.ts"
+[ ! -f "$INDEX_SCRIPT" ] && exit 0
+
 # Get threshold from config via knowledge-index.ts
-THRESHOLD=$(node "$PROJECT_ROOT/scripts/knowledge-index.ts" config threshold_bytes 2>/dev/null || echo "5120")
+THRESHOLD=$(node "$INDEX_SCRIPT" config threshold_bytes 2>/dev/null || echo "5120")
 [ -z "$THRESHOLD" ] && THRESHOLD=5120
 
 # Measure output size in bytes
@@ -98,7 +102,7 @@ case "$TOOL_NAME" in
 esac
 
 # Index the output via knowledge-index.ts (suppress stdout, keep stderr for hint)
-if node "$PROJECT_ROOT/scripts/knowledge-index.ts" index "$TEMP_FILE" --confidence "$FRESHNESS_CONFIDENCE" >/dev/null 2>&1; then
+if node "$INDEX_SCRIPT" index "$TEMP_FILE" --confidence "$FRESHNESS_CONFIDENCE" >/dev/null 2>&1; then
     # Success: print hint to stderr (becomes additionalContext)
     KB_SIZE=$((OUTPUT_SIZE / 1024))
     # Escape intent for display (replace single quotes)

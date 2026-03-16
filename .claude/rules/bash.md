@@ -14,6 +14,7 @@ The scanner flags these patterns - mostly false positives on machines with space
 - **Piped commands** - `command | command`, even `ls | grep`
 - **Output redirection in compound command** - `2>/dev/null`, `>file`, `>>file` combined with `cd &&` or `;`
 - **PowerShell multiline** - `cd "path" && powershell -Command "multiline..."` triggers multiple checks at once
+- **Consecutive quote characters at word start** - single-quoted strings that begin with a double-quote, e.g. `'"key":'` in a grep pattern. Fix: use the **Grep** tool instead of shell `grep`
 
 ## No `&&` with Quoted Strings - EVER
 
@@ -151,6 +152,41 @@ Key fixes:
 - Prompt in a temp file avoids multiline string in the command
 - Drop `2>&1` - or pre-approve: `{ "permissions": { "allow": ["Bash(powershell *)"] } }`
 
+## WSL + Complex Quoted Arguments (jq, awk, sed)
+
+`wsl bash -lc "..."` with escaped quotes inside (e.g. `\"\"` in jq filters) triggers "consecutive quote characters at word start." This applies to any command where complex filter syntax requires escaped quotes nested inside a quoted string.
+
+**Triggers:**
+- `wsl bash -lc "jq '...' \"\" ..."` — escaped empty strings
+- `wsl bash -lc "awk '/pattern/ { ... \"field\" ... }'"` — escaped quotes in filters
+- Any `bash -lc "..."` containing `\"` sequences
+
+**Never:**
+```bash
+wsl bash -lc "jq '{status, angles: [.angles[]? | select(.contradicting_evidence != null and .contradicting_evidence != \"\")]}' /path/to/file.json"
+```
+
+**Instead — write the filter to a file, then reference it:**
+
+1. Write the filter (separate Bash call):
+```bash
+cat > /tmp/gather-check.jq << 'EOF'
+{status, angles: [.angles[]? | {name: .name, findings_count: ([.findings[]?] | length), has_contradicting: ([.findings[]? | select(.contradicting_evidence != null and .contradicting_evidence != "")] | length)}]}
+EOF
+```
+
+2. Run with `-f` (separate Bash call):
+```bash
+wsl bash -lc "jq -f /tmp/gather-check.jq /path/to/file.json"
+```
+
+**Alternatives:**
+- **`wsl jq ...`** directly (no `bash -lc` wrapper) — WSL passes single quotes through, so `wsl jq '.field' /path` works without escaping
+- **Write filter to a `.jq`/`.awk` file** in the project and reference it permanently for reusable queries
+- **Use the Read tool** to read the JSON file, then process with a dedicated tool or simple jq without complex filters
+
+Key principle: **never nest escaped quotes inside a quoted command string**. Extract the filter to a file.
+
 ## Sub-Agent Inheritance
 
 Sub-agents do not inherit CLAUDE.md. When spawning sub-agents that will run Bash commands, always include these bash rules in the sub-agent prompt.
@@ -181,3 +217,4 @@ Sub-agents do not inherit CLAUDE.md. When spawning sub-agents that will run Bash
 - For multi-step operations: write temporary files to `/tmp/` then reference them in subsequent calls
 - Use `git commit -F /tmp/commit-msg.txt` for commit messages instead of inline `-m`
 - Use `powershell -WorkingDirectory "path" -Command "..."` instead of `cd "path" && powershell -Command "..."`
+- Never nest escaped quotes inside a quoted command string (`wsl bash -lc "... \"\" ..."`) — write jq/awk/sed filters to a temp file and reference with `-f`

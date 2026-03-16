@@ -55,7 +55,7 @@ cp -r "$TEMPLATE_DIR/.claude/security" "$FULL_PATH/.claude/"
 cp "$TEMPLATE_DIR/.claude/settings.json" "$FULL_PATH/.claude/"
 
 sed "s/\[PROJECT_NAME\]/$PROJECT_NAME/g" "$TEMPLATE_DIR/CLAUDE.template.md" > "$FULL_PATH/CLAUDE.md"
-cp "$TEMPLATE_DIR/ROADMAP.md" "$FULL_PATH/"
+cp "$TEMPLATE_DIR/ROADMAP.template.md" "$FULL_PATH/ROADMAP.md"
 cp "$TEMPLATE_DIR/global-CLAUDE.md" "$FULL_PATH/"
 
 for f in decisions.md patterns.md bugs.md architecture.md kv.md metrics.md; do
@@ -68,7 +68,7 @@ touch "$FULL_PATH/docs/memory/.gitkeep"
 for script in memory-search.sh audit-context.sh scrub-secrets.sh \
               validate-roadmap.sh unblocked-tasks.sh create-pr.sh dashboard.sh \
               sync-agent-rules.sh context-filter.sh validate-freshness.sh \
-              codex-review.sh; do
+              codex-review.sh generate-manifest.sh update-project.sh; do
   cp "$TEMPLATE_DIR/scripts/$script" "$FULL_PATH/scripts/"
 done
 mkdir -p "$FULL_PATH/scripts/lib"
@@ -76,9 +76,13 @@ cp -r "$TEMPLATE_DIR/scripts/lib/." "$FULL_PATH/scripts/lib/"
 for ts_script in knowledge-index.ts dashboard-server.ts; do
   [ -f "$TEMPLATE_DIR/scripts/$ts_script" ] && cp "$TEMPLATE_DIR/scripts/$ts_script" "$FULL_PATH/scripts/"
 done
-chmod +x "$FULL_PATH/scripts/"*.sh
-chmod +x "$FULL_PATH/.claude/hooks/"*.sh 2>/dev/null
-chmod +x "$FULL_PATH/.claude/security/"*.sh 2>/dev/null
+find "$FULL_PATH/scripts" -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
+find "$FULL_PATH/.claude/hooks" -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
+find "$FULL_PATH/.claude/security" -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
+
+# Generate update manifest (tracks template file hashes for future updates)
+TEMPLATE_VERSION=$(git -C "$TEMPLATE_DIR" describe --tags --abbrev=0 2>/dev/null || echo "unknown")
+bash "$FULL_PATH/scripts/generate-manifest.sh" "$TEMPLATE_VERSION"
 
 cd "$FULL_PATH"
 cat > .gitignore << 'GI'
@@ -86,6 +90,8 @@ CLAUDE.local.md
 .claude/sessions/
 .claude/logs/
 .claude/settings.local.json
+.claude/backups/
+*.upstream
 node_modules/
 .env
 .env.*

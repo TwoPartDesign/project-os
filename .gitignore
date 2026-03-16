@@ -30,3 +30,10 @@ build/
 
 # Context filter index (rebuilt from source files)
 .claude/index/
+
+# Runtime lock files
+.claude/scheduled_tasks.lock
+
+# Update system artifacts
+.claude/backups/
+*.upstream
