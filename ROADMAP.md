@@ -28,64 +28,9 @@ Each feature groups tasks by lifecycle phase:
 ### Done
 ```
 
-## Feature: native-foundations
-### Draft
-### Todo
-### In Progress
-### Review
-### Done
-- [x] Add native Tasks API convenience layer to build workflow #T1
-- [x] Replace custom worktree shell commands with native isolation #T2
-- [x] Add model routing to build workflow adapter resolution #T3
-- [x] Update claude-code adapter to surface ADAPTER_MODEL in dispatch metadata #T4
-- [x] Implement working Codex adapter #T5
-- [x] Integration pass — verify build.md coherence after T1+T2+T3 (depends: #T1, #T2, #T3) #T6
-- [x] Update INTERFACE.md and settings.json for v2.1 adapter landscape (depends: #T6) #T7
-- [x] Document ROADMAP↔Tasks dual-track pattern #T8
-- [x] Add Codex/OpenAI secret patterns to scrub-secrets.sh #T9
-- [x] Add legacy note to preserve-sessions.sh #T10
-- [x] Build live dashboard server (depends: #T7, #T8) #T11
-
-## Feature: strategic-repositioning
-### Draft
-### Todo
-### In Progress
-### Review
-### Done
-- [x] README.md — governance layer headline and "What It Is" opening #T14
-- [x] CLAUDE.md — identity block update (Type, Stack, Workflow line) #T15
-- [x] design-principles.md — replace intro with governance framing opener #T16
-- [x] architecture.md — expand governance description with 3-mechanism bullets #T17
-- [x] project-os-guide.md — title and intro block (version bump to 2.1) #T18
-- [x] Verification pass — terminology audit, governance term presence, @import check (depends: #T14, #T15, #T16, #T17, #T18) #T19
-
-## Feature: agent-teams-spike
-### Draft
-- [x] (placeholder) Task ID #T12 reserved — removed during planning consolidation #T12
-- [ ] Spike: CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 — assess compatibility and integration path (report at docs/specs/agent-teams-spike/spike-report.md) #T13
-### Todo
-### In Progress
-### Review
-### Done
-
-## Feature: context-filtering
-Source: docs/specs/PRD-context-filtering-v2.md
-### Draft
-### Todo
-### In Progress
-### Review
-### Done
-- [x] P0 — Configuration + gitignore (S) #T20
-- [x] P0 — Knowledge index — FTS5 + freshness + config subcommand (L) (depends: #T20) #T21
-- [x] P1 — Update memory-search.sh to use knowledge index (S) (depends: #T21) #T22
-- [x] P1 — Freshness validation subcommands + wrapper (M) (depends: #T21) #T23
-- [x] P1 — Context filter script — intent-based output filtering (M) (depends: #T21) #T24
-- [x] P1 — PostToolUse advisory hook — index + additionalContext hints (M) (depends: #T21) #T25
-- [x] P0 — SKILL.md — primary filtering mechanism with proactive routing (S) (depends: #T21) #T26
-- [x] P2 — Workflow integration + knowledge vault docs (M) (depends: #T21) #T27
-
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->
+- [?] Spike: CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 — assess compatibility and integration path #T1
 
 ## Completed
 <!-- Moved here after /workflows:ship -->

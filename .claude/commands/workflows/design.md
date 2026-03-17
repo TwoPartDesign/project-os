@@ -80,6 +80,8 @@ Brief: ./brief.md
 
 ## Step 3: Self-Adversarial Review
 
+Before spawning the reviewer, read `.claude/rules/bash.md` and extract the full content of its `## Agent Rules` section (everything after that heading, excluding the `<!-- source-hash -->` comment line). Store this as `BASH_AGENT_RULES` — substitute it into the reviewer prompt where indicated below.
+
 Before presenting to the user, spawn a reviewer sub-agent with this prompt:
 
 "You are a critical code reviewer. Read the design at docs/specs/$ARGUMENTS/design.md. Your job is to find flaws. Check:
@@ -88,7 +90,10 @@ Before presenting to the user, spawn a reviewer sub-agent with this prompt:
 3. Are there security gaps in the Security Considerations section?
 4. Is the testing strategy sufficient to catch regressions?
 5. Are there simpler alternatives the designer missed?
-Output a list of findings ranked by severity (CRITICAL > HIGH > MEDIUM > LOW). For each finding, include a specific recommendation."
+Output a list of findings ranked by severity (CRITICAL > HIGH > MEDIUM > LOW). For each finding, include a specific recommendation.
+
+CRITICAL — BASH COMMAND RULES:
+[BASH_AGENT_RULES]"
 
 ## Step 4: Iterate or Approve
 

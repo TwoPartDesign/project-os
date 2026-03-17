@@ -19,11 +19,19 @@ Do NOT over-interview. If the idea is clear enough, skip to Step 2.
 
 ## Step 2: Parallel research (sub-agents)
 
+Before spawning sub-agents, read `.claude/rules/bash.md` and extract the full content of its `## Agent Rules` section (everything after that heading, excluding the `<!-- source-hash -->` comment line). Store this as `BASH_AGENT_RULES` — substitute it into each agent prompt where indicated below.
+
 Spawn up to 2 sub-agents for research. Each gets a SINGLE focused question:
 
-**Research Agent 1**: "Search the project's existing codebase and docs/knowledge/ for anything related to [topic]. Also check docs/memory/ for past decisions on similar problems. Report: what exists, what can be reused, what conflicts."
+**Research Agent 1**: "Search the project's existing codebase and docs/knowledge/ for anything related to [topic]. Also check docs/memory/ for past decisions on similar problems. Report: what exists, what can be reused, what conflicts.
 
-**Research Agent 2**: "Search for existing solutions, libraries, or approaches to [problem]. Check if the project's current stack has native support. Report: 3 options ranked by simplicity, with tradeoffs."
+CRITICAL — BASH COMMAND RULES:
+[BASH_AGENT_RULES]"
+
+**Research Agent 2**: "Search for existing solutions, libraries, or approaches to [problem]. Check if the project's current stack has native support. Report: 3 options ranked by simplicity, with tradeoffs.
+
+CRITICAL — BASH COMMAND RULES:
+[BASH_AGENT_RULES]"
 
 If a Context7 MCP is available, agents should use it for library doc verification.
 If not, agents should note any library claims that need manual verification.
