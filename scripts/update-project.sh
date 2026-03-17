@@ -103,6 +103,11 @@ if ! command -v gh &>/dev/null; then
     exit 1
 fi
 
+if ! command -v sha256sum &>/dev/null; then
+    echo "ERROR: sha256sum not found. Install coreutils (macOS: brew install coreutils)." >&2
+    exit 1
+fi
+
 RELEASES=$(gh release list --repo "$UPSTREAM" --limit 20 --json tagName,isPrerelease --jq '.[] | select(.isPrerelease == false) | .tagName' 2>/dev/null || true)
 
 if [ -z "$RELEASES" ]; then
@@ -145,7 +150,11 @@ else
     CHOSEN=""
     while read -r tag; do
         if [ "$CURRENT_VERSION" = "unknown" ]; then
-            # Legacy mode: pick the latest release
+            # Legacy mode: pick the latest release (but respect --major guard)
+            if [ "$ALLOW_MAJOR" = false ]; then
+                echo "WARNING: Legacy mode (no manifest) — cannot determine current major version." >&2
+                echo "  Using latest release $tag. Use --major to suppress this warning." >&2
+            fi
             CHOSEN="$tag"
             break
         fi
@@ -434,11 +443,24 @@ done
 find "$PROJECT_ROOT/scripts" -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
 find "$PROJECT_ROOT/.claude/hooks" -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
 
-# --- Step 9: Regenerate manifest ---
+# Ensure .gitignore has updater artifact patterns
+GITIGNORE="$PROJECT_ROOT/.gitignore"
+if [ -f "$GITIGNORE" ]; then
+    if ! grep -qF '.claude/backups/' "$GITIGNORE"; then
+        printf '\n# Update system artifacts\n.claude/backups/\n*.upstream\n' >> "$GITIGNORE"
+        echo "Added update system patterns to .gitignore"
+    fi
+fi
+
+# --- Step 9: Regenerate manifest (only if no conflicts) ---
 
 echo ""
-echo "Regenerating manifest..."
-bash "$PROJECT_ROOT/scripts/generate-manifest.sh" "${CHOSEN#v}"
+if [ "$conflicts" -gt 0 ]; then
+    echo "Skipping manifest regeneration — $conflicts conflict(s) need resolution first."
+else
+    echo "Regenerating manifest..."
+    bash "$PROJECT_ROOT/scripts/generate-manifest.sh" "${CHOSEN#v}"
+fi
 
 # --- Summary ---
 

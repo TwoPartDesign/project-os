@@ -273,8 +273,7 @@ Ask:
 If **None / Skip**: skip to Step 5. No file is created.
 
 If **Codex**:
-- Ask: "Is Codex invoked from PowerShell (`codex`) or bash (`codex`)?" (Windows vs. Mac/Linux)
-- Record as `CODE_REVIEW_TOOL=codex`, `CODE_REVIEW_SHELL=[powershell|bash]`
+- Record as `CODE_REVIEW_TOOL=codex`
 
 If **GitHub Copilot CLI**:
 - Record as `CODE_REVIEW_TOOL=copilot`
@@ -285,23 +284,16 @@ If **Other**:
 
 Create `.claude/rules/code-review.md` with the appropriate content:
 
-**Codex (PowerShell):**
+**Codex:**
 ```markdown
 # Code Reviews
 
 Use Codex for code review and checks.
-- Read-only review: write prompt to `$env:TEMP\codex-prompt.txt`, then run via a `.ps1` script: `Set-Location '<project>'; $p = Get-Content "$env:TEMP\codex-prompt.txt" -Raw; & codex exec -s read-only "$p"`
-- File edits (no TTY): `codex exec -s danger-full-access "prompt"`
-- Claude Code's Bash tool has no TTY — never use `--full-auto`
-```
-
-**Codex (bash):**
-```markdown
-# Code Reviews
-
-Use Codex for code review and checks.
-- Read-only review: `codex exec -s read-only "prompt"`
-- File edits: `codex exec -s danger-full-access "prompt"`
+- Always use the wrapper script: `bash scripts/codex-review.sh --prompt-file ./codex-prompt.txt`
+- Write prompts to project root (`./codex-prompt.txt`) using the Write tool — never use `/tmp/` or heredocs
+- Optional flags: `--diff-from BRANCH` (appends git diff), `--mode danger-full-access` (default: read-only)
+- Never invoke `codex exec` directly — the wrapper handles stdin piping and temp files
+- Clean up prompt file after: `rm ./codex-prompt.txt`
 ```
 
 **GitHub Copilot CLI:**

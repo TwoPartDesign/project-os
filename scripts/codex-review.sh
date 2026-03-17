@@ -30,7 +30,7 @@ done
 [[ "$MODE" != "read-only" && "$MODE" != "danger-full-access" ]] && { echo "ERROR: --mode must be 'read-only' or 'danger-full-access'" >&2; exit 1; }
 
 if [[ -n "$DIFF_FROM" ]]; then
-    [[ "$DIFF_FROM" =~ \.\. ]] || [[ ! "$DIFF_FROM" =~ ^[a-zA-Z0-9._/-]+$ ]] && { echo "ERROR: Invalid branch name: $DIFF_FROM" >&2; exit 1; }
+    [[ "$DIFF_FROM" =~ \.\. ]] || [[ ! "$DIFF_FROM" =~ ^[a-zA-Z0-9._/~^-]+$ ]] && { echo "ERROR: Invalid ref: $DIFF_FROM" >&2; exit 1; }
 fi
 
 # Build combined prompt in temp file

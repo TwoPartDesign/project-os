@@ -9,6 +9,11 @@
 
 set -euo pipefail
 
+if ! command -v sha256sum &>/dev/null; then
+    echo "ERROR: sha256sum not found. Install coreutils (macOS: brew install coreutils)." >&2
+    exit 1
+fi
+
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MANIFEST="$PROJECT_ROOT/.claude/manifest.json"
 
