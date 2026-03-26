@@ -12,6 +12,15 @@ Capture the current session's state so the next session (or another agent) can r
 - Before switching to a different task
 - Before handing work to Codex or another agent
 
+## Auto-checkpoints
+
+A PreCompact hook automatically generates checkpoint files before context compaction.
+These are saved as `.claude/sessions/auto-checkpoint-*.yaml` and follow the same schema
+as manual handoffs. Use `/tools:catchup` to resume from either type.
+
+Manual handoffs via this command capture richer context (decisions, blockers, context notes)
+and should still be used for end-of-session or cross-agent handoffs.
+
 ## Create Handoff File
 
 Generate `.claude/sessions/handoff-$(date +%Y-%m-%d-%H%M).yaml` with:

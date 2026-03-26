@@ -1,5 +1,5 @@
 {
-  "model": "sonnet",
+  "model": "opus",
   "permissions": {
     "allow": [
       "Bash(git *)",
@@ -26,8 +26,8 @@
     "deny": ["Bash(rm -rf /)"]
   },
   "env": {
-    "CLAUDE_CODE_SUBAGENT_MODEL": "haiku",
-    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "50"
+    "CLAUDE_CODE_SUBAGENT_MODEL": "claude-sonnet-4-6",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "75"
   },
   "project_os": {
     "parallel": {
@@ -62,7 +62,8 @@
         "stale_threshold_days": 90,
         "decay_halflife_days": 30,
         "warn_on_stale": true,
-        "auto_detect_dates": true
+        "auto_detect_dates": true,
+        "recency_halflife_days": 14
       }
     }
   },
@@ -114,6 +115,19 @@
           {
             "type": "command",
             "command": "bash \".claude/hooks/compact-suggest.sh\""
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \".claude/hooks/pre-compact.sh\"",
+            "timeout": 30,
+            "statusMessage": "Saving auto-checkpoint..."
           }
         ]
       }
