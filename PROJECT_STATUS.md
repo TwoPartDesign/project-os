@@ -1,7 +1,7 @@
 # Project Status
 
 ## Last Updated
-2026-03-16 - Session wrapup
+2026-03-17 - Session wrapup
 
 ## Project Overview
 Project OS is a personal governance layer for solo development. Markdown + Bash stack providing spec-driven workflow, hook-based automation, context filtering, and agent orchestration. Currently at v2.2.
@@ -13,24 +13,20 @@ Project OS is a personal governance layer for solo development. Markdown + Bash 
 - ROADMAP.template.md created as clean skeleton for new projects (no project-specific tasks)
 
 ## Recent Session Summary
-- **Simplified `codex-review.sh`**: 175 lines → 53 lines. Dropped PowerShell fallback, cygpath conversion, .ps1 temp script generation. Codex is in Git Bash PATH — direct stdin pipe works.
-- **Rewrote Code Reviews section in global `~/.claude/CLAUDE.md`**: Clear invocation rules — always use wrapper script, write prompts with Write tool to project root (not `/tmp/`), never invoke `codex exec` directly.
-- **Fixed `/tmp/` path mismatch**: Write tool and Git Bash resolve `/tmp/` to different Windows paths. Prompt files now go to `./codex-prompt.txt` (project-relative).
-- **Copied simplified `codex-review.sh` to NightOwl** project.
-- **Set global default model**: Opus with medium effort in `~/.claude/settings.json`.
-- **Uninstalled PowerShell 2.0**: `Disable-WindowsOptionalFeature -Online -FeatureName MicrosoftWindowsPowerShellV2Root` (no restart needed).
-- **Ran Codex review** on Project OS using the new simplified flow — worked cleanly (single bash command, no permission prompts, no temp dirs).
-- **Researched agent-teams-spike (#T13)**: Spike report already exists, recommends deferring. Decision: not needed now — current adapter model is shipping and proven.
+- **Evaluated "Auto-Generated Agent Preamble System"** accidentally built in NightOwl — decided Project OS inline approach is better; NightOwl migrated to match.
+- **Added bash rules injection to `idea.md` and `design.md`** (Project OS): both workflows now read `.claude/rules/bash.md` → extract `## Agent Rules` section → store as `BASH_AGENT_RULES` before spawning sub-agents. `build.md` and `review.md` already did this.
+- **Migrated NightOwl** from `_preamble.md` compiled artifact to inline read of `.claude/rules/agent-bash-rules.md`. Updated `build.md`, `review.md`, `idea.md`, `design.md`. Deleted `_preamble.md`.
+- **Cleaned ROADMAP.md for public repo**: replaced personal dev history (#T1–T27) with skeleton. Working copy retains T13 spike. `ROADMAP.template.md` + `new-project.sh` cp is the mechanism for giving cloners a clean copy.
+- **Committed and pushed** to `https://github.com/TwoPartDesign/project-os.git`.
 
 ## Next Steps
-- Commit all pending changes (codex-review.sh simplification, update system files, hook fixes, .gitignore, bash.md)
-- Test `new-project.sh` end-to-end with manifest generation integrated
 - Copy simplified `codex-review.sh` to remaining downstream projects (Service-Drive-Advisor-Prep, Dry_Run_MVP)
 - Bootstrap update system into downstream projects (copy `generate-manifest.sh` + `update-project.sh` + run manifest generation)
-- Hook fixes from prior session still uncommitted in downstream projects
+- Hook fixes from prior sessions still uncommitted in downstream projects (NightOwl changes committed this session; others TBD)
 - PM-Workflow `_common.sh` likely has `get_project_root()` CWD bug (not checked)
 - Codex review found: `update-project.sh` regenerates manifest after conflicts (hashes local files, not upstream) — fix before shipping
 - Codex review found: `generate-manifest.sh` needs `sha256sum` dependency check for clean errors on missing tool
+- Test `new-project.sh` end-to-end with manifest generation integrated
 
 ## Key Decisions & Context
 - **Codex review flow**: Write prompt to `./codex-prompt.txt` (project root), run `bash scripts/codex-review.sh --prompt-file ./codex-prompt.txt`, clean up after. Never use `/tmp/` (Write tool and Git Bash resolve it differently on Windows).

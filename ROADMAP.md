@@ -28,6 +28,23 @@ Each feature groups tasks by lifecycle phase:
 ### Done
 ```
 
+## Feature: adaptive-memory
+
+### Draft
+
+### Todo
+### In Progress
+- [-] Tests + docs: observation parser tests, update architecture.md, patterns.md (depends: #T2, #T5, #T7) #T9
+### Review
+### Done
+- [x] Auto-checkpoint: implement PreCompact hook that generates handoff YAML #T2
+- [x] Auto-checkpoint: register hook in settings.json, add debounce logic (depends: #T2) #T3
+- [x] Recency-weighted search: add access_count/last_accessed columns + migration #T4
+- [x] Recency-weighted search: implement composite scoring formula (depends: #T4) #T5
+- [x] Observation parser: implement 5-type regex extraction #T6
+- [x] Observation parser: integrate into output-index.sh (depends: #T6) #T7
+- [x] Search enhancement: add --type filter for observation types (depends: #T6) #T8
+
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->
 - [?] Spike: CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 — assess compatibility and integration path #T1
