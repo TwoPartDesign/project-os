@@ -49,6 +49,8 @@ interface IndexMetadata {
   chunk_count: number;
   content_date: string | null;
   freshness_confidence: string;
+  access_count: number;
+  last_accessed: string | null;
 }
 
 // DB row types (for query results)
@@ -65,6 +67,8 @@ interface SearchRow {
   freshness_confidence: string | null;
   last_validated: string | null;
   last_modified: string | null;
+  access_count: number | null;
+  last_accessed: string | null;
 }
 
 interface FreshnessReportRow {
@@ -85,6 +89,7 @@ interface Config {
     decay_halflife_days: number;
     warn_on_stale: boolean;
     auto_detect_dates: boolean;
+    recency_halflife_days: number;
   };
 }
 
@@ -117,6 +122,7 @@ export function loadConfig(): Config {
       decay_halflife_days: 30,
       warn_on_stale: true,
       auto_detect_dates: true,
+      recency_halflife_days: 14,
     },
   };
 
@@ -137,6 +143,7 @@ export function loadConfig(): Config {
         decay_halflife_days: ctxFilter.freshness?.decay_halflife_days ?? defaultConfig.freshness.decay_halflife_days,
         warn_on_stale: ctxFilter.freshness?.warn_on_stale ?? defaultConfig.freshness.warn_on_stale,
         auto_detect_dates: ctxFilter.freshness?.auto_detect_dates ?? defaultConfig.freshness.auto_detect_dates,
+        recency_halflife_days: ctxFilter.freshness?.recency_halflife_days ?? defaultConfig.freshness.recency_halflife_days,
       },
     };
   } catch {
@@ -184,6 +191,28 @@ function initializeDatabase(dbPath: string): DatabaseSync {
       chunk_count INTEGER,
       content_date TEXT,
       freshness_confidence TEXT
+    )
+  `);
+
+  // Migration: add access tracking columns if missing.
+  // SQLite ALTER TABLE ADD COLUMN throws if the column already exists; we catch and ignore.
+  try {
+    db.exec("ALTER TABLE index_meta ADD COLUMN access_count INTEGER DEFAULT 0");
+  } catch { /* column already exists */ }
+  try {
+    db.exec("ALTER TABLE index_meta ADD COLUMN last_accessed TEXT");
+  } catch { /* column already exists */ }
+
+  // Observation metadata companion table (for --obs-type filtering)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS observation_meta (
+      source TEXT,
+      heading TEXT,
+      observation_type TEXT,
+      confidence TEXT,
+      line_number INTEGER,
+      metadata TEXT,
+      PRIMARY KEY (source, observation_type, line_number)
     )
   `);
 
@@ -542,6 +571,7 @@ function cmdSearch(query: string, args: string[]): void {
   let fresh = false;
   let afterDate: string | null = null;
   let noStale = false;
+  let observationType: string | null = null;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--limit") {
@@ -554,18 +584,30 @@ function cmdSearch(query: string, args: string[]): void {
     else if (args[i] === "--fresh") fresh = true;
     else if (args[i] === "--after") afterDate = args[++i];
     else if (args[i] === "--no-stale") noStale = true;
+    else if (args[i] === "--obs-type" || args[i] === "--observation-type") observationType = args[++i]?.toLowerCase() ?? null;
   }
 
   const db = new DatabaseSync(dbPath);
 
   let sql = `
     SELECT k.source, k.heading, k.content, k.chunk_type,
-           f.content_date, f.freshness_confidence, f.last_validated, im.last_modified
+           f.content_date, f.freshness_confidence, f.last_validated, im.last_modified,
+           im.access_count, im.last_accessed
     FROM knowledge k
     LEFT JOIN freshness_meta f ON k.source = f.source
     LEFT JOIN index_meta im ON k.source = im.source
-    WHERE k.knowledge MATCH ?
   `;
+
+  // Conditionally JOIN observation_meta when filtering by observation type
+  if (observationType) {
+    sql += `    INNER JOIN observation_meta om ON k.source = om.source\n`;
+  }
+
+  sql += `    WHERE k.knowledge MATCH ?`;
+
+  if (observationType) {
+    sql += ` AND om.observation_type = ?`;
+  }
 
   if (type !== "all") {
     sql += ` AND k.chunk_type = ?`;
@@ -575,24 +617,20 @@ function cmdSearch(query: string, args: string[]): void {
     sql += ` AND f.content_date >= ?`;
   }
 
-  sql += ` ORDER BY rank DESC LIMIT ?`;
+  // FTS5 rank is negative (more negative = better match). ORDER BY rank ASC gives best-first.
+  sql += ` ORDER BY rank LIMIT ?`;
+
+  // Build parameter list in SQL clause order
+  const params: (string | number)[] = [query];
+  if (observationType) params.push(observationType);
+  if (type !== "all") params.push(type);
+  if (afterDate) params.push(afterDate);
+  params.push(limit);
 
   let results: SearchRow[] = [];
   try {
     const stmt = db.prepare(sql);
-    if (type !== "all") {
-      if (afterDate) {
-        results = stmt.all(query, type, afterDate, limit) as SearchRow[];
-      } else {
-        results = stmt.all(query, type, limit) as SearchRow[];
-      }
-    } else {
-      if (afterDate) {
-        results = stmt.all(query, afterDate, limit) as SearchRow[];
-      } else {
-        results = stmt.all(query, limit) as SearchRow[];
-      }
-    }
+    results = stmt.all(...params) as SearchRow[];
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     if (msg.includes("fts5") || msg.includes("MATCH") || msg.includes("syntax")) {
@@ -604,6 +642,22 @@ function cmdSearch(query: string, args: string[]): void {
     process.exit(1);
   }
 
+  // Update access tracking for each unique source that appeared in results.
+  // COALESCE handles NULL in rows that predate the migration (access_count may be NULL).
+  if (results.length > 0) {
+    const updateAccess = db.prepare(
+      "UPDATE index_meta SET access_count = COALESCE(access_count, 0) + 1, last_accessed = ? WHERE source = ?"
+    );
+    const accessedAt = new Date().toISOString();
+    const seenSources = new Set<string>();
+    for (const row of results) {
+      if (!seenSources.has(row.source)) {
+        seenSources.add(row.source);
+        updateAccess.run(accessedAt, row.source);
+      }
+    }
+  }
+
   db.close();
 
   if (results.length === 0) {
@@ -611,14 +665,47 @@ function cmdSearch(query: string, args: string[]): void {
     return;
   }
 
-  // Calculate freshness and apply decay
+  // Calculate composite scores for all results before display
   const now = new Date();
   const threshold = config.freshness.stale_threshold_days;
   const halflife = config.freshness.decay_halflife_days;
+  const recencyHalflife = config.freshness.recency_halflife_days;
+  const totalResults = results.length;
 
-  let idx = 1;
-  for (const row of results) {
-    // Use the most recent of content_date or last_validated to determine freshness
+  interface ScoredRow {
+    row: SearchRow;
+    compositeScore: number;
+    ageDays: number;
+    isStale: boolean;
+    accessDays: number;
+  }
+
+  const scored: ScoredRow[] = results.map((row, position) => {
+    // FTS5 rank proxy: position 0 (best FTS5 match) gets score 1.0, last gets ~(1/n)
+    const fts5RankProxy = (totalResults - position) / totalResults;
+
+    // Access count boost: log(access_count + 1), defaulting to 0 if null
+    const accessCount = row.access_count ?? 0;
+    const accessBoost = Math.log(accessCount + 1);
+
+    // Recency decay based on last_accessed (how recently this source was retrieved)
+    // Default: use content_date or now if last_accessed is null
+    let lastAccessedDate: Date;
+    if (row.last_accessed) {
+      lastAccessedDate = new Date(row.last_accessed);
+    } else if (row.content_date) {
+      lastAccessedDate = new Date(row.content_date);
+    } else {
+      lastAccessedDate = now;
+    }
+    const accessAgeMs = now.getTime() - lastAccessedDate.getTime();
+    const accessAgeDays = Math.max(0, accessAgeMs / (1000 * 60 * 60 * 24));
+    const recencyDecay = Math.pow(0.5, accessAgeDays / recencyHalflife);
+
+    // Composite score: blend FTS5 rank and access boost, weighted by recency decay
+    let compositeScore = (fts5RankProxy * 0.7 + accessBoost * 0.3) * recencyDecay;
+
+    // Content freshness (for stale label and --fresh flag)
     let contentDate: Date;
     if (row.last_validated) {
       const validatedDate = new Date(row.last_validated);
@@ -630,13 +717,20 @@ function cmdSearch(query: string, args: string[]): void {
     const ageDays = Math.floor((now.getTime() - contentDate.getTime()) / (1000 * 60 * 60 * 24));
     const isStale = ageDays > threshold;
 
-    // Apply freshness decay if enabled
-    let displayScore = idx; // Placeholder; real BM25 would come from FTS5
+    // If --fresh flag: apply content staleness decay on top of composite score
     if (fresh) {
-      const decay = Math.pow(0.5, ageDays / halflife);
-      displayScore = idx * decay;
+      const stalenessDecay = Math.pow(0.5, ageDays / halflife);
+      compositeScore *= stalenessDecay;
     }
 
+    return { row, compositeScore, ageDays, isStale, accessDays: Math.round(accessAgeDays) };
+  });
+
+  // Re-sort by composite score descending (may differ from FTS5-only order)
+  scored.sort((a, b) => b.compositeScore - a.compositeScore);
+
+  let displayIdx = 1;
+  for (const { row, compositeScore, ageDays, isStale, accessDays } of scored) {
     if (noStale && isStale) continue;
 
     const staleLabel = isStale ? " [STALE]" : "";
@@ -649,13 +743,89 @@ function cmdSearch(query: string, args: string[]): void {
             ? `${ageDays}d ago`
             : `${Math.floor(ageDays / 30)}m ago`;
 
-    console.log(`[${idx}] (score: ${displayScore.toFixed(2)}, fresh: ${freshLabel}, confidence: ${row.freshness_confidence || "unknown"})${staleLabel}`);
-    console.log(`    ${row.source} > ${row.heading}`);
+    const accessedLabel = accessDays === 0 ? "today" : `${accessDays}d ago`;
+    const accessCount = row.access_count ?? 0;
+
+    console.log(`[${displayIdx}] (score: ${compositeScore.toFixed(4)}, fresh: ${freshLabel}, accessed: ${accessCount} times, last: ${accessedLabel}, confidence: ${row.freshness_confidence || "unknown"})${staleLabel}`);
+    const obsPrefix = observationType ? `[${observationType}] ` : "";
+    console.log(`    ${obsPrefix}${row.source} > ${row.heading}`);
     console.log(`    ${row.content.substring(0, 120)}${row.content.length > 120 ? "..." : ""}`);
     console.log();
 
-    idx++;
+    displayIdx++;
   }
+}
+
+interface ObservationEntry {
+  type: string;
+  confidence?: string;
+  line_number?: number;
+  metadata?: Record<string, unknown>;
+  heading?: string;
+}
+
+function cmdIndexObservations(sourceFile: string, observationsJson: string): void {
+  const config = loadConfig();
+  const projectRoot = getProjectRoot();
+
+  const fullSourcePath = resolve(projectRoot, sourceFile);
+  if (!fullSourcePath.startsWith(projectRoot + "/") && fullSourcePath !== projectRoot) {
+    console.error(`Error: Path escapes project root: ${sourceFile}`);
+    process.exit(1);
+  }
+
+  // observationsJson is typically a mktemp path written by the hook — no project-root guard needed
+  const fullJsonPath = resolve(observationsJson);
+
+  if (!existsSync(fullJsonPath)) {
+    console.error(`Error: Observations JSON not found: ${fullJsonPath}`);
+    process.exit(1);
+  }
+
+  let observations: ObservationEntry[];
+  try {
+    const raw = readFileSync(fullJsonPath, "utf-8");
+    let parsed = JSON.parse(raw);
+    // observation-parser.ts outputs { observations: [...], raw_line_count, observation_count }
+    // Unwrap the ParseResult wrapper if present
+    if (!Array.isArray(parsed) && parsed?.observations && Array.isArray(parsed.observations)) {
+      parsed = parsed.observations;
+    }
+    observations = parsed;
+    if (!Array.isArray(observations)) {
+      console.error("Error: Observations JSON must be an array or a ParseResult object with .observations array");
+      process.exit(1);
+    }
+  } catch (e) {
+    console.error(`Error: Failed to parse observations JSON: ${e instanceof Error ? e.message : String(e)}`);
+    process.exit(1);
+  }
+
+  const normalizedSource = normalizeFilePath(relative(projectRoot, fullSourcePath));
+  const dbPath = resolve(projectRoot, config.index_path);
+  const db = initializeDatabase(dbPath);
+
+  // Clear existing observations for this source before re-inserting
+  db.prepare("DELETE FROM observation_meta WHERE source = ?").run(normalizedSource);
+
+  const insert = db.prepare(`
+    INSERT INTO observation_meta (source, heading, observation_type, confidence, line_number, metadata)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+
+  let inserted = 0;
+  for (const obs of observations) {
+    if (!obs.type) continue;
+    const heading = obs.heading ?? "ROOT";
+    const confidence = obs.confidence ?? null;
+    const lineNumber = obs.line_number ?? null;
+    const metadata = obs.metadata ? JSON.stringify(obs.metadata) : null;
+    insert.run(normalizedSource, heading, obs.type, confidence, lineNumber, metadata);
+    inserted++;
+  }
+
+  db.close();
+  console.log(`Indexed ${inserted} observations for ${normalizedSource}`);
 }
 
 function cmdRebuild(): void {
@@ -982,9 +1152,17 @@ try {
       cmdIndexVault();
       break;
 
+    case "index-observations":
+      if (args.length < 3) {
+        console.error("Usage: node scripts/knowledge-index.ts index-observations <source-file> <observations-json>");
+        process.exit(1);
+      }
+      cmdIndexObservations(args[1], args[2]);
+      break;
+
     case "search":
       if (args.length < 2) {
-        console.error('Usage: node scripts/knowledge-index.ts search "<query>" [--limit 10] [--type code|prose|all] [--fresh] [--after DATE] [--no-stale]');
+        console.error('Usage: node scripts/knowledge-index.ts search "<query>" [--limit 10] [--type code|prose|all] [--fresh] [--after DATE] [--no-stale] [--obs-type TYPE]');
         process.exit(1);
       }
       cmdSearch(args[1], args.slice(2));
