@@ -16,7 +16,7 @@ Everything is markdown files and bash scripts. No servers, no databases, no exte
 
 ## Prerequisites
 
-- [Node.js 18+](https://nodejs.org)
+- [Node.js 22.16+](https://nodejs.org) (required for `node:sqlite` FTS5 knowledge index)
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) — `npm install -g @anthropic/claude-code`
 - A Claude account — [Claude.ai Pro/Max](https://claude.ai) subscription or [Anthropic API key](https://console.anthropic.com)
 
@@ -136,7 +136,7 @@ Configured in `.claude/settings.json` via `CLAUDE_CODE_SUBAGENT_MODEL`.
 
 ## Tips
 
-- **`/tools:handoff` before ending sessions** with work in progress. Resume with `/tools:catchup`.
+- **Session state is auto-saved** before context compaction via the PreCompact hook. Manual `/tools:handoff` captures richer context for end-of-session or cross-agent handoffs. Resume either with `/tools:catchup`.
 - **`/clear` between unrelated tasks.** Fresh context = better performance.
 - **The knowledge vault compounds.** Document decisions and root causes as you go.
 - **`/pm:approve` after planning** to promote drafts before building.

@@ -74,10 +74,23 @@ activity.jsonl ─────────────┘         │
 Project OS includes an FTS5-based knowledge index for efficient context management:
 
 - **Index engine**: `scripts/knowledge-index.ts` — uses `node:sqlite` FTS5 (Node 22.16+, zero deps)
-- **Subcommands**: `index`, `index-vault`, `search`, `rebuild`, `stats`, `stale`, `config`
+- **Subcommands**: `index`, `index-vault`, `index-observations`, `search`, `rebuild`, `stats`, `stale`, `config`
+- **Observation parser**: `scripts/observation-parser.ts` — extracts 5 typed facts (error-pattern, file-relationship, config-key, function-sig, dependency-chain) with sensitive key denylist
 - **Filter script**: `scripts/context-filter.sh` — routes large outputs through intent-based filtering
-- **Advisory hook**: `.claude/hooks/output-index.sh` — indexes large tool outputs automatically
+- **Advisory hook**: `.claude/hooks/output-index.sh` — indexes large tool outputs and persists extracted observations to `observation_meta` table
+- **Auto-checkpoint hook**: `.claude/hooks/pre-compact.sh` — PreCompact hook auto-saves session state before context compaction (10-min debounce)
 - **SKILL**: `.claude/skills/context-filter/SKILL.md` — teaches proactive routing for large content
+
+### Recency-Weighted Search
+
+Search results use composite scoring that blends FTS5 text relevance with access patterns:
+```
+composite_score = (fts5_rank * 0.7 + log(access_count + 1) * 0.3) * recency_decay
+recency_decay = 0.5 ^ ((now - last_accessed) / recency_halflife_days)
+```
+- `access_count` and `last_accessed` are tracked per source in `index_meta`
+- `recency_halflife_days` defaults to 14 (configurable in `settings.json`)
+- Use `--obs-type TYPE` to filter search by observation type (e.g., `--obs-type error-pattern`)
 
 ### Freshness System
 
@@ -87,7 +100,7 @@ Content freshness is tracked with three confidence levels:
 - **low**: Dated via file modification time only
 
 Content older than 90 days without validation is marked `[STALE]` in search results.
-Use `node scripts/knowledge-index.ts validate &lt;source&gt;` to reset the stale clock.
+Use `node scripts/knowledge-index.ts validate <source>` to reset the stale clock.
 
 ---
 
