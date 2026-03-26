@@ -67,11 +67,35 @@ if [ "$OUTPUT_SIZE" -le "$THRESHOLD" ]; then
 fi
 
 # Output exceeds threshold — index it
+OBS_COUNT=0
+OBS_FILE=""
 TEMP_FILE=$(mktemp)
-trap "rm -f '$INPUT_FILE' '$EXTRACT_FILE' '$TEMP_FILE'" EXIT
+cleanup() { rm -f "$INPUT_FILE" "$EXTRACT_FILE" "$TEMP_FILE" "${OBS_FILE:-}"; }
+trap cleanup EXIT
 
 # Write output to temp file safely (printf avoids echo's backslash/flag issues)
 printf '%s' "$OUTPUT" > "$TEMP_FILE"
+
+# ── Extract structured observations ─────────────────────────────────────
+# Call the observation parser to extract typed facts from the output.
+# Falls back to raw indexing if parser fails (advisory — no errors surfaced).
+PARSER_SCRIPT="$PROJECT_ROOT/scripts/observation-parser.ts"
+if [ -f "$PARSER_SCRIPT" ]; then
+    OBSERVATIONS=$(node "$PARSER_SCRIPT" "$TEMP_FILE" 2>/dev/null || true)
+    if [ -n "$OBSERVATIONS" ]; then
+        # Write observations to a temp file for potential downstream use
+        OBS_FILE=$(mktemp)
+        printf '%s' "$OBSERVATIONS" > "$OBS_FILE"
+        # Count extracted observations for the hint message
+        OBS_COUNT=$(node -e "try{const d=JSON.parse(require('fs').readFileSync('$OBS_FILE','utf8'));console.log(d.observation_count||0)}catch{console.log(0)}" 2>/dev/null || echo "0")
+    fi
+fi
+
+# Persist extracted observations to the observation_meta DB table
+# This enables --obs-type filtering in knowledge-index.ts search
+if [ -n "$OBS_FILE" ] && [ -f "$OBS_FILE" ]; then
+    node "$INDEX_SCRIPT" index-observations "$TEMP_FILE" "$OBS_FILE" 2>/dev/null || true
+fi
 
 # Infer intent and freshness metadata based on tool type
 INTENT=""
@@ -107,7 +131,7 @@ if node "$INDEX_SCRIPT" index "$TEMP_FILE" --confidence "$FRESHNESS_CONFIDENCE" 
     KB_SIZE=$((OUTPUT_SIZE / 1024))
     # Escape intent for display (replace single quotes)
     SAFE_INTENT=$(printf '%s' "$INTENT" | tr "'" "_")
-    echo "Large output indexed (${KB_SIZE} KB). Use: node scripts/knowledge-index.ts search '${SAFE_INTENT}' for filtered view." >&2
+    echo "Large output indexed (${KB_SIZE} KB, ${OBS_COUNT:-0} observations extracted). Use: node scripts/knowledge-index.ts search '${SAFE_INTENT}' for filtered view." >&2
 fi
 
 exit 0
