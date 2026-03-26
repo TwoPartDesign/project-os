@@ -21,6 +21,23 @@ Track per-feature implementation metrics. Updated by `/workflows:ship` and query
 
 <!-- Entries added by /workflows:ship -->
 
+### Feature: adaptive-memory
+- **Duration**: 2026-03-25 → 2026-03-26 (1.5 days, single session)
+- **Tasks**: 8 total (T2-T9), 7 completed, 0 blocked, 1 in-progress (T9 tests+docs)
+- **Waves**: 3 (W1: T2,T4,T6 parallel; W2: T3,T5,T7,T8 parallel; W3: T9)
+- **Revisions**: 2 review cycles (Round 1 failed T7+T8, rebuild fixed, Round 2 passed) + 1 Codex review
+- **First-pass review rate**: 75% (6/8 tasks passed first review; T7,T8 required rebuild)
+- **Compete usage**: 0 tasks
+- **Model split**: 100% Sonnet (sub-agents), Opus orchestration
+- **Lines changed**: +972 / -34 across 8 files
+- **Commits**: 4 (3 feature, 1 docs)
+- **Key findings**:
+  - Worktree agents don't always persist changes — some worktrees get cleaned up before changes can be committed; copy files to main repo immediately after agent completion
+  - ParseResult wrapper objects vs bare arrays — schema mismatches between producer (parser outputs `{observations:[...]}`) and consumer (indexer expects `[...]`) are easy to miss across file boundaries
+  - FTS5 `ORDER BY rank DESC` is wrong — FTS5 rank is negative (more negative = better), so default ASC ordering gives best-first results. Pre-existing bug caught by Codex review.
+  - Path traversal guards reject legitimate temp files — `/tmp/` paths from mktemp are outside project root, so guards silently block hook operations. Need to distinguish security-sensitive paths from hook-internal temp files.
+  - Sensitive key denylist (`SECRET|TOKEN|PASSWORD|CREDENTIAL|API_KEY|PRIVATE_KEY|AUTH`) prevents credential capture in observation parser
+
 ### Feature: context-filtering
 - **Duration**: 2026-03-03 (single day, multi-session)
 - **Tasks**: 8 total, 8 completed, 0 blocked
