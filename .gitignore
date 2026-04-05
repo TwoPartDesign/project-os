@@ -37,3 +37,15 @@ build/
 # Update system artifacts
 .claude/backups/
 *.upstream
+
+# Security: dangerous file types (private keys, certificates, credentials)
+*.pem
+*.key
+*.p12
+*.pfx
+*.cert
+*.crt
+id_rsa*
+*.jks
+credentials.*
+!credentials.example.*

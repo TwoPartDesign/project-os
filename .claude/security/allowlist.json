@@ -1,0 +1,26 @@
+{
+  "paths": {
+    "ignore": [
+      "*.lock",
+      "*.min.js",
+      "*.min.css",
+      "vendor/**",
+      "node_modules/**",
+      "*.snap",
+      "tests/fixtures/**",
+      "**/__snapshots__/**",
+      "scripts/lib/scan-rules.js"
+    ]
+  },
+  "rules": {
+    "disable": []
+  },
+  "inline": {
+    "marker": "scan:allow"
+  },
+  "stopwords": [
+    "AKIAIOSFODNN7EXAMPLE",
+    "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    "example@example.com"
+  ]
+}
