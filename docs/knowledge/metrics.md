@@ -21,6 +21,23 @@ Track per-feature implementation metrics. Updated by `/workflows:ship` and query
 
 <!-- Entries added by /workflows:ship -->
 
+### Feature: security-scanner
+- **Duration**: 2026-04-03 → 2026-04-05 (3 days, multi-session)
+- **Tasks**: 7 total (T10-T16), 7 completed, 0 blocked
+- **Waves**: 4 (W1: T10,T11 parallel; W2: T12; W3: T13,T14,T15 parallel; W4: T16)
+- **Revisions**: 1 review cycle (GATE PASSED WITH NOTES, 3 SHOULD FIX, 7 CONSIDER)
+- **First-pass review rate**: 100% (7/7 tasks passed review, all SHOULD FIX addressed post-gate)
+- **Compete usage**: 0 tasks
+- **Model split**: Haiku (sub-agents), Opus orchestration + review
+- **Lines changed**: +3837 / -52 across 18 files
+- **Commits**: 5 (4 feature, 1 docs)
+- **Key findings**:
+  - ES2024 regex inline modifiers `(?i:...)` work in Node 22+ V8 — two reviewers flagged as crash risk, verified false
+  - Worktree isolation doesn't work for drift detection on untracked files — reviewer sees only committed state
+  - Test data in rule files (SSNs, credit cards, API key patterns) must be path-allowlisted to avoid self-detection
+  - gitleaks PCRE→JS port: 24/233 rules have null regex (PCRE features without JS equivalent), handled as SKIP
+  - Shannon entropy filtering correctly rejects low-entropy synthetic test keys — not a bug, a feature
+
 ### Feature: adaptive-memory
 - **Duration**: 2026-03-25 → 2026-03-26 (1.5 days, single session)
 - **Tasks**: 8 total (T2-T9), 7 completed, 0 blocked, 1 in-progress (T9 tests+docs)
