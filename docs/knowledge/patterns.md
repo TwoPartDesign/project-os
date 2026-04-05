@@ -58,3 +58,18 @@ Each entry: Pattern Name, When to Use, Example, Anti-pattern to Avoid
 - Fix: unwrap `parsed.observations` before validation
 
 **Anti-pattern**: Testing producer and consumer in isolation without an integration test that pipes real output through the full chain.
+
+---
+
+### Security Scanning Gate
+
+**When to Use**: Before any git commit, push, or PR creation.
+
+**Pattern**: Defense-in-depth scanning at three layers: pre-commit hook blocks staged secrets via `scan-staged`, pre-push hook scans the full diff via `scan-diff`, and the ship workflow runs `scan-diff $BASE` as step 1.5. Inline `// scan:allow` suppresses intentional false positives. The allowlist at `.claude/security/allowlist.json` configures path ignores and stopwords.
+
+**Example**:
+- Pre-commit: `node scripts/security-scanner.ts scan-staged` — blocks `ghp_*`, `sk-ant-*`, PII in docs
+- Ship workflow step 1.5: `node scripts/security-scanner.ts scan-diff origin/master` — catches anything that slipped through
+- False positive: add `// scan:allow` on the line, or add the pattern to allowlist stopwords
+
+**Anti-pattern**: Relying solely on `.gitignore` to prevent secret leakage. Using `--no-verify` to bypass hooks without the ship workflow as a backup safety net.

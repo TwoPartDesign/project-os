@@ -16,6 +16,15 @@ if [[ ! -w "$FILE" ]]; then
   exit 1
 fi
 
+SCRIPT_DIR="$(dirname "$0")"
+
+# Prefer the scanner engine (comprehensive rules, atomic writes)
+if command -v node >/dev/null 2>&1 && [[ -f "$SCRIPT_DIR/security-scanner.ts" ]]; then
+  node "$SCRIPT_DIR/security-scanner.ts" scrub "$FILE"
+  exit 0
+fi
+
+# Fallback: inline patterns when Node is unavailable
 COUNT=0
 
 scrub() {
@@ -30,12 +39,9 @@ scrub() {
   fi
 }
 
-# OpenAI keys — project keys first (contain hyphens not matched by generic pattern)
+# OpenAI keys
 scrub 'sk-proj-[a-zA-Z0-9_-]{20,}' 'REDACTED:OPENAI_PROJECT_KEY'
 scrub 'sk-[a-zA-Z0-9]{20,}' 'REDACTED:OPENAI_KEY'
-
-# Codex CLI uses standard OpenAI keys (sk- and sk-proj- prefixes)
-# No additional patterns needed — already covered above
 
 # Google AI / Gemini API keys
 scrub 'AIza[a-zA-Z0-9_-]{35}' 'REDACTED:GOOGLE_AI_KEY'
@@ -43,7 +49,7 @@ scrub 'AIza[a-zA-Z0-9_-]{35}' 'REDACTED:GOOGLE_AI_KEY'
 # Anthropic keys
 scrub 'sk-ant-[a-zA-Z0-9_-]{20,}' 'REDACTED:ANTHROPIC_KEY'
 
-# GitHub tokens (all current token families)
+# GitHub tokens
 scrub 'ghp_[a-zA-Z0-9]{36,}' 'REDACTED:GITHUB_TOKEN'
 scrub 'gho_[a-zA-Z0-9]{36,}' 'REDACTED:GITHUB_OAUTH'
 scrub 'ghu_[a-zA-Z0-9]{36,}' 'REDACTED:GITHUB_USER'
@@ -51,7 +57,7 @@ scrub 'ghs_[a-zA-Z0-9]{36,}' 'REDACTED:GITHUB_SERVER'
 scrub 'ghr_[a-zA-Z0-9]{36,}' 'REDACTED:GITHUB_REFRESH'
 scrub 'github_pat_[a-zA-Z0-9_]{20,}' 'REDACTED:GITHUB_PAT'
 
-# AWS access keys (long-term and temporary STS keys)
+# AWS access keys
 scrub 'AKIA[A-Z0-9]{16}' 'REDACTED:AWS_KEY'
 scrub 'ASIA[A-Z0-9]{16}' 'REDACTED:AWS_TEMP_KEY'
 
@@ -62,10 +68,10 @@ scrub 'rk_live_[a-zA-Z0-9]{24,}' 'REDACTED:STRIPE_RESTRICTED'
 # Perplexity
 scrub 'pplx-[a-zA-Z0-9]{48,}' 'REDACTED:PERPLEXITY_KEY'
 
-# JWTs (header.payload.signature)
+# JWTs
 scrub 'eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+' 'REDACTED:JWT'
 
-# Bearer tokens (case-insensitive, min 20 chars after Bearer)
+# Bearer tokens
 scrub 'Bearer [a-zA-Z0-9_-]{20,}' 'Bearer REDACTED:BEARER_TOKEN'
 scrub 'bearer [a-zA-Z0-9_-]{20,}' 'bearer REDACTED:BEARER_TOKEN'
 

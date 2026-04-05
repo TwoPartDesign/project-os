@@ -29,6 +29,21 @@ grep -rn -e "localhost" -e "127\.0\.0\.1" -e "0\.0\.0\.0" --include="*.ts" --inc
 find . \( -name "*.log" -o -name "*.tmp" -o -name "*.cache" -o -size +1M \) | head -20
 ```
 
+### 1.5. Security Scan
+Auto-detect the base branch, then run the security scanner against the diff being shipped:
+
+```bash
+if git rev-parse --verify main &>/dev/null; then BASE="main"; else BASE="master"; fi
+node scripts/security-scanner.ts test-rules
+node scripts/security-scanner.ts scan-diff $BASE
+```
+
+If findings are reported:
+- **CRITICAL/HIGH**: STOP. These must be fixed before shipping. Do not proceed.
+- **MEDIUM/LOW**: Report findings to the user. They decide whether to fix, suppress with `// scan:allow`, or proceed.
+
+If the scanner is not installed (`scripts/security-scanner.ts` missing), warn the user but do not block.
+
 ### 2. Test Suite
 Run the full test suite. ALL tests must pass. No skipped tests allowed unless documented in the review.
 
