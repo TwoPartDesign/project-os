@@ -36,7 +36,7 @@ User ──→ Workflow Commands ──→ Orchestrator ──→ Sub-agents (is
 | Tool commands | `.claude/commands/tools/` | Utility tools (dashboard, commit, handoff, research) |
 | Agent adapters | `.claude/agents/adapters/` | Uniform interface for dispatching to AI agents |
 | Hooks | `.claude/hooks/` | Event-driven automation (post-tool-use, activity logging, session preservation) |
-| Scripts | `scripts/` | Standalone utilities (validate-roadmap, dashboard, scrub-secrets) |
+| Scripts | `scripts/` | Standalone utilities (validate-roadmap, dashboard, security-scanner, install-hooks, scrub-secrets) |
 | Knowledge base | `docs/knowledge/` | Patterns, decisions, bugs, architecture, metrics |
 | Specs | `docs/specs/<feature>/` | Per-feature lifecycle docs (design, tasks, review) |
 
@@ -101,6 +101,19 @@ Content freshness is tracked with three confidence levels:
 
 Content older than 90 days without validation is marked `[STALE]` in search results.
 Use `node scripts/knowledge-index.ts validate <source>` to reset the stale clock.
+
+## Security Scanning
+
+Defense-in-depth secret detection with three enforcement layers:
+
+- **Scanner engine**: `scripts/security-scanner.ts` — zero-dep Node.js scanner with 8 subcommands (scan-files, scan-staged, scan-diff, scrub, list-rules, test-rules, test-pattern, install-hooks)
+- **Rule database**: `scripts/lib/scan-rules.js` — 233 rules (219 ported from gitleaks@256f6479, 14 custom PII/privacy). ESM module, keyword pre-filter, Shannon entropy detection (threshold 4.5)
+- **Allowlist**: `.claude/security/allowlist.json` — path ignores, rule disables, inline `// scan:allow` suppression, stopwords
+- **Hook chain**: pre-commit (scan-staged) → pre-push (scan-diff) → ship workflow step 1.5 (scan-diff against base)
+- **Scrub mode**: `scrub-secrets.sh` delegates to scanner's `scrub` subcommand (atomic temp+rename), with inline bash fallback when Node unavailable
+- **Hook installer**: `scripts/install-hooks.sh` — validates rules, writes pre-commit and pre-push hooks to `.git/hooks/`
+
+Shell safety: all git operations use `execFileSync("git", [args])` (no string templates). Path traversal guard on all user-supplied paths.
 
 ---
 

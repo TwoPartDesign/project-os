@@ -24,3 +24,23 @@ Each entry: Date, Symptom, Root Cause, Fix, Prevention Rule
 **Fix**: Changed to `htmx-ext-sse@2.2.4` and regenerated SRI hash from actual file: `curl -s URL | openssl dgst -sha384 -binary | openssl base64 -A`.
 
 **Prevention Rule**: Never trust AI-generated CDN versions or SRI hashes. Always verify: (1) package version exists on npm, (2) SRI hash is computed from the actual downloaded artifact.
+
+### 2026-04-04: install-hooks.sh `--quiet` flag not honored
+
+**Symptom**: `install-hooks.sh` passes `--quiet` to `test-rules` subcommand, but output is always verbose.
+
+**Root Cause**: `cmdTestRules` in `security-scanner.ts` does not check for or honor a `--quiet` flag. The flag is silently ignored.
+
+**Fix**: Cosmetic — not blocking. Fix when adding CLI flag parsing improvements.
+
+**Prevention Rule**: When adding flags to wrapper scripts, verify the target command actually supports them.
+
+### 2026-04-04: scan-rules.js triggers its own scanner
+
+**Symptom**: Full-repo scan reports 12+ findings in `scripts/lib/scan-rules.js` (SSNs, credit card numbers, API key patterns).
+
+**Root Cause**: The rules file contains test case data — real-looking secrets that are intentionally embedded for `test-rules` validation. These are false positives by design.
+
+**Fix**: Added `scripts/lib/scan-rules.js` to `.claude/security/allowlist.json` path ignores. This is an accepted trade-off, not a bug — but documented here so future maintainers don't remove the allowlist entry thinking it's an error.
+
+**Prevention Rule**: When a file legitimately contains secret-like test data, add it to the path allowlist and document why.

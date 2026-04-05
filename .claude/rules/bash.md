@@ -198,7 +198,7 @@ Sub-agents do not inherit CLAUDE.md. When spawning sub-agents that will run Bash
 
 ## Agent Rules
 
-<!-- source-hash: 66b18dbb96aec8d63125001d0ab7d57adb15e9a5961779a0aebc15858373b50d -->
+<!-- source-hash: 7a84e50401ec495c067beaaf77104e78146dda90d8a526bca8b8b87872615010 -->
 
 - Never chain commands with `&&`, `||`, or `;` — use separate Bash tool calls
 - Never use `&&` with quoted strings (includes `cd "path" && command`)

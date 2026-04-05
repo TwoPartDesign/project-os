@@ -56,6 +56,14 @@ cd ~/projects/my-app && claude
 /tools:init
 ```
 
+### Security hooks (once per clone)
+
+```bash
+bash scripts/install-hooks.sh
+```
+
+Installs pre-commit and pre-push hooks that block secrets, tokens, and PII from being committed or pushed.
+
 ## The Workflow
 
 Seven phases. Always start at the top — never skip from idea to build.
@@ -140,6 +148,7 @@ Configured in `.claude/settings.json` via `CLAUDE_CODE_SUBAGENT_MODEL`.
 - **`/clear` between unrelated tasks.** Fresh context = better performance.
 - **The knowledge vault compounds.** Document decisions and root causes as you go.
 - **`/pm:approve` after planning** to promote drafts before building.
+- **Run `bash scripts/install-hooks.sh` once per clone** to activate the pre-commit/pre-push secret scanner. Use `node scripts/security-scanner.ts scan-files <path>` for ad-hoc scans.
 - **For small changes** skip the pipeline entirely.
 
 For the full architecture reference, implementation details, and build spec, see [project-os-guide.md](project-os-guide.md).

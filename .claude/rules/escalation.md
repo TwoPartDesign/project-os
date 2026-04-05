@@ -25,7 +25,7 @@ When hitting the retry cap, output:
 Then stop and wait for user direction.
 
 ## Agent Rules
-<!-- source-hash: d54ee78e8a78f8cfd6b5b394cdab41e15ba69c09b294ed0b7aba80ac8b0d0f7e -->
+<!-- source-hash: 2503d22f96dafed3e18c664cf002dd629a3dcc3f6da8d6495a6a4ad18c727363 -->
 
 - Maximum **2 retries** per task. After 2 consecutive failures: STOP and surface the blocker.
 - Never silently retry the same action a third time — it wastes quota and masks the real problem.
