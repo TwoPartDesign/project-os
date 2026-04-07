@@ -43,3 +43,18 @@ Each entry: Date, Decision, Context, Alternatives Considered, Rationale
 - **Inline bash grep patterns** — rejected: no test-case framework, unmaintainable at 200+ rules, no entropy detection
 
 **Rationale**: Porting gitleaks rules to a JS module (documented via upstream commit hash `gitleaks@256f6479` in the file header) keeps everything in-tree, testable via `test-rules` subcommand, and zero-dep. Trade-off: 24 gitleaks PCRE patterns couldn't convert to JS RegExp (scanner handles gracefully as SKIP), and 222 upstream rules lack inline test cases (accepted tech debt — rules are battle-tested upstream). The 14 custom PII/privacy rules all have test cases.
+
+---
+
+## 2026-04-06 — Hand-Rolled MCP Server Over SDK for Web Fetch
+
+**Decision**: Build the web-fetch MCP server with a hand-rolled JSON-RPC 2.0 stdio transport (~150 lines) instead of using `@modelcontextprotocol/sdk`.
+
+**Context**: Project OS needed a web content preprocessor that replaces raw HTML with extracted Markdown *before* it hits the context window. PostToolUse hooks are advisory-only (can't modify output), so an MCP server was the only integration point. The MCP SDK pulls in zod and multiple transports (~2MB), breaking the zero-dep principle.
+
+**Alternatives Considered**:
+- **`@modelcontextprotocol/sdk` + zod** — rejected: ~2MB runtime dep, breaks zero-dep
+- **PostToolUse hook on native WebFetch** — rejected: hooks are advisory-only, raw HTML still consumes tokens
+- **Vendored Readability + Turndown + linkedom** — rejected: 285KB of external code, vendoring is deps by another name
+
+**Rationale**: MCP stdio protocol is simple (newline-delimited JSON-RPC 2.0). Custom extractor validated by spike T18 at 95% avg token reduction (target was 80%). Zero npm deps maintained. Trade-off: DNS rebinding not mitigated at application layer (Node's fetch() doesn't accept pre-resolved IPs) — documented as known v1 limitation.

@@ -21,6 +21,25 @@ Track per-feature implementation metrics. Updated by `/workflows:ship` and query
 
 <!-- Entries added by /workflows:ship -->
 
+### Feature: web-fetch
+- **Duration**: 2026-04-06 (single day, multi-session)
+- **Tasks**: 10 total (T18-T27), 10 completed, 0 blocked
+- **Waves**: 4 (W1: T19-T23 parallel; W2: T24; W3: T25; W4: T26,T27 parallel)
+- **Revisions**: 2 review cycles (Round 1 failed on 2 MUST FIX + 5 SHOULD FIX; Round 2 passed with notes, all addressed)
+- **First-pass review rate**: 90% (9/10 tasks passed first review; T24 required rebuild)
+- **Compete usage**: 0 tasks
+- **Model split**: Haiku (sub-agents), Opus orchestration + review
+- **Lines changed**: +5573 / -1 across 29 files
+- **Commits**: 14 (12 feature, 2 fix)
+- **Key findings**:
+  - Module-level singletons initialized at import time bypass config — lazy-init on first use instead
+  - `redirect: "follow"` in Node fetch skips application-layer SSRF validation on redirect targets — must use `redirect: "manual"` with per-hop validation
+  - `[\s\S]*?` regex patterns cause catastrophic backtracking on adversarial HTML — bound with `{0,N}` quantifier
+  - Mutable loop state (`currentUrl`) that bleeds across retry iterations weakens security guarantees — reset to original value on each attempt
+  - DNS rebinding is inherent to application-layer SSRF defense without custom resolvers — document as known limitation
+  - Spike-validated 95% avg token reduction with zero-dep custom extractor (target was 80%)
+  - Quality cascade (`extractionConfidence` field) enables autonomous detection of poor extraction with auto-fallback to raw mode
+
 ### Feature: security-scanner
 - **Duration**: 2026-04-03 → 2026-04-05 (3 days, multi-session)
 - **Tasks**: 7 total (T10-T16), 7 completed, 0 blocked
