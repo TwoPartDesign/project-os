@@ -88,6 +88,7 @@ const BLOCKED_HOSTNAMES = new Set([
   "localhost",
   "metadata.google.internal",
   "169.254.169.254",
+  "169.254.170.2",
 ]);
 
 /**
@@ -107,7 +108,7 @@ export function isPrivateIp(ip: string): boolean {
     const lower = ip.toLowerCase();
     return (
       lower === "::1" ||
-      lower.startsWith("fc00:") ||
+      lower.startsWith("fc") ||
       lower.startsWith("fd") ||
       lower.startsWith("fe80:")
     );
@@ -250,12 +251,19 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Maximum number of redirects to follow before giving up. */
+const MAX_REDIRECTS = 5;
+
+/** Maximum Retry-After wait in seconds (cap to prevent DoS stall). */
+const MAX_RETRY_AFTER_SEC = 60;
+
 /**
  * Fetch a URL with exponential backoff + jitter.
  * - Transient status codes → retry up to config.fetch.retryCount times
  * - Permanent status codes → fail immediately with descriptive error
- * - 429 with Retry-After header → honor the wait time
+ * - 429 with Retry-After header → honor the wait time (capped at 60s)
  * - Network errors (ETIMEDOUT, ECONNRESET, ECONNREFUSED) → retry
+ * - Redirects followed manually with SSRF validation on each hop
  */
 export async function fetchWithRetry(
   url: string,
@@ -270,37 +278,63 @@ export async function fetchWithRetry(
   };
 
   let lastError: Error | null = null;
+  let currentUrl = url;
 
   for (let attempt = 0; attempt <= retryCount; attempt++) {
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
-
+      // Manual redirect loop — validate each hop for SSRF
+      let redirectCount = 0;
       let response: Response;
-      try {
-        response = await fetch(url, {
-          headers,
-          signal: controller.signal,
-          redirect: "follow",
-        });
-      } finally {
-        clearTimeout(timeoutId);
+
+      while (true) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+        try {
+          response = await fetch(currentUrl, {
+            headers,
+            signal: controller.signal,
+            redirect: "manual",
+          });
+        } finally {
+          clearTimeout(timeoutId);
+        }
+
+        // Handle redirects manually — validate each target for SSRF
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.get("Location");
+          if (!location) break;
+
+          redirectCount++;
+          if (redirectCount > MAX_REDIRECTS) {
+            throw new Error(`Too many redirects (>${MAX_REDIRECTS}) fetching ${url}`);
+          }
+
+          // Resolve relative URLs
+          const redirectUrl = new URL(location, currentUrl).href;
+          // SSRF check on the redirect target
+          await validateUrl(redirectUrl);
+          currentUrl = redirectUrl;
+          continue;
+        }
+
+        break;
       }
 
       // Permanent failure — don't retry
       if (PERMANENT_STATUSES.has(response.status)) {
         throw new Error(
-          `HTTP ${response.status}: permanent failure fetching ${url}`
+          `HTTP ${response.status}: permanent failure fetching ${currentUrl}`
         );
       }
 
       // Transient failure — retry with backoff
       if (TRANSIENT_STATUSES.has(response.status)) {
-        // Honor Retry-After if present (for 429)
+        // Honor Retry-After if present (for 429), capped at MAX_RETRY_AFTER_SEC
         if (response.status === 429) {
           const retryAfter = response.headers.get("Retry-After");
           if (retryAfter) {
-            const waitSec = parseInt(retryAfter, 10);
+            const waitSec = Math.min(parseInt(retryAfter, 10), MAX_RETRY_AFTER_SEC);
             if (!isNaN(waitSec) && waitSec > 0) {
               await sleep(waitSec * 1000);
             }
@@ -314,7 +348,7 @@ export async function fetchWithRetry(
           continue;
         }
         throw new Error(
-          `HTTP ${response.status}: transient failure after ${retryCount} retries fetching ${url}`
+          `HTTP ${response.status}: transient failure after ${retryCount} retries fetching ${currentUrl}`
         );
       }
 
@@ -478,7 +512,7 @@ export async function fetchUrl(
         url: normalizedUrl,
         title: cached.title,
         content: cached.content,
-        wordCount: cached.tokenEstimate,
+        wordCount: cached.content.trim().split(/\s+/).filter(Boolean).length,
         tokenEstimate: cached.tokenEstimate,
         fromCache: true,
         fetchTier: "cache",
@@ -490,10 +524,7 @@ export async function fetchUrl(
 
   // ── Stage 4: Rate limit acquire ───────────────────────────────────────────
   const domain = new URL(normalizedUrl).hostname;
-  const rps = cfg.rateLimit.defaultRps;
-  // Use module-level limiter but respect configured RPS
-  const limiter = new RateLimiter(rps);
-  await limiter.acquire(domain);
+  await globalRateLimiter.acquire(domain);
 
   // ── Stage 5: Fetch with retry (conditional GET) ───────────────────────────
   const extraHeaders: Record<string, string> = {};
@@ -530,7 +561,7 @@ export async function fetchUrl(
         url: normalizedUrl,
         title: cached.title,
         content: cached.content,
-        wordCount: cached.tokenEstimate,
+        wordCount: cached.content.trim().split(/\s+/).filter(Boolean).length,
         tokenEstimate: cached.tokenEstimate,
         fromCache: true,
         fetchTier: "cache",

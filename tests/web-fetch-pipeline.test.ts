@@ -164,7 +164,19 @@ describe("validateUrl / isPrivateIp", () => {
 
   it("pipeline_ssrf_isPrivateIp_ipv6ULA", () => {
     assert.equal(isPrivateIp("fc00::1"), true);
+    assert.equal(isPrivateIp("fc01::1"), true);
+    assert.equal(isPrivateIp("fcff::1"), true);
     assert.equal(isPrivateIp("fd00::1"), true);
+  });
+
+  it("pipeline_ssrf_blocksPrivateIp_awsEcsEndpoint", async () => {
+    await assert.rejects(
+      () => validateUrl("http://169.254.170.2/credentials"),
+      (err: Error) => {
+        assert.ok(err.message.includes("blocklist"), `expected blocklist, got: ${err.message}`);
+        return true;
+      }
+    );
   });
 
   it("pipeline_ssrf_isPrivateIp_ipv6MappedLoopback", () => {
@@ -459,6 +471,41 @@ describe("fetchUrl", () => {
       }
     } finally {
       restore();
+    }
+  });
+
+  it("pipeline_ssrf_redirectToPrivateIp_blocked", async () => {
+    const originalFetch = (global as Record<string, unknown>).fetch;
+    (global as Record<string, unknown>).fetch = async (url: string) => {
+      if (url.includes("example.com")) {
+        return {
+          status: 302,
+          ok: false,
+          headers: new Headers({ Location: "http://169.254.169.254/latest/meta-data/" }),
+          text: async () => "",
+        } as Response;
+      }
+      return {
+        status: 200,
+        ok: true,
+        headers: new Headers({ "Content-Type": "text/html" }),
+        text: async () => "<html><body>secret</body></html>",
+      } as Response;
+    };
+
+    try {
+      await assert.rejects(
+        () => fetchUrl("https://example.com/redirect-test", { noCache: true }, TEST_CONFIG),
+        (err: Error) => {
+          assert.ok(
+            err.message.includes("blocklist") || err.message.includes("private"),
+            `expected SSRF block on redirect, got: ${err.message}`
+          );
+          return true;
+        }
+      );
+    } finally {
+      (global as Record<string, unknown>).fetch = originalFetch;
     }
   });
 

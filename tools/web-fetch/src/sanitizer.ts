@@ -20,16 +20,16 @@ export function sanitizeHtml(html: string): SanitizeResult {
   // Stage 1 — Hidden elements
   // Remove elements with display:none, visibility:hidden, opacity:0, hidden attribute, height:0/width:0
   const hiddenPatterns = [
-    // style="display:none" or style="display: none"
-    /<[^>]+style\s*=\s*["'][^"']*display\s*:\s*none[^"']*["'][^>]*>[\s\S]*?<\/[^>]+>/gi,
+    // style="display:none" or style="display: none" — bounded to 10K chars to prevent ReDoS
+    /<[^>]+style\s*=\s*["'][^"']*display\s*:\s*none[^"']*["'][^>]*>[\s\S]{0,10000}?<\/[^>]+>/gi,
     // style="visibility:hidden"
-    /<[^>]+style\s*=\s*["'][^"']*visibility\s*:\s*hidden[^"']*["'][^>]*>[\s\S]*?<\/[^>]+>/gi,
+    /<[^>]+style\s*=\s*["'][^"']*visibility\s*:\s*hidden[^"']*["'][^>]*>[\s\S]{0,10000}?<\/[^>]+>/gi,
     // style="opacity:0"
-    /<[^>]+style\s*=\s*["'][^"']*opacity\s*:\s*0[^"']*["'][^>]*>[\s\S]*?<\/[^>]+>/gi,
+    /<[^>]+style\s*=\s*["'][^"']*opacity\s*:\s*0[^"']*["'][^>]*>[\s\S]{0,10000}?<\/[^>]+>/gi,
     // hidden attribute
-    /<[^>]+\shidden(?:\s|>|\/)[^>]*>[\s\S]*?<\/[^>]+>/gi,
+    /<[^>]+\shidden(?:\s|>|\/)[^>]*>[\s\S]{0,10000}?<\/[^>]+>/gi,
     // style="height:0" or style="width:0"
-    /<[^>]+style\s*=\s*["'][^"']*(?:height|width)\s*:\s*0[^"']*["'][^>]*>[\s\S]*?<\/[^>]+>/gi,
+    /<[^>]+style\s*=\s*["'][^"']*(?:height|width)\s*:\s*0[^"']*["'][^>]*>[\s\S]{0,10000}?<\/[^>]+>/gi,
     // Self-closing variants with hidden attribute
     /<[^>]+\shidden(?:\s|>|\/)[^>]*/gi,
   ];
