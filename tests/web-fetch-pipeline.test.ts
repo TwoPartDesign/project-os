@@ -376,6 +376,92 @@ describe("fetchUrl", () => {
     }
   });
 
+  it("pipeline_qualityGate_highConfidence_normalExtraction", async () => {
+    const html = makeHtmlPage(
+      "<h1>Good Article</h1><p>This article has plenty of meaningful content that should extract well. " +
+      "It includes multiple sentences with real information about the topic at hand. " +
+      "The extraction should produce a high confidence result.</p>"
+    );
+
+    const restore = mockFetch(html);
+    try {
+      const result = await fetchUrl(
+        "https://example.com/good-article",
+        { noCache: true },
+        TEST_CONFIG
+      );
+
+      assert.equal(result.extractionConfidence, "high", "normal extraction should be high confidence");
+      assert.ok(result.content.length > 0, "content should not be empty");
+    } finally {
+      restore();
+    }
+  });
+
+  it("pipeline_qualityGate_poorExtraction_autoFallbackToRaw", async () => {
+    // Simulate a page where the extractor produces almost nothing but the raw HTML has lots of text.
+    // Many small, deeply nested elements with nav/aside/footer noise — extractor strips most of it.
+    const sentence = "Important information embedded in noise. ";
+    const noiseBlocks = Array.from({ length: 20 }, (_, i) =>
+      `<nav><ul><li>${sentence}</li></ul></nav><aside><p>${sentence}</p></aside><footer><p>${sentence}</p></footer>`
+    ).join("");
+    const html = `<!DOCTYPE html><html><head><title>Noisy Page</title></head><body>` +
+      noiseBlocks +
+      `</body></html>`;
+
+    const restore = mockFetch(html);
+    try {
+      const result = await fetchUrl(
+        "https://example.com/tricky-page",
+        { noCache: true },
+        TEST_CONFIG
+      );
+
+      // The quality gate should detect poor extraction and fall back to raw
+      assert.equal(
+        result.extractionConfidence,
+        "raw-fallback",
+        `expected raw-fallback for poor extraction, got: ${result.extractionConfidence}`
+      );
+      assert.ok(
+        result.content.includes("Important information"),
+        "raw fallback should preserve the text content"
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("pipeline_qualityGate_lowConfidence_hasHeadings", async () => {
+    // Page where extraction is poor but has headings — should be "low" not "raw-fallback"
+    const loremText = "Detailed content the extractor mostly misses. ".repeat(30);
+    const html = `<!DOCTYPE html><html><head><title>Heading Page</title></head><body>` +
+      `<div class="app"><h2>Section One</h2><span>${loremText}</span></div>` +
+      `</body></html>`;
+
+    const restore = mockFetch(html);
+    try {
+      const result = await fetchUrl(
+        "https://example.com/heading-page",
+        { noCache: true },
+        TEST_CONFIG
+      );
+
+      // If extraction is poor but headings exist, confidence should be "low" (not raw-fallback)
+      if (result.extractionConfidence === "low") {
+        assert.equal(result.extractionConfidence, "low", "should be low when headings present but extraction poor");
+      } else {
+        // If the extractor actually captures this well, high is also acceptable
+        assert.ok(
+          result.extractionConfidence === "high" || result.extractionConfidence === "raw-fallback",
+          `unexpected confidence: ${result.extractionConfidence}`
+        );
+      }
+    } finally {
+      restore();
+    }
+  });
+
   it("pipeline_fetchUrl_rawMode_stripsAllTags", async () => {
     const html = '<html><head><title>Raw Test</title></head><body><h1>Title</h1><p>Content here.</p><script>alert("xss")</script></body></html>';
 

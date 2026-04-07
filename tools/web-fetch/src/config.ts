@@ -13,6 +13,7 @@ export interface FetchResult {
   fromCache: boolean;
   fetchTier: "cache" | "http" | "wayback";
   sanitized: string[];
+  extractionConfidence: "high" | "low" | "raw-fallback";
 }
 
 export interface FetchOptions {

@@ -478,11 +478,12 @@ export async function fetchUrl(
         url: normalizedUrl,
         title: cached.title,
         content: cached.content,
-        wordCount: cached.tokenEstimate, // best approximation without re-parsing
+        wordCount: cached.tokenEstimate,
         tokenEstimate: cached.tokenEstimate,
         fromCache: true,
         fetchTier: "cache",
         sanitized: [],
+        extractionConfidence: "high",
       };
     }
   }
@@ -534,6 +535,7 @@ export async function fetchUrl(
         fromCache: true,
         fetchTier: "cache",
         sanitized: [],
+        extractionConfidence: "high",
       };
     }
   }
@@ -579,6 +581,31 @@ export async function fetchUrl(
     const { cleaned: cleanedMd, removed: removedMd } = sanitizeMarkdown(extracted.markdown);
     sanitized.push(...removedMd);
     content = cleanedMd;
+  }
+
+  // ── Stage 7b: Quality gate — auto-degrade to raw if extraction is poor ──
+  let extractionConfidence: "high" | "low" | "raw-fallback" = "high";
+
+  if (mode !== "raw") {
+    const strippedTextLength = html.replace(/<[^>]+>/g, "").trim().length;
+    const hasHeadings = /^#{1,6} /m.test(content);
+    const tooShort = wordCount < 50 && strippedTextLength > 500;
+    const tooSmallRatio = strippedTextLength > 0 && content.length < strippedTextLength * 0.02;
+
+    if (tooShort || tooSmallRatio) {
+      if (!hasHeadings) {
+        // Auto-fallback: re-extract in raw mode
+        const { cleaned: rawHtml, removed: rawRemoved } = sanitizeHtml(html);
+        sanitized.length = 0;
+        sanitized.push(...rawRemoved);
+        content = rawHtml.replace(/<[^>]+>/g, "").replace(/\n{3,}/g, "\n\n").trim();
+        wordCount = content.trim().split(/\s+/).filter(Boolean).length;
+        excerpt = content.slice(0, 160);
+        extractionConfidence = "raw-fallback";
+      } else {
+        extractionConfidence = "low";
+      }
+    }
   }
 
   // ── Stage 8: Truncation ───────────────────────────────────────────────────
@@ -629,5 +656,6 @@ export async function fetchUrl(
     fromCache: false,
     fetchTier: "http",
     sanitized,
+    extractionConfidence,
   };
 }
