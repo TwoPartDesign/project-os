@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "web-fetch": {
+      "command": "node",
+      "args": ["--experimental-strip-types", "./tools/web-fetch/src/index.ts"],
+      "env": {}
+    }
+  }
+}
