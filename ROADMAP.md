@@ -60,6 +60,25 @@ Each feature groups tasks by lifecycle phase:
 - [x] Ship workflow integration + documentation (depends: #T12) #T15
 - [x] Integration testing + false-positive tuning (depends: #T13, #T14, #T15) #T16
 
+## Feature: web-fetch
+
+### Draft
+
+### Todo
+- [~] Spike: Zero-dep HTML extractor — build prototype, benchmark against 10 URLs, measure token reduction vs raw HTML #T18
+- [~] Config loader — JSON config with defaults and deep merge (depends: #T18) #T19
+- [~] Prompt injection sanitizer — 8-stage HTML + Markdown sanitization (depends: #T18) #T20
+- [~] HTML content extractor + Markdown converter — zero-dep extraction with text-density scoring (depends: #T18) #T21
+- [~] SQLite + filesystem cache — node:sqlite metadata, blob store, LRU eviction (depends: #T18) #T22
+- [~] JSON-RPC 2.0 stdio transport — hand-rolled MCP protocol handler (depends: #T18) #T23
+- [~] Fetch pipeline orchestrator — fetch, validate, extract, sanitize, cache (depends: #T19, #T20, #T21, #T22) #T24
+- [~] Entry point + MCP registration — CLI/MCP auto-detect, .mcp.json (depends: #T23, #T24) #T25
+- [~] Security integration + hooks — allowlist, settings.json, validation hook, .gitignore (depends: #T25) #T26
+- [~] Integration tests with fixture server — local HTTP fixtures, 6 test scenarios (depends: #T25) #T27
+### In Progress
+### Review
+### Done
+
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->
 - [?] Spike: CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 — assess compatibility and integration path #T1
