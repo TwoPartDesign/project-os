@@ -41,22 +41,14 @@ export interface WebFetchConfig {
     retryCount: number;
     retryBaseDelay: number;
     userAgent: string;
-    headlessThreshold: number;
   };
   extraction: {
     mode: "readable" | "raw" | "markdown";
     maxTokens: number;
-    sanitizeInjections: boolean;
-    includeMetadataHeader: boolean;
-    stripImages: boolean;
   };
   cache: CacheConfig;
   rateLimit: {
     defaultRps: number;
-    respectRobotsTxt: boolean;
-  };
-  wayback: {
-    enabled: boolean;
   };
 }
 
@@ -68,14 +60,10 @@ export const DEFAULT_CONFIG: WebFetchConfig = {
     retryCount: 3,
     retryBaseDelay: 1000,
     userAgent: "ProjectOS-WebFetch/1.0",
-    headlessThreshold: 500,
   },
   extraction: {
     mode: "readable",
     maxTokens: 15000,
-    sanitizeInjections: true,
-    includeMetadataHeader: true,
-    stripImages: true,
   },
   cache: {
     enabled: true,
@@ -87,10 +75,6 @@ export const DEFAULT_CONFIG: WebFetchConfig = {
   },
   rateLimit: {
     defaultRps: 2,
-    respectRobotsTxt: false,
-  },
-  wayback: {
-    enabled: false,
   },
 };
 

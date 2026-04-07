@@ -3,15 +3,11 @@
     "timeout": 15000,
     "retryCount": 3,
     "retryBaseDelay": 1000,
-    "userAgent": "ProjectOS-WebFetch/1.0",
-    "headlessThreshold": 500
+    "userAgent": "ProjectOS-WebFetch/1.0"
   },
   "extraction": {
     "mode": "readable",
-    "maxTokens": 15000,
-    "sanitizeInjections": true,
-    "includeMetadataHeader": true,
-    "stripImages": true
+    "maxTokens": 15000
   },
   "cache": {
     "enabled": true,
@@ -22,10 +18,6 @@
     "dir": "tools/web-fetch/.cache"
   },
   "rateLimit": {
-    "defaultRps": 2,
-    "respectRobotsTxt": false
-  },
-  "wayback": {
-    "enabled": false
+    "defaultRps": 2
   }
 }

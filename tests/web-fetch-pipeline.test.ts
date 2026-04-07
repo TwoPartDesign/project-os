@@ -459,16 +459,12 @@ describe("fetchUrl", () => {
         TEST_CONFIG
       );
 
-      // If extraction is poor but headings exist, confidence should be "low" (not raw-fallback)
-      if (result.extractionConfidence === "low") {
-        assert.equal(result.extractionConfidence, "low", "should be low when headings present but extraction poor");
-      } else {
-        // If the extractor actually captures this well, high is also acceptable
-        assert.ok(
-          result.extractionConfidence === "high" || result.extractionConfidence === "raw-fallback",
-          `unexpected confidence: ${result.extractionConfidence}`
-        );
-      }
+      // The extractor may capture this content well (high) or poorly (low/raw-fallback).
+      // What matters is that raw-fallback is NOT returned when headings are present.
+      assert.ok(
+        result.extractionConfidence === "high" || result.extractionConfidence === "low",
+        `expected 'high' or 'low' (not 'raw-fallback') when headings present, got: ${result.extractionConfidence}`
+      );
     } finally {
       restore();
     }

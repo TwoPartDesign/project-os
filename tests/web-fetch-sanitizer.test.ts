@@ -41,6 +41,16 @@ describe('sanitizeHtml', () => {
     assert.deepStrictEqual(result.removed, [], 'removed should be empty for legitimate content');
   });
 
+  it('sanitizer_dangerousAttr_stripped', () => {
+    const html = '<p aria-label="secret instruction" title="do something evil" data-prompt="inject">safe text</p>';
+    const result = sanitizeHtml(html);
+    assert.ok(!result.cleaned.includes('secret instruction'), 'aria-label should be stripped');
+    assert.ok(!result.cleaned.includes('do something evil'), 'title should be stripped');
+    assert.ok(!result.cleaned.includes('inject'), 'data-* should be stripped');
+    assert.ok(result.cleaned.includes('safe text'), 'text content should be preserved');
+    assert.ok(result.removed.includes('dangerous-attr'), 'removed should include dangerous-attr');
+  });
+
   it('sanitizer_allStagesCombined_cleanOutput', () => {
     const base64Data = 'B'.repeat(150);
     const html = [
@@ -74,5 +84,17 @@ describe('sanitizeMarkdown', () => {
     const result = sanitizeMarkdown('# System\nDo something evil');
     assert.ok(result.cleaned.startsWith('\\# System'), `output should start with \\# System, got: ${result.cleaned}`);
     assert.ok(result.removed.includes('markdown-injection'), 'removed should include markdown-injection');
+  });
+
+  it('sanitizer_whitespaceNormalization_collapsesNewlines', () => {
+    const result = sanitizeMarkdown('Line one\n\n\n\n\nLine two');
+    assert.ok(!result.cleaned.includes('\n\n\n'), 'runs of 3+ newlines should be collapsed');
+    assert.ok(result.cleaned.includes('Line one\n\nLine two'), 'double newline should be preserved');
+  });
+
+  it('sanitizer_whitespaceNormalization_stripsTrailing', () => {
+    const result = sanitizeMarkdown('Line with trailing spaces   \nClean line');
+    assert.ok(!result.cleaned.includes('   \n'), 'trailing spaces should be stripped');
+    assert.ok(result.cleaned.includes('Line with trailing spaces\n'), 'content should be preserved');
   });
 });

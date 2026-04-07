@@ -107,11 +107,8 @@ export function sanitizeMarkdown(md: string): SanitizeResult {
   }
 
   // Stage 8 — Whitespace normalization
-  const multiNewlineRegex = /\n{3,}/g;
-  const trailingWhitespaceRegex = /[ \t]+$/gm;
-  const before = cleaned;
-  cleaned = cleaned.replace(multiNewlineRegex, '\n\n');
-  cleaned = cleaned.replace(trailingWhitespaceRegex, '');
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+  cleaned = cleaned.replace(/[ \t]+$/gm, '');
   // Note: whitespace normalization is not tracked in removed[] as it's not a security removal
 
   return { cleaned, removed };

@@ -67,8 +67,8 @@ Each feature groups tasks by lifecycle phase:
 ### Todo
 ### In Progress
 ### Review
-- [~] Fetch pipeline orchestrator — fetch, validate, extract, sanitize, cache (depends: #T19, #T20, #T21, #T22) #T24
 ### Done
+- [x] Fetch pipeline orchestrator — fetch, validate, extract, sanitize, cache (depends: #T19, #T20, #T21, #T22) #T24
 - [x] Spike: Zero-dep HTML extractor — build prototype, benchmark against 10 URLs, measure token reduction vs raw HTML #T18
 - [x] Config loader — JSON config with defaults and deep merge (depends: #T18) #T19
 - [x] Prompt injection sanitizer — 8-stage HTML + Markdown sanitization (depends: #T18) #T20

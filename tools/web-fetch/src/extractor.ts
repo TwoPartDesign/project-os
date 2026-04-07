@@ -359,9 +359,6 @@ function findFirstList(html: string): { tagName: string; inner: string; start: n
  * Recurses into each list item for nested lists via convertListBlock.
  */
 function replaceOutermostLists(html: string): string {
-  let result = html;
-  let offset = 0;
-  // Work on original html, tracking offset shifts
   let working = html;
   let listInfo = findFirstList(working);
   while (listInfo !== null) {
@@ -378,7 +375,6 @@ function replaceOutermostLists(html: string): string {
       };
     }
   }
-  void offset; // suppress unused warning
   return working;
 }
 

@@ -160,6 +160,9 @@ export async function validateUrl(url: string): Promise<void> {
   }
 
   // DNS lookup + private IP check
+  // Known limitation: DNS rebinding is not mitigated — an attacker-controlled DNS
+  // server could return a public IP here and a private IP for the actual fetch().
+  // Node's fetch() does not support IP pinning. Acceptable risk for v1.
   let address: string;
   try {
     const result = await dns.promises.lookup(parsed.hostname);
@@ -257,6 +260,9 @@ const MAX_REDIRECTS = 5;
 /** Maximum Retry-After wait in seconds (cap to prevent DoS stall). */
 const MAX_RETRY_AFTER_SEC = 60;
 
+/** Approximate characters per token (conservative estimate). */
+const CHARS_PER_TOKEN = 3.5;
+
 /**
  * Fetch a URL with exponential backoff + jitter.
  * - Transient status codes → retry up to config.fetch.retryCount times
@@ -278,9 +284,10 @@ export async function fetchWithRetry(
   };
 
   let lastError: Error | null = null;
-  let currentUrl = url;
 
   for (let attempt = 0; attempt <= retryCount; attempt++) {
+    // Reset to original URL on each retry — prevents redirect state bleed
+    let currentUrl = url;
     try {
       // Manual redirect loop — validate each hop for SSRF
       let redirectCount = 0;
@@ -342,9 +349,7 @@ export async function fetchWithRetry(
         }
 
         if (attempt < retryCount) {
-          const jitter = Math.random() * retryBaseDelay;
-          const delay = retryBaseDelay * Math.pow(2, attempt) + jitter;
-          await sleep(delay);
+          await sleep(backoffDelay(attempt, retryBaseDelay));
           continue;
         }
         throw new Error(
@@ -368,19 +373,8 @@ export async function fetchWithRetry(
           (c) => code === c || err.message.includes(c)
         );
 
-        if (isRetryableNetwork && attempt < retryCount) {
-          const jitter = Math.random() * retryBaseDelay;
-          const delay = retryBaseDelay * Math.pow(2, attempt) + jitter;
-          await sleep(delay);
-          lastError = err;
-          continue;
-        }
-
-        // AbortError from timeout
-        if (err.name === "AbortError" && attempt < retryCount) {
-          const jitter = Math.random() * retryBaseDelay;
-          const delay = retryBaseDelay * Math.pow(2, attempt) + jitter;
-          await sleep(delay);
+        if ((isRetryableNetwork || err.name === "AbortError") && attempt < retryCount) {
+          await sleep(backoffDelay(attempt, retryBaseDelay));
           lastError = err;
           continue;
         }
@@ -451,7 +445,7 @@ export function validateResponse(html: string): ValidationResult {
  * tokenBudget is approximate: we use maxTokens * 3.5 chars as the char budget.
  */
 function truncateMarkdown(content: string, maxTokens: number): string {
-  const charBudget = Math.floor(maxTokens * 3.5);
+  const charBudget = Math.floor(maxTokens * CHARS_PER_TOKEN);
   if (content.length <= charBudget) return content;
 
   // Split on section boundaries (keep the delimiter via lookahead)
@@ -471,11 +465,36 @@ function truncateMarkdown(content: string, maxTokens: number): string {
 }
 
 // ============================================================================
+// Helpers
+// ============================================================================
+
+/** Build a FetchResult from a cache hit. */
+function buildCachedResult(url: string, cached: { title: string; content: string; tokenEstimate: number }): FetchResult {
+  return {
+    url,
+    title: cached.title,
+    content: cached.content,
+    wordCount: cached.content.trim().split(/\s+/).filter(Boolean).length,
+    tokenEstimate: cached.tokenEstimate,
+    fromCache: true,
+    fetchTier: "cache",
+    sanitized: [],
+    extractionConfidence: "high",
+  };
+}
+
+/** Compute exponential backoff delay with jitter. */
+function backoffDelay(attempt: number, baseDelay: number): number {
+  const jitter = Math.random() * baseDelay;
+  return baseDelay * Math.pow(2, attempt) + jitter;
+}
+
+// ============================================================================
 // Main fetchUrl pipeline
 // ============================================================================
 
-// Module-level rate limiter singleton (per process)
-const globalRateLimiter = new RateLimiter(2);
+// Module-level rate limiter singleton, lazy-initialized from config on first use
+let globalRateLimiter: RateLimiter | null = null;
 
 /**
  * Full fetch pipeline — stages 1–9.
@@ -508,21 +527,14 @@ export async function fetchUrl(
     const cached = cache.get(urlHash);
     if (cached) {
       cache.close();
-      return {
-        url: normalizedUrl,
-        title: cached.title,
-        content: cached.content,
-        wordCount: cached.content.trim().split(/\s+/).filter(Boolean).length,
-        tokenEstimate: cached.tokenEstimate,
-        fromCache: true,
-        fetchTier: "cache",
-        sanitized: [],
-        extractionConfidence: "high",
-      };
+      return buildCachedResult(normalizedUrl, cached);
     }
   }
 
   // ── Stage 4: Rate limit acquire ───────────────────────────────────────────
+  if (!globalRateLimiter) {
+    globalRateLimiter = new RateLimiter(cfg.rateLimit.defaultRps);
+  }
   const domain = new URL(normalizedUrl).hostname;
   await globalRateLimiter.acquire(domain);
 
@@ -557,17 +569,7 @@ export async function fetchUrl(
     const cached = cache.get(urlHash);
     cache.close();
     if (cached) {
-      return {
-        url: normalizedUrl,
-        title: cached.title,
-        content: cached.content,
-        wordCount: cached.content.trim().split(/\s+/).filter(Boolean).length,
-        tokenEstimate: cached.tokenEstimate,
-        fromCache: true,
-        fetchTier: "cache",
-        sanitized: [],
-        extractionConfidence: "high",
-      };
+      return buildCachedResult(normalizedUrl, cached);
     }
   }
 
@@ -650,7 +652,7 @@ export async function fetchUrl(
   }
 
   content = truncateMarkdown(content, maxTokens);
-  const tokenEstimate = Math.ceil(content.length / 3.5);
+  const tokenEstimate = Math.ceil(content.length / CHARS_PER_TOKEN);
 
   // ── Stage 9: Cache write ──────────────────────────────────────────────────
   if (cache) {

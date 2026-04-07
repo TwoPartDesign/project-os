@@ -29,13 +29,11 @@ test("config_override_mergedCorrectly", () => {
     assert.equal(result.fetch.retryCount, DEFAULT_CONFIG.fetch.retryCount);
     assert.equal(result.fetch.retryBaseDelay, DEFAULT_CONFIG.fetch.retryBaseDelay);
     assert.equal(result.fetch.userAgent, DEFAULT_CONFIG.fetch.userAgent);
-    assert.equal(result.fetch.headlessThreshold, DEFAULT_CONFIG.fetch.headlessThreshold);
 
     // unrelated sections remain defaults
     assert.deepEqual(result.extraction, DEFAULT_CONFIG.extraction);
     assert.deepEqual(result.cache, DEFAULT_CONFIG.cache);
     assert.deepEqual(result.rateLimit, DEFAULT_CONFIG.rateLimit);
-    assert.deepEqual(result.wayback, DEFAULT_CONFIG.wayback);
   } finally {
     unlinkSync(tempPath);
   }
