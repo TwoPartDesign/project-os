@@ -9,7 +9,8 @@
       "*.snap",
       "tests/fixtures/**",
       "**/__snapshots__/**",
-      "scripts/lib/scan-rules.js"
+      "scripts/lib/scan-rules.js",
+      "tools/web-fetch/.cache/**"
     ]
   },
   "rules": {

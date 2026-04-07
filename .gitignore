@@ -49,3 +49,6 @@ id_rsa*
 *.jks
 credentials.*
 !credentials.example.*
+
+# Web-fetch cache (local only, rebuilt on demand)
+tools/web-fetch/.cache/

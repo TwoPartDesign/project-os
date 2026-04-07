@@ -10,6 +10,22 @@
       "rationale": "Read-only library documentation. No write access. No auth tokens.",
       "audit_date": "2026-02-19",
       "integrity_hash": ""
+    },
+    "web-fetch": {
+      "package": "local:tools/web-fetch",
+      "version_pin": "1.0.0",
+      "allowed_tools": ["fetch_readable", "fetch_raw", "cache_status"],
+      "network_domains": ["*"],
+      "risk_level": "elevated",
+      "rationale": "Local web-fetch MCP — fetches arbitrary URLs for content extraction. Network access required by design. SSRF validation + prompt injection sanitizer mitigate risks.",
+      "mitigations": [
+        "SSRF: hostname blocklist + dns.promises.lookup() IP check against private ranges",
+        "Injection: 8-stage sanitizer strips hidden content, zero-width chars, fake LLM delimiters, base64",
+        "Size: PostToolUse hook enforces 50KB response cap",
+        "Cache: content blobs have SHA-256 integrity checks"
+      ],
+      "audit_date": "2026-04-06",
+      "integrity_hash": ""
     }
   },
   "blocked_capabilities": [
