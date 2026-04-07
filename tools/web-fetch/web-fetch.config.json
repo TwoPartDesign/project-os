@@ -1,0 +1,31 @@
+{
+  "fetch": {
+    "timeout": 15000,
+    "retryCount": 3,
+    "retryBaseDelay": 1000,
+    "userAgent": "ProjectOS-WebFetch/1.0",
+    "headlessThreshold": 500
+  },
+  "extraction": {
+    "mode": "readable",
+    "maxTokens": 15000,
+    "sanitizeInjections": true,
+    "includeMetadataHeader": true,
+    "stripImages": true
+  },
+  "cache": {
+    "enabled": true,
+    "ttlDefault": 21600,
+    "ttlDocs": 86400,
+    "ttlNews": 3600,
+    "maxSizeMb": 200,
+    "dir": "tools/web-fetch/.cache"
+  },
+  "rateLimit": {
+    "defaultRps": 2,
+    "respectRobotsTxt": false
+  },
+  "wayback": {
+    "enabled": false
+  }
+}
