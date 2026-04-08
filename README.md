@@ -139,23 +139,6 @@ node scripts/security-scanner.ts scan-staged
 node scripts/security-scanner.ts test-rules
 ```
 
-### Web Fetch MCP Server
-
-A local MCP server that fetches and preprocesses web content before it enters the context window — replacing raw HTML with extracted Markdown to cut token usage by ~95%.
-
-- **Runs locally** via stdio transport (no network listener, project-scoped via `.mcp.json`)
-- **9-stage pipeline** — normalize → SSRF validate → cache → rate limit → retry → validate → extract → truncate → cache write
-- **Security** — two-layer SSRF prevention, 8-stage prompt injection sanitizer, manual redirect following with per-hop validation
-- **Cache** — `node:sqlite` metadata + filesystem blobs, LRU eviction, conditional GET (ETag/Last-Modified)
-- **Zero npm deps** — custom HTML→Markdown extractor, hand-rolled JSON-RPC 2.0 transport
-
-MCP tools available to Claude Code in this project:
-| Tool | Purpose |
-|---|---|
-| `fetch_readable` | Fetch URL → extract + sanitize → Markdown |
-| `fetch_raw` | Fetch URL → sanitize + strip tags → plain text |
-| `cache_status` | Cache stats and clear |
-
 ## Memory System
 
 Five layers with distinct lifespans:

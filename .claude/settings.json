@@ -79,15 +79,6 @@
         ]
       },
       {
-        "matcher": "mcp__web_fetch__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \".claude/hooks/post-mcp-validate-webfetch.sh\""
-          }
-        ]
-      },
-      {
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {

@@ -58,3 +58,5 @@ Each entry: Date, Decision, Context, Alternatives Considered, Rationale
 - **Vendored Readability + Turndown + linkedom** — rejected: 285KB of external code, vendoring is deps by another name
 
 **Rationale**: MCP stdio protocol is simple (newline-delimited JSON-RPC 2.0). Custom extractor validated by spike T18 at 95% avg token reduction (target was 80%). Zero npm deps maintained. Trade-off: DNS rebinding not mitigated at application layer (Node's fetch() doesn't accept pre-resolved IPs) — documented as known v1 limitation.
+
+**Update (2026-04-08)**: Extracted to standalone repo `web-fetch-mcp/` — the MCP server has no dependency on Project OS internals, and bundling it coupled two unrelated concerns.

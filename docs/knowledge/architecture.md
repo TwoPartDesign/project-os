@@ -115,22 +115,6 @@ Defense-in-depth secret detection with three enforcement layers:
 
 Shell safety: all git operations use `execFileSync("git", [args])` (no string templates). Path traversal guard on all user-supplied paths.
 
-## Web Fetch MCP Server
-
-Self-contained MCP server for fetching and preprocessing web content before it enters the context window:
-
-- **Location**: `tools/web-fetch/` — directory exception to single-script pattern (needs config, cache, multiple source files)
-- **Transport**: Hand-rolled JSON-RPC 2.0 stdio handler (~150 lines, no MCP SDK)
-- **Pipeline**: 9-stage fetch → SSRF validate → cache check → rate limit → retry → validate response → extract → truncate → cache write
-- **Extraction**: Zero-dep custom HTML→Markdown via regex/heuristic text-density scoring. Quality cascade: `extractionConfidence: "high" | "low" | "raw-fallback"` with auto-fallback
-- **Sanitizer**: 8-stage prompt injection stripping (hidden elements, ZWSP, base64, LLM delimiters, invisible Unicode, HTML comments, Markdown injection, whitespace)
-- **Security**: Two-layer SSRF (hostname blocklist + DNS resolution), manual redirect following with per-hop validation, `node:sqlite` cache with SHA-256 integrity, PostToolUse validation hook
-- **Cache**: `node:sqlite` metadata + filesystem content blobs, LRU eviction, conditional GET (ETag/Last-Modified), TTL tiers (docs 24h, news 1h, default 6h)
-- **MCP tools**: `fetch_readable` (extract + sanitize → Markdown), `fetch_raw` (sanitize + strip tags), `cache_status` (stats/clear)
-- **Registration**: `.mcp.json` at project root, hook wiring in `.claude/settings.json` (`mcp__web_fetch__.*`)
-- **Zero npm deps**: All code is custom TypeScript using `node:*` built-ins only (Node 22+)
-- **Known limitation**: DNS rebinding not mitigated at application layer (documented in pipeline.ts)
-
 ---
 
 <!-- This file is read by /workflows:design to ensure new features align -->
