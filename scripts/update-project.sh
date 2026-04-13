@@ -276,6 +276,7 @@ TEMPLATE_SCRIPTS=(
     "scripts/codex-review.sh"
     "scripts/generate-manifest.sh"
     "scripts/update-project.sh"
+    "scripts/sync-hooks.sh"
     "scripts/knowledge-index.ts"
     "scripts/dashboard-server.ts"
 )

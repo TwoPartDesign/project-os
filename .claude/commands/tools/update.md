@@ -18,6 +18,22 @@ Check the upstream Project OS repository for compatible updates and apply them s
 
 - `--target VERSION` — target a specific version (e.g., `--target v2.3`)
 - `--major` — allow major version upgrades (default: same major only)
+- `--hooks-only` — sync only hooks and settings.json from the template repo (no version check, no gh required)
+
+## --hooks-only Mode
+
+For projects that just need missing hooks (e.g., `output-index.sh`, `compact-suggest.sh`, `tool-failure-log.sh` errors), run:
+
+```
+bash scripts/sync-hooks.sh [TARGET_PROJECT_PATH]
+```
+
+This copies all hooks from the Project OS template to the target project, adds any missing ones, and preserves locally-modified hooks by saving upstream versions as `.upstream`. Also syncs `settings.json` hook definitions if the target has stale wiring.
+
+When `--hooks-only` is passed via $ARGUMENTS:
+1. Ask the user which project to sync (or use the path from $ARGUMENTS)
+2. Run `bash scripts/sync-hooks.sh "TARGET_PATH"`
+3. Report what was added/updated/conflicted
 
 ## Important
 
@@ -28,5 +44,5 @@ Check the upstream Project OS repository for compatible updates and apply them s
 
 ## Requirements
 
-- `gh` CLI must be installed and authenticated
-- Project must have been bootstrapped from Project OS (or have a manifest)
+- Full update: `gh` CLI must be installed and authenticated; project must have been bootstrapped from Project OS (or have a manifest)
+- `--hooks-only`: No `gh` required — works directly from local template repo
