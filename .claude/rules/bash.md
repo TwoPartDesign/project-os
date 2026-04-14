@@ -13,7 +13,7 @@ The scanner flags these patterns - mostly false positives on machines with space
 - **Backslash-escaped whitespace** - `path\ with\ spaces`
 - **Piped commands** - `command | command`, even `ls | grep`
 - **Output redirection in compound command** - `2>/dev/null`, `>file`, `>>file` combined with `cd &&` or `;`
-- **PowerShell multiline** - `cd "path" && powershell -Command "multiline..."` triggers multiple checks at once
+- **Scripts embedded in `-c` / `-e` / `-Command` args** - any mini-program inside `python3 -c "..."`, `node -e "..."`, `bash -c "..."`, `powershell -Command "..."`, `wsl bash -lc "..."`, or complex `jq '...'` / `awk '...'` filters. Triggers vary by content: newlines + `#` → "newline followed by # can hide arguments," `$(...)` inside → "contains simple_expansion," `\"` inside → "consecutive quote characters," pipe-into-loop → "unhandled node type: string." **One fix covers all:** write the script to a file, run the file.
 - **Consecutive quote characters at word start** - single-quoted strings that begin with a double-quote, e.g. `'"key":'` in a grep pattern. Fix: use the **Grep** tool instead of shell `grep`
 
 ## No `&&` with Quoted Strings - EVER
@@ -119,73 +119,70 @@ bash "C:/path/to/project/.claude/hooks/script.sh" "arg"
 - Drop `2>/dev/null` unless the noise is truly unbearable; if it is, pre-approve in `.claude/settings.json`
 - Replace `;` separators with separate Bash tool calls
 
-## PowerShell
+## Scripts Go in Files, Not in `-c`
 
-`cd "path" && powershell -Command "multiline..."` hits multiple triggers at once:
-- `cd &&` compound command
-- `2>&1` redirection
-- Multiline string inside `-Command "..."`
+Any mini-program embedded inside a quoted `-c`, `-e`, `-Command`, or `-lc` argument is hostile to the scanner. Different content triggers different messages, but **the fix is always the same: write the script to a file, run the file.**
+
+This applies to:
+- `python3 -c "..."`, `node -e "..."`, `bun -e "..."`
+- `bash -c "..."`, `sh -c "..."`, `wsl bash -lc "..."`
+- `powershell -Command "..."` with multi-line content
+- `jq '...'`, `awk '...'`, `sed '...'` with complex filters
+- Piping into `while read` loops with `$()` inside the body
 
 **Never:**
 ```bash
-cd "C:/path/project" && powershell -Command "codex exec -s read-only 'long
+# Triggers "newline followed by # can hide arguments" + "simple_expansion" + pipe
+cat file.json | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+# comment here
+print(d.get('usage', {}))
+" 2>/dev/null
+
+# Triggers "unhandled node type: string" (pipe into while with $())
+find "path" | head -5 | while read f; do echo "$f: $(wc -c < "$f") bytes"; done
+
+# Triggers "consecutive quote characters" (escaped quotes in jq filter)
+wsl bash -lc "jq '{x: .foo | select(.y != \"\")}' /path/file.json"
+
+# Triggers "cd && compound" + "multiline string" + "redirection"
+cd "C:/path" && powershell -Command "codex exec 'long
 multiline
 prompt'" 2>&1
 ```
 
-**Instead - two steps:**
+**Instead — two Bash calls:**
 
-1. Write the prompt to a temp file (separate Bash call):
+1. Write the script to `/tmp/` using the **Write** tool (not heredoc, which also triggers prompts):
+   - `/tmp/inspect.py` for Python
+   - `/tmp/script.js` for Node
+   - `/tmp/filter.jq` for jq
+   - `/tmp/script.ps1` for PowerShell
+
+2. Run the file directly:
 ```bash
-cat > /tmp/codex-prompt.txt << 'EOF'
-Review all TypeScript source files in src/ and tests/ for: ...
-EOF
+python3 /tmp/inspect.py /path/to/file.json
+node /tmp/script.js
+jq -f /tmp/filter.jq /path/to/file.json
+powershell -WorkingDirectory "C:/path/project" -File /tmp/script.ps1
 ```
 
-2. Run PowerShell with `-WorkingDirectory` (no `cd &&`) and read the file:
-```bash
-powershell -WorkingDirectory "C:/path/project" -Command "codex exec -s read-only (Get-Content /tmp/codex-prompt.txt -Raw)"
-```
+**Substitution table:**
 
-Key fixes:
-- `-WorkingDirectory "path"` replaces `cd "path" &&` - no compound command
-- Prompt in a temp file avoids multiline string in the command
-- Drop `2>&1` - or pre-approve: `{ "permissions": { "allow": ["Bash(powershell *)"] } }`
+| Instead of | Use |
+|---|---|
+| `python3 -c "<multi-line>"` | Write `/tmp/script.py`, then `python3 /tmp/script.py` |
+| `node -e "<multi-line>"` | Write `/tmp/script.js`, then `node /tmp/script.js` |
+| `jq '<complex filter>'` | Write `/tmp/filter.jq`, then `jq -f /tmp/filter.jq file.json` |
+| `awk '<complex prog>'` | Write `/tmp/prog.awk`, then `awk -f /tmp/prog.awk file` |
+| `powershell -Command "<multi-line>"` | Write `/tmp/script.ps1`, then `powershell -File /tmp/script.ps1` |
+| `wsl bash -lc "jq '...'"` | `wsl jq '...'` directly (no `bash -lc` wrapper needed) |
+| `find \| while read f; do ...; done` | Use **Glob** tool to list files, then a script that takes paths as args |
 
-## WSL + Complex Quoted Arguments (jq, awk, sed)
+**PowerShell working directory:** use `powershell -WorkingDirectory "path" -File /tmp/script.ps1` — never `cd "path" && powershell`. Drop `2>&1` or pre-approve `Bash(powershell *)` in settings.
 
-`wsl bash -lc "..."` with escaped quotes inside (e.g. `\"\"` in jq filters) triggers "consecutive quote characters at word start." This applies to any command where complex filter syntax requires escaped quotes nested inside a quoted string.
-
-**Triggers:**
-- `wsl bash -lc "jq '...' \"\" ..."` — escaped empty strings
-- `wsl bash -lc "awk '/pattern/ { ... \"field\" ... }'"` — escaped quotes in filters
-- Any `bash -lc "..."` containing `\"` sequences
-
-**Never:**
-```bash
-wsl bash -lc "jq '{status, angles: [.angles[]? | select(.contradicting_evidence != null and .contradicting_evidence != \"\")]}' /path/to/file.json"
-```
-
-**Instead — write the filter to a file, then reference it:**
-
-1. Write the filter (separate Bash call):
-```bash
-cat > /tmp/gather-check.jq << 'EOF'
-{status, angles: [.angles[]? | {name: .name, findings_count: ([.findings[]?] | length), has_contradicting: ([.findings[]? | select(.contradicting_evidence != null and .contradicting_evidence != "")] | length)}]}
-EOF
-```
-
-2. Run with `-f` (separate Bash call):
-```bash
-wsl bash -lc "jq -f /tmp/gather-check.jq /path/to/file.json"
-```
-
-**Alternatives:**
-- **`wsl jq ...`** directly (no `bash -lc` wrapper) — WSL passes single quotes through, so `wsl jq '.field' /path` works without escaping
-- **Write filter to a `.jq`/`.awk` file** in the project and reference it permanently for reusable queries
-- **Use the Read tool** to read the JSON file, then process with a dedicated tool or simple jq without complex filters
-
-Key principle: **never nest escaped quotes inside a quoted command string**. Extract the filter to a file.
+**Key principle:** if the code inside the quoted arg has newlines, `#` comments, `$()`, or escaped quotes, it belongs in a file.
 
 ## Sub-Agent Inheritance
 
@@ -198,7 +195,7 @@ Sub-agents do not inherit CLAUDE.md. When spawning sub-agents that will run Bash
 
 ## Agent Rules
 
-<!-- source-hash: 7a84e50401ec495c067beaaf77104e78146dda90d8a526bca8b8b87872615010 -->
+<!-- source-hash: f23e67e30cd9aa37032f34c04d9074fd908175515e1f3860ab05cd43b4976f06 -->
 
 - Never chain commands with `&&`, `||`, or `;` — use separate Bash tool calls
 - Never use `&&` with quoted strings (includes `cd "path" && command`)
@@ -216,5 +213,5 @@ Sub-agents do not inherit CLAUDE.md. When spawning sub-agents that will run Bash
 - Use dedicated tools for operations: Glob (file search), Grep (content search), Read (file content), Write (create files)
 - For multi-step operations: write temporary files to `/tmp/` then reference them in subsequent calls
 - Use `git commit -F /tmp/commit-msg.txt` for commit messages instead of inline `-m`
-- Use `powershell -WorkingDirectory "path" -Command "..."` instead of `cd "path" && powershell -Command "..."`
-- Never nest escaped quotes inside a quoted command string (`wsl bash -lc "... \"\" ..."`) — write jq/awk/sed filters to a temp file and reference with `-f`
+- Never embed multi-line scripts in `-c`, `-e`, `-Command`, or `-lc` args — write the script to `/tmp/script.{py,js,jq,awk,ps1}` via the Write tool, then run the file. Applies to `python3 -c`, `node -e`, `bash -c`, `wsl bash -lc`, `powershell -Command`, and jq/awk/sed with complex filters
+- Use `powershell -WorkingDirectory "path" -File /tmp/script.ps1` instead of `cd "path" && powershell -Command "..."`
