@@ -42,6 +42,40 @@ find "path/one" -type f && find "path/two" -type f
 - **Create files** → use the **Write** tool instead of `echo` redirection
 - **Multiple commands** → use **separate Bash tool calls**. NEVER chain with `&&`, `||`, or `;`
 
+## Never Use Bare `cd` — cwd Persists Across Bash Calls
+
+The Bash tool's working directory **persists across every subsequent call** in the session. A single `cd "out"` to shorten a long path silently changes cwd for every Bash call after it, including ones you don't expect (e.g. `du -sh` or `ls` later sees `out/` as root). This is a documented behavior of the Bash tool, not a bug.
+
+**Never:**
+```bash
+cd "out" && rm -rf a b c d
+cd "C:/long/path with spaces/project" && npm run build
+```
+
+**Three substitutes — pick the first that fits:**
+
+1. **Tool-specific path flags** (best when available):
+   - `git -C "path" <cmd>`
+   - `npm --prefix "path" <cmd>` (also works for `npm run --prefix "path" build`)
+   - `make -C "path" <target>`
+   - `tar -C "path" -xzf archive.tgz`
+   - `pytest --rootdir "path" tests/`
+   - `powershell -WorkingDirectory "path" -File script.ps1`
+
+2. **Brace expansion with absolute prefix** (best for multi-file `rm`/`cp`/`mv`/`ls` where you'd otherwise `cd` to avoid retyping the prefix):
+   ```bash
+   rm -rf "/c/Users/<username>/Desktop/Claude Projects/my-project/out"/{a,b,c,d,e.db,f.db}
+   ```
+   One call. Absolute path written once. No cwd change. The shell expands `{a,b,c}` before invoking `rm`.
+
+3. **Subshell `(cd "path" && cmd)`** (when neither fits — cwd auto-reverts when the subshell exits):
+   ```bash
+   (cd web/icons && npm install && npm run build)
+   ```
+   The parent shell's cwd is untouched. Requires the `Bash((cd * && *))` allowlist entry in `.claude/settings.json` to avoid the `&&`+quotes security prompt; the parens are the discriminator (bare `cd "path" && cmd` stays forbidden).
+
+If you ever do use bare `cd` (you shouldn't), end the same Bash call with `; cd "$OLDPWD"` to restore — but prefer one of the three patterns above.
+
 ## Mitigation Strategies (prefer in this order)
 
 1. **Relative paths** - `./scripts/foo.sh` has no spaces, needs no quotes, no prompt. Use absolute paths only when the working directory isn't the project root
@@ -195,8 +229,12 @@ Sub-agents do not inherit CLAUDE.md. When spawning sub-agents that will run Bash
 
 ## Agent Rules
 
-<!-- source-hash: f23e67e30cd9aa37032f34c04d9074fd908175515e1f3860ab05cd43b4976f06 -->
+<!-- source-hash: dbff43230b1430d219207a30ac771b892cac0ed9216e25deea712b4665c0d626 -->
 
+- Never use bare `cd` — the Bash tool's cwd persists across calls, so a single `cd` silently changes cwd for every subsequent call. Three substitutes:
+  1. Tool path flags: `git -C "path"`, `npm --prefix "path"`, `make -C "path"`, `tar -C "path"`, `powershell -WorkingDirectory "path"`
+  2. Brace expansion for multi-file ops: `rm -rf "/abs/prefix"/{a,b,c}` — one call, prefix written once
+  3. Subshell `(cd "path" && cmd)` when neither fits — cwd auto-reverts. Pre-approved via `Bash((cd * && *))` in `.claude/settings.json`. Parens are the discriminator; bare `cd "path" && cmd` stays forbidden
 - Never chain commands with `&&`, `||`, or `;` — use separate Bash tool calls
 - Never use `&&` with quoted strings (includes `cd "path" && command`)
 - Always use forward slashes in paths: `C:/Users/...` not `C:\Users\...`

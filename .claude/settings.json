@@ -19,6 +19,8 @@
       "Bash(bash scripts/*)",
       "Bash(bash .claude/hooks/*)",
       "Bash(node scripts/*)",
+      "Bash((cd * && *))",
+      "Bash((cd * ; *))",
       "Read",
       "Write",
       "Edit"
