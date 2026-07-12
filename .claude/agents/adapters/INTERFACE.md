@@ -84,11 +84,14 @@ Adapter scripts live in `.claude/agents/adapters/<name>.sh`.
 
 ## Security
 
-The Codex adapter uses `codex exec -s danger-full-access` which grants unrestricted filesystem access. Mitigations:
+The Codex adapter uses `codex exec -s danger-full-access` which grants unrestricted filesystem access.
+
+**No isolation**: Codex runs directly in the main working tree. It does NOT get worktree isolation — `supports_isolation` is `false` and adapter dispatch bypasses the Task tool, so `isolation: "worktree"` never applies to it. Dispatch Codex tasks only when the working tree is clean and committed, so `validate_file_scope()` can revert out-of-scope changes reliably.
+
+Mitigations that do apply:
 
 1. **Opt-in only**: Codex adapter is never used unless explicitly annotated with `(agent: codex)` in ROADMAP.md
-2. **Worktree isolation**: Each task runs in an isolated git worktree via `isolation: "worktree"`, limiting blast radius
-3. **File scope validation**: The adapter's `validate_file_scope()` function compares pre/post git snapshots and reverts changes to files not listed in the task specification
-4. **No ambient authority**: The adapter does not inherit shell environment beyond the explicitly exported `ADAPTER_*` variables
+2. **File scope validation**: The adapter's `validate_file_scope()` function compares pre/post git snapshots and reverts changes to files not listed in the task specification
+3. **No ambient authority**: The adapter does not inherit shell environment beyond the explicitly exported `ADAPTER_*` variables
 
-These mitigations reduce but do not eliminate risk. The Codex process itself is not sandboxed — it can read/write anywhere the user can. Use only in trusted contexts.
+These mitigations reduce but do not eliminate risk. The Codex process itself is not sandboxed — it can read/write anywhere the user can, and file-scope validation runs after the fact (it cannot prevent reads or out-of-tree writes). Use only in trusted contexts.
