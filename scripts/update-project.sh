@@ -277,6 +277,8 @@ TEMPLATE_SCRIPTS=(
     "scripts/sync-hooks.sh"
     "scripts/knowledge-index.ts"
     "scripts/dashboard-server.ts"
+    "scripts/observation-parser.ts"
+    "scripts/security-scanner.ts"
 )
 
 for relpath in "${TEMPLATE_FILES[@]}" "${TEMPLATE_SCRIPTS[@]}"; do

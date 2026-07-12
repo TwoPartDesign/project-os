@@ -57,8 +57,11 @@ TEMPLATE_SCRIPTS=(
     "scripts/codex-review.sh"
     "scripts/generate-manifest.sh"
     "scripts/update-project.sh"
+    "scripts/sync-hooks.sh"
     "scripts/knowledge-index.ts"
     "scripts/dashboard-server.ts"
+    "scripts/observation-parser.ts"
+    "scripts/security-scanner.ts"
 )
 
 # Escape a string for JSON (handles \, ", and control chars)

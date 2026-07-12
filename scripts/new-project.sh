@@ -74,7 +74,7 @@ for script in memory-search.sh audit-context.sh scrub-secrets.sh \
 done
 mkdir -p "$FULL_PATH/scripts/lib"
 cp -r "$TEMPLATE_DIR/scripts/lib/." "$FULL_PATH/scripts/lib/"
-for ts_script in knowledge-index.ts dashboard-server.ts; do
+for ts_script in knowledge-index.ts dashboard-server.ts observation-parser.ts security-scanner.ts; do
   [ -f "$TEMPLATE_DIR/scripts/$ts_script" ] && cp "$TEMPLATE_DIR/scripts/$ts_script" "$FULL_PATH/scripts/"
 done
 find "$FULL_PATH/scripts" -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
