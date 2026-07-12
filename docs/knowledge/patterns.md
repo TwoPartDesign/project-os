@@ -19,30 +19,15 @@ Each entry: Pattern Name, When to Use, Example, Anti-pattern to Avoid
 
 **When to Use**: During `/workflows:build` when orchestrating parallel sub-agents.
 
-**Pattern**: ROADMAP.md is the authoritative, git-versioned source of truth for task state. Native Tasks (TaskCreate/TaskUpdate/TaskList) serve as a runtime convenience layer for structured status queries during build execution. At each wave boundary, re-derive state from ROADMAP.md markers as a consistency check.
+**Pattern**: ROADMAP.md is the authoritative, git-versioned governance record for task state. Native Tasks (TaskCreate/TaskUpdate/TaskList) are the runtime scheduling engine — dependencies (`addBlockedBy`) determine what dispatches next. Each time a dispatch batch drains, re-derive state from ROADMAP.md markers as a consistency check.
 
 **Example**:
-- Build start: parse ROADMAP.md → create native Tasks → compute waves
-- During wave: TaskUpdate(status: "in_progress") on dispatch
-- Wave boundary: re-read ROADMAP.md markers, cross-check against TaskList
-- Build end: sync native Task states back to ROADMAP.md markers
+- Build start: parse ROADMAP.md → create native Tasks with addBlockedBy from `(depends:)` clauses
+- On dispatch: ROADMAP `[ ]`→`[-]` + TaskUpdate(status: "in_progress")
+- On completion: ROADMAP `[-]`→`[~]` + TaskUpdate(status: "completed") — dependents unblock automatically
+- Batch drain: re-read ROADMAP.md markers, cross-check against TaskList
 
-**Anti-pattern**: Treating native Tasks as the source of truth. If TaskCreate fails or Tasks drift from ROADMAP markers, the build must continue using ROADMAP.md alone.
-
----
-
-### Worktree Agent Output Recovery
-
-**When to Use**: After `/workflows:build` dispatches agents with `isolation: "worktree"`.
-
-**Pattern**: Worktree agents may have their worktrees cleaned up before changes are committed. Copy output files from the worktree to the main repo immediately after agent completion — do not assume changes will persist in worktree branches.
-
-**Example**:
-- Agent completes in worktree → check `worktreePath` in result
-- If present: read files from worktree, copy/write to main repo
-- If absent: changes may have been auto-applied (formatter hook) or lost — verify via grep
-
-**Anti-pattern**: Assuming worktree branches contain commits. The agent tool creates worktrees but agents don't always commit their changes — the worktree may only have uncommitted modifications.
+**Anti-pattern**: Treating native Tasks as the source of truth. If TaskCreate fails or Tasks drift from ROADMAP markers, the build falls back to scheduling from ROADMAP.md markers and `(depends:)` clauses alone.
 
 ---
 

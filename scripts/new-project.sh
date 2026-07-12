@@ -66,8 +66,8 @@ touch "$FULL_PATH/docs/specs/.gitkeep"
 touch "$FULL_PATH/docs/memory/.gitkeep"
 
 for script in memory-search.sh audit-context.sh scrub-secrets.sh \
-              validate-roadmap.sh unblocked-tasks.sh create-pr.sh dashboard.sh \
-              sync-agent-rules.sh context-filter.sh validate-freshness.sh \
+              validate-roadmap.sh create-pr.sh dashboard.sh \
+              context-filter.sh validate-freshness.sh \
               codex-review.sh generate-manifest.sh update-project.sh \
               sync-hooks.sh; do
   cp "$TEMPLATE_DIR/scripts/$script" "$FULL_PATH/scripts/"
