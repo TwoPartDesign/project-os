@@ -1,5 +1,7 @@
 {
   "model": "opus",
+  "fallbackModel": "claude-sonnet-5",
+  "effortLevel": "high",
   "permissions": {
     "allow": [
       "Bash(git status:*)",
@@ -37,8 +39,7 @@
     "deny": []
   },
   "env": {
-    "CLAUDE_CODE_SUBAGENT_MODEL": "claude-sonnet-4-6",
-    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "75"
+    "CLAUDE_CODE_SUBAGENT_MODEL": "claude-sonnet-5"
   },
   "project_os": {
     "parallel": {
@@ -90,7 +91,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|MultiEdit",
+        "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
@@ -99,7 +100,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|MultiEdit",
+        "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
