@@ -44,20 +44,19 @@ User ──→ Workflow Commands ──→ Orchestrator ──→ Sub-agents (is
 
 ### Build Phase
 ```
-ROADMAP.md ──parse──→ Wave Computation ──dispatch──→ Sub-agents (worktree isolation)
-     │                      │                              │
-     ▼                      ▼                              ▼
-Native Tasks          Adapter Resolution           Completion Reports
-(convenience)     (model→agent→settings→fallback)    (per-task output)
-     │                                                     │
-     └──────── Wave Boundary Consistency Check ◄───────────┘
+ROADMAP.md ──parse──→ Native Tasks (addBlockedBy) ──dispatch──→ Sub-agents (worktree isolation)
+     │                      │                                        │
+     ▼                      ▼                                        ▼
+Governance record     Dispatch Resolution                   Completion Reports
+(markers win)      (model→agent→native default)              (per-task output)
+     │                                                               │
+     └──────────── Batch-Drain Consistency Check ◄───────────────────┘
 ```
 
-### Adapter Resolution (4-step)
-0. `(model: opus)` annotation → claude-code adapter with ADAPTER_MODEL override
-1. `(agent: codex)` annotation → codex adapter (if healthy)
-2. Settings default → `project_os.adapters.default`
-3. Fallback → claude-code adapter with ADAPTER_MODEL=haiku
+### Dispatch Resolution (3-step)
+0. `(model: <model>)` annotation → native Task-tool dispatch with that model
+1. `(agent: codex)` annotation → external adapter (if healthy, else native)
+2. Default → native Task-tool dispatch with sub-agent default model (settings.json)
 
 ### Dashboard (optional)
 ```

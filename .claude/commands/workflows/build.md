@@ -63,34 +63,35 @@ Blocked:              #T7 (depends on [!] #T4 — resolve first)
 
 **Consistency check (each time a dispatch batch drains):** re-read ROADMAP.md markers as ground truth and cross-check against `TaskList`. On mismatch, log a warning and trust ROADMAP.md. If native Tasks are unavailable entirely (`TaskCreate` fails), fall back to scheduling directly from ROADMAP.md markers and `(depends:)` clauses — the build must not depend on the convenience layer.
 
-## Adapter Resolution
+## Dispatch Resolution
 
-Before dispatching, resolve which adapter and model to use for each task:
+Default dispatch is **native**: the Task tool with per-task model selection and `isolation: "worktree"`. External adapters (`.claude/agents/adapters/`) are consulted only for tasks explicitly annotated with `(agent: <name>)`.
 
-0. Check task annotation in ROADMAP.md: `(model: <name>)` → set `ADAPTER_MODEL=<name>`, use `claude-code` adapter
-1. Check task annotation in ROADMAP.md: `(agent: <name>)` → use `.claude/agents/adapters/<name>.sh`
-2. Check settings: `.claude/settings.json` → `project_os.adapters.default`
-3. Fallback: `claude-code` adapter with `ADAPTER_MODEL=haiku`
+Resolve per task:
+
+0. `(model: <model>)` annotation in ROADMAP.md → native dispatch with that model
+1. `(agent: <name>)` annotation in ROADMAP.md → external adapter `.claude/agents/adapters/<name>.sh`
+2. No annotation → native dispatch with the sub-agent default model (`CLAUDE_CODE_SUBAGENT_MODEL` in `.claude/settings.json`)
 
 **Examples:**
 ```markdown
-- [ ] Critical security task #T1 (model: opus)       → claude-code adapter, ADAPTER_MODEL=opus
-- [ ] Routine task #T2                                → claude-code adapter, ADAPTER_MODEL=haiku
-- [ ] Codex-specific task #T3 (agent: codex)          → codex adapter (if healthy, else fallback)
+- [ ] Critical security task #T1 (model: claude-opus-4-8)  → native, model claude-opus-4-8
+- [ ] Routine task #T2                                     → native, sub-agent default model
+- [ ] Codex-specific task #T3 (agent: codex)               → codex adapter (if healthy, else native)
 ```
 
-For each task, verify the adapter is available:
+For the external path, verify the adapter is available:
 ```bash
 # Validate adapter name: only allow alphanumeric, hyphen (no slashes, dots, or path traversal)
 if [[ ! "$adapter" =~ ^[a-zA-Z0-9-]+$ ]]; then
-    echo "WARNING: Invalid adapter name '${adapter}', falling back to claude-code" >&2
-    adapter="claude-code"
+    echo "WARNING: Invalid adapter name '${adapter}', using native dispatch" >&2
+    adapter=""
 fi
 bash ".claude/agents/adapters/${adapter}.sh" health
 ```
-If the adapter health check fails, fall back to `claude-code` and log a warning.
+If the adapter health check fails, fall back to native dispatch and log a warning.
 
-**v2.1 note:** Model routing via `(model: X)` annotations is the primary dispatch mechanism. The Codex adapter is functional for users with `codex` CLI installed. Other adapter stubs (gemini, aider, amp) remain as contract templates for future implementations.
+**Note:** External adapters run in the main working tree without worktree isolation (see `INTERFACE.md` Security). Only dispatch adapter tasks when the tree is clean.
 
 ## Execution Protocol
 
@@ -117,49 +118,32 @@ DO NOT give agents: full spec history, other tasks, the brief, research findings
 Dispatch up to `max_concurrent_agents` (default: 4) sub-agents simultaneously.
 Each agent is dispatched via the Task tool with `isolation: "worktree"`, which automatically creates an isolated git worktree in `.claude/worktrees/` and cleans it up after the agent completes (kept with a branch name if changes were made).
 
-For each task, prepare adapter context and resolve the adapter:
+**Native path (default):** dispatch directly via the Task tool with the context packet from step 2:
+```
+Task(
+  prompt: "<assembled agent prompt>",
+  subagent_type: "general-purpose",
+  model: "<model from (model: X) annotation — omit to use the sub-agent default>",
+  isolation: "worktree"
+)
+```
+
+**External adapter path** (only for `(agent: <name>)` tasks): prepare a context packet on disk and invoke the adapter:
 ```bash
 # Create context packet for the adapter
 context_dir="docs/specs/$ARGUMENTS/tasks/TN/context"
 mkdir -p "$context_dir/files"
 # Copy task.md, conventions.md, design.md, relevant source files into context_dir
 
-# Resolve adapter and model (see Adapter Resolution section above)
-adapter="claude-code"  # default
-resolved_model="haiku"  # default
-# Step 0: Check task annotation: (model: <name>) → set resolved_model, use claude-code
-# Step 1: Check task annotation: (agent: <name>) → override adapter
-# Step 2: Check settings: project_os.adapters.default → override if no annotation
+# Validate + health-check the adapter (see Dispatch Resolution above);
+# on any failure, fall back to the native path.
 
-# Validate adapter name (prevent path traversal)
-if [[ ! "$adapter" =~ ^[a-zA-Z0-9-]+$ ]]; then
-    echo "WARNING: Invalid adapter name '${adapter}', falling back to claude-code" >&2
-    adapter="claude-code"
-fi
-
-# Verify adapter health
-if ! bash ".claude/agents/adapters/${adapter}.sh" health 2>/dev/null; then
-    echo "WARNING: ${adapter} adapter unavailable, falling back to claude-code"
-    adapter="claude-code"
-fi
-
-# Set adapter environment
 export ADAPTER_TASK_ID="TN"
 export ADAPTER_FEATURE="$ARGUMENTS"
 export ADAPTER_MAX_TURNS=50
-export ADAPTER_MODEL="${resolved_model:-haiku}"
+bash ".claude/agents/adapters/${adapter}.sh" execute "$context_dir" "docs/specs/$ARGUMENTS/tasks/TN/output"
 ```
-
-The orchestrator then reads the adapter's prepared prompt and dispatches via the Task tool:
-```
-Task(
-  prompt: "<agent prompt from adapter output>",
-  subagent_type: "general-purpose",
-  model: "$ADAPTER_MODEL",
-  isolation: "worktree"
-)
-```
-For non-Claude adapters (e.g., Codex), the adapter's `execute` command handles dispatch directly instead of going through the Task tool.
+External adapters run in the main working tree — no worktree isolation. Dispatch them one at a time, never in parallel with other tasks touching the same files.
 
 Each agent's prompt:
 

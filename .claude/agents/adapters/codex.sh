@@ -17,7 +17,7 @@ cmd_info() {
   "version": "1.0",
   "supports_isolation": false,
   "supports_streaming": false,
-  "model_default": "o4-mini",
+  "model_default": "cli-default",
   "supports_model_routing": false
 }
 EOF
@@ -252,7 +252,7 @@ ${result_status}
 OpenAI Codex via \`codex exec -s danger-full-access\`
 
 ## Model
-${model:-o4-mini (default)}
+${model:-codex CLI default}
 
 ## Output
 See \`codex-output.txt\` for full execution output.
