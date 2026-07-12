@@ -246,8 +246,8 @@ Ask:
 > 3. **Custom** — I'll specify models manually
 
 If **Custom**, ask:
-- Orchestration model ID (e.g. `claude-opus-4-6`, `claude-sonnet-4-6`)
-- Sub-agent model ID (e.g. `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`)
+- Orchestration model ID (e.g. `claude-fable-5`, `claude-opus-4-8`, `claude-sonnet-5`)
+- Sub-agent model ID (e.g. `claude-sonnet-5`, `claude-haiku-4-5-20251001`)
 
 Record as:
 - `MODEL_ORCHESTRATION` — the primary/orchestration model ID
@@ -256,8 +256,8 @@ Record as:
 Standard tier mappings:
 | Tier | Orchestration | Sub-agent |
 |---|---|---|
-| Max | `claude-opus-4-6` | `claude-sonnet-4-6` |
-| Pro | `claude-sonnet-4-6` | `claude-haiku-4-5-20251001` |
+| Max | `claude-opus-4-8` (or `claude-fable-5` for the hardest design work) | `claude-sonnet-5` |
+| Pro | `claude-sonnet-5` | `claude-haiku-4-5-20251001` |
 
 ### Round 6 — Code Review Tool (optional)
 
@@ -316,7 +316,7 @@ Replace `<command>` with the actual invocation the user provided before writing 
 
 ## Step 5: Fill in all placeholders
 
-Using the answers collected, replace every placeholder found in Step 2.
+Using the answers collected, replace every placeholder found in Step 3.
 
 Standard mappings:
 - `[PROJECT_NAME]` → project name from Round 1
@@ -337,18 +337,21 @@ Also apply model routing from Round 5: update the `## Model Routing` section of 
 - **Sub-agent implementation**: [MODEL_SUBAGENT] (via `CLAUDE_CODE_SUBAGENT_MODEL`)
 ```
 
-Set `CLAUDE_CODE_SUBAGENT_MODEL=[MODEL_SUBAGENT]` in `.claude/models.env` (create the file if it doesn't exist):
+Set the models in `.claude/settings.json` (create the file if it doesn't exist, preserving any existing keys):
 
-```bash
-# Model routing — managed by /tools:init and /tools:set-models
-export CLAUDE_CODE_SUBAGENT_MODEL=[MODEL_SUBAGENT]
-export CLAUDE_ORCHESTRATION_MODEL=[MODEL_ORCHESTRATION]
+```json
+{
+  "model": "[MODEL_ORCHESTRATION]",
+  "env": {
+    "CLAUDE_CODE_SUBAGENT_MODEL": "[MODEL_SUBAGENT]"
+  }
+}
 ```
 
-Tell the user how to activate sub-agent routing in their shell profile:
+- `"model"` sets the orchestration/session model (aliases like `"opus"` resolve to the current Opus)
+- `env.CLAUDE_CODE_SUBAGENT_MODEL` routes sub-agent tasks
 
-- **bash/zsh**: `echo 'source /path/to/project/.claude/models.env' >> ~/.bashrc`
-- **PowerShell**: Add `. /path/to/project/.claude/models.env` to `$PROFILE` (or set the env vars manually in PowerShell)
+Settings take effect on the next Claude Code session — no shell profile changes needed.
 
 ## Step 5a: Apply feature toggles
 
@@ -514,7 +517,7 @@ Summarize what was done:
 > **Model routing** ([Max/Pro/Custom]):
 > - Orchestration: [MODEL_ORCHESTRATION]
 > - Sub-agents: [MODEL_SUBAGENT] (`CLAUDE_CODE_SUBAGENT_MODEL`)
-> - Config: `.claude/models.env` — source in shell profile to activate
+> - Config: `.claude/settings.json` — applies on next session
 > **Global commands**: [installed — `/tools:new-project` available everywhere / failed — run `bash scripts/install-global-commands.sh` manually]
 > **Memory updated**: `docs/memory/project-profiles.md`
 > **Git**: [initialized / already exists]

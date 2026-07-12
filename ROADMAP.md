@@ -79,7 +79,7 @@ Source: `docs/audits/2026-07-11-staleness-audit.md`. Tasks are grouped by file o
 - [~] Fix Codex adapter isolation contradiction: document that danger-full-access runs unisolated (or actually isolate it); reconcile INTERFACE.md mitigation claims with codex.sh supports_isolation=false #T19
 <!-- P1 — model routing refresh -->
 - [~] Modernize settings.json runtime config: CLAUDE_CODE_SUBAGENT_MODEL to current model ID, verify/remove CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, add effortLevel + fallbackModel, replace Write|Edit|MultiEdit matchers with Write|Edit (depends: #T18) #T20
-- [-] Update tier tables in set-models.md + init.md to Claude 5 lineup (fable-5/sonnet-5/opus-4-8/haiku-4-5); delete inert CLAUDE_ORCHESTRATION_MODEL and the models.env shell-sourcing mechanism in favor of settings.json #T21
+- [~] Update tier tables in set-models.md + init.md to Claude 5 lineup (fable-5/sonnet-5/opus-4-8/haiku-4-5); delete inert CLAUDE_ORCHESTRATION_MODEL and the models.env shell-sourcing mechanism in favor of settings.json #T21
 - [-] Rewrite escalation.md ladder for current model lineup (haiku-4-5 → sonnet-5 → opus-4-8 → fable-5) or make it tier-agnostic; keep retry-cap rules #T22
 - [-] Docs model-routing sweep: fix Haiku-vs-Sonnet sub-agent contradiction and stale 5x-output/4x-Haiku pricing claims in CLAUDE.md, CLAUDE.template.md, README.md, project-os-guide.md, design-principles.md, architecture.md #T23
 <!-- P2 — orchestration modernization -->
