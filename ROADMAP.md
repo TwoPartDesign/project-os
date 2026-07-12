@@ -33,8 +33,9 @@ Each feature groups tasks by lifecycle phase:
 ### Draft
 
 ### Todo
+- [ ] Tests + docs: observation parser tests, update architecture.md, patterns.md (depends: #T2, #T5, #T7) #T9
+  <!-- Re-statused 2026-07-12: was marked In Progress since 2026-03 with no work landed (tests/observation-parser.test.ts never created). Honest state: approved, not started. -->
 ### In Progress
-- [-] Tests + docs: observation parser tests, update architecture.md, patterns.md (depends: #T2, #T5, #T7) #T9
 ### Review
 ### Done
 - [x] Auto-checkpoint: implement PreCompact hook that generates handoff YAML #T2
@@ -87,12 +88,12 @@ Source: `docs/audits/2026-07-11-staleness-audit.md`. Tasks are grouped by file o
 - [~] Add YAML frontmatter (name, description) to all four .claude/skills/*/SKILL.md files per current skills format #T24
 - [~] Modernize build/ship orchestration to native primitives: native worktree isolation (retire preserve-sessions.sh + worktree-recovery pattern in patterns.md), native Task dependencies instead of manual wave computation (retire unblocked-tasks.sh), drop agent-rules sha256 caching (build.md, ship.md) #T25
 - [~] Collapse adapter layer: delete no-op claude-code.sh and dead aider/amp/gemini stubs, dispatch default path natively with per-agent model + worktree isolation, refresh codex.sh defaults (o4-mini is stale) or retire it (depends: #T19, #T25) #T26
-- [ ] Deduplicate skills vs commands: session-management ↔ handoff/catchup, spec-driven-dev ↔ workflows:*, and the three overlapping research fan-out specs (idea.md, research.md, researcher.md) — one canonical home each (depends: #T24) #T27
+- [-] Deduplicate skills vs commands: session-management ↔ handoff/catchup, spec-driven-dev ↔ workflows:*, and the three overlapping research fan-out specs (idea.md, research.md, researcher.md) — one canonical home each (depends: #T24) #T27
 <!-- P3 — hygiene -->
 - [ ] Unify manifest + sync lists: regenerate manifest.json, align generate-manifest.sh/update-project.sh/new-project.sh file lists, add missing observation-parser.ts + security-scanner.ts + scan-rules.js + pre-compact.sh entries #T28
 - [~] Define TS runtime contract: package.json with engines pin (Node >=22.18) and test script for tests/*.test.ts, Node-version guard in hooks/_common.sh so hooks degrade loudly instead of silently #T29
 - [~] Log hygiene: rotation/size caps for activity.jsonl + tool-failures.log + format-errors.log, SessionEnd hook to clean per-session .tool-count files, register in settings.json (depends: #T20) #T30
-- [ ] Reconcile status docs: CHANGELOG v2.1/v2.2 entries, PROJECT_STATUS refresh, move shipped features to Completed, resolve stale #T9 and #T1 spike (agent teams now native), fix vault frontmatter dates, component counts, web-fetch leftovers (metrics block + extracted-repo URL in decisions.md), fill live placeholders (CLAUDE.md Owner, preferences.md) (depends: #T23) #T31
+- [-] Reconcile status docs: CHANGELOG v2.1/v2.2 entries, PROJECT_STATUS refresh, move shipped features to Completed, resolve stale #T9 and #T1 spike (agent teams now native), fix vault frontmatter dates, component counts, web-fetch leftovers (metrics block + extracted-repo URL in decisions.md), fill live placeholders (CLAUDE.md Owner, preferences.md) (depends: #T23) #T31
 - [~] Verify current security-scanner behavior and gut or Windows-gate .claude/rules/bash.md (218 lines loaded every session on a Linux repo) #T32
 ### In Progress
 ### Review
@@ -100,7 +101,7 @@ Source: `docs/audits/2026-07-11-staleness-audit.md`. Tasks are grouped by file o
 
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->
-- [?] Spike: CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 — assess compatibility and integration path #T1
+<!-- #T1 (agent-teams experiment spike) retired 2026-07-12: agent teams shipped as a native Claude Code feature, obsoleting the CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS assessment. Draft a new idea via /workflows:idea if native agent-team adoption is worth exploring. ID #T1 is retired, never reused. -->
 
 ## Completed
 <!-- Moved here after /workflows:ship -->
