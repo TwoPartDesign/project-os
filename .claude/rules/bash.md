@@ -1,217 +1,51 @@
-# Bash Command Rules (Windows / Spaces in Paths)
+# Bash Command Rules
 
-Claude Code's security scanner flags several common shell patterns on Windows. These rules prevent false-positive security prompts.
+Sub-agents cannot answer permission prompts — a command that triggers one
+stalls or fails the agent. Every command must therefore be **auto-approvable**:
+either matched by `permissions.allow` in `.claude/settings.json`, or simple
+enough that the permission matcher can parse it. Complex constructs (compound
+commands with quotes, pipes, `$()`, multi-line strings) fall back to a prompt
+even when conceptually allowed.
 
-## Security Prompt Triggers
+## Core Rules
 
-The scanner flags these patterns - mostly false positives on machines with spaces in paths:
+1. **Prefer dedicated tools over shell.** Glob (file search), Grep (content
+   search), Read (file content), Write (create files), Edit (modify files)
+   never prompt. Reach for Bash only when no dedicated tool fits.
+2. **Scripts go in files, not in one-liners.** Anything with newlines, `$()`,
+   loops, escaped quotes, or embedded programs (`python3 -c`, `node -e`,
+   `bash -c`, complex `jq`/`awk`/`sed`) gets written to a file (Write tool,
+   under `scripts/` or `/tmp/`) and run as `bash <file>` / `node <file>` —
+   a simple, matchable command.
+3. **One command per Bash call.** Avoid `&&`, `||`, `;`, and pipes — use
+   separate calls or a script file.
+4. **Git**: use `git -C "<path>" <subcommand>` instead of `cd && git`;
+   commit messages via `git commit -F <file>`, not inline `-m` with quotes.
+5. **Paths**: forward slashes always; double-quote paths containing spaces;
+   never backslash-escape spaces; `--flag "value"`, not `--flag="value"`.
 
-- **Quoted characters in flag names** - any `"..."` in the command. Worsens with `&&`
-- **Newlines that could separate commands** - multi-line scripts or loops
-- **`$()` command substitution** - any `$(...)` inline
-- **`${}` parameter expansion** - any `${var}` or `${i}` in a command, including inside for loops (e.g. `mkdir -p "path/T${i}"`)
-- **Backslash-escaped whitespace** - `path\ with\ spaces`
-- **Piped commands** - `command | command`, even `ls | grep`
-- **Output redirection in compound command** - `2>/dev/null`, `>file`, `>>file` combined with `cd &&` or `;`
-- **Scripts embedded in `-c` / `-e` / `-Command` args** - any mini-program inside `python3 -c "..."`, `node -e "..."`, `bash -c "..."`, `powershell -Command "..."`, `wsl bash -lc "..."`, or complex `jq '...'` / `awk '...'` filters. Triggers vary by content: newlines + `#` → "newline followed by # can hide arguments," `$(...)` inside → "contains simple_expansion," `\"` inside → "consecutive quote characters," pipe-into-loop → "unhandled node type: string." **One fix covers all:** write the script to a file, run the file.
-- **Consecutive quote characters at word start** - single-quoted strings that begin with a double-quote, e.g. `'"key":'` in a grep pattern. Fix: use the **Grep** tool instead of shell `grep`
+## Where the Rest Went
 
-## No `&&` with Quoted Strings - EVER
-
-Any `&&`-chained command containing quoted strings triggers a security prompt. This includes `cd "path" && command`, `find "path" && find "path"`, or any two commands joined with `&&` where either contains quotes.
-
-**All of these trigger security prompts:**
-- `cd "path" && command` - "bare repository attack" + "ambiguous syntax"
-- `find "path/..." -type f && echo "---"` - "quoted characters in flag names"
-- `command "arg" && command "arg"` - any `&&` + quotes combination
-
-**Never:**
-```bash
-cd "C:/Users/<username>/Projects/my-project" && git status
-cd "C:/Users/<username>/Projects/my-project" && find . -name "*.ts"
-find "path/one" -type f && find "path/two" -type f
-```
-
-**Instead:**
-- **git** → `git -C "C:/Users/<username>/Projects/my-project" status`
-- **find** → `find "C:/Users/<username>/Projects/my-project" -name "*.ts"`
-- **File search** → use the **Glob** tool instead of `find`
-- **Content search** → use the **Grep** tool instead of `grep`/`rg`
-- **Read files** → use the **Read** tool instead of `cat`/`head`/`tail`
-- **Edit files** → use the **Edit** tool instead of `sed`/`awk`
-- **Create files** → use the **Write** tool instead of `echo` redirection
-- **Multiple commands** → use **separate Bash tool calls**. NEVER chain with `&&`, `||`, or `;`
-
-## Mitigation Strategies (prefer in this order)
-
-1. **Relative paths** - `./scripts/foo.sh` has no spaces, needs no quotes, no prompt. Use absolute paths only when the working directory isn't the project root
-2. **Single-line loops** - `for f in ./*.sh; do ...; done` on one line avoids the newline check
-3. **Replace loop+`$()` with dedicated tools** - the scanner flags `$()` anywhere, including inside loops
-   - File existence → **Glob** tool (no shell needed)
-   - Line counts → `wc -l file1 file2 file3 ...` with an **explicit list** (no `$(...)`)
-   - File content → **Read** tool
-   - Pattern: `for i in 1 2 3; do echo "$(wc -l < "path/T${i}/file")"; done` → use Glob to confirm existence, then a single `wc -l path/T1/file path/T2/file path/T3/file` call
-3a. **`${}` parameter expansion in loops** - `for i in 1 2 3; do mkdir -p "path/T${i}"; done` triggers on `${i}`. Options:
-   - Pre-approve the specific pattern: `{ "permissions": { "allow": ["Bash(for * in *; do mkdir *; done)"] } }`
-   - Or spell out all paths explicitly in a single `mkdir -p path/T1 path/T2 path/T3` call (no loop needed)
-   - `$var` (no braces) does NOT trigger — use `$i` instead of `${i}` when the brace form isn't needed for disambiguation
-4. **Split `$()` into two Bash calls** - run the subcommand first to capture output, then use the literal result in the next call. Never embed `$(command)` in a longer command
-5. **Pre-approve in `.claude/settings.json`** - use `permissions.allow` (not `allowedTools`; that doesn't exist). Glob `*` supported with word boundaries
-   ```json
-   { "permissions": { "allow": ["Bash(bash ./scripts/*)", "Bash(for * in *)", "Bash(wc -l *)"] } }
-   ```
-   Project-level: `.claude/settings.json` | Personal overrides: `.claude/settings.local.json`
-
-## Paths
-
-- ALWAYS use forward slashes: `C:/Users/<username>/...` not `C:\Users\<username>\...`
-- ALWAYS double-quote absolute paths with spaces
-- NEVER backslash-escape spaces: `path\ with\ spaces` triggers a security prompt
-- NEVER use `--flag="value"` - use `--flag "value"` (space-separated)
-- Prefer **relative paths** when working dir is project root
-- **Next.js `[[...routes]]`**: Use the Write tool to create files inside these dirs; `mkdir` triggers the glob safety check
-
-**Never:**
-```bash
-find /c/Users/<username>/Desktop/Claude\ Projects/my-project/src -type f
-ls -la /c/Users/<username>/Desktop/Claude\ Projects/my-project/
-```
-
-**Instead - always double-quote:**
-```bash
-find "/c/Users/<username>/Desktop/Claude Projects/my-project/src" -type f
-ls -la "/c/Users/<username>/Desktop/Claude Projects/my-project/"
-```
-
-Better yet, use **Glob** for file search, **Read** for directory listing. No shell needed.
-
-## Pipes (`|`)
-
-Claude Code flags `command | command` as potentially unsafe. Even `ls | grep` will prompt.
-
-**Never:**
-```bash
-ls -la /path/to/project/ | grep -E "next.config|\.env"
-find . -name "*.ts" | head -20
-```
-
-**Instead - use dedicated tools:**
-- `ls | grep pattern` → **Glob** tool with the pattern directly
-- `find | grep` → **Grep** tool
-- `cat file | grep` → **Grep** tool on the file
-- If unavoidable, pre-approve: `{ "permissions": { "allow": ["Bash(ls * | grep *)"] } }`
-
-## Output Redirection in Compound Commands
-
-Claude Code flags `2>/dev/null`, `>file`, or `>>file` combined with `cd &&` or `;` as "compound command contains cd with output redirection - path resolution bypass."
-
-**Never:**
-```bash
-cd "C:/path/to/project" && bash .claude/hooks/script.sh arg 2>/dev/null; echo "done"
-```
-
-**Instead - use absolute path, separate calls, drop the redirection:**
-```bash
-bash "C:/path/to/project/.claude/hooks/script.sh" "arg"
-```
-
-- Run scripts with their full absolute path - no `cd` needed
-- Drop `2>/dev/null` unless the noise is truly unbearable; if it is, pre-approve in `.claude/settings.json`
-- Replace `;` separators with separate Bash tool calls
-
-## Scripts Go in Files, Not in `-c`
-
-Any mini-program embedded inside a quoted `-c`, `-e`, `-Command`, or `-lc` argument is hostile to the scanner. Different content triggers different messages, but **the fix is always the same: write the script to a file, run the file.**
-
-This applies to:
-- `python3 -c "..."`, `node -e "..."`, `bun -e "..."`
-- `bash -c "..."`, `sh -c "..."`, `wsl bash -lc "..."`
-- `powershell -Command "..."` with multi-line content
-- `jq '...'`, `awk '...'`, `sed '...'` with complex filters
-- Piping into `while read` loops with `$()` inside the body
-
-**Never:**
-```bash
-# Triggers "newline followed by # can hide arguments" + "simple_expansion" + pipe
-cat file.json | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-# comment here
-print(d.get('usage', {}))
-" 2>/dev/null
-
-# Triggers "unhandled node type: string" (pipe into while with $())
-find "path" | head -5 | while read f; do echo "$f: $(wc -c < "$f") bytes"; done
-
-# Triggers "consecutive quote characters" (escaped quotes in jq filter)
-wsl bash -lc "jq '{x: .foo | select(.y != \"\")}' /path/file.json"
-
-# Triggers "cd && compound" + "multiline string" + "redirection"
-cd "C:/path" && powershell -Command "codex exec 'long
-multiline
-prompt'" 2>&1
-```
-
-**Instead — two Bash calls:**
-
-1. Write the script to `/tmp/` using the **Write** tool (not heredoc, which also triggers prompts):
-   - `/tmp/inspect.py` for Python
-   - `/tmp/script.js` for Node
-   - `/tmp/filter.jq` for jq
-   - `/tmp/script.ps1` for PowerShell
-
-2. Run the file directly:
-```bash
-python3 /tmp/inspect.py /path/to/file.json
-node /tmp/script.js
-jq -f /tmp/filter.jq /path/to/file.json
-powershell -WorkingDirectory "C:/path/project" -File /tmp/script.ps1
-```
-
-**Substitution table:**
-
-| Instead of | Use |
-|---|---|
-| `python3 -c "<multi-line>"` | Write `/tmp/script.py`, then `python3 /tmp/script.py` |
-| `node -e "<multi-line>"` | Write `/tmp/script.js`, then `node /tmp/script.js` |
-| `jq '<complex filter>'` | Write `/tmp/filter.jq`, then `jq -f /tmp/filter.jq file.json` |
-| `awk '<complex prog>'` | Write `/tmp/prog.awk`, then `awk -f /tmp/prog.awk file` |
-| `powershell -Command "<multi-line>"` | Write `/tmp/script.ps1`, then `powershell -File /tmp/script.ps1` |
-| `wsl bash -lc "jq '...'"` | `wsl jq '...'` directly (no `bash -lc` wrapper needed) |
-| `find \| while read f; do ...; done` | Use **Glob** tool to list files, then a script that takes paths as args |
-
-**PowerShell working directory:** use `powershell -WorkingDirectory "path" -File /tmp/script.ps1` — never `cd "path" && powershell`. Drop `2>&1` or pre-approve `Bash(powershell *)` in settings.
-
-**Key principle:** if the code inside the quoted arg has newlines, `#` comments, `$()`, or escaped quotes, it belongs in a file.
+- **Windows scanner trigger catalog** (spaces-in-paths, PowerShell, WSL,
+  observed error strings): `docs/knowledge/windows-bash-scanner.md`.
+  Consult it when a command unexpectedly prompts on Windows.
+- **Auto-approval policy**: a PreToolUse hook proposal at
+  `docs/proposals/pre-tool-approve-hook.md` approves sanctioned commands
+  programmatically so sub-agents never hit prompts for trusted operations.
+  If a trusted command still prompts, extend that policy once instead of
+  adding avoidance rules here.
 
 ## Sub-Agent Inheritance
 
-Sub-agents do not inherit CLAUDE.md. When spawning sub-agents that will run Bash commands, always include these bash rules in the sub-agent prompt.
-
-## Git-Specific
-
-- For git commits, write message to `/tmp/commit-msg.txt` then `git commit -F /tmp/commit-msg.txt`
-- Use `git -C "path"` instead of `cd "path" && git ...`
+Sub-agents do not inherit CLAUDE.md. When spawning sub-agents that will run
+Bash commands, include the `## Agent Rules` section below in the sub-agent
+prompt.
 
 ## Agent Rules
 
-<!-- source-hash: f23e67e30cd9aa37032f34c04d9074fd908175515e1f3860ab05cd43b4976f06 -->
-
-- Never chain commands with `&&`, `||`, or `;` — use separate Bash tool calls
-- Never use `&&` with quoted strings (includes `cd "path" && command`)
-- Always use forward slashes in paths: `C:/Users/...` not `C:\Users\...`
-- Always double-quote absolute paths with spaces: `"C:/path with spaces/file"`
-- Never backslash-escape spaces in paths: avoid `path\ with\ spaces`
-- Never embed `$(...)` inline — split into two Bash calls
-- Never use `--flag="value"` — use `--flag "value"` (space-separated)
-- Never pipe commands (`|`) — use Glob, Grep, or Read tools instead
-- Never combine output redirection (`2>/dev/null`, `>file`, `>>file`) with compound commands (`cd &&`, `;`)
-- Run scripts with full absolute paths — no `cd` needed
-- Use `git -C "path" command` instead of `cd "path" && git command`
-- Use relative paths when working directory is project root
-- Use single-line loops only — no newlines: `for f in *.sh; do ...; done`
-- Use dedicated tools for operations: Glob (file search), Grep (content search), Read (file content), Write (create files)
-- For multi-step operations: write temporary files to `/tmp/` then reference them in subsequent calls
-- Use `git commit -F /tmp/commit-msg.txt` for commit messages instead of inline `-m`
-- Never embed multi-line scripts in `-c`, `-e`, `-Command`, or `-lc` args — write the script to `/tmp/script.{py,js,jq,awk,ps1}` via the Write tool, then run the file. Applies to `python3 -c`, `node -e`, `bash -c`, `wsl bash -lc`, `powershell -Command`, and jq/awk/sed with complex filters
-- Use `powershell -WorkingDirectory "path" -File /tmp/script.ps1` instead of `cd "path" && powershell -Command "..."`
+- Prefer dedicated tools: Glob (file search), Grep (content search), Read (file content), Write (create files), Edit (modify files). Use Bash only when no dedicated tool fits.
+- Never chain commands with `&&`, `||`, or `;`, and never pipe (`|`) — use separate Bash calls or a script file.
+- Never embed `$(...)`, loops, or multi-line programs in a command — write a script file with the Write tool, then run `bash <file>` / `node <file>` / `python3 <file>`.
+- Never embed programs in `-c` / `-e` / `-Command` / `-lc` arguments — same fix: script file.
+- Use `git -C "<path>" <subcommand>` instead of `cd "path" && git`; commit with `git commit -F <msgfile>`.
+- Use forward slashes in paths; double-quote paths with spaces; never backslash-escape spaces; use `--flag "value"`, not `--flag="value"`.
