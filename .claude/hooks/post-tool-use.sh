@@ -17,6 +17,7 @@ RESOLVED=$(resolve_project_path "$FILE") || exit 0
 
 LOG_DIR="$(get_project_root)/.claude/logs"
 mkdir -p "$LOG_DIR"
+rotate_log "$LOG_DIR/format-errors.log"
 
 case "$RESOLVED" in
   *.ts|*.tsx|*.js|*.jsx)

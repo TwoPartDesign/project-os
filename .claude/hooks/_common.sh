@@ -86,6 +86,22 @@ node_available() {
     return 1
 }
 
+# Rotate a log file when it exceeds max_bytes (default 1 MiB).
+# Keeps one previous generation as <file>.old; older generations are dropped.
+# Usage: rotate_log "$LOG_FILE" [max_bytes]
+rotate_log() {
+    local file="$1"
+    local max_bytes="${2:-1048576}"
+    [ -f "$file" ] || return 0
+    local size
+    size=$(wc -c < "$file" 2>/dev/null) || return 0
+    case "$size" in (*[!0-9]*|"") return 0 ;; esac
+    if [ "$size" -gt "$max_bytes" ]; then
+        mv -f "$file" "${file}.old" 2>/dev/null || true
+    fi
+    return 0
+}
+
 # Get project root (useful for referencing project-relative paths in hooks)
 # Usage: root=$(get_project_root)
 get_project_root() {

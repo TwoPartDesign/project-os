@@ -24,8 +24,10 @@ if [ "$IS_ERROR" = "true" ]; then
     PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
     LOG_DIR="$PROJECT_ROOT/.claude/logs"
 
+    source "$SCRIPT_DIR/_common.sh"
     mkdir -p "$LOG_DIR"
     LOG_FILE="$LOG_DIR/tool-failures.log"
+    rotate_log "$LOG_FILE"
     ENTRY="$(date -u +%Y-%m-%dT%H:%M:%SZ) FAIL tool=${TOOL_NAME:-unknown}"
     # Atomic append with flock to prevent interleaved writes (drop event on lock failure)
     if command -v flock >/dev/null 2>&1; then
