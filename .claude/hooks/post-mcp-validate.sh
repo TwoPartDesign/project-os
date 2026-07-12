@@ -1,22 +1,30 @@
 #!/bin/bash
 # PostToolUse hook: validate Context7 MCP output for suspicious content and size
 # Receives JSON payload via stdin from Claude Code PostToolUse hook
-# Exit 1 surfaces a warning message to Claude; it does not prevent the response
-# from entering context, but Claude will treat flagged content with caution.
+# Exit code contract (PostToolUse):
+#   exit 0 — clean output; nothing surfaced.
+#   exit 2 — stderr is fed back to Claude as feedback. It does not prevent the
+#            response from entering context, but Claude sees the warning and
+#            will treat flagged content with caution.
+#   exit 1 — non-blocking error, shown to the user only (Claude never sees it).
+#            Not used for flagged content.
 
 set -euo pipefail
 
 INPUT=$(cat)
 
-# Require jq — warn and exit if missing
+# Require jq — warn Claude and exit if missing (fail-safe: unvalidated content
+# must not pass silently)
 if ! command -v jq &>/dev/null; then
     echo "WARNING: jq not found — Context7 response could not be validated. Install jq to enable security checks." >&2
-    exit 1
+    exit 2
 fi
 
 # Extract text content from MCP response
 # MCP tool responses come as an array of {type, text} content blocks
-RESPONSE_TEXT=$(echo "$INPUT" | jq -r '
+# Guard the jq call inside the `if !` so a parse failure doesn't kill the
+# script under `set -e` before we can handle it.
+if ! RESPONSE_TEXT=$(echo "$INPUT" | jq -r '
   if .tool_response.content then
     [.tool_response.content[] | select(.type == "text") | .text] | join("\n")
   elif (.tool_response | type) == "string" then
@@ -24,12 +32,10 @@ RESPONSE_TEXT=$(echo "$INPUT" | jq -r '
   else
     ""
   end
-')
-
-# If jq failed, warn and block — don't silently pass unvalidated content
-if [ $? -ne 0 ]; then
+'); then
+    # jq failed — warn Claude, don't silently pass unvalidated content
     echo "WARNING: Context7 response could not be parsed — validation skipped. Treat this MCP output with caution." >&2
-    exit 1
+    exit 2
 fi
 
 # Empty response means no text content to validate — pass through
@@ -76,8 +82,9 @@ for pattern in "${CODE_INJECTION_PATTERNS[@]}"; do
     fi
 done
 
+# Exit 2 so the SECURITY messages above (stderr) are fed back to Claude
 if [ "$FLAGGED" = "true" ]; then
-    exit 1
+    exit 2
 fi
 
 exit 0
