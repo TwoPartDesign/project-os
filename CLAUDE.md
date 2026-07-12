@@ -16,7 +16,7 @@ Core principles guide all architecture decisions. See `docs/knowledge/design-pri
 - Context is noise — load only what the current phase needs
 - Code is a liability; judgement is an asset
 - Audit the auditor — separate build and review contexts
-- Token economics: output costs 5x input — keep agent responses concise
+- Token economics: output tokens cost several times more than input — keep agent responses concise
 
 ## Architecture
 @import docs/knowledge/architecture.md
@@ -39,8 +39,8 @@ Optional: `/workflows:compete` + `/workflows:compete-review` for competitive imp
 Never skip from idea to build. The design phase catches 80% of mistakes.
 
 ## Model Routing
-- **Orchestration & design**: Primary model (Sonnet/Opus)
-- **Sub-agent implementation**: Haiku (via `CLAUDE_CODE_SUBAGENT_MODEL`)
+- **Orchestration & design**: Primary session model (`"model"` in settings.json — currently Opus 4.8; Fable 5 an option for the hardest design work)
+- **Sub-agent implementation**: `claude-sonnet-5` (default via `CLAUDE_CODE_SUBAGENT_MODEL`); `claude-haiku-4-5-20251001` for cheap, tightly-scoped mechanical tasks via `(model: ...)` annotations
 - **Adversarial review**: Primary model with isolated context
 - **Agent adapters**: Per-task routing via `(agent: <name>)` — see `.claude/agents/adapters/INTERFACE.md`
 

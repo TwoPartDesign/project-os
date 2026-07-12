@@ -89,9 +89,9 @@ Loaded every session, every project. Personal preferences, interaction style, mo
 - No `any` types in TypeScript. No bare `except` in Python.
 
 ## Model Routing
-- Sonnet: Default for all interactive work
-- Haiku: Sub-agents for implementation tasks
-- Opus: Final adversarial review only (when explicitly invoked)
+- Opus: Default for all interactive work (Fable 5 an option for the hardest design work)
+- Sonnet: Sub-agents for implementation tasks
+- Haiku: Cheap, tightly-scoped mechanical tasks via `(model: ...)` annotations
 
 ## Global Rules
 - ALWAYS check `docs/knowledge/` before proposing a pattern — it may already be documented
@@ -358,7 +358,7 @@ project-root/
 **`.claude/settings.json`**:
 ```json
 {
-  "model": "sonnet",
+  "model": "opus",
   "permissions": {
     "allow": [
       "Bash(git *)",
@@ -385,8 +385,7 @@ project-root/
     ]
   },
   "env": {
-    "CLAUDE_CODE_SUBAGENT_MODEL": "haiku",
-    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "50"
+    "CLAUDE_CODE_SUBAGENT_MODEL": "claude-sonnet-5"
   },
   "project_os": {
     "parallel": {

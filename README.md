@@ -155,11 +155,11 @@ Five layers with distinct lifespans:
 
 | Role | Model | Why |
 |---|---|---|
-| Orchestration & design | Sonnet/Opus | Complex reasoning, architecture |
-| Sub-agent implementation | Haiku | Focused coding — cheap and fast |
+| Orchestration & design | Primary model (Opus 4.8; Fable 5 for the hardest design work) | Complex reasoning, architecture |
+| Sub-agent implementation | Sonnet 5 (Haiku 4.5 for tightly-scoped mechanical tasks) | Focused coding — strong quality at lower cost |
 | Adversarial review | Primary model (isolated) | Independent judgment |
 
-Configured in `.claude/settings.json` via `CLAUDE_CODE_SUBAGENT_MODEL`.
+Configured in `.claude/settings.json` via `"model"` and `CLAUDE_CODE_SUBAGENT_MODEL`.
 
 ## Tips
 

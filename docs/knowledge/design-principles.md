@@ -69,19 +69,19 @@ Every decision, bug root cause, and pattern discovered gets recorded in `docs/kn
 
 ## Model Routing Rationale
 
-### Orchestration & Design: Sonnet/Opus
+### Orchestration & Design: Primary Model (Opus 4.8; Fable 5 for the Hardest Work)
 
 - Complex reasoning, architecture decisions
 - Context: Full access to project state, decisions, patterns
 - Frequency: Once per phase transition
-- Cost/benefit: High reasoning quality justifies higher cost
+- Cost/benefit: High reasoning quality justifies higher cost. Set via `"model"` in settings.json; Fable 5 is an option when design difficulty warrants the top tier.
 
-### Sub-Agent Implementation: Haiku
+### Sub-Agent Implementation: Sonnet 5
 
 - Focused coding within a narrow spec
 - Context: Only task-specific context (10-15% of full project context)
 - Frequency: Parallel implementation across multiple tasks
-- Cost/benefit: Cheap and fast for isolated, well-scoped work. 4x cheaper than Sonnet with minimal quality loss when spec is tight.
+- Cost/benefit: Strong implementation quality at mid-tier cost — the default via `CLAUDE_CODE_SUBAGENT_MODEL`. Route cheap, tightly-scoped mechanical tasks to Haiku 4.5 (the cheapest tier) via `(model: ...)` annotations.
 
 ### Adversarial Review: Primary Model (Isolated Context)
 
@@ -110,7 +110,7 @@ Five layers, each with distinct purpose and lifespan:
 
 ## Token Economics Rules
 
-Output costs ~5x input. Optimize for concise, high-signal communication.
+Output tokens cost several times more than input. Optimize for concise, high-signal communication.
 
 ### Guidelines
 
