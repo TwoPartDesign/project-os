@@ -1,3 +1,8 @@
+---
+name: spec-driven-dev
+description: Enforces spec-first development — before writing any code, verifies a brief, design, and approved tasks exist in docs/specs/ and routes to the right workflow phase. Use whenever the user asks to implement, build, or add a feature, except trivially small single-file changes.
+---
+
 # Spec-Driven Development Protocol
 
 **Trigger**: User asks to implement, build, or add a feature.

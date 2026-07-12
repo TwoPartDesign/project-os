@@ -1,3 +1,8 @@
+---
+name: session-management
+description: Auto-save protocol for ending or switching sessions — runs /tools:handoff, conserves context, and files decisions, patterns, and bugs into the knowledge vault. Use when the user says handoff, done, or end session, when a major phase completes, or when context usage grows high.
+---
+
 # Session Management Protocol
 
 **Trigger**: User says "handoff", "done", "end session", "switching", or context usage appears high.

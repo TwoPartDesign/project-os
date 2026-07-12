@@ -1,3 +1,8 @@
+---
+name: context-filter
+description: Routes large output (>5KB) through scripts/context-filter.sh instead of reading it directly, and searches indexed knowledge with freshness scoring. Use when asked to filter or compress large output, process logs or verbose command results, or check whether knowledge is stale or fresh.
+---
+
 # Context-Aware Output Filtering
 
 **Trigger**: Large output processing, knowledge search, freshness checks.
