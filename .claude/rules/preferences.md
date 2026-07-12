@@ -7,9 +7,9 @@
 - Show me the tradeoffs, let me decide.
 
 ## Coding
-- Language: [preferred language]
-- Formatting: [prettier/black/gofmt/etc.]
-- Testing: [jest/pytest/go test/etc.]
+- Language: Bash + TypeScript (Markdown-first governance docs)
+- Formatting: prettier (via post-tool-use hook)
+- Testing: node --test (node:test), tests/ mirrors scripts/
 - Prefer standard library over dependencies when reasonable
 - Prefer composition over inheritance
 - Prefer explicit over clever

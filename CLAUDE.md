@@ -4,7 +4,7 @@
 - Project: Project OS
 - Type: Personal project
 - Role: Solo-developer governance layer
-- Owner: [YOUR_NAME]
+- Owner: TwoPartDesign (jn@twopartdesign.com)
 - Stack: Markdown + Bash
 
 ## Principles

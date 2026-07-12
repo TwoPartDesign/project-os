@@ -1,7 +1,7 @@
 # Project OS — Solo-Developer Governance Layer for AI-Driven Development
-## Architecture & Implementation Guide — v2.1
+## Architecture & Implementation Guide — v2.3-dev
 
-**Version**: 2.1 — Governance Layer + Native Dashboard
+**Version**: 2.3-dev (unreleased) — Governance Layer on Native Primitives + Claude 5 Routing
 **Purpose**: A complete reference for a solo-developer governance system built entirely on Claude Code's native primitives. Phase checkpoints, adversarial quality gates, and human approval at every transition — zero external dependencies.
 **Usage**: Feed this document to Claude Code as a build spec, or use it as a reference while running the live system. It documents every file, every command, and the full directory structure.
 
@@ -34,7 +34,7 @@ External dependencies are attack surface, maintenance burden, and single points 
 | Session continuity | YAML handoff files + `/compact` instructions |
 | Task tracking | `ROADMAP.md` with 7-state markers, `#TN` IDs, dependency syntax |
 | Parallel execution | Wave-based sub-agents via `Task` tool + `isolation: worktree` |
-| DAG scheduling | `scripts/unblocked-tasks.sh` (JSON output), `scripts/validate-roadmap.sh` (cycle detection) |
+| DAG scheduling | Native Task dependencies (`addBlockedBy`), `scripts/validate-roadmap.sh` (cycle detection) |
 | Governance gate | `/pm:approve` promotes `[?]` drafts → `[ ]` approved |
 | Competitive implementation | `/workflows:compete` — N parallel strategies, human picks winner |
 | Adversarial review | Parallel sub-agents with isolated prompts |
@@ -237,6 +237,7 @@ project-root/
 ├── CLAUDE.template.md                  # Bootstrap template (copy → CLAUDE.md for new projects)
 ├── CLAUDE.local.md                     # Personal overrides (gitignored)
 ├── ROADMAP.md                          # Task DAG: 7-state markers, #TN IDs, dependencies
+├── package.json                        # Engines pin (Node 22) + node --test script; no runtime deps
 │
 ├── .claude/
 │   ├── settings.json                   # Model config, permissions, env, v2 config blocks
@@ -277,13 +278,10 @@ project-root/
 │   │   ├── documenter.md               # Developer role — documentation agent
 │   │   ├── roles.md                    # Role permission matrix
 │   │   ├── handoffs.md                 # Phase handoff artifact contracts
-│   │   └── adapters/                   # Agent adapter scripts
+│   │   └── adapters/                   # External-agent adapters (default dispatch is the native Task tool)
 │   │       ├── INTERFACE.md            # Adapter 3-command contract spec
-│   │       ├── claude-code.sh          # Default adapter (functional)
-│   │       ├── codex.sh                # Stub (v2.1+)
-│   │       ├── gemini.sh               # Stub (v2.1+)
-│   │       ├── aider.sh                # Stub (v2.1+)
-│   │       └── amp.sh                  # Stub (v2.1+)
+│   │       ├── _prompt-template.sh     # Shared prompt assembly for external adapters
+│   │       └── codex.sh                # Codex adapter (functional; runs without worktree isolation)
 │   │
 │   ├── skills/                         # On-demand capability protocols
 │   │   ├── spec-driven-dev/
@@ -312,13 +310,13 @@ project-root/
 │   │   ├── tests.md
 │   │   └── api.md
 │   │
-│   ├── hooks/                          # Lifecycle hooks (8 total)
+│   ├── hooks/                          # Lifecycle hooks
 │   │   ├── post-tool-use.sh            # Auto-format on Write/Edit
 │   │   ├── post-write-session.sh       # Session checkpoint on Write/Edit
 │   │   ├── post-mcp-validate.sh        # Validate Context7 MCP output
 │   │   ├── log-activity.sh             # JSONL event logging (13 event types)
 │   │   ├── notify-phase-change.sh      # Desktop notifications on phase transitions
-│   │   ├── preserve-sessions.sh        # Save worktree sessions before cleanup
+│   │   ├── session-end-cleanup.sh      # SessionEnd: per-session cleanup + log rotation
 │   │   ├── tool-failure-log.sh         # Log tool failures for diagnostics
 │   │   └── compact-suggest.sh          # Suggest /compact when context is high
 │   │
@@ -338,11 +336,10 @@ project-root/
 │   │   └── metrics.md                  # Per-feature metrics snapshots
 │   └── research/                       # Research artifacts
 │
-├── scripts/                            # Utility scripts (8 total)
+├── scripts/                            # Utility scripts
 │   ├── new-project.sh                  # Bootstrap a new project
 │   ├── memory-search.sh                # Full-text search over knowledge vault
 │   ├── audit-context.sh                # Report context token estimates
-│   ├── unblocked-tasks.sh              # Output unblocked [ ] tasks as JSON
 │   ├── validate-roadmap.sh             # Detect cycles, dangling refs, duplicate IDs
 │   ├── dashboard.sh                    # ASCII status table for all projects
 │   ├── create-pr.sh                    # Generate PR descriptions from specs + history
@@ -404,8 +401,8 @@ project-root/
       "strategies": ["literal", "minimal", "extensible"]
     },
     "adapters": {
-      "default": "claude-code",
-      "available": ["claude-code", "codex", "gemini", "aider", "amp"],
+      "default": "native",
+      "available": ["codex"],
       "fallback_on_failure": true
     },
     "dashboard": {
@@ -639,7 +636,7 @@ Audits test quality and identifies coverage gaps. Checks for untested functions/
 
 **Interface spec**: `.claude/agents/adapters/INTERFACE.md`
 
-Adapters provide uniform 3-command contract for dispatching tasks to different AI coding agents. The orchestrator calls the same interface regardless of which agent runs the task.
+Adapters provide a uniform 3-command contract for dispatching tasks to **external** (non-Claude) coding agents. The **default dispatch path is native**: sub-agents are spawned via the Task tool with per-task `model:` and worktree isolation — no adapter involved. Adapters only apply when a task carries an `(agent: <name>)` annotation.
 
 **Commands**: `info` (metadata as JSON), `health` (CLI availability check), `execute <context_dir> <output_dir>` (run task)
 
@@ -648,16 +645,12 @@ Adapters provide uniform 3-command contract for dispatching tasks to different A
 - **Output** (`output_dir/`): `completion-report.md`, `result` (pass/fail), `test-output.txt`, `files/` (modified/created)
 - **Environment**: `ADAPTER_TASK_ID`, `ADAPTER_FEATURE`, `ADAPTER_MAX_TURNS`, `ADAPTER_MODEL`
 
-**Adapter Resolution**: Task annotation `(agent: codex)` in ROADMAP.md → Settings default `.claude/settings.json` → Fallback `claude-code`
+**Dispatch Resolution**: `(model: <id>)` annotation → native Task dispatch with that model → `(agent: codex)` annotation → external adapter (if healthy, else native) → default: native Task dispatch with the sub-agent default model from `settings.json`
 
-**Available Adapters (v2)**:
-- `claude-code` (Functional, default) — `.claude/agents/adapters/claude-code.sh`
-- `codex` (Stub, v2.1+) — `.claude/agents/adapters/codex.sh`
-- `gemini` (Stub, v2.1+) — `.claude/agents/adapters/gemini.sh`
-- `aider` (Stub, v2.1+) — `.claude/agents/adapters/aider.sh`
-- `amp` (Stub, v2.1+) — `.claude/agents/adapters/amp.sh`
+**Available Adapters (v2.3-dev)**:
+- `codex` (Functional) — `.claude/agents/adapters/codex.sh` + `_prompt-template.sh`. Runs **without worktree isolation** (`supports_isolation: false`) — see INTERFACE.md for the documented risk posture.
 
-v2 limitation: Only `claude-code` functional. Stub adapters exit 1 with "not yet implemented"; tasks fall back to `claude-code`. Hard multi-agent dispatch planned for v2.1+.
+The former `claude-code.sh` default adapter (a no-op pass-through) and the `gemini`/`aider`/`amp` stubs were deleted in the v2.3-dev adapter collapse; native Task dispatch replaced them.
 
 ---
 
@@ -767,11 +760,13 @@ bash .claude/hooks/notify-phase-change.sh review-requested auth
 bash .claude/hooks/notify-phase-change.sh review-failed auth T3
 ```
 
-### `preserve-sessions.sh`
+### `session-end-cleanup.sh`
 
-**Trigger**: Called before worktree cleanup (or manually)
+**Trigger**: `SessionEnd`
 
-Copies `.yml`/`.yaml`/`.md` session files from worktrees to the project root `.claude/sessions/` before cleanup. Prevents session loss on worktree removal (Claude Code worktree bug). Validates that all paths are under `.claude/worktrees/`; rejects symlinks and filenames containing `..`.
+Cleans up per-session artifacts in `.claude/logs/`: removes the session's `.tool-count-*` counter and lock files, prunes counters older than 7 days from sessions that never fired SessionEnd (crashes, container reclaims), and opportunistically rotates the append-only logs (`activity.jsonl`, `tool-failures.log`, `format-errors.log`).
+
+(The former `preserve-sessions.sh` worktree copy-out hook was removed — native worktree isolation persists sub-agent changes, so the workaround is obsolete.)
 
 ### `tool-failure-log.sh`
 
@@ -992,7 +987,7 @@ touch "$PROJECT_PATH/docs/specs/.gitkeep"
 touch "$PROJECT_PATH/docs/memory/.gitkeep"
 
 for script in memory-search.sh audit-context.sh scrub-secrets.sh \
-              validate-roadmap.sh unblocked-tasks.sh create-pr.sh dashboard.sh; do
+              validate-roadmap.sh create-pr.sh dashboard.sh; do
   cp "$TEMPLATE_DIR/scripts/$script" "$PROJECT_PATH/scripts/"
 done
 chmod +x "$PROJECT_PATH/scripts/"*.sh
@@ -1083,27 +1078,11 @@ PCT=$(echo "scale=2; $TOTAL_TOKENS * 100 / 200000" | bc 2>/dev/null || echo "?")
 echo "=== TOTAL always-loaded context: ~${TOTAL_TOKENS} tokens (${PCT}% of 200K window) ==="
 ```
 
-### Unblocked Tasks
+### Task Scheduling (native)
 
-**File**: `scripts/unblocked-tasks.sh`
+Dependency scheduling is handled by native Tasks: `/workflows:build` parses `ROADMAP.md`, creates native Tasks with `addBlockedBy` from `(depends:)` clauses, and lets the Task system dispatch work as dependencies complete. ROADMAP.md markers remain the governance record and are cross-checked against TaskList each time a dispatch batch drains.
 
-Parses `ROADMAP.md` and outputs a JSON array of all tasks that are ready to run: status `[ ]` (Todo) with all dependencies in `[x]` (Done).
-
-```bash
-# Usage
-bash scripts/unblocked-tasks.sh                    # all unblocked tasks
-bash scripts/unblocked-tasks.sh --agent codex      # filter by agent annotation
-bash scripts/unblocked-tasks.sh path/to/ROADMAP.md # alternate roadmap path
-
-# Output (JSON array)
-[
-  {"id": "T3", "title": "Add rate limiting", "agent": "claude-code",
-   "deps": ["T1", "T2"]},
-  ...
-]
-```
-
-Used by `/workflows:build` to compute dependency waves. Tasks with no `(agent: ...)` annotation default to `claude-code`.
+(The former `scripts/unblocked-tasks.sh` wave-computation script was retired in the native-primitives migration; `scripts/validate-roadmap.sh` below still validates the DAG before builds.)
 
 ### Validate Roadmap
 

@@ -3,7 +3,7 @@ type: knowledge
 tags: [decisions, adr]
 description: Architecture decision records — what was decided, why, and what was rejected
 links: "[[architecture]], [[patterns]]"
-date: "2026-03-03"
+date: "2026-07-12"
 ---
 
 # Architectural Decision Records
@@ -59,4 +59,25 @@ Each entry: Date, Decision, Context, Alternatives Considered, Rationale
 
 **Rationale**: MCP stdio protocol is simple (newline-delimited JSON-RPC 2.0). Custom extractor validated by spike T18 at 95% avg token reduction (target was 80%). Zero npm deps maintained. Trade-off: DNS rebinding not mitigated at application layer (Node's fetch() doesn't accept pre-resolved IPs) — documented as known v1 limitation.
 
-**Update (2026-04-08)**: Extracted to standalone repo `web-fetch-mcp/` — the MCP server has no dependency on Project OS internals, and bundling it coupled two unrelated concerns.
+**Update (2026-04-08)**: Extracted to standalone repo `web-fetch-mcp/` — the MCP server has no dependency on Project OS internals, and bundling it coupled two unrelated concerns. The extraction landed in commit `d2f7cec`. (Standalone repo link: TODO — to be added by the owner; not recorded anywhere in-tree.)
+
+---
+
+## 2026-07-12 — Staleness-Audit Remediation: Native Primitives, Claude 5 Routing, Restrictive Permissions
+
+**Decision**: Remediate the 2026-07-11 staleness audit (`docs/audits/2026-07-11-staleness-audit.md`) in one branch (T17–T32) with four policy decisions:
+
+1. **Native-primitives migration** — `/workflows:build` and `/workflows:ship` run on native worktree isolation and native Task scheduling (`addBlockedBy` dependencies) instead of hand-rolled wave computation, `unblocked-tasks.sh`, and the worktree copy-out recovery dance. The adapter layer collapses: the no-op `claude-code.sh` and dead `aider`/`amp`/`gemini` stubs are deleted; `codex.sh` remains as the only external adapter (documented as running without worktree isolation); default dispatch is the native Task tool. ROADMAP.md stays the governance/approval record; native Tasks own execution state.
+2. **Model routing policy** — orchestration and design on the primary session model (`settings.json` `"model"`, currently Opus 4.8; Fable 5 for the hardest design work); sub-agent implementation defaults to `claude-sonnet-5` (`CLAUDE_CODE_SUBAGENT_MODEL`); `claude-haiku-4-5-20251001` for cheap, tightly-scoped mechanical tasks via `(model:)` annotations. Escalation ladder: Haiku 4.5 → Sonnet 5 → Opus 4.8 → Fable 5. The inert `CLAUDE_ORCHESTRATION_MODEL`/`models.env` mechanism is removed.
+3. **Permissions: restrictive-allow posture** — blanket `Bash(git *)`/`Bash(npm *)`-style grants (each an arbitrary-code-execution vector) replaced with allows scoped to specific subcommands; stop relying on a single-string deny-list as a safety net.
+4. **bash.md slimmed; auto-approval as proposal** — the Windows security-scanner workaround catalog moves out of the always-loaded `.claude/rules/bash.md` into `docs/knowledge/windows-bash-scanner.md`; a PreToolUse auto-approval hook is written up as `docs/proposals/pre-tool-approve-hook.md` and deliberately NOT installed — hooks that auto-approve tool calls require explicit owner opt-in.
+
+**Context**: The repo sat idle ~3 months (last commit 2026-04-14) while the platform shipped the Claude 5 family, native worktrees, Task scheduling, and background subagents. The audit found frozen model routing, non-functional MCP validation, security-theater permissions, and hand-rolled systems duplicating native features.
+
+**Alternatives Considered**:
+- **Keep the adapter layer with updated model IDs** — rejected: `claude-code.sh` was a verified no-op; the indirection had no remaining function on the default path
+- **Delete `codex.sh` too** — rejected: competitive review still uses external Codex dispatch
+- **Install the auto-approval hook directly** — rejected: silently auto-approving tool calls is a security posture change the owner must make explicitly
+- **Keep manual wave scheduling as a fallback** — rejected in favor of ROADMAP-marker fallback already documented in the ROADMAP↔Tasks dual-track pattern
+
+**Rationale**: Every hand-rolled system replaced here now has a strictly better native equivalent, and each deletion shrinks the always-loaded context (a core principle: context is noise). Governance value — gates, markers, adversarial review — is preserved untouched; only the execution plumbing changed.
