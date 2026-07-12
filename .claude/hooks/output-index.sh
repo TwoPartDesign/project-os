@@ -18,6 +18,12 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # Source shared utilities
 source "$SCRIPT_DIR/_common.sh"
 
+# Indexing runs .ts scripts directly via node (type stripping + node:sqlite).
+# Degrade loudly but cleanly when node is missing or too old.
+if ! node_available "large-output indexing (knowledge-index.ts)"; then
+    exit 0
+fi
+
 INPUT=$(cat)
 
 # Write input to temp file so node can read it (heredoc consumes stdin)

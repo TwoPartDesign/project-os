@@ -71,6 +71,7 @@ Source: `docs/audits/2026-07-11-staleness-audit.md`. Tasks are grouped by file o
 -->
 
 ### Draft
+- [?] Fix invalid regex in scripts/lib/scan-rules.js: the atlassian rule uses inline-modifier group (?-i:) unsupported by Node 22 V8 — security-scanner test-rules errors; audit other rules for the same construct and add a test-rules invocation to CI/smoke (found during #T29) #T33
 
 ### Todo
 <!-- P0 — security & correctness -->
@@ -89,7 +90,7 @@ Source: `docs/audits/2026-07-11-staleness-audit.md`. Tasks are grouped by file o
 - [ ] Deduplicate skills vs commands: session-management ↔ handoff/catchup, spec-driven-dev ↔ workflows:*, and the three overlapping research fan-out specs (idea.md, research.md, researcher.md) — one canonical home each (depends: #T24) #T27
 <!-- P3 — hygiene -->
 - [ ] Unify manifest + sync lists: regenerate manifest.json, align generate-manifest.sh/update-project.sh/new-project.sh file lists, add missing observation-parser.ts + security-scanner.ts + scan-rules.js + pre-compact.sh entries #T28
-- [-] Define TS runtime contract: package.json with engines pin (Node >=22.18) and test script for tests/*.test.ts, Node-version guard in hooks/_common.sh so hooks degrade loudly instead of silently #T29
+- [~] Define TS runtime contract: package.json with engines pin (Node >=22.18) and test script for tests/*.test.ts, Node-version guard in hooks/_common.sh so hooks degrade loudly instead of silently #T29
 - [-] Log hygiene: rotation/size caps for activity.jsonl + tool-failures.log + format-errors.log, SessionEnd hook to clean per-session .tool-count files, register in settings.json (depends: #T20) #T30
 - [ ] Reconcile status docs: CHANGELOG v2.1/v2.2 entries, PROJECT_STATUS refresh, move shipped features to Completed, resolve stale #T9 and #T1 spike (agent teams now native), fix vault frontmatter dates, component counts, web-fetch leftovers (metrics block + extracted-repo URL in decisions.md), fill live placeholders (CLAUDE.md Owner, preferences.md) (depends: #T23) #T31
 - [~] Verify current security-scanner behavior and gut or Windows-gate .claude/rules/bash.md (218 lines loaded every session on a Linux repo) #T32

@@ -49,6 +49,43 @@ extract_file_path() {
     echo "$input" | grep -oE '"file_path"\s*:\s*"[^"]*"' | sed 's/.*"file_path"[^"]*"//;s/".*//' || true
 }
 
+# Check that node exists and is new enough to run .ts scripts directly
+# (type stripping + node:sqlite require Node >= 22.18).
+# Usage: node_available "knowledge indexing" || exit 0
+# Returns: 0 if node >= 22.18 is on PATH; otherwise prints one warning
+#          line to stderr and returns 1 (callers degrade loudly, not silently)
+node_available() {
+    local feature="${1:-TypeScript hook scripts}"
+    local min_major=22
+    local min_minor=18
+
+    if ! command -v node >/dev/null 2>&1; then
+        echo "WARN [hook]: node >=${min_major}.${min_minor} required for ${feature} — skipping (found: none)" >&2
+        return 1
+    fi
+
+    local version
+    version="$(node --version 2>/dev/null)"
+    version="${version#v}"
+
+    local major minor _patch
+    IFS='.' read -r major minor _patch <<< "$version"
+
+    # Guard against non-numeric parses (e.g. empty output)
+    case "$major" in (*[!0-9]*|"") major=0 ;; esac
+    case "$minor" in (*[!0-9]*|"") minor=0 ;; esac
+
+    if [ "$major" -gt "$min_major" ]; then
+        return 0
+    fi
+    if [ "$major" -eq "$min_major" ] && [ "$minor" -ge "$min_minor" ]; then
+        return 0
+    fi
+
+    echo "WARN [hook]: node >=${min_major}.${min_minor} required for ${feature} — skipping (found: v${version:-unknown})" >&2
+    return 1
+}
+
 # Get project root (useful for referencing project-relative paths in hooks)
 # Usage: root=$(get_project_root)
 get_project_root() {
