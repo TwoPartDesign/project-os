@@ -22,6 +22,9 @@ Track per-feature implementation metrics. Updated by `/workflows:ship` and query
 <!-- Entries added by /workflows:ship -->
 
 ### Feature: web-fetch
+
+> **Historical**: the web-fetch MCP server code was extracted from this repo to a standalone repository in commit `d2f7cec` (2026-04-08). Metrics retained for the record; the code no longer lives here.
+
 - **Duration**: 2026-04-06 (single day, multi-session)
 - **Tasks**: 10 total (T18-T27), 10 completed, 0 blocked
 - **Waves**: 4 (W1: T19-T23 parallel; W2: T24; W3: T25; W4: T26,T27 parallel)

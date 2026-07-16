@@ -8,11 +8,11 @@ You are updating the **model routing configuration** for this project. This is c
 
 ## Step 1: Show current config
 
-Read `.claude/models.env` if it exists and show the current settings:
+Read `.claude/settings.json` if it exists and show the current settings:
 
 > **Current model routing:**
-> - Orchestration: [current value or "not set"]
-> - Sub-agents: [current value or "not set"]
+> - Orchestration (`"model"`): [current value or "not set"]
+> - Sub-agents (`env.CLAUDE_CODE_SUBAGENT_MODEL`): [current value or "not set"]
 
 Also check the `## Model Routing` section of `CLAUDE.md` and show it for reference.
 
@@ -27,25 +27,31 @@ Ask:
 > 3. **Custom** — Specify model IDs manually
 
 If **Custom**, ask:
-- Orchestration model ID — prefer a bare alias (`opus`/`sonnet`/`haiku`), which always resolves to the latest model in that family. Pin a dated ID (e.g. `claude-opus-4-6`) only when you need a specific version.
+- Orchestration model ID — prefer a bare alias (`opus`/`sonnet`/`haiku`, or `fable` for the Fable/Mythos tier), which always resolves to the latest model in that family. Pin a dated ID (e.g. `claude-opus-4-8`) only when you need a specific version.
 - Sub-agent model ID — same: prefer a bare alias (`sonnet`/`haiku`) over a dated ID.
 
 Standard tier mappings (bare aliases so routing always tracks the latest release):
 | Tier | Orchestration | Sub-agent |
 |---|---|---|
-| Max | `opus` | `sonnet` |
+| Max | `opus` (or `fable` for the hardest design work) | `sonnet` |
 | Pro | `sonnet` | `haiku` |
 
-## Step 3: Write `.claude/models.env`
+## Step 3: Update `.claude/settings.json`
 
-Create or overwrite `.claude/models.env`:
+Create or update `.claude/settings.json`, preserving any existing keys:
 
-```bash
-# Model routing — managed by /tools:init and /tools:set-models
-# Source this file in your shell profile: source /path/to/project/.claude/models.env
-export CLAUDE_CODE_SUBAGENT_MODEL=[MODEL_SUBAGENT]
-export CLAUDE_ORCHESTRATION_MODEL=[MODEL_ORCHESTRATION]
+```json
+{
+  "model": "[MODEL_ORCHESTRATION]",
+  "env": {
+    "CLAUDE_CODE_SUBAGENT_MODEL": "[MODEL_SUBAGENT]"
+  }
+}
 ```
+
+- `"model"` sets the orchestration/session model (aliases like `"opus"` resolve to the current Opus)
+- `env.CLAUDE_CODE_SUBAGENT_MODEL` routes sub-agent tasks
+- Per-task overrides remain available via `(model: <model-id>)` annotations in ROADMAP.md
 
 ## Step 4: Update `CLAUDE.md`
 
@@ -69,11 +75,7 @@ Update `docs/memory/project-profiles.md` — find the entry for this project and
 > - Tier: [Max/Pro/Custom]
 > - Orchestration: [MODEL_ORCHESTRATION]
 > - Sub-agents: [MODEL_SUBAGENT]
-> - Config written to: `.claude/models.env`
+> - Config written to: `.claude/settings.json`
 > - `CLAUDE.md` updated
 >
-> To activate sub-agent routing in your current shell:
-> `source .claude/models.env`
->
-> To activate permanently, add to `~/.bashrc`:
-> `source /absolute/path/to/.claude/models.env`
+> Settings take effect on the next Claude Code session — restart to apply.

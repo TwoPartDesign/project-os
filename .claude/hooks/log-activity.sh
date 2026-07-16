@@ -17,7 +17,10 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 LOG_DIR="${PROJECT_ROOT}/.claude/logs"
 LOG_FILE="${LOG_DIR}/activity.jsonl"
 
+source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
+
 mkdir -p "$LOG_DIR"
+rotate_log "$LOG_FILE"
 
 EVENT="${1:-}"
 shift || true

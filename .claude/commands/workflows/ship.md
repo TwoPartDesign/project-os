@@ -78,9 +78,8 @@ Log: `bash .claude/hooks/log-activity.sh pr-created feature=$ARGUMENTS`
 
 ## Post-Ship
 
-1. **Preserve sessions**: `bash .claude/hooks/preserve-sessions.sh` — save worktree sessions before cleanup
-2. **Clean up worktrees**: Remove any remaining worktrees for this feature
-3. **Archive specs**: The spec lifecycle is complete. Leave files in place for reference.
+1. **Verify worktree cleanup**: Worktree lifecycle is native — agent worktrees are removed automatically (kept as branches when changes were made). Run `git worktree list` and `git worktree prune` only if strays remain.
+2. **Archive specs**: The spec lifecycle is complete. Leave files in place for reference.
 4. **Update ROADMAP.md**: Move all tasks for this feature to the "Done" section.
    - Check if any tasks are still `[~]` (not yet `[x]`)
    - If found, list them and ask the user: "These tasks passed review with notes but haven't been marked done. Mark them `[x]` now, or address the outstanding notes first?"

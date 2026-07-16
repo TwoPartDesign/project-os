@@ -66,15 +66,15 @@ touch "$FULL_PATH/docs/specs/.gitkeep"
 touch "$FULL_PATH/docs/memory/.gitkeep"
 
 for script in memory-search.sh audit-context.sh scrub-secrets.sh \
-              validate-roadmap.sh unblocked-tasks.sh create-pr.sh dashboard.sh \
-              sync-agent-rules.sh context-filter.sh validate-freshness.sh \
+              validate-roadmap.sh create-pr.sh dashboard.sh \
+              context-filter.sh validate-freshness.sh \
               codex-review.sh generate-manifest.sh update-project.sh \
               sync-hooks.sh; do
   cp "$TEMPLATE_DIR/scripts/$script" "$FULL_PATH/scripts/"
 done
 mkdir -p "$FULL_PATH/scripts/lib"
 cp -r "$TEMPLATE_DIR/scripts/lib/." "$FULL_PATH/scripts/lib/"
-for ts_script in knowledge-index.ts dashboard-server.ts; do
+for ts_script in knowledge-index.ts dashboard-server.ts observation-parser.ts security-scanner.ts; do
   [ -f "$TEMPLATE_DIR/scripts/$ts_script" ] && cp "$TEMPLATE_DIR/scripts/$ts_script" "$FULL_PATH/scripts/"
 done
 find "$FULL_PATH/scripts" -name "*.sh" -exec chmod +x {} + 2>/dev/null || true

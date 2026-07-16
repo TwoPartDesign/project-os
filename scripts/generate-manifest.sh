@@ -50,17 +50,18 @@ TEMPLATE_SCRIPTS=(
     "scripts/audit-context.sh"
     "scripts/scrub-secrets.sh"
     "scripts/validate-roadmap.sh"
-    "scripts/unblocked-tasks.sh"
     "scripts/create-pr.sh"
     "scripts/dashboard.sh"
-    "scripts/sync-agent-rules.sh"
     "scripts/context-filter.sh"
     "scripts/validate-freshness.sh"
     "scripts/codex-review.sh"
     "scripts/generate-manifest.sh"
     "scripts/update-project.sh"
+    "scripts/sync-hooks.sh"
     "scripts/knowledge-index.ts"
     "scripts/dashboard-server.ts"
+    "scripts/observation-parser.ts"
+    "scripts/security-scanner.ts"
 )
 
 # Escape a string for JSON (handles \, ", and control chars)

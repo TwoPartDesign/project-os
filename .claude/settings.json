@@ -1,22 +1,37 @@
 {
   "model": "opus",
+  "fallbackModel": ["sonnet"],
+  "effortLevel": "high",
   "permissions": {
     "allow": [
-      "Bash(git *)",
-      "Bash(npm *)",
-      "Bash(npx *)",
-      "Bash(grep *)",
-      "Bash(find *)",
-      "Bash(cat *)",
-      "Bash(ls *)",
-      "Bash(head *)",
-      "Bash(tail *)",
-      "Bash(wc *)",
-      "Bash(sort *)",
-      "Bash(awk *)",
-      "Bash(sed *)",
-      "Bash(mkdir *)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git fetch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git branch:*)",
+      "Bash(git restore:*)",
+      "Bash(git stash:*)",
+      "Bash(git worktree:*)",
+      "Bash(git rm:*)",
+      "Bash(git mv:*)",
+      "Bash(git merge:*)",
+      "Bash(git clone:*)",
+      "Bash(grep:*)",
+      "Bash(cat:*)",
+      "Bash(ls:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(sort:*)",
+      "Bash(mkdir:*)",
       "Bash(bash scripts/*)",
+      "Bash(bash tests/*)",
       "Bash(bash .claude/hooks/*)",
       "Bash(node scripts/*)",
       "Bash((cd * && *))",
@@ -25,7 +40,7 @@
       "Write",
       "Edit"
     ],
-    "deny": ["Bash(rm -rf /)"]
+    "deny": []
   },
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
@@ -48,8 +63,8 @@
       "strategies": ["literal", "minimal", "extensible"]
     },
     "adapters": {
-      "default": "claude-code",
-      "available": ["claude-code", "codex"],
+      "default": "native",
+      "available": ["codex"],
       "fallback_on_failure": true
     },
     "dashboard": {
@@ -81,7 +96,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|MultiEdit",
+        "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
@@ -90,7 +105,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|MultiEdit",
+        "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
@@ -130,6 +145,16 @@
             "command": "bash \".claude/hooks/pre-compact.sh\"",
             "timeout": 30,
             "statusMessage": "Saving auto-checkpoint..."
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \".claude/hooks/session-end-cleanup.sh\""
           }
         ]
       }

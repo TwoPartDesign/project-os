@@ -1,7 +1,8 @@
 #!/bin/bash
 # PostToolUse hook: warn when tool invocation count suggests context is filling.
-# Auto-compact fires at 50% context (CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50).
-# Tool count is an imperfect proxy — warn early so user can /tools:handoff first.
+# Tool count is an imperfect proxy for context usage — warn early so the user
+# can /tools:handoff before native auto-compaction fires.
+# Per-session counter files are cleaned up by session-end-cleanup.sh.
 
 set -euo pipefail
 trap 'exit 0' ERR  # Advisory hook — never surface errors to Claude Code

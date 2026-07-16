@@ -267,10 +267,8 @@ TEMPLATE_SCRIPTS=(
     "scripts/audit-context.sh"
     "scripts/scrub-secrets.sh"
     "scripts/validate-roadmap.sh"
-    "scripts/unblocked-tasks.sh"
     "scripts/create-pr.sh"
     "scripts/dashboard.sh"
-    "scripts/sync-agent-rules.sh"
     "scripts/context-filter.sh"
     "scripts/validate-freshness.sh"
     "scripts/codex-review.sh"
@@ -279,6 +277,8 @@ TEMPLATE_SCRIPTS=(
     "scripts/sync-hooks.sh"
     "scripts/knowledge-index.ts"
     "scripts/dashboard-server.ts"
+    "scripts/observation-parser.ts"
+    "scripts/security-scanner.ts"
 )
 
 for relpath in "${TEMPLATE_FILES[@]}" "${TEMPLATE_SCRIPTS[@]}"; do

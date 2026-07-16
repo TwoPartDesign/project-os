@@ -117,6 +117,35 @@ run_test \
 
 echo ""
 
+# --- session-end-cleanup.sh ---
+echo "session-end-cleanup.sh:"
+touch "$PROJECT_ROOT/.claude/logs/.tool-count-smoketest" "$PROJECT_ROOT/.claude/logs/.tool-count-smoketest.lock"
+run_test \
+    "sessionEnd_removesCounter_exitsCleanly" \
+    "$HOOKS_DIR/session-end-cleanup.sh" \
+    '{"session_id":"smoketest","reason":"exit"}'
+if [ -f "$PROJECT_ROOT/.claude/logs/.tool-count-smoketest" ]; then
+    FAIL=$((FAIL + 1))
+    ERRORS="${ERRORS}\n  FAIL: sessionEnd_counterFile_actuallyRemoved"
+    echo "  FAIL: sessionEnd_counterFile_actuallyRemoved"
+    rm -f "$PROJECT_ROOT/.claude/logs/.tool-count-smoketest" "$PROJECT_ROOT/.claude/logs/.tool-count-smoketest.lock"
+else
+    PASS=$((PASS + 1))
+    echo "  PASS: sessionEnd_counterFile_actuallyRemoved"
+fi
+
+run_test \
+    "emptyJson_exitsCleanly" \
+    "$HOOKS_DIR/session-end-cleanup.sh" \
+    "$EMPTY_INPUT"
+
+run_test \
+    "invalidJson_exitsCleanly" \
+    "$HOOKS_DIR/session-end-cleanup.sh" \
+    "$INVALID_JSON"
+
+echo ""
+
 # --- Summary ---
 echo "=== Results ==="
 TOTAL=$((PASS + FAIL))

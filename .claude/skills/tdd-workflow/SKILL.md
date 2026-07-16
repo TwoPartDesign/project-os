@@ -1,3 +1,8 @@
+---
+name: tdd-workflow
+description: Red-Green-Refactor test-driven development cycle with an edge-case protocol and test naming convention. Use when the user asks to write tests, run tdd, verify behavior, or improve coverage, or when an implementation task requires tests.
+---
+
 # Test-Driven Development Protocol
 
 **Trigger**: User asks to write tests, or implementation task requires tests.

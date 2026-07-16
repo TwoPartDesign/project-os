@@ -5,13 +5,13 @@
 - Never silently retry the same action a third time — it wastes quota and masks the real problem.
 
 ## Escalation Ladder
-Haiku → Sonnet → Opus
+`claude-haiku-4-5-20251001` → `claude-sonnet-5` → `claude-opus-4-8` → `claude-fable-5`
 
-Default to Haiku. Escalate only on persistent failures or architectural decisions beyond task scope.
+Sub-agent tasks default to the model in `CLAUDE_CODE_SUBAGENT_MODEL` (`.claude/settings.json`). Escalate a task one rung via a `(model: <model-id>)` annotation in ROADMAP.md only on persistent failures or decisions beyond task scope. The top rung (Fable 5, Mythos-class) is for architecture-defining decisions — not routine unblocking.
 
 ## Downshift Rule
-After resolving a blocker on a higher-tier model, return to Haiku for routine follow-up.
-Staying on Opus for easy follow-up tasks is wasteful.
+After resolving a blocker on a higher-tier model, return follow-up tasks to the default sub-agent model.
+Keeping a top-tier model on easy follow-up tasks is wasteful.
 
 ## When to Escalate
 - 2 consecutive tool failures on the same operation
@@ -25,7 +25,6 @@ When hitting the retry cap, output:
 Then stop and wait for user direction.
 
 ## Agent Rules
-<!-- source-hash: 2503d22f96dafed3e18c664cf002dd629a3dcc3f6da8d6495a6a4ad18c727363 -->
 
 - Maximum **2 retries** per task. After 2 consecutive failures: STOP and surface the blocker.
 - Never silently retry the same action a third time — it wastes quota and masks the real problem.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# _prompt-template.sh — Shared prompt template for agent adapters
-# Sourced by codex.sh and claude-code.sh
+# _prompt-template.sh — Shared prompt template for external-agent adapters
+# Sourced by codex.sh
 
 build_prompt() {
     local task_desc="$1"

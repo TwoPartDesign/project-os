@@ -3,7 +3,7 @@ type: knowledge
 tags: [architecture, system-design]
 description: Living system architecture documentation
 links: "[[decisions]], [[patterns]]"
-date: "2026-03-03"
+date: "2026-07-12"
 ---
 
 # System Architecture
@@ -21,7 +21,7 @@ User ──→ Workflow Commands ──→ Orchestrator ──→ Sub-agents (is
               │                     │                    │
               ▼                     ▼                    ▼
          ROADMAP.md           Adapter Layer         Task Output
-        (authority)         (claude-code, codex)   (completion reports)
+        (authority)         (codex, external only) (completion reports)
               │                     │
               ▼                     ▼
          Native Tasks          Activity Logs
@@ -32,32 +32,72 @@ User ──→ Workflow Commands ──→ Orchestrator ──→ Sub-agents (is
 
 | Module | Path | Purpose |
 |--------|------|---------|
-| Workflow commands | `.claude/commands/workflows/` | Spec-driven dev lifecycle (idea→design→plan→build→review→ship) |
-| Tool commands | `.claude/commands/tools/` | Utility tools (dashboard, commit, handoff, research) |
-| Agent adapters | `.claude/agents/adapters/` | Uniform interface for dispatching to AI agents |
-| Hooks | `.claude/hooks/` | Event-driven automation (post-tool-use, activity logging, session preservation) |
-| Scripts | `scripts/` | Standalone utilities (validate-roadmap, dashboard, security-scanner, install-hooks, scrub-secrets) |
-| Knowledge base | `docs/knowledge/` | Patterns, decisions, bugs, architecture, metrics |
+| Workflow commands | `.claude/commands/workflows/` | Spec-driven dev lifecycle (idea→design→plan→build→review→ship, mvp, compete, rebuild) |
+| Tool commands | `.claude/commands/tools/` | Utility tools (dashboard, commit, handoff, catchup, research, metrics, kv, init, set-models, update, new-project) |
+| PM commands | `.claude/commands/pm/` | Governance (prd, epic, approve, status) |
+| Agent adapters | `.claude/agents/adapters/` | External-agent dispatch only — `codex.sh` (+ `INTERFACE.md`, `_prompt-template.sh`); default path is native Task-tool dispatch |
+| Hooks | `.claude/hooks/` | Event-driven automation (11 files, see below) |
+| Scripts | `scripts/` | Standalone utilities (see below) |
+| Knowledge base | `docs/knowledge/` | Patterns, decisions, bugs, architecture, metrics, design-principles, roadmap-format, windows-bash-scanner, kv |
 | Specs | `docs/specs/<feature>/` | Per-feature lifecycle docs (design, tasks, review) |
+
+### Hooks (`.claude/hooks/`)
+
+| Hook | Purpose |
+|------|---------|
+| `_common.sh` | Shared utilities: path resolution, validation, JSON extraction |
+| `compact-suggest.sh` | PostToolUse — warn when tool-call count suggests context is filling |
+| `log-activity.sh` | Append structured JSONL events to the activity log |
+| `notify-phase-change.sh` | Terminal/desktop notification on phase transitions |
+| `output-index.sh` | PostToolUse advisory — index large tool outputs, hint via additionalContext |
+| `post-mcp-validate.sh` | PostToolUse — validate Context7 MCP output (exit 2 / additionalContext contract) |
+| `post-tool-use.sh` | Auto-format files after Write/Edit |
+| `post-write-session.sh` | Scrub secrets from `.claude/sessions/` files after write |
+| `pre-compact.sh` | PreCompact — auto-generate session handoff YAML (10-min debounce) |
+| `session-end-cleanup.sh` | SessionEnd — remove per-session counters, rotate append-only logs |
+| `tool-failure-log.sh` | Log tool failures (timestamp + tool name only) |
+
+### Scripts (`scripts/`)
+
+| Script | Purpose |
+|--------|---------|
+| `audit-context.sh` | Estimate token cost of always-loaded context |
+| `codex-review.sh` | Run a Codex code review via stdin piping |
+| `context-filter.sh` | Intent-based filtering/indexing for large content |
+| `create-pr.sh` | Generate a PR with AI-assisted description (gh CLI) |
+| `dashboard.sh` / `dashboard-server.ts` | Cross-project status table / live SSE dashboard (port 3400) |
+| `generate-manifest.sh` | Create `.claude/manifest.json` with sha256 hashes for update tracking |
+| `install-global-commands.sh` | Install `/tools:new-project` globally |
+| `install-hooks.sh` | Install git pre-commit/pre-push security-scanner hooks |
+| `knowledge-index.ts` | FTS5 knowledge indexing and search (`node:sqlite`) |
+| `lib/json.sh` / `lib/scan-rules.js` | Shared JSON helpers / scanner rule database (233 rules) |
+| `memory-search.sh` | Full-text search across knowledge files |
+| `new-project.sh` | Bootstrap a new Project OS project |
+| `observation-parser.ts` | Extract 5 typed observations from tool output (sensitive-key denylist) |
+| `scrub-secrets.sh` | Scrub secret patterns from a file (delegates to scanner) |
+| `security-scanner.ts` | Zero-dep secrets/PII scanner (8 subcommands) |
+| `sync-hooks.sh` | Sync hooks from the template to a target project |
+| `update-project.sh` | Check for and apply Project OS updates from upstream |
+| `validate-freshness.sh` | Wrapper for knowledge-index freshness validation |
+| `validate-roadmap.sh` | Validate ROADMAP.md format, deps, cycles, consistency |
 
 ## Data Flow
 
 ### Build Phase
 ```
-ROADMAP.md ──parse──→ Wave Computation ──dispatch──→ Sub-agents (worktree isolation)
-     │                      │                              │
-     ▼                      ▼                              ▼
-Native Tasks          Adapter Resolution           Completion Reports
-(convenience)     (model→agent→settings→fallback)    (per-task output)
-     │                                                     │
-     └──────── Wave Boundary Consistency Check ◄───────────┘
+ROADMAP.md ──parse──→ Native Tasks (addBlockedBy) ──dispatch──→ Sub-agents (worktree isolation)
+     │                      │                                        │
+     ▼                      ▼                                        ▼
+Governance record     Dispatch Resolution                   Completion Reports
+(markers win)      (model→agent→native default)              (per-task output)
+     │                                                               │
+     └──────────── Batch-Drain Consistency Check ◄───────────────────┘
 ```
 
-### Adapter Resolution (4-step)
-0. `(model: opus)` annotation → claude-code adapter with ADAPTER_MODEL override
-1. `(agent: codex)` annotation → codex adapter (if healthy)
-2. Settings default → `project_os.adapters.default`
-3. Fallback → claude-code adapter with ADAPTER_MODEL=haiku
+### Dispatch Resolution (3-step)
+0. `(model: <model>)` annotation → native Task-tool dispatch with that model
+1. `(agent: codex)` annotation → external adapter (if healthy, else native)
+2. Default → native Task-tool dispatch with sub-agent default model (settings.json)
 
 ### Dashboard (optional)
 ```
