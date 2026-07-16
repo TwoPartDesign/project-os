@@ -27,14 +27,14 @@ Ask:
 > 3. **Custom** — Specify model IDs manually
 
 If **Custom**, ask:
-- Orchestration model ID (e.g. `claude-opus-4-6`, `claude-sonnet-4-6`)
-- Sub-agent model ID (e.g. `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`)
+- Orchestration model ID — prefer a bare alias (`opus`/`sonnet`/`haiku`), which always resolves to the latest model in that family. Pin a dated ID (e.g. `claude-opus-4-6`) only when you need a specific version.
+- Sub-agent model ID — same: prefer a bare alias (`sonnet`/`haiku`) over a dated ID.
 
-Standard tier mappings:
+Standard tier mappings (bare aliases so routing always tracks the latest release):
 | Tier | Orchestration | Sub-agent |
 |---|---|---|
-| Max | `claude-opus-4-6` | `claude-sonnet-4-6` |
-| Pro | `claude-sonnet-4-6` | `claude-haiku-4-5-20251001` |
+| Max | `opus` | `sonnet` |
+| Pro | `sonnet` | `haiku` |
 
 ## Step 3: Write `.claude/models.env`
 

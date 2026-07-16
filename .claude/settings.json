@@ -28,7 +28,7 @@
     "deny": ["Bash(rm -rf /)"]
   },
   "env": {
-    "CLAUDE_CODE_SUBAGENT_MODEL": "claude-sonnet-4-6",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "75"
   },
   "project_os": {
