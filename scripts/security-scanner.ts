@@ -486,9 +486,15 @@ function cmdScanStaged(
 ): void {
   let rawOutput: string;
   try {
-    rawOutput = execFileSync("git", ["diff", "--cached", "--name-only", "-z"], {
-      cwd: projectRoot,
-    }).toString();
+    // --diff-filter=d excludes deleted paths: they have no staged content to
+    // scan, and asking git for their content below would fail with a noisy
+    // "fatal: path does not exist" written straight to stderr (execFileSync
+    // inherits child stderr by default).
+    rawOutput = execFileSync(
+      "git",
+      ["diff", "--cached", "--name-only", "--diff-filter=d", "-z"],
+      { cwd: projectRoot },
+    ).toString();
   } catch (err) {
     process.stderr.write(`Error: git diff failed: ${(err as Error).message}\n`);
     process.exit(2);
@@ -507,9 +513,11 @@ function cmdScanStaged(
     try {
       content = execFileSync("git", ["show", `:0:${file}`], {
         cwd: projectRoot,
+        stdio: ["pipe", "pipe", "pipe"],
       }).toString();
     } catch {
-      // File might be deleted or binary — skip
+      // Defense in depth: file might still be missing from the index
+      // (e.g. a race with another process) or binary — skip.
       continue;
     }
     const found = scanContent(content, file, _rules, allowlist, options);
