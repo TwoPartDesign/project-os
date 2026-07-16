@@ -12,6 +12,17 @@ export const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;")
 /**
  * Parses a ROADMAP.md file into a Task map and per-marker totals.
  * Tolerates repeatable trailing `(model: ...)` / `(agent: ...)` annotations after `#TN`.
+ *
+ * Uses a two-phase linear parse rather than a single combined regex. A prior
+ * single-regex version (`.+?` line body + repeatable `(?:\s+\(...\))*` annotation
+ * group) was O(n^2) on adversarial input — catastrophic backtracking when a long
+ * run of near-matching `(model: ...)`-shaped text failed to close cleanly — and
+ * could freeze the dashboard's per-request/per-SSE-refresh render loop (see #T40).
+ * Phase A strips trailing `(model: ...)` / `(agent: ...)` annotations with plain
+ * string ops (endsWith/lastIndexOf), which is linear in line length. Phase B then
+ * runs the original greedy line regex against the annotation-free remainder.
+ * Do NOT collapse this back into one combined regex — that reintroduces the
+ * quadratic backtracking this two-phase split exists to avoid.
  */
 export function parseRoadmap(path: string) {
   const tasks = new Map<string, Task>();
@@ -19,7 +30,16 @@ export function parseRoadmap(path: string) {
   if (!existsSync(path)) return { tasks, totals };
   try {
     for (const line of readFileSync(path, "utf-8").split("\n")) {
-      const m = line.match(/^\s*-\s*\[(.)\]\s+(.+?)\s+#(T\d+)(?:\s+\((?:model|agent):[^)]*\))*\s*$/);
+      // Phase A: strip trailing annotation groups via linear string ops (no scanning regex on the full line).
+      let s = line.trimEnd();
+      while (s.endsWith(")")) {
+        const i = s.lastIndexOf("(");
+        if (i < 0) break;
+        if (!/^\((?:model|agent):[^()]*\)$/.test(s.slice(i))) break;
+        s = s.slice(0, i).trimEnd();
+      }
+      // Phase B: match the original linear greedy regex against the annotation-free remainder.
+      const m = s.match(/^\s*-\s*\[(.)\]\s+(.+)\s+#(T\d+)$/);
       if (!m) continue;
       const [, marker, raw, id] = m;
       const depMatch = raw.match(/\(depends:\s*(#T\d+(?:,\s*#T\d+)*)\)/);

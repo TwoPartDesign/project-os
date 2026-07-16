@@ -117,6 +117,26 @@ describe("parseRoadmap", () => {
     const { tasks } = parseRoadmap(roadmapPath);
     ok(tasks.size > 0, `expected at least one parsed task, got ${tasks.size}`);
   });
+
+  it("parseRoadmap_adversarialLongLine_linearTime", () => {
+    // Regression for #T40: a single combined regex with a repeatable trailing
+    // annotation group was O(n^2) on adversarial input like this (~3.5s at this
+    // size under the old regex). The two-phase parse must stay linear.
+    const adversarial = "- [ ] " + "x #T9 (model: ".repeat(20000);
+    const fixture = [adversarial, "- [ ] Normal task #T1"].join("\n");
+    const path = writeTmpRoadmap(fixture);
+    try {
+      const start = Date.now();
+      const { tasks } = parseRoadmap(path);
+      const elapsed = Date.now() - start;
+      strictEqual(tasks.get("T1")?.title, "Normal task");
+      ok(!tasks.has("T9"), "adversarial line must not be parsed as a task");
+      strictEqual(tasks.size, 1);
+      ok(elapsed < 1500, `expected parseRoadmap to run in <1500ms, took ${elapsed}ms`);
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
 });
 
 // ==========================================================================
