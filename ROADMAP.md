@@ -109,8 +109,8 @@ Source: `docs/audits/2026-07-11-staleness-audit.md`. Tasks are grouped by file o
 <!-- Approved 2026-07-16 -->
 - [ ] Dashboard Kanban board tab: columns per lifecycle phase (Draft, Todo, WIP, Review, Done, Blocked), driven through /workflows:mvp (design → plan → build → review) #T37
 - [ ] Smoke-test /workflows:mvp end-to-end with a real feature — satisfied by executing #T37 via mvp (depends: #T37) #T38
-- [ ] Live-test scripts/codex-review.sh with a real review (created 2026-03-10, never exercised) #T39
 ### Done
+- [x] Live-test scripts/codex-review.sh with a real review (created 2026-03-10, never exercised) — ran 2026-07-16 against the T33/T35/T36 diff in read-only mode: wrapper worked end-to-end (18.5KB prompt+diff, gpt-5.4, clean exit); its 2 findings were empirically refuted (old (?-i:) groups were already case-sensitive) #T39
 
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->
