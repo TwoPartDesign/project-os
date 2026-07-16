@@ -72,12 +72,12 @@ Source: `docs/audits/2026-07-11-staleness-audit.md`. Tasks are grouped by file o
 -->
 
 ### Draft
-- [?] Fix invalid regex in scripts/lib/scan-rules.js: the atlassian rule uses inline-modifier group (?-i:) unsupported by Node 22 V8 — security-scanner test-rules errors; audit other rules for the same construct and add a test-rules invocation to CI/smoke (found during #T29) #T33
-
-- [?] Fix MCP large-response warning: post-mcp-validate.sh size-warning branch echoes to stderr with exit 0 so it never reaches the model — same silent-warning class #T17 fixed elsewhere; also correct validate-mcp-output.sh's new docstring, which claims it is part of the live hook chain (it is not wired in settings.json) #T35
-- [?] Fix pre-commit security hook on deleted files: scan-staged path emits "fatal: path does not exist" for every staged deletion (observed during audit-remediation merge) — skip deleted paths when building the scan list #T36
 
 ### Todo
+<!-- Approved 2026-07-16 -->
+- [ ] Fix invalid regex in scripts/lib/scan-rules.js: the atlassian rule uses inline-modifier group (?-i:) unsupported by Node 22 V8 — security-scanner test-rules errors; audit other rules for the same construct and add a test-rules invocation to CI/smoke (found during #T29) #T33
+- [ ] Fix MCP large-response warning: post-mcp-validate.sh size-warning branch echoes to stderr with exit 0 so it never reaches the model — same silent-warning class #T17 fixed elsewhere; also correct validate-mcp-output.sh's new docstring, which claims it is part of the live hook chain (it is not wired in settings.json) #T35
+- [ ] Fix pre-commit security hook on deleted files: scan-staged path emits "fatal: path does not exist" for every staged deletion (observed during audit-remediation merge) — skip deleted paths when building the scan list #T36
 ### In Progress
 ### Review
 ### Done
@@ -103,9 +103,18 @@ Source: `docs/audits/2026-07-11-staleness-audit.md`. Tasks are grouped by file o
 - [x] Reconcile status docs: CHANGELOG v2.1/v2.2 entries, PROJECT_STATUS refresh, move shipped features to Completed, resolve stale #T9 and #T1 spike (agent teams now native), fix vault frontmatter dates, component counts, web-fetch leftovers (metrics block + extracted-repo URL in decisions.md), fill live placeholders (CLAUDE.md Owner, preferences.md) (depends: #T23) #T31
 - [x] Verify current security-scanner behavior and gut or Windows-gate .claude/rules/bash.md (218 lines loaded every session on a Linux repo) #T32
 
+## Feature: post-audit-followups
+
+### Todo
+<!-- Approved 2026-07-16 -->
+- [ ] Dashboard Kanban board tab: columns per lifecycle phase (Draft, Todo, WIP, Review, Done, Blocked), driven through /workflows:mvp (design → plan → build → review) #T37
+- [ ] Smoke-test /workflows:mvp end-to-end with a real feature — satisfied by executing #T37 via mvp (depends: #T37) #T38
+- [ ] Live-test scripts/codex-review.sh with a real review (created 2026-03-10, never exercised) #T39
+### Done
+
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->
-- [?] Spike: SOTA adoption (May 2026 scan) — `/goal` wave gates, wave-handoff artifact, staleness review skills (`tools:audit-knowledge`, `tools:sota-scan`, `tools:update --diff-upstream`). Plan: `.claude/plans/sota-adoption-2026-05.md` #T34
+- [ ] Spike: SOTA adoption (May 2026 scan) — `/goal` wave gates, wave-handoff artifact, staleness review skills (`tools:audit-knowledge`, `tools:sota-scan`, `tools:update --diff-upstream`). Plan: `.claude/plans/sota-adoption-2026-05.md` #T34
 <!-- #T1 (agent-teams experiment spike) retired 2026-07-12: agent teams shipped as a native Claude Code feature, obsoleting the CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS assessment. Draft a new idea via /workflows:idea if native agent-team adoption is worth exploring. ID #T1 is retired, never reused. -->
 
 ## Completed
