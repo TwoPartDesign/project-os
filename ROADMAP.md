@@ -63,6 +63,7 @@ Each feature groups tasks by lifecycle phase:
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->
 - [?] Spike: CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 — assess compatibility and integration path #T1
+- [?] Spike: SOTA adoption (May 2026 scan) — `/goal` wave gates, wave-handoff artifact, staleness review skills (`tools:audit-knowledge`, `tools:sota-scan`, `tools:update --diff-upstream`). Plan: `.claude/plans/sota-adoption-2026-05.md` #T34
 
 ## Completed
 <!-- Moved here after /workflows:ship -->
