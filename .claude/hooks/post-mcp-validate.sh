@@ -43,11 +43,14 @@ if [ -z "$RESPONSE_TEXT" ]; then
     exit 0
 fi
 
+FLAGGED=false
+
 # Size check — large responses inflate context and may indicate prompt injection
 CONTENT_SIZE=${#RESPONSE_TEXT}
 MAX_SIZE=50000  # ~12K tokens
 if [ "$CONTENT_SIZE" -gt "$MAX_SIZE" ]; then
-    echo "WARNING: Context7 response is large ($CONTENT_SIZE chars, limit is $MAX_SIZE). Consider narrowing your query to reduce context usage." >&2
+    echo "WARNING: Context7 response is large ($CONTENT_SIZE chars, limit is $MAX_SIZE)." >&2
+    FLAGGED=true
 fi
 
 # Suspicious pattern check — patterns that have no legitimate place in library docs
@@ -65,8 +68,6 @@ CODE_INJECTION_PATTERNS=(
     "__proto__"
     'constructor\['
 )
-
-FLAGGED=false
 
 for pattern in "${INJECTION_PATTERNS[@]}"; do
     if echo "$RESPONSE_TEXT" | grep -qi "$pattern"; then

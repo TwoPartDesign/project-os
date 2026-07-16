@@ -1,7 +1,12 @@
 #!/bin/bash
 # Validate MCP server output before it enters the context window
 # Usage: validate-mcp-output.sh <mcp-name> <output-file>
-# Exit code contract (PostToolUse hook chain):
+# Standalone/manually-invoked validator — NOT currently registered as a hook
+# in .claude/settings.json (only .claude/hooks/post-mcp-validate.sh is wired
+# into the live PostToolUse hook chain). Run this script by hand, or wire it
+# up yourself, to validate an MCP output file on disk.
+# Exit code contract (matches the PostToolUse hook convention, for
+# consistency if/when this is wired in):
 #   exit 0 — output validated clean.
 #   exit 2 — flagged/blocked content; stderr is fed back to Claude as feedback.
 #   exit 1 — operational error (bad arguments, unreadable file), shown to the
