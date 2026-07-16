@@ -13,7 +13,7 @@ This is the canonical parallel research protocol. Other commands (e.g. `/workflo
 
 Break the research topic into 2-3 independent questions. Spawn a sub-agent for each question, dispatched per the researcher role spec (`.claude/agents/researcher.md`), which defines the search order agents follow.
 
-Before spawning sub-agents, read `.claude/rules/bash.md` and extract the full content of its `## Agent Rules` section (everything after that heading, excluding the `<!-- source-hash -->` comment line). Store this as `BASH_AGENT_RULES` — sub-agents do not inherit CLAUDE.md, so append it to every agent prompt.
+Before spawning sub-agents, read `.claude/rules/bash.md` and extract the full content of its `## Agent Rules` section (everything after that heading). Store this as `BASH_AGENT_RULES` — sub-agents do not inherit CLAUDE.md, so append it to every agent prompt.
 
 ### Agent prompt template
 

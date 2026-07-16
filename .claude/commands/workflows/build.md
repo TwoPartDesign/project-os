@@ -103,7 +103,7 @@ Update ROADMAP.md: change `[ ]` to `[-]` for all tasks being dispatched.
 Log each: `bash .claude/hooks/log-activity.sh task-spawned "feature=$ARGUMENTS" task_id=TN agent=implementer`
 
 **2. Prepare agent context packets**
-Before assembling any packets, read `.claude/rules/bash.md` and extract the full content of its `## Agent Rules` section (everything after that heading, excluding the `<!-- source-hash -->` comment line). Store this as `BASH_AGENT_RULES` — it will be substituted into every agent prompt below.
+Before assembling any packets, read `.claude/rules/bash.md` and extract the full content of its `## Agent Rules` section (everything after that heading). Store this as `BASH_AGENT_RULES` — it will be substituted into every agent prompt below.
 
 For each task in the batch, assemble ONLY:
 - The specific task description from tasks.md (NOT the full task list)

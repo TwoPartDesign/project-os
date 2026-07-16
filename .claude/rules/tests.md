@@ -13,7 +13,6 @@ description: "Rules applied when working with test files"
 
 ## Agent Rules
 
-<!-- source-hash: 20cd6581599c46f09b363f1549b3e617955f6b6ffe668989f7c198dd2a5e63d0 -->
 
 - Make every test file runnable in isolation.
 - Do not use shared mutable state between test cases.

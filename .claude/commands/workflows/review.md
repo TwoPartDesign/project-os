@@ -20,7 +20,7 @@ git diff "${BASE}...HEAD"
 
 All three reviewers run with `isolation: worktree` for filesystem isolation (prevents reviewers from modifying the working tree). Cross-reviewer isolation is enforced by **prompt separation** — each sub-agent receives only its own instructions and review focus. The orchestrator (you) is the only entity that reads all three reports.
 
-Before spawning any reviewer, read `.claude/rules/bash.md` and extract the full content of its `## Agent Rules` section (everything after that heading, excluding the `<!-- source-hash -->` comment line). Store this as `BASH_AGENT_RULES` — substitute it into each reviewer prompt where indicated below.
+Before spawning any reviewer, read `.claude/rules/bash.md` and extract the full content of its `## Agent Rules` section (everything after that heading). Store this as `BASH_AGENT_RULES` — substitute it into each reviewer prompt where indicated below.
 
 ## Reviewer 1: Drift Detection (Plan vs Implementation)
 

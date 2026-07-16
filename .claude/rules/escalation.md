@@ -5,7 +5,7 @@
 - Never silently retry the same action a third time — it wastes quota and masks the real problem.
 
 ## Escalation Ladder
-`claude-haiku-4-5-20251001` → `claude-sonnet-5` → `claude-opus-4-8` → `claude-fable-5`
+`haiku` → `sonnet` → `opus` → `fable` (bare aliases — each resolves to the latest release in its family)
 
 Sub-agent tasks default to the model in `CLAUDE_CODE_SUBAGENT_MODEL` (`.claude/settings.json`). Escalate a task one rung via a `(model: <model-id>)` annotation in ROADMAP.md only on persistent failures or decisions beyond task scope. The top rung (Fable 5, Mythos-class) is for architecture-defining decisions — not routine unblocking.
 

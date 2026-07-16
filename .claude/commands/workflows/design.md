@@ -80,7 +80,7 @@ Brief: ./brief.md
 
 ## Step 3: Self-Adversarial Review
 
-Before spawning the reviewer, read `.claude/rules/bash.md` and extract the full content of its `## Agent Rules` section (everything after that heading, excluding the `<!-- source-hash -->` comment line). Store this as `BASH_AGENT_RULES` — substitute it into the reviewer prompt where indicated below.
+Before spawning the reviewer, read `.claude/rules/bash.md` and extract the full content of its `## Agent Rules` section (everything after that heading). Store this as `BASH_AGENT_RULES` — substitute it into the reviewer prompt where indicated below.
 
 Before presenting to the user, spawn a reviewer sub-agent with this prompt:
 
