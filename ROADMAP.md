@@ -72,6 +72,7 @@ Source: `docs/audits/2026-07-11-staleness-audit.md`. Tasks are grouped by file o
 -->
 
 ### Draft
+- [?] Fix knowledge-index.ts path guard on Windows: "Path escapes project root: docs\knowledge\architecture.md" even when run from project root — separator/case mismatch in the startsWith(projectRoot) check; index-vault unusable on Windows (found during dashboard-kanban build pre-flight) #T45
 
 ### Todo
 ### In Progress
@@ -119,11 +120,11 @@ Spec: `docs/specs/dashboard-kanban/` (brief, design APPROVED 2026-07-16, tasks).
 ### Draft
 ### Todo
 <!-- Auto-approved 2026-07-16 by /workflows:mvp (user-authorized autonomous run) -->
-- [ ] Extract scripts/lib/dashboard-render.ts (parseRoadmap, esc, marker maps) + annotation-tolerant task regex (model/agent suffixes) #T40
-- [ ] renderKanban() in lib + /api/kanban route in dashboard-server.ts (depends: #T40) #T41
-- [ ] Tab UI in getPage(): Overview|Board nav, view wrappers, kanban CSS, toggle JS (depends: #T41) #T42
-- [ ] Unit test suite tests/dashboard-render.test.ts + dashboard-smoke.sh wrapper (depends: #T41) #T43
-- [ ] Docs: dashboard.md + architecture.md endpoint updates; document (model:) annotation in roadmap-format.md #T44
+- [~] Extract scripts/lib/dashboard-render.ts (parseRoadmap, esc, marker maps) + annotation-tolerant task regex (model/agent suffixes) #T40
+- [~] renderKanban() in lib + /api/kanban route in dashboard-server.ts (depends: #T40) #T41
+- [~] Tab UI in getPage(): Overview|Board nav, view wrappers, kanban CSS, toggle JS (depends: #T41) #T42
+- [~] Unit test suite tests/dashboard-render.test.ts + dashboard-smoke.sh wrapper (depends: #T41) #T43
+- [~] Docs: dashboard.md + architecture.md endpoint updates; document (model:) annotation in roadmap-format.md #T44
 ### In Progress
 ### Review
 ### Done
