@@ -112,6 +112,22 @@ Source: `docs/audits/2026-07-11-staleness-audit.md`. Tasks are grouped by file o
 ### Done
 - [x] Live-test scripts/codex-review.sh with a real review (created 2026-03-10, never exercised) — ran 2026-07-16 against the T33/T35/T36 diff in read-only mode: wrapper worked end-to-end (18.5KB prompt+diff, gpt-5.4, clean exit); its 2 findings were empirically refuted (old (?-i:) groups were already case-sensitive) #T39
 
+## Feature: dashboard-kanban
+
+Spec: `docs/specs/dashboard-kanban/` (brief, design APPROVED 2026-07-16, tasks). Umbrella: #T37.
+
+### Draft
+### Todo
+<!-- Auto-approved 2026-07-16 by /workflows:mvp (user-authorized autonomous run) -->
+- [ ] Extract scripts/lib/dashboard-render.ts (parseRoadmap, esc, marker maps) + annotation-tolerant task regex (model/agent suffixes) #T40
+- [ ] renderKanban() in lib + /api/kanban route in dashboard-server.ts (depends: #T40) #T41
+- [ ] Tab UI in getPage(): Overview|Board nav, view wrappers, kanban CSS, toggle JS (depends: #T41) #T42
+- [ ] Unit test suite tests/dashboard-render.test.ts + dashboard-smoke.sh wrapper (depends: #T41) #T43
+- [ ] Docs: dashboard.md + architecture.md endpoint updates; document (model:) annotation in roadmap-format.md #T44
+### In Progress
+### Review
+### Done
+
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->
 - [ ] Spike: SOTA adoption (May 2026 scan) — `/goal` wave gates, wave-handoff artifact, staleness review skills (`tools:audit-knowledge`, `tools:sota-scan`, `tools:update --diff-upstream`). Plan: `.claude/plans/sota-adoption-2026-05.md` #T34
