@@ -38,7 +38,7 @@ This document defines the authoritative format for ROADMAP.md, used to track tas
 Task lines follow this format:
 
 ```
-- [marker] Task description (depends: #TX, #TY) #TN (agent: agent-name)
+- [marker] Task description (depends: #TX, #TY) #TN (model: model-id) (agent: agent-name)
 ```
 
 Where:
@@ -46,7 +46,10 @@ Where:
 - `Task description` = human-readable task summary
 - `(depends: ...)` = optional dependency clause (see Dependencies section)
 - `#TN` = unique task ID (required)
+- `(model: model-id)` = optional model routing (e.g., `(model: claude-opus-4-8)`) — placed after `#TN`, same as `(agent: ...)`
 - `(agent: agent-name)` = optional agent routing (e.g., `(agent: codex)`)
+
+`(model: ...)` and `(agent: ...)` are both optional, both repeatable-position (order-independent relative to each other), and may appear together on the same task line. Dispatch resolution checks `(model: ...)` before `(agent: ...)` — see `.claude/commands/workflows/build.md` § Dispatch Resolution.
 
 ### Examples
 
@@ -55,6 +58,7 @@ Where:
 - [ ] Add test coverage for login (depends: #T1) #T2
 - [ ] Review security of auth token storage (depends: #T1, #T2) #T3 (agent: reviewer-security)
 - [-] Refactor API response format #T4
+- [ ] Critical security task (depends: #T1) #T5 (model: claude-opus-4-8)
 ```
 
 ---
@@ -200,8 +204,8 @@ These transitions are errors and indicate miscommunication:
 ### Dependency Syntax
 Tasks use `#TN` IDs. Dependencies declared inline: `(depends: #T1, #T2)`.
 
-### Agent Routing
-Optional agent annotation: `(agent: agent-name)`.
+### Model & Agent Routing
+Optional model annotation: `(model: model-id)`. Optional agent annotation: `(agent: agent-name)`. Both may appear after `#TN`, in either order; model is resolved before agent.
 
 Format spec: `docs/knowledge/roadmap-format.md`
 

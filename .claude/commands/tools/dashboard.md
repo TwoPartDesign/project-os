@@ -49,6 +49,14 @@ node scripts/dashboard-server.ts [--port 3400] [--projects-root ~/projects]
 Opens at http://localhost:3400. Auto-refreshes via SSE when ROADMAP.md or activity.jsonl change.
 Requires Node 22.6+ (native TypeScript) or Bun. Requires internet for CDN-loaded Mermaid.js, htmx, and Pico CSS.
 
+### Board Tab
+
+The live dashboard includes a Board tab: a server-rendered Kanban view of ROADMAP.md, one column per lifecycle marker.
+
+- Columns: Draft `[?]`, Todo `[ ]`, WIP `[-]`, Racing `[>]` (shown only when occupied), Review `[~]`, Done `[x]`, Blocked `[!]`, plus a conditional Other column for any unrecognized marker
+- Served by `GET /api/kanban` — returns the Kanban HTML fragment for the current ROADMAP.md state
+- Auto-refreshes via the same SSE mechanism as the rest of the dashboard (ROADMAP.md or activity.jsonl changes push a refresh)
+
 ## Additional Details
 
 If `$ARGUMENTS` is a specific project name, show expanded detail:

@@ -106,6 +106,7 @@ activity.jsonl ─────────────┘         │
                                       ├── /api/status (HTML)
                                       ├── /api/dag (Mermaid)
                                       ├── /api/activity (HTML)
+                                      ├── /api/kanban (HTML — Board tab, columns per lifecycle marker)
                                       └── /api/status.json (JSON)
 ```
 
