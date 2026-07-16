@@ -7,6 +7,7 @@ import { existsSync, readFileSync, watch } from "fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "http";
 import { resolve } from "path";
 import { homedir } from "os";
+import { parseRoadmap, esc, statusLabels, dagColors, renderKanban, type Task } from "./lib/dashboard-render.ts";
 
 let port = 3400;
 let projectsRoot = "";
@@ -23,27 +24,6 @@ if (!projectsRoot) {
 projectsRoot = projectsRoot.replace(/^~/, homedir());
 // projectsRoot is parsed for future cross-project scanning (matching dashboard.sh behavior)
 
-const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-
-function parseRoadmap(path: string) {
-  const tasks = new Map<string, { id: string; title: string; marker: string; deps: string[] }>();
-  const totals: Record<string, number> = { "?": 0, " ": 0, "-": 0, "~": 0, ">": 0, x: 0, "!": 0 };
-  if (!existsSync(path)) return { tasks, totals };
-  try {
-    for (const line of readFileSync(path, "utf-8").split("\n")) {
-      const m = line.match(/^\s*-\s*\[(.)\]\s+(.+)\s+#(T\d+)\s*$/);
-      if (!m) continue;
-      const [, marker, raw, id] = m;
-      const depMatch = raw.match(/\(depends:\s*(#T\d+(?:,\s*#T\d+)*)\)/);
-      const deps = depMatch ? (depMatch[1].match(/#T\d+/g) || []).map((d) => d.slice(1)) : [];
-      const title = raw.replace(/\s*\(depends:.*?\)/, "").trim();
-      tasks.set(id, { id, title: esc(title), marker, deps });
-      if (marker in totals) totals[marker]++;
-    }
-  } catch { /* ignore */ }
-  return { tasks, totals };
-}
-
 function parseActivity(path: string) {
   if (!existsSync(path)) return [];
   try {
@@ -52,11 +32,6 @@ function parseActivity(path: string) {
   } catch { return []; }
 }
 
-const statusLabels: Record<string, [string, string]> = {
-  "?": ["Draft", "draft"], " ": ["Todo", "todo"], "-": ["WIP", "wip"],
-  "~": ["Review", "review"], x: ["Done", "done"], "!": ["Blocked", "blocked"], ">": ["Racing", "racing"],
-};
-
 function renderStatus(totals: Record<string, number>): string {
   let h = '<table><tr><th>Status</th><th>Count</th></tr>';
   for (const [k, [label, cls]] of Object.entries(statusLabels))
@@ -64,13 +39,12 @@ function renderStatus(totals: Record<string, number>): string {
   return h + "</table>";
 }
 
-function renderDag(tasks: Map<string, { id: string; title: string; marker: string; deps: string[] }>): string {
-  const colors: Record<string, string> = { x: "#22c55e", "-": "#3b82f6", "~": "#a855f7", " ": "#94a3b8", "!": "#ef4444", "?": "#eab308", ">": "#f97316" };
+function renderDag(tasks: Map<string, Task>): string {
   if (tasks.size === 0) return '<p style="color:#999">No tasks found</p>';
   let dag = "graph TD\n";
   for (const [, t] of tasks) {
     dag += `  ${t.id}["${t.title.substring(0, 40)}"]\n`;
-    dag += `  style ${t.id} fill:${colors[t.marker] || "#94a3b8"},stroke:#333,color:#000\n`;
+    dag += `  style ${t.id} fill:${dagColors[t.marker] || "#94a3b8"},stroke:#333,color:#000\n`;
   }
   for (const [, t] of tasks) for (const dep of t.deps) dag += `  ${dep} --> ${t.id}\n`;
   return `<pre class="mermaid">${dag}</pre>`;
@@ -104,6 +78,7 @@ createServer((req: IncomingMessage, res: ServerResponse) => {
   if (url === "/") return send(res, getPage());
   if (url === "/api/status") { const { totals } = parseRoadmap(resolve("ROADMAP.md")); return send(res, renderStatus(totals)); }
   if (url === "/api/dag") { const { tasks } = parseRoadmap(resolve("ROADMAP.md")); return send(res, renderDag(tasks)); }
+  if (url === "/api/kanban") { const { tasks } = parseRoadmap(resolve("ROADMAP.md")); return send(res, renderKanban(tasks)); }
   if (url === "/api/activity") return send(res, renderActivity(parseActivity(resolve(".claude/logs/activity.jsonl"))));
   if (url === "/api/status.json") {
     const { totals } = parseRoadmap(resolve("ROADMAP.md"));
@@ -138,19 +113,46 @@ table{width:100%}
 .card{background:var(--pico-card-background-color);padding:20px;border-radius:8px}
 .item{padding:8px 0;border-bottom:1px solid var(--pico-muted-border-color);font-size:13px}
 .item:last-child{border-bottom:0}.load{text-align:center;padding:20px;color:var(--pico-muted-color)}
+.tabs{display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid var(--pico-muted-border-color)}
+.tabs button{background:none;border:none;border-bottom:2px solid transparent;padding:8px 4px;cursor:pointer;color:var(--pico-muted-color);font-size:15px}
+.tabs button.active{color:var(--pico-color);border-bottom-color:var(--pico-primary)}
+.view[hidden]{display:none}
+.kanban{display:flex;gap:16px;overflow-x:auto;padding-bottom:8px}
+.kanban-col{min-width:220px;flex:0 0 220px;background:var(--pico-card-background-color);border:1px solid var(--pico-muted-border-color);border-radius:8px;padding:12px}
+.kanban-col h3{font-size:14px;margin:0 0 8px}
+.kanban-col ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.kanban-card{background:var(--pico-background-color);border:1px solid var(--pico-muted-border-color);border-radius:6px;padding:8px;font-size:13px}
+.kanban-card.blocked{border-color:#fca5a5;border-width:2px}
+.tid{font-family:monospace;font-weight:600}
+.deps{font-size:11px;color:var(--pico-muted-color);margin-top:4px}
 </style></head>
 <body><main class="container" hx-ext="sse" sse-connect="/events">
 <h1>Project OS Dashboard</h1><p>Live task tracking with dependency visualization</p>
+<nav class="tabs" role="tablist">
+<button role="tab" id="tab-overview" aria-selected="true" class="active" onclick="showView('overview')">Overview</button>
+<button role="tab" id="tab-board" aria-selected="false" onclick="showView('board')">Board</button>
+</nav>
+<div id="view-overview" class="view">
 <div class="grid">
 <div><h2>Task Status</h2><div id="status" hx-get="/api/status" hx-trigger="sse:refresh, load" hx-swap="innerHTML"><div class="load">Loading...</div></div></div>
 <div><h2>Dependencies</h2><div class="card" id="dag" hx-get="/api/dag" hx-trigger="sse:refresh, load" hx-swap="innerHTML"><div class="load">Loading...</div></div></div>
 </div>
 <div class="card"><h2>Activity Feed</h2><div id="activity" hx-get="/api/activity" hx-trigger="sse:refresh, load" hx-swap="innerHTML"><div class="load">Loading...</div></div></div>
+</div>
+<div id="view-board" class="view" hidden><div hx-get="/api/kanban" hx-trigger="sse:refresh, load" hx-swap="innerHTML"><div class="load">Loading...</div></div></div>
 </main>
 <script>mermaid.initialize({startOnLoad:false,theme:'default',securityLevel:'strict'});
 document.body.addEventListener('htmx:afterSwap',function(e){
   if(e.detail.target.id==='dag'){mermaid.run({nodes:e.detail.target.querySelectorAll('.mermaid')})}
-});</script></body></html>`;
+});
+function showView(v){
+  document.getElementById('view-overview').hidden=v!=='overview';
+  document.getElementById('view-board').hidden=v!=='board';
+  document.getElementById('tab-overview').setAttribute('aria-selected',v==='overview');
+  document.getElementById('tab-board').setAttribute('aria-selected',v==='board');
+  document.getElementById('tab-overview').classList.toggle('active',v==='overview');
+  document.getElementById('tab-board').classList.toggle('active',v==='board');
+}</script></body></html>`;
 }
 
 console.log(`Dashboard running at http://127.0.0.1:${port}`);
