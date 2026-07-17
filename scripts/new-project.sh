@@ -15,12 +15,12 @@
 #                       own but sits inside a parent git repository
 #                       (refused by default). (Adopt-mode only.)
 #
-#   NOTE: the adopt copy engine (template copies, orphan sweep, .obsidian
-#   handling) is implemented here (#T70). Remaining finish steps --
-#   gitignore block, .git init/setup.sh --adopt, generate-manifest.sh, the
-#   full adopt report, and the scaffold commit -- land in #T71. This script
-#   currently performs adopt-mode pre-flight, scaffold-directory creation,
-#   template copies, and the orphan sweep, then stops with a clear notice.
+#   The adopt copy engine (template copies, orphan sweep, .obsidian
+#   handling) is #T70; the finish sequence (chmod, gitignore block, .git
+#   init, setup.sh --adopt hook quarantine, generate-manifest.sh, the full
+#   adopt report, and the scaffold commit) is #T71. --dry-run runs the full
+#   classification + report with zero writes; a real run exits 0 on
+#   success.
 
 set -euo pipefail
 
@@ -131,6 +131,139 @@ run_mut() {
   fi
 }
 
+# gitignore_template -- prints the template .gitignore content to stdout.
+# Single source for BOTH modes (fresh mode writes it verbatim; adopt mode's
+# merge_gitignore below diffs against it). *.pre-adopt and
+# .claude.pre-adopt/ sit alongside *.upstream -- all three are adopt-mode
+# demotion/conflict artifacts that must never be committed.
+gitignore_template() {
+  cat <<'GI'
+CLAUDE.local.md
+.claude/sessions/
+.claude/logs/
+.claude/settings.local.json
+.claude/backups/
+*.upstream
+*.pre-adopt
+.claude.pre-adopt/
+node_modules/
+.env
+.env.*
+
+# Research output
+docs/research/
+
+# Feature specs (project-specific)
+docs/specs/*
+!docs/specs/.gitkeep
+
+# Memory (cross-session, local only)
+docs/memory/*
+!docs/memory/.gitkeep
+
+# Build output
+dist/
+build/
+
+# Obsidian user state (vault config is committed; workspace state is not)
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/cache
+GI
+}
+
+MARK_START="# >>> project-os >>>"
+MARK_END="# <<< project-os <<<"
+
+# merge_gitignore TARGET -- adopt-mode .gitignore step (design.md step 6).
+# TARGET absent -> write the template verbatim (sets GITIGNORE_MODIFIED=1).
+# TARGET present -> normalize the whole file to LF for comparison, strip any
+# existing project-os marker block (wherever it sits), recompute the block
+# from template lines not already present verbatim elsewhere in the file
+# (dedup), and re-append it at the end -- so a second run always finds the
+# block already in its recomputed position and converges (idempotent) even
+# though the block may move to EOF on its first rewrite. The WHOLE file is
+# then re-rendered using the file's ORIGINAL dominant line ending (CRLF if a
+# majority of its original lines ended \r\n, else LF), which guarantees no
+# mixed-ending duplicates rather than trying to preserve line endings
+# per-region. Sets GITIGNORE_MODIFIED=1 only if the resulting bytes differ
+# from what was on disk.
+GITIGNORE_MODIFIED=0
+merge_gitignore() {
+  target="$1"
+  GITIGNORE_MODIFIED=0
+
+  if [ ! -e "$target" ]; then
+    tmp_out="$(mktemp)"
+    gitignore_template > "$tmp_out"
+    run_mut cp "$tmp_out" "$target"
+    rm -f "$tmp_out"
+    GITIGNORE_MODIFIED=1
+    return 0
+  fi
+
+  # Dominant line ending of the file AS IT EXISTS ON DISK right now.
+  total_lines="$(wc -l < "$target" | tr -d ' ')"
+  crlf_lines="$(grep -c $'\r$' "$target" 2>/dev/null || true)"
+  crlf_lines="${crlf_lines:-0}"
+  eol=$'\n'
+  if [ "${total_lines:-0}" -gt 0 ] && [ "$crlf_lines" -ge $(( (total_lines + 1) / 2 )) ]; then
+    eol=$'\r\n'
+  fi
+
+  mapfile -t all_lines < <(sed 's/\r$//' "$target")
+
+  before=()
+  in_block=0
+  for line in "${all_lines[@]}"; do
+    if [ "$line" = "$MARK_START" ]; then in_block=1; continue; fi
+    if [ "$line" = "$MARK_END" ]; then in_block=0; continue; fi
+    [ "$in_block" -eq 1 ] && continue
+    before+=("$line")
+  done
+
+  mapfile -t template_lines < <(gitignore_template)
+
+  # Blank lines are template FORMATTING (section separators), never
+  # dedupeable content -- deduping them against "before" would (a) collapse
+  # every blank the template has whenever the user's own .gitignore already
+  # contains any blank line, and (b) on a re-run, collapse them all against
+  # the single separator blank this function itself writes just before
+  # MARK_START (see final[] below), which survives stripping because it
+  # sits OUTSIDE the marker block and so lands back in "before" next time.
+  # Always keep every blank line from the template; only dedupe real
+  # patterns.
+  block=()
+  for tline in "${template_lines[@]}"; do
+    if [ -z "$tline" ]; then
+      block+=("$tline")
+      continue
+    fi
+    found=0
+    for eline in "${before[@]}"; do
+      if [ "$eline" = "$tline" ]; then found=1; break; fi
+    done
+    if [ "$found" -eq 0 ]; then block+=("$tline"); fi
+  done
+
+  final=("${before[@]}")
+  if [ "${#final[@]}" -gt 0 ] && [ -n "${final[${#final[@]}-1]}" ]; then
+    final+=("")
+  fi
+  final+=("$MARK_START" "${block[@]}" "$MARK_END")
+
+  tmp_out="$(mktemp)"
+  for l in "${final[@]}"; do
+    printf "%s%s" "$l" "$eol" >> "$tmp_out"
+  done
+
+  if ! cmp -s "$tmp_out" "$target"; then
+    GITIGNORE_MODIFIED=1
+    run_mut cp "$tmp_out" "$target"
+  fi
+  rm -f "$tmp_out"
+}
+
 # ---- Arg parsing / mode dispatch ----
 # A single pass over "$@" classifies known adopt-mode flags; everything
 # else (including any argument that happens to start with "--" but isn't
@@ -217,6 +350,7 @@ FRAMEWORK_FILES_OPTIONAL=(
   "scripts/security-scanner.ts"
   "scripts/system-map.ts"
   "scripts/maintain-draft.ts"
+  "scripts/detect-stack.ts"
 )
 # Content class: never executed by any tool -- the user's file always wins
 # the canonical path in adopt mode. Entries are "SRC_REL|DST_REL"; ROADMAP
@@ -506,33 +640,147 @@ if [ "$MODE" = "adopt" ]; then
     fi
   done
 
-  # --- Copy-pass + sweep summary (informational; the full formatted adopt
-  # report lands in #T71) ---
-  echo ""
-  echo "Copy pass summary:"
-  echo "  CREATED: ${#CREATED_LIST[@]}"
-  echo "  CONFLICT (.upstream, user's file kept canonical): ${#CONFLICT_LIST[@]}"
-  for c in "${CONFLICT_LIST[@]}"; do echo "    $c"; done
-  echo "  DEMOTED (.pre-adopt, ours is now canonical): ${#DEMOTED_LIST[@]}"
-  for d in "${DEMOTED_LIST[@]}"; do echo "    $d"; done
-  echo "  CLAUDE ORPHANS quarantined to .claude.pre-adopt/: ${#CLAUDE_ORPHAN_LIST[@]}"
-  for o in "${CLAUDE_ORPHAN_LIST[@]}"; do echo "    $o"; done
-  echo "  UNREVIEWED-EXECUTABLE (scripts/ orphans + .obsidian plugin flags): ${#ORPHAN_EXEC_LIST[@]}"
-  for o in "${ORPHAN_EXEC_LIST[@]}"; do echo "    $o"; done
+  # --- chmod +x on adopt-copied .sh files (mirrors fresh-mode's chmod step
+  # below; deferred from #T70) ---
+  run_mut find "$ADOPT_TARGET/scripts" -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
+  run_mut find "$ADOPT_TARGET/.claude/hooks" -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
+  run_mut find "$ADOPT_TARGET/.claude/security" -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
 
-  # --- Adopt finish steps not yet implemented (#T71) ---
-  # Template copies, the orphan sweep, and .obsidian handling are complete
-  # and safely re-runnable. gitignore block, .git init, setup.sh --adopt
-  # (hook quarantine), generate-manifest.sh, the full formatted adopt
-  # report, and the scaffold commit land in #T71. Stop here so a partial
-  # adoption can never half-run.
-  echo ""
-  echo "adopt finish steps pending (#T71)." >&2
-  if [ "$DRY_RUN" -eq 1 ]; then
-    exit 0
-  else
-    exit 3
+  # --- .gitignore (design.md step 6) ---
+  merge_gitignore "$ADOPT_TARGET/.gitignore"
+
+  # --- git init only when no .git (file or dir) already exists (step 7) ---
+  if [ ! -e "$ADOPT_TARGET/.git" ]; then
+    run_mut git -C "$ADOPT_TARGET" init --quiet
   fi
+
+  # --- Git hook quarantine classification (step 8) ---
+  # Mirrors security-scanner.ts's own "already ours?" marker check so the
+  # report (and --dry-run) reflect what setup.sh --adopt will do (or would
+  # do) without requiring it to actually run first. Read-only -- never
+  # gated by DRY_RUN. A brand-new `git init` has no hooks dir contents yet,
+  # so this naturally finds nothing to quarantine on a target with no prior
+  # .git.
+  if HOOKS_DIR="$(git -C "$ADOPT_TARGET" rev-parse --git-path hooks 2>/dev/null)"; then
+    case "$HOOKS_DIR" in
+      /*|[A-Za-z]:*) : ;;
+      *) HOOKS_DIR="$ADOPT_TARGET/$HOOKS_DIR" ;;
+    esac
+    for hook in pre-commit pre-push; do
+      hook_path="$HOOKS_DIR/$hook"
+      if [ -f "$hook_path" ] && ! grep -q "Auto-installed by Project OS security scanner" "$hook_path" 2>/dev/null; then
+        QUARANTINED_HOOKS+=("$hook")
+      fi
+    done
+  fi
+
+  # --- setup.sh --adopt: installs hooks in quarantine mode (--no-chain),
+  # renaming any pre-existing unmarked hook to <hook>.pre-adopt instead of
+  # chaining it (step 8 continued). install-hooks.sh -> security-scanner.ts
+  # resolve the git/project root from the PROCESS cwd (process.cwd()), not
+  # from the script's own path -- so, mirroring fresh mode's `cd
+  # "$FULL_PATH"` before its own setup.sh call, this must run with cwd
+  # already inside ADOPT_TARGET. bash -c keeps this a single command for
+  # run_mut (which just execs its argv, no shell parsing of its own). ---
+  run_mut bash -c 'cd "$1" && exec bash "$1/scripts/setup.sh" --adopt' _ "$ADOPT_TARGET" || echo "WARN: setup.sh --adopt reported an issue; run 'cd $ADOPT_TARGET && bash scripts/setup.sh --adopt' manually after reviewing the output above." >&2
+
+  # --- generate-manifest.sh, invoked exactly as fresh mode does (step 9).
+  # scripts/ is framework class, so this copy is guaranteed ours. ---
+  TEMPLATE_VERSION=$(git -C "$TEMPLATE_DIR" describe --tags --abbrev=0 2>/dev/null || echo "unknown")
+  run_mut bash "$ADOPT_TARGET/scripts/generate-manifest.sh" "$TEMPLATE_VERSION"
+
+  # --- .claude/manifest.json and docs/maps/* are generated IN PLACE by
+  # generate-manifest.sh / setup.sh's system-map step above, not via
+  # copy_safe, so they never landed in CREATED_LIST. Add any that exist and
+  # are not already tracked by git so they ride the same commit pathspec as
+  # everything else (never rely on the pre-commit hook's own auto-heal
+  # staging to carry them in -- that only fires if the hook happens to run
+  # and succeed). Skip already-tracked files so a completed-run re-adopt
+  # (setup.sh --adopt / generate-manifest.sh are both idempotent and leave
+  # these byte-identical) doesn't manufacture a non-empty CREATED_LIST and
+  # break the "skip commit when nothing changed" guarantee.
+  if [ "$DRY_RUN" -eq 0 ]; then
+    for extra in "$ADOPT_TARGET/.claude/manifest.json" "$ADOPT_TARGET/docs/maps/.maps.lock" "$ADOPT_TARGET/docs/maps/module-graph.mmd" "$ADOPT_TARGET/docs/maps/system-map.md"; do
+      if [ -f "$extra" ] && ! git -C "$ADOPT_TARGET" ls-files --error-unmatch "${extra#"$ADOPT_TARGET"/}" >/dev/null 2>&1; then
+        CREATED_LIST+=("$extra")
+      fi
+    done
+  fi
+
+  # --- Adopt report, printed BEFORE any commit (step 10) ---
+  echo ""
+  echo "===== ADOPT REPORT ====="
+  echo ""
+  echo "CREATED (${#CREATED_LIST[@]} files):"
+  if [ "${#CREATED_LIST[@]}" -gt 20 ]; then
+    for f in "${CREATED_LIST[@]:0:20}"; do echo "  $f"; done
+    echo "  ...and $(( ${#CREATED_LIST[@]} - 20 )) more"
+  else
+    for f in "${CREATED_LIST[@]}"; do echo "  $f"; done
+  fi
+  echo ""
+  echo "CONFLICT -- your file kept canonical; ours landed beside it as <file>.upstream, review and merge by hand (${#CONFLICT_LIST[@]}):"
+  for f in "${CONFLICT_LIST[@]}"; do echo "  $f"; done
+  echo ""
+  echo "DEMOTED -- review before your next Claude session: these previously held execution authority (${#DEMOTED_LIST[@]} + ${#CLAUDE_ORPHAN_LIST[@]} orphans):"
+  for f in "${DEMOTED_LIST[@]}"; do echo "  $f"; done
+  for f in "${CLAUDE_ORPHAN_LIST[@]}"; do echo "  $f"; done
+  echo ""
+  echo "UNREVIEWED-EXECUTABLE -- template settings.json permissions pre-approve running scripts/*.sh; review these before your next session (${#ORPHAN_EXEC_LIST[@]}):"
+  for f in "${ORPHAN_EXEC_LIST[@]}"; do echo "  $f"; done
+  echo ""
+  echo "QUARANTINED GIT HOOKS -- renamed <hook>.pre-adopt, never chained; review and manually reinstall if wanted (${#QUARANTINED_HOOKS[@]}):"
+  for h in "${QUARANTINED_HOOKS[@]}"; do echo "  $h"; done
+  if [ "${#WARNINGS[@]}" -gt 0 ]; then
+    echo ""
+    echo "WARNINGS:"
+    for w in "${WARNINGS[@]}"; do echo "  $w"; done
+  fi
+  echo ""
+  echo "Next step: cd $ADOPT_TARGET && claude, then run /tools:init to fill in project variables."
+  echo ""
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "(--dry-run: no files were written; the report above reflects the plan a real run would execute.)"
+    exit 0
+  fi
+
+  # --- Commit (adopt), step 11. NEVER git add . / git add -A here: only the
+  # files this run actually created (+ .gitignore if it changed) may be
+  # staged, so a pre-existing repo's other untracked/modified files are
+  # never swept into our commit. ---
+  if ! git -C "$ADOPT_TARGET" diff --cached --quiet 2>/dev/null; then
+    echo "Skipping commit: $ADOPT_TARGET's git index already has staged changes."
+    echo "Review the CREATED files listed above, then stage and commit yourself, e.g.:"
+    echo "  git -C \"$ADOPT_TARGET\" add <files>"
+    echo "  git -C \"$ADOPT_TARGET\" commit -m \"chore: adopt Project OS scaffold\""
+    exit 0
+  fi
+
+  PATHSPEC_FILE="$(mktemp)"
+  for f in "${CREATED_LIST[@]}"; do
+    printf '%s\n' "${f#"$ADOPT_TARGET"/}" >> "$PATHSPEC_FILE"
+  done
+  if [ "$GITIGNORE_MODIFIED" -eq 1 ]; then
+    printf '%s\n' ".gitignore" >> "$PATHSPEC_FILE"
+  fi
+
+  if [ ! -s "$PATHSPEC_FILE" ]; then
+    echo "Nothing to commit (no new or changed files this run)."
+    rm -f "$PATHSPEC_FILE"
+    exit 0
+  fi
+
+  git -C "$ADOPT_TARGET" add --pathspec-from-file="$PATHSPEC_FILE"
+  rm -f "$PATHSPEC_FILE"
+
+  COMMIT_MSG_FILE="$(mktemp)"
+  printf 'chore: adopt Project OS scaffold\n' > "$COMMIT_MSG_FILE"
+  git -C "$ADOPT_TARGET" commit --quiet -F "$COMMIT_MSG_FILE"
+  rm -f "$COMMIT_MSG_FILE"
+
+  echo "Committed Project OS scaffold to $ADOPT_TARGET."
+  exit 0
 fi
 
 # ================= Fresh-bootstrap mode (unchanged behavior) =================
@@ -616,37 +864,10 @@ TEMPLATE_VERSION=$(git -C "$TEMPLATE_DIR" describe --tags --abbrev=0 2>/dev/null
 bash "$FULL_PATH/scripts/generate-manifest.sh" "$TEMPLATE_VERSION"
 
 cd "$FULL_PATH"
-cat > .gitignore << 'GI'
-CLAUDE.local.md
-.claude/sessions/
-.claude/logs/
-.claude/settings.local.json
-.claude/backups/
-*.upstream
-node_modules/
-.env
-.env.*
-
-# Research output
-docs/research/
-
-# Feature specs (project-specific)
-docs/specs/*
-!docs/specs/.gitkeep
-
-# Memory (cross-session, local only)
-docs/memory/*
-!docs/memory/.gitkeep
-
-# Build output
-dist/
-build/
-
-# Obsidian user state (vault config is committed; workspace state is not)
-.obsidian/workspace.json
-.obsidian/workspace-mobile.json
-.obsidian/cache
-GI
+# Single source of truth shared with adopt mode's merge_gitignore (see
+# gitignore_template() above) -- keeps *.pre-adopt/.claude.pre-adopt/
+# entries in sync across both modes without a second copy of this list.
+gitignore_template > .gitignore
 
 git init
 
