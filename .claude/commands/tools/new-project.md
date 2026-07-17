@@ -20,11 +20,12 @@ pwd
 
 Then check what kind of directory this is. Run these checks:
 
-1. **Is CWD an existing Project OS project?** Check if `CLAUDE.md` exists in CWD.
-2. **Is CWD a projects parent directory?** Check if CWD contains subdirectories that have `.git/` or `CLAUDE.md` inside them (i.e., it holds multiple projects). Also match if the folder name contains "Projects" or "repos" (case-insensitive).
-3. **Is CWD an empty or near-empty folder?** (no `.git/`, no `CLAUDE.md`, few or no files)
+1. **Is CWD an existing Project OS project?** Check if `.claude/manifest.json` exists in CWD. (This is the Project OS marker — a bare `CLAUDE.md` no longer counts; a repo with only a `CLAUDE.md` is adoptable, see Case E.)
+2. **Is CWD a projects parent directory?** Check if CWD contains subdirectories that have `.git/` or `.claude/manifest.json` inside them (i.e., it holds multiple projects). Also match if the folder name contains "Projects" or "repos" (case-insensitive).
+3. **Is CWD an empty or near-empty folder?** (no `.git/`, no `.claude/manifest.json`, few or no files)
+4. **Is CWD a non-empty codebase that isn't Project OS?** True when checks 1 and 3 are both false — there's real content here (code, a `.git/`, maybe even a plain `CLAUDE.md`), but no `.claude/manifest.json`.
 
-Use these results to classify CWD into one of four cases:
+Use these results to classify CWD into one of five cases. Evaluate in this order — first match wins: check 2 → **Case A**; else check 1 → **Case B**; else check 3 → **Case C**; else check 4 → **Case E**; else → **Case D**.
 
 #### Case A — CWD is a projects parent directory
 
@@ -37,7 +38,7 @@ Jump straight to **Question 1 — Project name** (skip Question 2).
 
 #### Case B — CWD is an existing Project OS project
 
-The user is inside a project already. They probably want to create a sibling.
+Detected via `.claude/manifest.json`. The user is inside a project already. They probably want to create a sibling.
 
 Print:
 > "You're inside an existing project (`<cwd-folder-name>`). I'll create the new project alongside it in `<parent-of-cwd>`."
@@ -60,9 +61,87 @@ If **Yes**: set project name to the suggested name and parent path to parent of 
 
 If **No**: proceed to Question 1 and Question 2 as normal (Case D).
 
+#### Case E — non-empty codebase, not Project OS
+
+The folder has real content (code, a `.git/`, maybe even a plain `CLAUDE.md`) but no `.claude/manifest.json` — it isn't a Project OS project yet. Offer to adopt it in place, preserving everything, or fall back to sibling-folder creation.
+
+Take the last path segment as the **CWD folder name**.
+
+Print:
+> "This folder (`<cwd-folder-name>`) already has content, but it isn't set up with Project OS yet. I can:"
+>
+> 1. **Adopt this folder** — set up Project OS *in this folder*, preserving everything that's already here
+> 2. **Create a new project instead** — leave this folder alone and set up a fresh project in a sibling folder
+
+If **2 — Create a new project instead**: proceed to Question 1 and Question 2 as normal (same behavior as Case D — no assumptions, ask both questions).
+
+If **1 — Adopt this folder**: run the **adopt flow** below instead of the normal Steps 2-6 further down this file. Adoption is self-contained — do not also run the bootstrap Steps 2-6 for this session.
+
+##### Adopt flow
+
+Print: `[1/6] Downloading the latest Project OS template from GitHub...`
+
+Run (same mechanics as Step 2 below):
+```bash
+rm -rf /tmp/project-os-bootstrap
+git clone https://github.com/TwoPartDesign/project-os.git /tmp/project-os-bootstrap
+```
+
+If the clone fails, print the same message as Step 2 and **stop**.
+
+Print: `[2/6] Checking what adoption would do (dry run)...`
+
+Run:
+```bash
+bash /tmp/project-os-bootstrap/scripts/new-project.sh --adopt "<cwd-path>" --dry-run
+```
+
+Echo the full plan to the user. Call out the **DEMOTED** and **UNREVIEWED-EXECUTABLE** sections prominently — these are files that previously held execution authority in this folder (a pre-existing `.claude/settings.json`, git hooks, `scripts/*` files) and need a manual review pass after adoption.
+
+**If the dry run refuses with a nested-repo error** (this folder has no `.git` of its own but resolves inside a parent git repo): surface the choice —
+> "This folder is nested inside another git repository. Adopting here would create a repo-in-a-repo. Proceed anyway?"
+>
+> 1. **Yes** — re-run with `--allow-nested`
+> 2. **No** — stop here; suggest a different folder, or sibling-folder creation (option 2 above) instead
+
+If **Yes**, re-run the dry run with the flag added and echo the updated plan:
+```bash
+bash /tmp/project-os-bootstrap/scripts/new-project.sh --adopt "<cwd-path>" --dry-run --allow-nested
+```
+If **No**, **stop** the adopt flow entirely.
+
+**If the dry run refuses because `.claude/manifest.json` already exists** or **because a symlink was found under a template-managed path**, print the refusal message verbatim and **stop** — do not offer a retry (see error-handling table below).
+
+Ask: "Proceed with adoption? (Y/N)"
+
+If **N**: confirm nothing was changed and **stop**.
+
+If **Y**: print `[3/6] Adopting Project OS into this folder...` and run the real (non-dry) command — add `--allow-nested` only if that branch was taken above:
+```bash
+bash /tmp/project-os-bootstrap/scripts/new-project.sh --adopt "<cwd-path>"
+```
+
+Echo the final adopt report in full (CREATED / CONFLICT / DEMOTED / UNREVIEWED-EXECUTABLE / quarantined git hooks / commit status). If the report says the commit was skipped because the git index already had staged changes, tell the user their staged changes were left untouched and to review + commit both sets of changes manually.
+
+Print: `[4/6] Cleaning up temporary files...`
+```bash
+rm -rf /tmp/project-os-bootstrap
+```
+
+Print: `[5/6] Detecting your stack...`
+```bash
+node scripts/detect-stack.ts
+```
+Show the detected stack summary (language, package manager, framework, database, test runner, formatter, confidence) to the user.
+
+Print: `[6/6] Done!`
+> "Project OS is now set up in `<cwd-path>`. Type `/tools:init` to finish setup — it'll use the detected stack to help fill in your project variables."
+
+Hand off to `/tools:init` (same closing UX as the other cases). Skip Step 5's new-terminal logic — you're already in the target directory.
+
 #### Case D — Unknown / none of the above
 
-No assumptions. Ask both questions.
+None of Cases A, B, C, or E matched. No assumptions. Ask both questions.
 
 ---
 
@@ -250,3 +329,7 @@ Follow the steps above to open it in Claude, then type /tools:init to finish set
 | new-project.sh fails | Show error, stop |
 | cmd.exe unavailable | Print manual instructions |
 | Target dir already exists | new-project.sh will catch it; surface its error |
+| Target already has `.claude/manifest.json` (Case E adopt refused) | `--adopt` exits refusing to overwrite an existing Project OS project; print the refusal and point the user to `/tools:update` instead; stop |
+| Symlink found under a template-managed destination path or ancestor during adopt | `--adopt` hard-fails before writing anything; print the offending path verbatim and stop — do not retry automatically |
+| Nested-repo detected during adopt (no local `.git`, resolves inside a parent repo) without `--allow-nested` | Surface the choice per the adopt flow above; re-run with `--allow-nested` only on explicit user "Yes" |
+| Git index has staged changes at adopt-commit time | The adopt commit is skipped (never `git add .`); print the CREATED file list and tell the user to review and commit both sets of changes manually |
