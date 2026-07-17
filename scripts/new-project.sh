@@ -705,7 +705,15 @@ if [ "$MODE" = "adopt" ]; then
       /*|[A-Za-z]:*) : ;;
       *) HOOKS_DIR="$ADOPT_TARGET/$HOOKS_DIR" ;;
     esac
-    for hook in pre-commit pre-push; do
+    # Same 20 standard hook names security-scanner.ts's ALL_GIT_HOOK_NAMES
+    # quarantines in --no-chain mode -- keep the lists in sync (review r2
+    # MEDIUM: the report, and especially --dry-run, must reflect the full
+    # quarantine scope, not just pre-commit/pre-push).
+    for hook in applypatch-msg pre-applypatch post-applypatch pre-commit \
+                pre-merge-commit prepare-commit-msg commit-msg post-commit \
+                pre-rebase post-checkout post-merge pre-push pre-receive \
+                update post-receive post-update push-to-checkout pre-auto-gc \
+                post-rewrite sendemail-validate; do
       hook_path="$HOOKS_DIR/$hook"
       if [ -f "$hook_path" ] && ! grep -q "Auto-installed by Project OS security scanner" "$hook_path" 2>/dev/null; then
         QUARANTINED_HOOKS+=("$hook")
