@@ -67,7 +67,7 @@
     "scripts/maintain.sh": "bf067e876be059d623cd7ed9a106c2c03af90a6026414c36487651dacf705023",
     "scripts/memory-search.sh": "d267f24d2eaeb23ba78abfcd160bdac6876ddb6016bec651d5dcd84e742dee90",
     "scripts/new-project.sh": "034c249eb2f1f5fba454a15a684dda57ac03ca94eee645ea84c6ee6f5a0e6f0a",
-    "scripts/observation-parser.ts": "d4b6dc0c264f616ad7ad501444375ade699c0c8176179cf3b3df1c819e28064d",
+    "scripts/observation-parser.ts": "5fda44a76e8c9cd863e6ceccac0e4e36809ff922d076bb52c9fd2fd76d864e98",
     "scripts/scrub-secrets.sh": "9878c06084c956008b978023c7efc6571d989efe94715fe4ddd9641277f4896a",
     "scripts/security-scanner.ts": "8412adf82b156ce9472ef65521875f3abc414e981b166d6cb81619c8b0f6c6dd",
     "scripts/setup.sh": "a98d4d1a847a1bd8d19001a90c847f41cc691704f9980df9b8d4be3b62b4ee4b",
@@ -84,7 +84,7 @@
     "tests/maintain-draft.test.ts": "17d63b4e5d446e2767d92935d249a018bbe4f54a7dc56ad4f40d21ca7aee87ac",
     "tests/maintain-smoke.sh": "38f5c44f60a702b4ce64840c2133cc5b9e02828e19640a7f78877b96835b7172",
     "tests/new-project-smoke.sh": "9cbcc2f4e04ee9b59bd3983a1258f5ea69de9614ac4be49d00f76809a30d8209",
-    "tests/observation-parser.test.ts": "20ace66400c49f736c2d1d1503988f70abeae769908bab259997d34b46d42f6b",
+    "tests/observation-parser.test.ts": "231883f297af5d54c9410cc035a7e4b0bcaad239239b9f3e8b0b73928317447a",
     "tests/scanner-smoke.sh": "c5f49d4398bd56bd3736db5fb6b13435b4585e7d0f13f31cf4e5284113a7f3a8",
     "tests/system-map-smoke.sh": "c9d83f43eb1bd3ad806c47a18c1628dff41e1ca57599345816bf6b084f32e991",
     "tests/system-map.test.ts": "a30c8f6feff6fcfb2377e26e0b8ae102fe153ef84177162862ffd5412facbc8c"

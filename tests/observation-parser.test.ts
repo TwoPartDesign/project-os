@@ -15,6 +15,7 @@ import {
   extractFunctionSigs,
   extractDependencyChains,
   parseObservations,
+  parse,
 } from "../scripts/observation-parser.ts";
 
 // ==========================================================================
@@ -48,21 +49,39 @@ describe("extractErrorPatterns", () => {
     strictEqual(result[0].line_number, 1);
   });
 
-  it("extractErrorPatterns_stackTraceFollowingError_mergedIntoContentAndAlsoEmittedStandalone", () => {
-    // Documents actual behavior: the collection loop merges up to 3 following
-    // stack-trace lines into the error observation's content, but the outer
-    // loop still visits those same lines afterward and (since their
-    // standalone trimmed text was never added to `seen`) emits them a
-    // second time as separate medium-confidence observations. This is a
-    // discrepancy from the docstring, which doesn't mention duplication.
+  it("extractErrorPatterns_stackTraceFollowingError_mergedIntoContentNotEmittedStandalone", () => {
+    // Fixed behavior (T55): the collection loop merges up to 3 following
+    // stack-trace lines into the error observation's content, and those same
+    // lines are now marked as seen (and skipped by the outer loop's index),
+    // so they are NOT also emitted a second time as separate medium-
+    // confidence observations.
     const result = extractErrorPatterns(["Error: boom", "    at Object.a (f.js:1:1)"]);
-    strictEqual(result.length, 2);
+    strictEqual(result.length, 1);
     strictEqual(result[0].confidence, "high");
     strictEqual(result[0].content, "Error: boom\nat Object.a (f.js:1:1)");
     strictEqual(result[0].line_number, 1);
+  });
+
+  it("extractErrorPatterns_fourStackTraceLinesFollowingError_fourthEmittedStandalone", () => {
+    // The merge cap is 3 following stack-trace lines; a 4th genuinely
+    // separate stack line beyond the cap is still emitted on its own,
+    // proving the T55 fix only suppresses the lines actually merged.
+    const result = extractErrorPatterns([
+      "Error: boom",
+      "    at Object.a (f.js:1:1)",
+      "    at Object.b (f.js:2:1)",
+      "    at Object.c (f.js:3:1)",
+      "    at Object.d (f.js:4:1)",
+    ]);
+    strictEqual(result.length, 2);
+    strictEqual(result[0].confidence, "high");
+    strictEqual(
+      result[0].content,
+      "Error: boom\nat Object.a (f.js:1:1)\nat Object.b (f.js:2:1)\nat Object.c (f.js:3:1)",
+    );
     strictEqual(result[1].confidence, "medium");
-    strictEqual(result[1].content, "at Object.a (f.js:1:1)");
-    strictEqual(result[1].line_number, 2);
+    strictEqual(result[1].content, "at Object.d (f.js:4:1)");
+    strictEqual(result[1].line_number, 5);
   });
 
   it("extractErrorPatterns_regularLogLine_noObservation", () => {
@@ -196,6 +215,30 @@ describe("extractConfigKeys", () => {
     ok(!serialized.includes("SHOULD_NOT_LEAK"), "camelCase authToken value leaked");
   });
 
+  it("extractConfigKeys_digitBearingNonSecretJsonKey_extracted", () => {
+    // T57: the JSON key regex previously excluded digits, so keys like
+    // "s3Bucket" were silently skipped even though they're not sensitive.
+    const result = extractConfigKeys(['{"s3Bucket": "my-bucket", "name": "app"}']);
+    strictEqual(result.length, 2);
+    const keys = result.map((o) => o.metadata.key);
+    deepStrictEqual(keys, ["s3Bucket", "name"]);
+    strictEqual(result[0].metadata.value, "my-bucket");
+  });
+
+  it("extractConfigKeys_digitBearingSecretJsonKeys_excludedFromOutput", () => {
+    // T57 regression guard: widening the JSON key charset to allow digits
+    // must not bypass the sensitive-key denylist for digit-bearing secret
+    // keys like "oauth2Token" / "s3Secret".
+    const lines = [
+      '{"oauth2Token": "ya29.SHOULD-NOT-LEAK", "s3Secret": "AKIA-SHOULD-NOT-LEAK", "s3Bucket": "public-bucket"}',
+    ];
+    const result = extractConfigKeys(lines);
+    const keys = result.map((o) => o.metadata.key);
+    deepStrictEqual(keys, ["s3Bucket"]);
+    const serialized = JSON.stringify(result);
+    ok(!serialized.includes("SHOULD-NOT-LEAK"), "digit-bearing secret key value leaked into output");
+  });
+
   it("extractConfigKeys_duplicateEnvVarLines_deduped", () => {
     const result = extractConfigKeys(["PORT=3000", "PORT=3000"]);
     strictEqual(result.length, 1);
@@ -324,9 +367,10 @@ describe("parseObservations", () => {
     const text = fixtureLines.join("\n");
 
     // raw_line_count as computed by the CLI (text.split("\n").length) —
-    // parseObservations itself only returns Observation[], not a ParseResult;
-    // the CLI (isMain block) assembles {observations, raw_line_count,
-    // observation_count} inline and is not separately exported.
+    // parseObservations() itself only returns Observation[], not a
+    // ParseResult; the CLI (isMain block) uses the exported parse() wrapper
+    // (see the "parse" describe block below) to get raw_line_count /
+    // observation_count alongside the observations.
     strictEqual(text.split("\n").length, 5);
 
     const observations = parseObservations(text);
@@ -363,5 +407,32 @@ describe("parseObservations", () => {
       !observations.some((o) => o.metadata.key === "KEY_100"),
       "expected the 101st distinct observation to be dropped by the 100-item cap",
     );
+  });
+});
+
+// ==========================================================================
+// parse (T56: exported ParseResult wrapper around parseObservations)
+// ==========================================================================
+
+describe("parse", () => {
+  it("parse_multiTypeFixture_returnsParseResultShapeMatchingParseObservations", () => {
+    const fixtureLines = ["TypeError: something broke", "PORT=3000"];
+    const text = fixtureLines.join("\n");
+
+    const result = parse(text);
+
+    strictEqual(result.raw_line_count, 2);
+    strictEqual(result.observation_count, result.observations.length);
+    strictEqual(result.observation_count, 2);
+    deepStrictEqual(result.observations, parseObservations(text));
+  });
+
+  it("parse_emptyInput_zeroCountsWithOneRawLine", () => {
+    // "".split("\n") is [""], so raw_line_count is 1 for an empty string —
+    // matches the CLI's prior inline computation of lines.length.
+    const result = parse("");
+    strictEqual(result.raw_line_count, 1);
+    strictEqual(result.observation_count, 0);
+    deepStrictEqual(result.observations, []);
   });
 });
