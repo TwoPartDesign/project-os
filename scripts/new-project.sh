@@ -413,22 +413,33 @@ if [ "$MODE" = "adopt" ]; then
   fi
 
   # Symlink pre-flight: hard fail if any template-managed destination tree
-  # root, or template-managed root file, is itself a symlink. Prevents
-  # scaffold writes from escaping the target through a planted link.
-  # Scope: the top-level template-managed entries directly under the
-  # target (.claude, scripts, docs, .obsidian trees + root files) -- these
-  # are all direct children of ADOPT_TARGET, so checking them covers their
-  # own "ancestor" (the target root) by construction. Symlinks planted
-  # deeper inside one of these trees are out of scope for this pre-flight
-  # scan; copy_safe/copy_tree_safe use `find` (no -L), which does not
-  # follow symlinked directories, and `cp`/`mv` on a per-file basis, so a
-  # deeper symlink is simply skipped rather than written through.
+  # root, template-managed root file, or ANY path NESTED beneath one of the
+  # managed trees, is a symlink. Prevents scaffold writes from
+  # escaping the target through a planted link. copy_safe/copy_tree_safe's
+  # `mkdir -p` and `cp`/`mv` write THROUGH a destination symlink -- a link
+  # planted deep inside .claude/, scripts/, docs/, or .obsidian/ lets a
+  # scaffold write land outside ADOPT_TARGET. (The `find` calls those
+  # helpers use walk TEMPLATE_DIR -- the read-only *source* tree -- and not
+  # following symlinked directories there protects against a hostile
+  # template, not a hostile destination; it says nothing about writes into
+  # ADOPT_TARGET, so it cannot substitute for scanning the destination.)
+  # Scope: top-level entries directly under the target (.claude, scripts,
+  # docs, .obsidian trees + root files) via -L, PLUS a recursive `find
+  # -type l` under each of those trees (only for trees that exist) to catch
+  # nested links.
   SYMLINK_HITS=()
   for rel in .claude scripts docs .obsidian CLAUDE.md ROADMAP.md global-CLAUDE.md .gitignore; do
     path="$ADOPT_TARGET/$rel"
     if [ -L "$path" ]; then
       SYMLINK_HITS+=("$path")
     fi
+  done
+  for rel in .claude scripts docs .obsidian; do
+    dir="$ADOPT_TARGET/$rel"
+    [ -d "$dir" ] || continue
+    while IFS= read -r link; do
+      SYMLINK_HITS+=("$link")
+    done < <(find "$dir" -type l | sort)
   done
   if [ "${#SYMLINK_HITS[@]}" -gt 0 ]; then
     echo "ERROR: refusing to adopt -- symlink(s) found at template-managed path(s):" >&2
@@ -495,13 +506,17 @@ if [ "$MODE" = "adopt" ]; then
   # scripts/** so the sweep below (which runs after the copy pass) reflects
   # what was there originally -- not files copy_safe itself just
   # created/demoted during this run.
+  # \( -type f -o -type l \) (not just -type f) so a symlink orphan is seen
+  # by the sweep too -- defense-in-depth behind the pre-flight symlink
+  # refusal above, which already hard-fails before any of this runs; in
+  # practice a symlink here means the pre-flight scan above missed it.
   PRE_CLAUDE_FILES=()
   if [ -d "$ADOPT_TARGET/.claude" ]; then
-    while IFS= read -r f; do PRE_CLAUDE_FILES+=("$f"); done < <(find "$ADOPT_TARGET/.claude" -type f | sort)
+    while IFS= read -r f; do PRE_CLAUDE_FILES+=("$f"); done < <(find "$ADOPT_TARGET/.claude" \( -type f -o -type l \) | sort)
   fi
   PRE_SCRIPTS_FILES=()
   if [ -d "$ADOPT_TARGET/scripts" ]; then
-    while IFS= read -r f; do PRE_SCRIPTS_FILES+=("$f"); done < <(find "$ADOPT_TARGET/scripts" -type f | sort)
+    while IFS= read -r f; do PRE_SCRIPTS_FILES+=("$f"); done < <(find "$ADOPT_TARGET/scripts" \( -type f -o -type l \) | sort)
   fi
 
   # --- Template copies via copy_safe, one shared list per design.md step 4 ---
@@ -611,9 +626,20 @@ if [ "$MODE" = "adopt" ]; then
         ;;
     esac
   done
-  for rel in "${FRAMEWORK_FILES[@]}" "${FRAMEWORK_FILES_OPTIONAL[@]}"; do
+  for rel in "${FRAMEWORK_FILES[@]}"; do
     case "$rel" in
       scripts/*) TEMPLATE_SCRIPTS_RELPATHS["$rel"]=1 ;;
+    esac
+  done
+  # FRAMEWORK_FILES_OPTIONAL entries only count as template-known if they
+  # actually exist in TEMPLATE_DIR (mirrors the copy pass's own [ -f ... ]
+  # guard above) -- otherwise a pre-existing target file at an absent-
+  # optional path would silently escape UNREVIEWED-EXECUTABLE reporting.
+  for rel in "${FRAMEWORK_FILES_OPTIONAL[@]}"; do
+    case "$rel" in
+      scripts/*)
+        [ -f "$TEMPLATE_DIR/$rel" ] && TEMPLATE_SCRIPTS_RELPATHS["$rel"]=1
+        ;;
     esac
   done
 
@@ -641,10 +667,23 @@ if [ "$MODE" = "adopt" ]; then
   done
 
   # --- chmod +x on adopt-copied .sh files (mirrors fresh-mode's chmod step
-  # below; deferred from #T70) ---
-  run_mut find "$ADOPT_TARGET/scripts" -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
-  run_mut find "$ADOPT_TARGET/.claude/hooks" -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
-  run_mut find "$ADOPT_TARGET/.claude/security" -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
+  # below; deferred from #T70) --- Driven from CREATED_LIST (files the
+  # scaffold itself just placed/overwrote under scripts/, .claude/hooks/,
+  # .claude/security/) rather than a blanket `find ... -name "*.sh"` -- a
+  # blanket find would also chmod +x any *pre-existing* orphan .sh file the
+  # target already had at those paths, actively escalating the accepted
+  # UNREVIEWED-EXECUTABLE residual risk instead of merely reporting it. At
+  # this point in the run CREATED_LIST holds only entries from the copy
+  # pass + .obsidian copy above (the manifest/system-map "extra" files are
+  # appended later, after this step, and are never .sh anyway).
+  for f in "${CREATED_LIST[@]}"; do
+    rel="${f#"$ADOPT_TARGET"/}"
+    case "$rel" in
+      scripts/*.sh|.claude/hooks/*.sh|.claude/security/*.sh)
+        run_mut chmod +x "$f"
+        ;;
+    esac
+  done
 
   # --- .gitignore (design.md step 6) ---
   merge_gitignore "$ADOPT_TARGET/.gitignore"
@@ -681,8 +720,19 @@ if [ "$MODE" = "adopt" ]; then
   # from the script's own path -- so, mirroring fresh mode's `cd
   # "$FULL_PATH"` before its own setup.sh call, this must run with cwd
   # already inside ADOPT_TARGET. bash -c keeps this a single command for
-  # run_mut (which just execs its argv, no shell parsing of its own). ---
-  run_mut bash -c 'cd "$1" && exec bash "$1/scripts/setup.sh" --adopt' _ "$ADOPT_TARGET" || echo "WARN: setup.sh --adopt reported an issue; run 'cd $ADOPT_TARGET && bash scripts/setup.sh --adopt' manually after reviewing the output above." >&2
+  # run_mut (which just execs its argv, no shell parsing of its own).
+  #
+  # Failure is NOT swallowed: a failing setup.sh --adopt means hook
+  # quarantine/install may be incomplete, so the run must not silently
+  # proceed to a success-shaped report and a commit. On failure this
+  # records a WARNINGS entry (surfaced in the report below), and after the
+  # report prints, the run exits nonzero WITHOUT committing (see the
+  # SETUP_FAILED check just before the commit step). ---
+  SETUP_FAILED=0
+  if ! run_mut bash -c 'cd "$1" && exec bash "$1/scripts/setup.sh" --adopt' _ "$ADOPT_TARGET"; then
+    SETUP_FAILED=1
+    WARNINGS+=("setup.sh --adopt FAILED -- hook install/quarantine may be incomplete. Nothing was committed. Review the output above, run 'cd $ADOPT_TARGET && bash scripts/setup.sh --adopt' manually, then re-run this adopt (idempotent) to commit.")
+  fi
 
   # --- generate-manifest.sh, invoked exactly as fresh mode does (step 9).
   # scripts/ is framework class, so this copy is guaranteed ours. ---
@@ -707,9 +757,16 @@ if [ "$MODE" = "adopt" ]; then
     done
   fi
 
-  # --- Adopt report, printed BEFORE any commit (step 10) ---
+  # --- Adopt report, printed BEFORE any commit (step 10). Always printed --
+  # even when setup.sh --adopt failed -- so the operator sees exactly what
+  # WAS staged/classified before deciding how to recover. ---
   echo ""
   echo "===== ADOPT REPORT ====="
+  if [ "$SETUP_FAILED" -eq 1 ]; then
+    echo ""
+    echo "*** SETUP FAILED: scripts/setup.sh --adopt did not complete successfully. ***"
+    echo "*** Hook install/quarantine may be incomplete. Nothing will be committed. ***"
+  fi
   echo ""
   echo "CREATED (${#CREATED_LIST[@]} files):"
   if [ "${#CREATED_LIST[@]}" -gt 20 ]; then
@@ -743,6 +800,14 @@ if [ "$MODE" = "adopt" ]; then
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "(--dry-run: no files were written; the report above reflects the plan a real run would execute.)"
     exit 0
+  fi
+
+  # setup.sh --adopt failed above: the report has been printed (with the
+  # SETUP FAILED banner and the WARNINGS entry) but nothing is committed --
+  # exit nonzero so the failure cannot be mistaken for a successful adopt.
+  if [ "$SETUP_FAILED" -eq 1 ]; then
+    echo "Exiting nonzero: setup.sh --adopt failed. Nothing was committed. See SETUP FAILED / WARNINGS above."
+    exit 1
   fi
 
   # --- Commit (adopt), step 11. NEVER git add . / git add -A here: only the

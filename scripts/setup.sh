@@ -96,6 +96,11 @@ if [ -d "$ROOT/.git" ]; then
             DID_SOMETHING=1
         else
             warn "Could not install git hooks (install-hooks.sh failed) — run it manually: bash scripts/install-hooks.sh"
+            # In adopt mode a failed install means quarantine did NOT happen —
+            # a pre-existing hostile hook may still be live. Propagate failure
+            # so new-project.sh --adopt aborts before its scaffold commit.
+            # (Normal/--check modes keep warn-and-continue: session-safe.)
+            if [ "$ADOPT" -eq 1 ]; then exit 1; fi
         fi
     fi
 elif [ -f "$ROOT/.git" ]; then
