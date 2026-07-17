@@ -1,11 +1,15 @@
 import { describe, it } from "node:test";
-import { strictEqual, deepStrictEqual } from "node:assert";
+import { strictEqual, deepStrictEqual, ok } from "node:assert";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   parseYamlFrontmatter,
   chunkContent,
   calculateFreshness,
   normalizeFilePath,
   getSourceType,
+  appendSearchLog,
 } from "../scripts/knowledge-index.ts";
 
 // ==========================================================================
@@ -221,5 +225,89 @@ describe("getSourceType", () => {
 
   it("getSourceType_rootFile_returnsOther", () => {
     strictEqual(getSourceType("ROADMAP.md"), "other");
+  });
+});
+
+// ==========================================================================
+// appendSearchLog
+// ==========================================================================
+
+describe("appendSearchLog", () => {
+  it("appendSearchLog_validEntry_writesParseableJsonLine", () => {
+    const dir = mkdtempSync(join(tmpdir(), "search-log-"));
+    const logPath = join(dir, "search-log.jsonl");
+
+    appendSearchLog(logPath, {
+      timestamp: "2026-07-16T00:00:00.000Z",
+      query: "test query",
+      result_count: 5,
+    });
+
+    const lines = readFileSync(logPath, "utf-8").trim().split("\n");
+    strictEqual(lines.length, 1);
+    const parsed = JSON.parse(lines[0]);
+    strictEqual(parsed.timestamp, "2026-07-16T00:00:00.000Z");
+    strictEqual(parsed.query, "test query");
+    strictEqual(parsed.result_count, 5);
+  });
+
+  it("appendSearchLog_secondCall_appendsSecondLine", () => {
+    const dir = mkdtempSync(join(tmpdir(), "search-log-"));
+    const logPath = join(dir, "search-log.jsonl");
+
+    appendSearchLog(logPath, { timestamp: "2026-07-16T00:00:00.000Z", query: "first", result_count: 1 });
+    appendSearchLog(logPath, { timestamp: "2026-07-16T00:01:00.000Z", query: "second", result_count: 2 });
+
+    const lines = readFileSync(logPath, "utf-8").trim().split("\n");
+    strictEqual(lines.length, 2);
+    strictEqual(JSON.parse(lines[0]).query, "first");
+    strictEqual(JSON.parse(lines[1]).query, "second");
+  });
+
+  it("appendSearchLog_oversizeFile_rotatesToOld", () => {
+    const dir = mkdtempSync(join(tmpdir(), "search-log-"));
+    const logPath = join(dir, "search-log.jsonl");
+    const oldContent = "x".repeat(2000) + "\n";
+    writeFileSync(logPath, oldContent);
+
+    appendSearchLog(
+      logPath,
+      { timestamp: "2026-07-16T00:00:00.000Z", query: "rotated", result_count: 0 },
+      1024
+    );
+
+    const rotatedPath = logPath + ".old";
+    ok(existsSync(rotatedPath));
+    strictEqual(readFileSync(rotatedPath, "utf-8"), oldContent);
+
+    const lines = readFileSync(logPath, "utf-8").trim().split("\n");
+    strictEqual(lines.length, 1);
+    strictEqual(JSON.parse(lines[0]).query, "rotated");
+  });
+
+  it("appendSearchLog_queryWithNewlineAnd250Chars_sanitized", () => {
+    const dir = mkdtempSync(join(tmpdir(), "search-log-"));
+    const logPath = join(dir, "search-log.jsonl");
+    const longQuery = "a".repeat(120) + "\n" + "b".repeat(130);
+
+    appendSearchLog(logPath, { timestamp: "2026-07-16T00:00:00.000Z", query: longQuery, result_count: 3 });
+
+    const line = readFileSync(logPath, "utf-8").trim();
+    const parsed = JSON.parse(line);
+    ok(!parsed.query.includes("\n"));
+    ok(!parsed.query.includes("\r"));
+    strictEqual(parsed.query.length, 200);
+    strictEqual(parsed.query, ("a".repeat(120) + " " + "b".repeat(130)).slice(0, 200));
+  });
+
+  it("appendSearchLog_missingParentDir_createsIt", () => {
+    const dir = mkdtempSync(join(tmpdir(), "search-log-"));
+    const logPath = join(dir, "nested", "deeper", "search-log.jsonl");
+
+    appendSearchLog(logPath, { timestamp: "2026-07-16T00:00:00.000Z", query: "nested test", result_count: 1 });
+
+    ok(existsSync(logPath));
+    const parsed = JSON.parse(readFileSync(logPath, "utf-8").trim());
+    strictEqual(parsed.query, "nested test");
   });
 });

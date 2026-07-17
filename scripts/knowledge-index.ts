@@ -5,7 +5,7 @@
 // Requires Node 22.16+ for node:sqlite
 
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, readFileSync, mkdirSync, statSync, readdirSync, renameSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, mkdirSync, statSync, readdirSync, renameSync, realpathSync, appendFileSync } from "node:fs";
 import { resolve, relative, join, dirname } from "node:path";
 import { execSync, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -390,6 +390,43 @@ export function normalizeFilePath(filePath: string): string {
   return filePath.replace(/\\/g, "/");
 }
 
+interface SearchLogEntry {
+  timestamp: string;
+  query: string;
+  result_count: number;
+}
+
+/**
+ * Append a sanitized search-log entry to logPath as one JSON line.
+ * Strips CR/LF from the query (replaced with a space) and caps it at 200 chars.
+ * Ensures the log's parent directory exists. If the existing log file exceeds
+ * maxBytes, it is rotated to `<logPath>.old` (overwriting any prior .old)
+ * before the new entry is appended.
+ */
+export function appendSearchLog(
+  logPath: string,
+  entry: SearchLogEntry,
+  maxBytes: number = 1048576
+): void {
+  const sanitizedQuery = entry.query.replace(/[\r\n]+/g, " ").slice(0, 200);
+  const sanitizedEntry: SearchLogEntry = {
+    timestamp: entry.timestamp,
+    query: sanitizedQuery,
+    result_count: entry.result_count,
+  };
+
+  mkdirSync(dirname(logPath), { recursive: true });
+
+  if (existsSync(logPath)) {
+    const stat = statSync(logPath);
+    if (stat.size > maxBytes) {
+      renameSync(logPath, logPath + ".old");
+    }
+  }
+
+  appendFileSync(logPath, JSON.stringify(sanitizedEntry) + "\n");
+}
+
 // ============================================================================
 // Subcommands
 // ============================================================================
@@ -640,6 +677,17 @@ function cmdSearch(query: string, args: string[]): void {
       console.error(`Search failed: ${msg}`);
     }
     process.exit(1);
+  }
+
+  try {
+    appendSearchLog(resolve(projectRoot, ".claude/logs/search-log.jsonl"), {
+      timestamp: new Date().toISOString(),
+      query,
+      result_count: results.length,
+    });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`Warning: search log write failed: ${msg}`);
   }
 
   // Update access tracking for each unique source that appeared in results.
