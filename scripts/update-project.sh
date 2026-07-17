@@ -7,9 +7,11 @@
 #   bash scripts/update-project.sh --apply --major    # Allow major version upgrades
 #   bash scripts/update-project.sh --target v2.3      # Target a specific version
 #   bash scripts/update-project.sh --diff-upstream    # Show unadopted upstream commits (no network)
+#   bash scripts/update-project.sh --local-upstream DIR  # Update from a local dir (no gh, no network)
 #
 # Requires: gh CLI (authenticated), sha256sum
 # --diff-upstream requires neither — it reads a local upstream cache (see --help)
+# --local-upstream requires neither — it substitutes DIR for the release tarball (see --help)
 # Run from project root.
 
 set -euo pipefail
@@ -29,6 +31,7 @@ APPLY=false
 ALLOW_MAJOR=false
 TARGET_VERSION=""
 DIFF_UPSTREAM=false
+LOCAL_UPSTREAM=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -38,8 +41,11 @@ while [ $# -gt 0 ]; do
         --target)
             if [ $# -lt 2 ]; then echo "ERROR: --target requires a version argument" >&2; exit 1; fi
             TARGET_VERSION="$2"; shift ;;
+        --local-upstream)
+            if [ $# -lt 2 ]; then echo "ERROR: --local-upstream requires a directory argument" >&2; exit 1; fi
+            LOCAL_UPSTREAM="$2"; shift ;;
         --help|-h)
-            echo "Usage: update-project.sh [--apply] [--major] [--target VERSION] [--diff-upstream]"
+            echo "Usage: update-project.sh [--apply] [--major] [--target VERSION] [--diff-upstream] [--local-upstream DIR]"
             echo ""
             echo "Flags:"
             echo "  --apply           Apply updates (default is dry-run/check only)"
@@ -47,6 +53,9 @@ while [ $# -gt 0 ]; do
             echo "  --target          Target a specific version (e.g., v2.3)"
             echo "  --diff-upstream   Show upstream commits not yet adopted, grouped by area."
             echo "                    Reads a local upstream cache only — no network, no gh required."
+            echo "  --local-upstream  Use DIR as the upstream source instead of a downloaded release."
+            echo "                    Skips release listing/selection (Steps 2-4) entirely — zero gh"
+            echo "                    calls, fully network-free. Classification and apply run unchanged."
             echo ""
             echo "Without --apply, shows what would change."
             exit 0
@@ -187,134 +196,158 @@ if [ "$DIFF_UPSTREAM" = true ]; then
     exit 0
 fi
 
-# --- Step 2: Fetch available releases ---
-
-echo "Checking upstream releases..."
-
-if ! command -v gh &>/dev/null; then
-    echo "ERROR: gh CLI not found. Install it: https://cli.github.com/" >&2
-    exit 1
-fi
-
-if ! command -v sha256sum &>/dev/null; then
-    echo "ERROR: sha256sum not found. Install coreutils (macOS: brew install coreutils)." >&2
-    exit 1
-fi
-
-RELEASES=$(gh release list --repo "$UPSTREAM" --limit 20 --json tagName,isPrerelease --jq '.[] | select(.isPrerelease == false) | .tagName' 2>/dev/null || true)
-
-if [ -z "$RELEASES" ]; then
-    echo "ERROR: Could not fetch releases from $UPSTREAM." >&2
-    echo "Check: gh auth status" >&2
-    exit 1
-fi
-
-echo "Available releases:"
-echo "$RELEASES" | while read -r tag; do
-    if [ "$tag" = "$CURRENT_VERSION" ] || [ "$tag" = "v$CURRENT_VERSION" ]; then
-        echo "  $tag (current)"
-    else
-        echo "  $tag"
+if [ -n "$LOCAL_UPSTREAM" ]; then
+    # --- --local-upstream short-circuit ---
+    # Substitutes a local directory for the release tarball. Runs BEFORE the
+    # gh-CLI presence check below and skips Steps 2-4 entirely (release list,
+    # version selection, same-major gate, archive download/extract) — zero
+    # gh invocations, fully network-free. Classification (Step 6) and the
+    # apply flow run unchanged against this directory.
+    if [ ! -d "$LOCAL_UPSTREAM" ]; then
+        echo "ERROR: --local-upstream directory not found: $LOCAL_UPSTREAM" >&2
+        exit 1
     fi
-done
-
-# --- Step 3: Determine target version ---
-
-if [ -n "$TARGET_VERSION" ]; then
-    # User specified a target
-    CHOSEN="$TARGET_VERSION"
-    # Validate it exists
-    if ! echo "$RELEASES" | grep -Fqx "$CHOSEN"; then
-        # Try with v prefix
-        if echo "$RELEASES" | grep -Fqx "v$CHOSEN"; then
-            CHOSEN="v$CHOSEN"
-        else
-            echo "ERROR: Version $TARGET_VERSION not found in releases." >&2
-            exit 1
-        fi
+    if ! command -v sha256sum &>/dev/null; then
+        echo "ERROR: sha256sum not found. Install coreutils (macOS: brew install coreutils)." >&2
+        exit 1
     fi
+    # Canonicalize to absolute (mirrors PROJECT_ROOT above) so relpath math
+    # downstream (Steps 5-8) behaves the same regardless of invocation cwd.
+    UPSTREAM_ROOT="$(cd "$LOCAL_UPSTREAM" && pwd)"
+    CHOSEN="local:$(basename "$UPSTREAM_ROOT")"  # display-only past this point
+    echo ""
+    echo "Using local upstream: $UPSTREAM_ROOT"
+    echo "Target version: $CHOSEN"
 else
-    # Sort releases by semver descending, then find best compatible version
-    SORTED_RELEASES=$(echo "$RELEASES" | while read -r t; do
-        read -r maj min pat <<< "$(parse_semver "$t")"
-        printf '%03d%03d%03d %s\n' "$maj" "$min" "$pat" "$t"
-    done | sort -rn | awk '{print $2}')
+    # --- Step 2: Fetch available releases ---
 
-    CHOSEN=""
-    while read -r tag; do
-        if [ "$CURRENT_VERSION" = "unknown" ]; then
-            # Legacy mode: pick the latest release (but respect --major guard)
-            if [ "$ALLOW_MAJOR" = false ]; then
-                echo "WARNING: Legacy mode (no manifest) — cannot determine current major version." >&2
-                echo "  Using latest release $tag. Use --major to suppress this warning." >&2
+    echo "Checking upstream releases..."
+
+    if ! command -v gh &>/dev/null; then
+        echo "ERROR: gh CLI not found. Install it: https://cli.github.com/" >&2
+        exit 1
+    fi
+
+    if ! command -v sha256sum &>/dev/null; then
+        echo "ERROR: sha256sum not found. Install coreutils (macOS: brew install coreutils)." >&2
+        exit 1
+    fi
+
+    RELEASES=$(gh release list --repo "$UPSTREAM" --limit 20 --json tagName,isPrerelease --jq '.[] | select(.isPrerelease == false) | .tagName' 2>/dev/null || true)
+
+    if [ -z "$RELEASES" ]; then
+        echo "ERROR: Could not fetch releases from $UPSTREAM." >&2
+        echo "Check: gh auth status" >&2
+        exit 1
+    fi
+
+    echo "Available releases:"
+    echo "$RELEASES" | while read -r tag; do
+        if [ "$tag" = "$CURRENT_VERSION" ] || [ "$tag" = "v$CURRENT_VERSION" ]; then
+            echo "  $tag (current)"
+        else
+            echo "  $tag"
+        fi
+    done
+
+    # --- Step 3: Determine target version ---
+
+    if [ -n "$TARGET_VERSION" ]; then
+        # User specified a target
+        CHOSEN="$TARGET_VERSION"
+        # Validate it exists
+        if ! echo "$RELEASES" | grep -Fqx "$CHOSEN"; then
+            # Try with v prefix
+            if echo "$RELEASES" | grep -Fqx "v$CHOSEN"; then
+                CHOSEN="v$CHOSEN"
+            else
+                echo "ERROR: Version $TARGET_VERSION not found in releases." >&2
+                exit 1
+            fi
+        fi
+    else
+        # Sort releases by semver descending, then find best compatible version
+        SORTED_RELEASES=$(echo "$RELEASES" | while read -r t; do
+            read -r maj min pat <<< "$(parse_semver "$t")"
+            printf '%03d%03d%03d %s\n' "$maj" "$min" "$pat" "$t"
+        done | sort -rn | awk '{print $2}')
+
+        CHOSEN=""
+        while read -r tag; do
+            if [ "$CURRENT_VERSION" = "unknown" ]; then
+                # Legacy mode: pick the latest release (but respect --major guard)
+                if [ "$ALLOW_MAJOR" = false ]; then
+                    echo "WARNING: Legacy mode (no manifest) — cannot determine current major version." >&2
+                    echo "  Using latest release $tag. Use --major to suppress this warning." >&2
+                fi
+                CHOSEN="$tag"
+                break
+            fi
+            # Skip current or older versions (parse_semver handles v prefix)
+            if ! version_gt "$tag" "$CURRENT_VERSION"; then
+                continue
+            fi
+            # Check major version compatibility
+            if [ "$ALLOW_MAJOR" = false ] && ! same_major "$tag" "$CURRENT_VERSION"; then
+                echo "  Skipping $tag (major version change — use --major to allow)"
+                continue
             fi
             CHOSEN="$tag"
             break
-        fi
-        # Skip current or older versions (parse_semver handles v prefix)
-        if ! version_gt "$tag" "$CURRENT_VERSION"; then
-            continue
-        fi
-        # Check major version compatibility
-        if [ "$ALLOW_MAJOR" = false ] && ! same_major "$tag" "$CURRENT_VERSION"; then
-            echo "  Skipping $tag (major version change — use --major to allow)"
-            continue
-        fi
-        CHOSEN="$tag"
-        break
-    done <<< "$SORTED_RELEASES"
-fi
+        done <<< "$SORTED_RELEASES"
+    fi
 
-if [ -z "$CHOSEN" ]; then
+    if [ -z "$CHOSEN" ]; then
+        echo ""
+        echo "Already up to date (${CURRENT_VERSION})."
+        exit 0
+    fi
+
     echo ""
-    echo "Already up to date (${CURRENT_VERSION})."
-    exit 0
-fi
+    echo "Target version: $CHOSEN"
 
-echo ""
-echo "Target version: $CHOSEN"
+    # Check major version safety
+    if [ "$CURRENT_VERSION" != "unknown" ] && [ "$ALLOW_MAJOR" = false ]; then
+        if ! same_major "$CHOSEN" "$CURRENT_VERSION"; then
+            echo "ERROR: $CHOSEN is a major version change. Use --major to allow." >&2
+            exit 1
+        fi
+    fi
 
-# Check major version safety
-if [ "$CURRENT_VERSION" != "unknown" ] && [ "$ALLOW_MAJOR" = false ]; then
-    if ! same_major "$CHOSEN" "$CURRENT_VERSION"; then
-        echo "ERROR: $CHOSEN is a major version change. Use --major to allow." >&2
+    # --- Step 4: Download release archive ---
+
+    TMPDIR=$(mktemp -d)
+    trap 'rm -rf "$TMPDIR"' EXIT
+
+    echo "Downloading $CHOSEN..."
+    gh release download "$CHOSEN" --repo "$UPSTREAM" --archive tar.gz --dir "$TMPDIR" 2>/dev/null
+
+    ARCHIVE=$(find "$TMPDIR" -name "*.tar.gz" | head -1)
+    if [ -z "$ARCHIVE" ]; then
+        echo "ERROR: Failed to download release archive." >&2
         exit 1
     fi
+
+    # Extract (validate archive contents first — reject absolute or traversal paths)
+    EXTRACT_DIR="$TMPDIR/extracted"
+    mkdir -p "$EXTRACT_DIR"
+    if tar tzf "$ARCHIVE" | grep -qE '(^/|\.\.)'; then
+        echo "ERROR: Archive contains suspicious paths (absolute or ..). Aborting." >&2
+        exit 1
+    fi
+    tar xzf "$ARCHIVE" -C "$EXTRACT_DIR"
+
+    # Find the root of the extracted repo (GitHub archives have exactly one top-level dir)
+    CHILD_DIRS=$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d)
+    CHILD_COUNT=$(echo "$CHILD_DIRS" | wc -l)
+    if [ "$CHILD_COUNT" -ne 1 ] || [ -z "$CHILD_DIRS" ]; then
+        echo "ERROR: Expected exactly one directory in archive, found $CHILD_COUNT." >&2
+        exit 1
+    fi
+    UPSTREAM_ROOT="$CHILD_DIRS"
+
+    echo "Extracted to temp dir."
 fi
-
-# --- Step 4: Download release archive ---
-
-TMPDIR=$(mktemp -d)
-trap 'rm -rf "$TMPDIR"' EXIT
-
-echo "Downloading $CHOSEN..."
-gh release download "$CHOSEN" --repo "$UPSTREAM" --archive tar.gz --dir "$TMPDIR" 2>/dev/null
-
-ARCHIVE=$(find "$TMPDIR" -name "*.tar.gz" | head -1)
-if [ -z "$ARCHIVE" ]; then
-    echo "ERROR: Failed to download release archive." >&2
-    exit 1
-fi
-
-# Extract (validate archive contents first — reject absolute or traversal paths)
-EXTRACT_DIR="$TMPDIR/extracted"
-mkdir -p "$EXTRACT_DIR"
-if tar tzf "$ARCHIVE" | grep -qE '(^/|\.\.)'; then
-    echo "ERROR: Archive contains suspicious paths (absolute or ..). Aborting." >&2
-    exit 1
-fi
-tar xzf "$ARCHIVE" -C "$EXTRACT_DIR"
-
-# Find the root of the extracted repo (GitHub archives have exactly one top-level dir)
-CHILD_DIRS=$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d)
-CHILD_COUNT=$(echo "$CHILD_DIRS" | wc -l)
-if [ "$CHILD_COUNT" -ne 1 ] || [ -z "$CHILD_DIRS" ]; then
-    echo "ERROR: Expected exactly one directory in archive, found $CHILD_COUNT." >&2
-    exit 1
-fi
-UPSTREAM_ROOT="$CHILD_DIRS"
-
-echo "Extracted to temp dir."
 
 # --- Step 5: Generate upstream manifest ---
 
@@ -374,6 +407,7 @@ TEMPLATE_SCRIPTS=(
     "scripts/observation-parser.ts"
     "scripts/security-scanner.ts"
     "scripts/system-map.ts"
+    "scripts/detect-stack.ts"
     "scripts/maintain-draft.ts"
     "scripts/maintain.sh"
     "scripts/dream-accept.sh"

@@ -74,7 +74,7 @@
     "scripts/setup.sh": "76bb28a225193e3c1779d3d0a8ac77aeccc47f6043e85cae9912b2523cf86542",
     "scripts/sync-hooks.sh": "019f37e2def4e22755112aaf327408f332ff04a5ca43cc9262c2ae6d2750404d",
     "scripts/system-map.ts": "b4a8a281a2eb3b4cf06171b5accdbddab7755417bed1788ef2ada1cb6972281c",
-    "scripts/update-project.sh": "87047dc6d986ca7230366cc1aa8e87aa29561f55c3efc3d34dc957595996d07e",
+    "scripts/update-project.sh": "8d8f3c0e0f606bd33640f6219537491315c9b39092f8dcf9600090de1cccc815",
     "scripts/validate-freshness.sh": "8dc557bd4e85b52858044ea12d9263f78941ef0dac36cc514f822ed425212274",
     "scripts/validate-roadmap.sh": "4bec58920f220f0666fef73557b2b5bb735b373ad38b21a56e4a74c6dc72e08f",
     "tests/dashboard-render.test.ts": "78e1adbc90c152718eb327e895b70423392d01b7b969ee0b493f4d892f9adfb2",
