@@ -109,7 +109,7 @@ function realValidateCmd(roadmapPath: string): string[] {
 // ==========================================================================
 
 describe("maintain-draft ID allocation", () => {
-  it("[unit]_gappedExistingIds_allocatesMaxPlusOne", () => {
+  it("maintainDraft_gappedExistingIds_allocatesMaxPlusOne", () => {
     const dir = freshTempDir();
     try {
       const roadmap = writeRoadmapFixture(
@@ -167,7 +167,7 @@ describe("maintain-draft ID allocation", () => {
 // ==========================================================================
 
 describe("maintain-draft dedup", () => {
-  it("[unit]_duplicateFingerprint_exitsTwoAndLeavesFileUnchanged", () => {
+  it("maintainDraft_duplicateFingerprint_exitsTwoAndLeavesFileUnchanged", () => {
     const dir = freshTempDir();
     try {
       const existing = buildFixture(
@@ -212,7 +212,7 @@ describe("maintain-draft dedup", () => {
     }
   });
 
-  it("[unit]_fingerprintRegexMetacharacter_doesNotFalseMatchFilesSuccessfully", () => {
+  it("maintainDraft_fingerprintRegexMetacharacter_doesNotFalseMatchFilesSuccessfully", () => {
     const dir = freshTempDir();
     try {
       const existing = buildFixture(
@@ -263,7 +263,7 @@ describe("maintain-draft dedup", () => {
 // ==========================================================================
 
 describe("maintain-draft section handling", () => {
-  it("[unit]_missingSection_createdBeforeBacklogThenSecondFilingAppendsWithoutDuplicateHeading", () => {
+  it("maintainDraft_missingSection_createdBeforeBacklogThenSecondFilingAppendsWithoutDuplicateHeading", () => {
     const dir = freshTempDir();
     try {
       const roadmap = writeRoadmapFixture(
@@ -317,7 +317,7 @@ describe("maintain-draft section handling", () => {
 // ==========================================================================
 
 describe("maintain-draft validation failure", () => {
-  it("[unit]_validateCmdExitsNonzero_restoresOriginalContentAndExitsOne", () => {
+  it("maintainDraft_validateCmdExitsNonzero_restoresOriginalContentAndExitsOne", () => {
     const dir = freshTempDir();
     try {
       const roadmap = writeRoadmapFixture(
@@ -359,7 +359,7 @@ describe("maintain-draft validation failure", () => {
 // ==========================================================================
 
 describe("maintain-draft title sanitation", () => {
-  it("[unit]_titleWithHashAngleBracketsNewline_sanitizedIdSuffixRemains", () => {
+  it("maintainDraft_titleWithHashAngleBracketsNewline_sanitizedIdSuffixRemains", () => {
     const dir = freshTempDir();
     try {
       const roadmap = writeRoadmapFixture(
@@ -399,7 +399,7 @@ describe("maintain-draft title sanitation", () => {
     }
   });
 
-  it("[unit]_fingerprintWithNewline_cannotInjectForgedRoadmapLine", () => {
+  it("maintainDraft_fingerprintWithNewline_cannotInjectForgedRoadmapLine", () => {
     // A raw newline in --fingerprint must not break out of the maint-fp HTML
     // comment and inject a forged task line. maintain-draft.ts is the only
     // writer the autonomous loop may use, so the guard lives in the writer.
@@ -447,7 +447,7 @@ describe("maintain-draft title sanitation", () => {
 // ==========================================================================
 
 describe("maintain-draft CRLF handling", () => {
-  it("[unit]_crlfRoadmap_appendsTwiceWithoutCorruptingLineEndings", () => {
+  it("maintainDraft_crlfRoadmap_appendsTwiceWithoutCorruptingLineEndings", () => {
     const dir = freshTempDir();
     try {
       const fixture = toCrlf(

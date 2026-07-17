@@ -270,7 +270,21 @@ function gitIndexSource(root: string): ContentSource {
 // hashed .maps.lock input set; these files aren't graph nodes.
 // ==========================================================================
 
-/** Collects CLAUDE.md plus every `docs/knowledge/*.md` file's normalized content for bloat estimation. */
+/**
+ * Collects CLAUDE.md plus every `docs/knowledge/*.md` file's normalized
+ * content for bloat estimation.
+ *
+ * DELIBERATE: these bloat-input files are read fresh on every `report`/`check`
+ * but are intentionally NOT part of the hashed input set in `.maps.lock` (see
+ * `discover()` — it lists scripts/hooks/commands/skills/config/tests, not
+ * these docs). Consequence: editing CLAUDE.md or a docs/knowledge file does
+ * NOT register as map drift, so a bloat finding is only re-evaluated when the
+ * map is regenerated for some other reason. This is the accepted trade-off:
+ * hashing prose docs would make every decisions.md/patterns.md edit trigger a
+ * pre-commit map heal — the exact churn the pre-commit-only design avoids —
+ * for a LOW-severity advisory finding. `report` always recomputes bloat live,
+ * so on-demand runs and the maintenance loop still see current numbers.
+ */
 function collectBloatFiles(source: ContentSource): { path: string; content: string }[] {
   const files: { path: string; content: string }[] = [];
   const claude = source.readInput("CLAUDE.md");

@@ -15,6 +15,16 @@ Each entry: Date, Decision, Context, Alternatives Considered, Rationale
 
 <!-- Entries get appended here by workflows and handoff commands -->
 
+## 2026-07-17 — System-map bloat inputs are intentionally not hashed
+
+**Decision**: `scripts/system-map.ts` reads CLAUDE.md + `docs/knowledge/*.md` for its bloat check but does NOT include them in the hashed input set (`.maps.lock`). Editing those docs therefore does not register as map drift.
+
+**Context**: The map's freshness guarantee is enforced only at pre-commit (regenerate-and-heal). If prose docs were hashed inputs, every `decisions.md`/`patterns.md`/`architecture.md` edit — i.e. most doc commits — would trigger a pre-commit map heal.
+
+**Alternatives**: (a) Hash the bloat inputs → always-accurate bloat freshness, but constant heal churn on doc edits for a LOW-severity advisory. (b) Exclude them, recompute bloat live on every `report`/`check` → no churn; a bloat finding is only re-surfaced when the map regenerates for another reason or when `report` is run on demand (the maintenance loop runs it every pass).
+
+**Rationale**: Chose (b). Bloat is an advisory nudge, not a gate; the maintenance loop and on-demand `report` both recompute it live, so it never goes truly stale where it matters. Avoiding heal churn on ordinary doc edits is worth more than drift-detecting a soft threshold. Documented in `collectBloatFiles()`'s docstring so it reads as a choice, not an oversight (#T59).
+
 ## 2026-07-16 — Self-Maintenance: Deterministic Maps + Draft-Only Autonomy
 
 **Decision**: Add framework self-maintenance in four parts, all zero-dep and template-portable: (1) a deterministic **system map** (`system-map.ts` + `lib/system-map-lib.ts`) of the framework's own wiring — settings→hooks, command/skill→script refs, imports, manifest coverage — with graph findings (unwired hooks, orphans, dangling refs, manifest gaps, bloat); (2) **pre-commit auto-heal** — the generated hook regenerates maps from the git INDEX and re-stages them, healing drift rather than blocking (only generator/scan errors block); (3) a **dream pass** (`/tools:dream`) for non-destructive memory consolidation with volatility tiers, provenance, and human-gated contradictions; (4) a **draft-only maintenance loop** (`maintain.sh`) that runs deterministic checks and files `[?]` ROADMAP drafts — never mutating canonical state.

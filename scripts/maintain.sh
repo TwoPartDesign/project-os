@@ -27,6 +27,15 @@
 set -euo pipefail
 
 # ==========================================================================
+# Safety-bound constants (fixed guards, not policy-tunable — deliberately not
+# in maintenance-policy.yaml so they can't be widened by config).
+# ==========================================================================
+
+readonly LEDGER_MAX_BYTES=1048576   # rotate the ledger to .old past 1 MiB
+readonly LOCK_STALE_MINUTES=60      # reclaim a lock dir older than this
+readonly FINGERPRINT_MAX_CHARS=120  # cap the search-miss fingerprint length
+
+# ==========================================================================
 # Paths
 # ==========================================================================
 
@@ -96,6 +105,18 @@ join_with() {
     printf '%s' "$*"
 }
 
+# Redact secret-shaped substrings from free text (a search query) before it is
+# written into a committed ROADMAP draft. Search queries are user-supplied and
+# could contain a token/secret; the draft (and its git history) is permanent.
+# Masks known token prefixes, key=value with a sensitive key name, and long
+# high-entropy runs. Over-masking is safe here — the query is only a hint.
+redact_query() {
+    printf '%s' "$1" | sed -E \
+        -e 's/(sk-ant-|sk-|ghp_|gho_|ghs_|xox[baprs]-|AKIA)[A-Za-z0-9_-]{6,}/\1***/g' \
+        -e 's/([Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Tt][Oo][Kk][Ee][Nn]|[Aa][Pp][Ii][_-]?[Kk][Ee][Yy]|[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll])([=:])[^ ,]+/\1\2***/g' \
+        -e 's/[A-Za-z0-9_-]{32,}/***/g'
+}
+
 # Render a bash array as a JSON string array.
 join_json_array() {
     local out="["
@@ -125,7 +146,7 @@ rotate_ledger() {
     case "$size" in
         *[!0-9]* | "") return 0 ;;
     esac
-    if [ "$size" -gt 1048576 ]; then
+    if [ "$size" -gt "$LEDGER_MAX_BYTES" ]; then
         mv -f "$LEDGER_FILE" "${LEDGER_FILE}.old" 2>/dev/null || true
     fi
     return 0
@@ -177,7 +198,7 @@ attempt_lock() {
 is_lock_stale() {
     [ -d "$LOCK_DIR" ] || return 1
     local hit
-    hit="$(find "$LOCK_DIR" -maxdepth 0 -mmin +60 2>/dev/null || true)"
+    hit="$(find "$LOCK_DIR" -maxdepth 0 -mmin +"$LOCK_STALE_MINUTES" 2>/dev/null || true)"
     [ -n "$hit" ]
 }
 
@@ -538,6 +559,7 @@ run_check_search_miss() {
             fi
         fi
         q=$(printf '%s' "$line" | grep -oE '"query":[[:space:]]*"[^"]*"' | sed -E 's/.*"([^"]*)"$/\1/') || true
+        q="$(redact_query "$q")"
         count=$((count + 1))
         queries+=("$q")
     done
@@ -549,8 +571,8 @@ run_check_search_miss() {
         top3="$(join_with ", " "${UNIQ_Q[@]:0:3}")"
         fp_list="$(join_with "," "${UNIQ_Q[@]}")"
         fp="search-miss:${fp_list}"
-        if [ "${#fp}" -gt 120 ]; then
-            fp="${fp:0:120}"
+        if [ "${#fp}" -gt "$FINGERPRINT_MAX_CHARS" ]; then
+            fp="${fp:0:$FINGERPRINT_MAX_CHARS}"
         fi
         add_finding "Search recall gaps: ${count} zero-result queries (${top3}) — evaluate scoped search / hybrid index" "$fp"
     fi

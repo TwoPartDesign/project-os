@@ -527,6 +527,57 @@ scenario_10() {
 }
 
 # ==========================================================================
+# Scenario 11: search-miss queries carrying secrets are redacted before they
+# reach the committed draft (T58).
+# ==========================================================================
+
+scenario_11() {
+    local name="scenario11-search-miss-redaction"
+    local fx
+    fx="$(new_fixture)"
+    printf '%s\n' "checks: search-miss" >"$fx/.claude/maintenance-policy.yaml"
+    local i
+    # 5 zero-result queries, each embedding a FAKE secret-shaped token (test
+    # fixtures only — scan:allow suppresses the scanner on these lines).
+    printf '{"timestamp":"2026-01-01T00:00:01Z","query":"why is sk-ant-SHOULDNOTLEAK1234567890 failing","result_count":0}\n' >>"$fx/.claude/logs/search-log.jsonl"  # scan:allow
+    printf '{"timestamp":"2026-01-01T00:00:02Z","query":"password=hunter2secretvalue error","result_count":0}\n' >>"$fx/.claude/logs/search-log.jsonl"  # scan:allow
+    printf '{"timestamp":"2026-01-01T00:00:03Z","query":"ghp_ABCDEFGHIJKLMNOPQRST rate limit","result_count":0}\n' >>"$fx/.claude/logs/search-log.jsonl"  # scan:allow
+    printf '{"timestamp":"2026-01-01T00:00:04Z","query":"token: aVeryLongOpaqueTokenValue1234567890ABCD","result_count":0}\n' >>"$fx/.claude/logs/search-log.jsonl"  # scan:allow
+    printf '{"timestamp":"2026-01-01T00:00:05Z","query":"plain harmless query text","result_count":0}\n' >>"$fx/.claude/logs/search-log.jsonl"
+
+    local out ec
+    out=$(PROJECT_OS_ROOT="$fx" bash "$MAINTAIN_SH" 2>&1)
+    ec=$?
+    if [ "$ec" -ne 0 ]; then
+        fail "$name: maintain.sh exited $ec: $out"
+        return
+    fi
+
+    local roadmap
+    roadmap="$(cat "$fx/ROADMAP.md")"
+    if printf '%s' "$roadmap" | grep -q "Search recall gaps"; then
+        pass "$name: search-miss draft filed"
+    else
+        fail "$name: expected a search-miss draft"
+    fi
+    local leaked=0
+    for secret in "SHOULDNOTLEAK1234567890" "hunter2secretvalue" "ABCDEFGHIJKLMNOPQRST" "aVeryLongOpaqueTokenValue1234567890ABCD"; do
+        if printf '%s' "$roadmap" | grep -qF "$secret"; then
+            fail "$name: secret leaked into ROADMAP draft: $secret"
+            leaked=1
+        fi
+    done
+    if [ "$leaked" -eq 0 ]; then
+        pass "$name: all secret-shaped substrings redacted from the draft"
+    fi
+    if printf '%s' "$roadmap" | grep -q "harmless query"; then
+        pass "$name: non-secret query text preserved"
+    else
+        fail "$name: harmless query text was over-redacted or missing"
+    fi
+}
+
+# ==========================================================================
 # Main
 # ==========================================================================
 
@@ -542,6 +593,7 @@ scenario_7
 scenario_8
 scenario_9
 scenario_10
+scenario_11
 
 REAL_ROADMAP_STATUS_AFTER="$(git -C "$REPO_ROOT" status --porcelain -- ROADMAP.md .claude/logs .claude/maintenance-lock 2>/dev/null)"
 if [ "$REAL_ROADMAP_STATUS_BEFORE" = "$REAL_ROADMAP_STATUS_AFTER" ]; then

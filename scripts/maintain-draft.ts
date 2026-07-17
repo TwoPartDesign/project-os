@@ -31,6 +31,10 @@ const MAINTENANCE_INBOX_COMMENT =
 /** Default validator invoked after every write, split on spaces at call time. */
 const DEFAULT_VALIDATE_CMD = "bash scripts/validate-roadmap.sh";
 
+/** Max characters kept from a sanitized title / fingerprint before truncation. */
+const TITLE_MAX_CHARS = 200;
+const FINGERPRINT_MAX_CHARS = 200;
+
 /**
  * Minimal `--flag value` CLI parser. No `--flag=value` syntax, no boolean
  * flags — every recognized flag consumes the following argv element as its
@@ -64,7 +68,7 @@ function sanitizeTitle(raw: string): string {
   let t = raw.replace(/[\r\n]/g, "");
   t = t.replace(/[#<>]/g, "");
   t = t.replace(/\s+/g, " ").trim();
-  if (t.length > 200) t = t.slice(0, 200).trim();
+  if (t.length > TITLE_MAX_CHARS) t = t.slice(0, TITLE_MAX_CHARS).trim();
   return t;
 }
 
@@ -81,7 +85,7 @@ function sanitizeFingerprint(raw: string): string {
   let f = raw.replace(/[\r\n]/g, "");
   f = f.replace(/[#<>]/g, "");
   f = f.replace(/\s+/g, " ").trim();
-  if (f.length > 200) f = f.slice(0, 200).trim();
+  if (f.length > FINGERPRINT_MAX_CHARS) f = f.slice(0, FINGERPRINT_MAX_CHARS).trim();
   return f;
 }
 

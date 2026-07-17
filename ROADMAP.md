@@ -150,6 +150,21 @@ Spec: `docs/specs/self-maintenance/` (brief DRAFT rev 2, 2026-07-16 — corpus-m
 ### Review
 ### Done
 
+## Feature: follow-ups
+
+Small quality items surfaced during self-maintenance / #T9 reviews (2026-07-17). Approved as a batch.
+
+### Todo
+- [x] observation-parser: fix duplicate stack-trace emission (stack line merged into error obs AND emitted standalone) — dedupe merged lines #T55
+- [x] observation-parser: reconcile parseObservations return type with the exported ParseResult ({observations, raw_line_count, observation_count}) — return it or drop the unused type #T56
+- [x] observation-parser: config-key regex `[a-zA-Z_]+` skips digit-bearing keys (s3Key, oauth2Token) — widen the key charset so they're extracted (denylist still applies) #T57
+- [x] maintain.sh: redact secret-shaped substrings from search-query text before it enters a committed maintenance draft #T58
+- [x] system-map: document the bloat-input exclusion from .maps.lock (CLAUDE.md/docs/knowledge not hashed → bloat findings can go stale) as a deliberate choice in code + decisions.md #T59
+- [x] Cosmetics: substitute the unit name for the literal `[unit]_` prefix in maintain-draft.test.ts names; extract magic numbers (lock staleness, rotation size, title/fingerprint caps) to named constants #T60
+### In Progress
+### Review
+### Done
+
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->
 - [ ] SOTA adoption — workflow ergonomics (RE-SCOPED 2026-07-17): ship `/goal` wave/MVP exit predicates + wave-handoff artifact + `tools:update --diff-upstream`. `tools:audit-knowledge` dropped (subsumed by self-maintenance maintain.sh/system-map); `tools:sota-scan` deferred as machine-local. Needs a short re-scoping design pass first. Revised plan: `.claude/plans/sota-adoption-2026-05.md` (see REVISED SCOPE block) #T34
