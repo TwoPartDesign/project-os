@@ -167,7 +167,7 @@ Small quality items surfaced during self-maintenance / #T9 reviews (2026-07-17).
 
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->
-- [ ] SOTA adoption — workflow ergonomics (RE-SCOPED 2026-07-17): ship `/goal` wave/MVP exit predicates + wave-handoff artifact + `tools:update --diff-upstream`. `tools:audit-knowledge` dropped (subsumed by self-maintenance maintain.sh/system-map); `tools:sota-scan` deferred as machine-local. Needs a short re-scoping design pass first. Revised plan: `.claude/plans/sota-adoption-2026-05.md` (see REVISED SCOPE block) #T34
+- [x] SOTA adoption — workflow ergonomics (RE-SCOPED 2026-07-17, SHIPPED same day): shipped `/goal` wave/MVP exit predicates + wave-handoff artifact + `tools:update --diff-upstream`. `tools:audit-knowledge` dropped (subsumed by self-maintenance maintain.sh/system-map); `tools:sota-scan` deferred as machine-local. Needs a short re-scoping design pass first. Revised plan: `.claude/plans/sota-adoption-2026-05.md` (see REVISED SCOPE block) #T34
 <!-- #T1 (agent-teams experiment spike) retired 2026-07-12: agent teams shipped as a native Claude Code feature, obsoleting the CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS assessment. Draft a new idea via /workflows:idea if native agent-team adoption is worth exploring. ID #T1 is retired, never reused. -->
 
 ## Completed
