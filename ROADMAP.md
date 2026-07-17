@@ -107,10 +107,9 @@ Source: `docs/audits/2026-07-11-staleness-audit.md`. Tasks are grouped by file o
 ## Feature: post-audit-followups
 
 ### Todo
-<!-- Approved 2026-07-16 -->
-- [ ] Dashboard Kanban board tab: columns per lifecycle phase (Draft, Todo, WIP, Review, Done, Blocked), driven through /workflows:mvp (design → plan → build → review) #T37
-- [ ] Smoke-test /workflows:mvp end-to-end with a real feature — satisfied by executing #T37 via mvp (depends: #T37) #T38
 ### Done
+- [x] Dashboard Kanban board tab: columns per lifecycle phase (Draft, Todo, WIP, Review, Done, Blocked), driven through /workflows:mvp (design → plan → build → review) — shipped 2026-07-16 (see Feature: dashboard-kanban, T40-T44) #T37
+- [x] Smoke-test /workflows:mvp end-to-end with a real feature — satisfied by executing #T37 via mvp: full lifecycle exercised incl. auto-rebuild on review failure and the 2-attempt hard stop (depends: #T37) #T38
 - [x] Live-test scripts/codex-review.sh with a real review (created 2026-03-10, never exercised) — ran 2026-07-16 against the T33/T35/T36 diff in read-only mode: wrapper worked end-to-end (18.5KB prompt+diff, gpt-5.4, clean exit); its 2 findings were empirically refuted (old (?-i:) groups were already case-sensitive) #T39
 
 ## Feature: dashboard-kanban
@@ -119,14 +118,14 @@ Spec: `docs/specs/dashboard-kanban/` (brief, design APPROVED 2026-07-16, tasks).
 
 ### Draft
 ### Todo
-<!-- Auto-approved 2026-07-16 by /workflows:mvp (user-authorized autonomous run) -->
-- [!] Extract scripts/lib/dashboard-render.ts (parseRoadmap, esc, marker maps) + annotation-tolerant task regex (model/agent suffixes) #T40
-  <!-- Review attempt 1: quadratic annotation regex — FIXED+verified (3d23d35). Attempt 2: second, PRE-EXISTING quadratic vector found in Phase B `(.+)\s+#T\d+$` (internal whitespace flood, 112KB→8.6s; old regex equally affected). MVP 2-attempt cap reached — human decision required. Fix spec in revision-request.md. -->
+<!-- Shipped 2026-07-16 via /workflows:mvp autonomous run (also the mvp e2e smoke test #T38). Review: 3 rounds; 3 quadratic parse vectors fixed (3d23d35, 5e46574) — 1 introduced+caught by the gate, 2 pre-existing. -->
+- [x] Extract scripts/lib/dashboard-render.ts (parseRoadmap, esc, marker maps) + annotation-tolerant task regex (model/agent suffixes) #T40
+  <!-- GATE PASSED attempt 3 (user-authorized). -->
 
-- [~] renderKanban() in lib + /api/kanban route in dashboard-server.ts (depends: #T40) #T41
-- [~] Tab UI in getPage(): Overview|Board nav, view wrappers, kanban CSS, toggle JS (depends: #T41) #T42
-- [~] Unit test suite tests/dashboard-render.test.ts + dashboard-smoke.sh wrapper (depends: #T41) #T43
-- [~] Docs: dashboard.md + architecture.md endpoint updates; document (model:) annotation in roadmap-format.md #T44
+- [x] renderKanban() in lib + /api/kanban route in dashboard-server.ts (depends: #T40) #T41
+- [x] Tab UI in getPage(): Overview|Board nav, view wrappers, kanban CSS, toggle JS (depends: #T41) #T42
+- [x] Unit test suite tests/dashboard-render.test.ts + dashboard-smoke.sh wrapper (depends: #T41) #T43
+- [x] Docs: dashboard.md + architecture.md endpoint updates; document (model:) annotation in roadmap-format.md #T44
 ### In Progress
 ### Review
 ### Done

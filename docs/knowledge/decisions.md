@@ -81,3 +81,22 @@ Each entry: Date, Decision, Context, Alternatives Considered, Rationale
 - **Keep manual wave scheduling as a fallback** — rejected in favor of ROADMAP-marker fallback already documented in the ROADMAP↔Tasks dual-track pattern
 
 **Rationale**: Every hand-rolled system replaced here now has a strictly better native equivalent, and each deletion shrinks the always-loaded context (a core principle: context is noise). Governance value — gates, markers, adversarial review — is preserved untouched; only the execution plumbing changed.
+
+---
+
+## 2026-07-16 — Dashboard Kanban: Shared Render Lib + Linear-Parse Mandate
+
+**Decision**: Ship the Kanban Board tab as a server-rendered fragment (`/api/kanban`) reusing the dashboard's existing htmx/SSE panel idiom, with three durable policies:
+
+1. **Single ROADMAP parser for the dashboard** — `parseRoadmap`/`esc`/marker maps/`renderKanban` live in `scripts/lib/dashboard-render.ts`; `dashboard-server.ts` imports them. No fourth regex implementation (dashboard.sh and validate-roadmap.sh remain independent bash counters/validators by design).
+2. **Linear-parse mandate** — no unbounded-backtracking regex may scan a full ROADMAP line or title. Three quadratic shapes were found and fixed during this feature's review cycles (repeatable-annotation group, internal-whitespace flood, nested `(depends:` flood — the latter two pre-existing). Parsing is index-based (`lastIndexOf` + anchored validation on small bounded slices); four regression tests pin the attack shapes.
+3. **Marker completeness** — the board renders all seven canonical markers; `[>]` Racing and unknown-marker "Other" columns render only when non-empty (never silently dropped, never wasting width). `(model:)`/`(agent:)` annotations are now tolerated by the parser and documented in roadmap-format.md (the `(model:)` annotation was previously undocumented).
+
+**Context**: Deferred backlog wish (#T37) executed via the first end-to-end `/workflows:mvp` run (#T38), which exercised auto-rebuild on review failure and the 2-attempt hard stop (third round user-authorized).
+
+**Alternatives Considered**:
+- **CDN Kanban library (jkanban)** — rejected: stale since 2020, drag-and-drop dead weight for a read-only board, fights the server-rendered-fragment idiom
+- **Per-column htmx endpoints** — rejected: ROADMAP invalidates atomically; 6x requests for no gain
+- **Escaping in renderers** — rejected: parse-time `esc()` already established; double-escaping forbidden and pinned by test
+
+**Rationale**: A drop-in fourth instance of the established panel pattern costs zero new dependencies. The review cycles turned a UI feature into a hardening pass on the parser every panel shares — worth more than the board itself.

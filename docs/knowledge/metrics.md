@@ -116,3 +116,14 @@ Track per-feature implementation metrics. Updated by `/workflows:ship` and query
 - **Lines changed**: +539 / -52 across 14 files
 - **Commits**: 12 (9 feature, 2 fix, 1 docs)
 - **Key finding**: AI-generated CDN versions/SRI hashes must be verified against npm registry
+
+### Feature: dashboard-kanban (v2.3-dev)
+- **Duration**: 2026-07-16 (single session, autonomous via /workflows:mvp — also the mvp e2e smoke test #T38)
+- **Tasks**: 5 total (T40-T44), 5 completed, 0 blocked
+- **Batches**: 3 (B1: T40|T44, B2: T41, B3: T42|T43) — dependency-scheduled, ROADMAP-marker fallback (native TaskCreate unavailable in session)
+- **Revisions**: 3 review rounds (R1: quadratic annotation regex → auto-rebuild; R2: pre-existing whitespace-flood vector → MVP 2-attempt hard stop, user authorized R3; R3: fix + orchestrator found/fixed a third vector in dep extraction → PASSED)
+- **First-pass review rate**: 80% (4/5 tasks untouched by revisions; all revisions in T40's parser)
+- **Model split**: Sonnet sub-agents (5 impl + 1 rebuild + 1 fix), Opus reviewers (security + design + re-verify), Fable orchestration
+- **Lines changed**: +531 / -38 across 8 files (d5bad24..HEAD)
+- **Tests**: 15 dashboard (4 ReDoS regression) + 15 hook + 4 scanner — all passing
+- **Key findings**: (1) adversarial review earned its cost — three quadratic parse vectors found, two pre-existing in shipped code; (2) index-based parsing with anchored small-slice validation beats regex cleverness for attacker-influenceable text; (3) reviewer claims must be cross-validated — a codex review's 2 findings were empirically refuted earlier the same day, while the opus reviewer's ReDoS finding was empirically confirmed
