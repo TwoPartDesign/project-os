@@ -35,3 +35,10 @@ bloat_warn_tokens: 2500
 # Comma-separated subset of: map, staleness, failures, consolidation,
 # search-miss. Narrows which checks the loop runs this cycle.
 checks: map,staleness,failures,consolidation,search-miss
+
+# Auto-run cadence (hours) for the SessionStart trigger
+# (.claude/hooks/session-start-maintain.sh): the loop auto-runs at the start
+# of the first session after this many hours have elapsed since the last run
+# (manual runs also reset the clock). 0 disables auto-runs entirely; manual
+# `bash scripts/maintain.sh` is unaffected. Read by the hook, not the loop.
+auto_run_hours: 24

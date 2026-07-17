@@ -48,6 +48,7 @@
 - `h_post_write_session` — `.claude/hooks/post-write-session.sh` (1 dependent)
 - `h_pre_compact` — `.claude/hooks/pre-compact.sh` (1 dependent)
 - `h_session_end_cleanup` — `.claude/hooks/session-end-cleanup.sh` (1 dependent)
+- `h_session_start_maintain` — `.claude/hooks/session-start-maintain.sh` (2 dependents)
 - `h_session_start_setup` — `.claude/hooks/session-start-setup.sh` (1 dependent)
 - `h_tool_failure_log` — `.claude/hooks/tool-failure-log.sh` (1 dependent)
 
@@ -113,6 +114,7 @@
 - `c_tools_dream_accept` --references--> `s_dream_accept`
 - `c_tools_init` --references--> `s_codex_review`
 - `c_tools_init` --references--> `s_install_global_commands`
+- `c_tools_maintain` --references--> `h_session_start_maintain`
 - `c_tools_maintain` --references--> `s_knowledge_index`
 - `c_tools_maintain` --references--> `s_maintain`
 - `c_tools_maintain` --references--> `s_system_map`
@@ -138,6 +140,7 @@
 - `cfg_settings` --wires--> `h_post_write_session`
 - `cfg_settings` --wires--> `h_pre_compact`
 - `cfg_settings` --wires--> `h_session_end_cleanup`
+- `cfg_settings` --wires--> `h_session_start_maintain`
 - `cfg_settings` --wires--> `h_session_start_setup`
 - `cfg_settings` --wires--> `h_tool_failure_log`
 - `h_log_activity` --sources--> `l_common`
@@ -160,7 +163,7 @@
 
 ## Findings
 
-- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 2909 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 2955 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 3715 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 2533 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/windows-bash-scanner.md — docs/knowledge/windows-bash-scanner.md is approximately 2678 tokens, exceeding the 2500-token warn threshold.

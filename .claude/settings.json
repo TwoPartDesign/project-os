@@ -156,6 +156,11 @@
             "type": "command",
             "command": "bash \".claude/hooks/session-start-setup.sh\"",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "bash \".claude/hooks/session-start-maintain.sh\"",
+            "timeout": 120
           }
         ]
       }

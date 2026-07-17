@@ -578,6 +578,82 @@ scenario_11() {
 }
 
 # ==========================================================================
+# Scenario 12: session-start-maintain.sh auto-run hook — guards, debounce,
+# policy disable, and the notice line on a run that files drafts.
+# ==========================================================================
+
+scenario_12() {
+    local name="scenario12-auto-run-hook"
+    local hook="$REPO_ROOT/.claude/hooks/session-start-maintain.sh"
+    local fx out
+
+    # (a) non-git fixture -> silent skip, no ledger created
+    fx="$(mktemp -d)"
+    TMP_DIRS+=("$fx")
+    mkdir -p "$fx/.claude/logs" "$fx/scripts"
+    cp "$REPO_ROOT/scripts/maintain.sh" "$fx/scripts/maintain.sh"
+    out=$(PROJECT_OS_ROOT="$fx" bash "$hook" 2>&1)
+    if [ -z "$out" ] && [ ! -f "$fx/.claude/logs/maintenance-ledger.jsonl" ]; then
+        pass "$name: non-git root skipped silently"
+    else
+        fail "$name: non-git root should skip (out='$out')"
+    fi
+
+    # (b) linked-worktree shape (.git is a FILE) -> silent skip
+    printf 'gitdir: /somewhere/else\n' >"$fx/.git"
+    out=$(PROJECT_OS_ROOT="$fx" bash "$hook" 2>&1)
+    if [ -z "$out" ] && [ ! -f "$fx/.claude/logs/maintenance-ledger.jsonl" ]; then
+        pass "$name: worktree-style .git file skipped silently"
+    else
+        fail "$name: worktree root should skip (out='$out')"
+    fi
+
+    # (c) real fixture with auto_run_hours: 0 -> disabled, no run.
+    # The hook runs $ROOT/scripts/maintain.sh, so install the script set into
+    # the fixture like a real bootstrapped project.
+    fx="$(new_fixture)"
+    seed_stale_load "$fx"
+    mkdir -p "$fx/scripts/lib"
+    cp "$REPO_ROOT/scripts/maintain.sh" "$fx/scripts/"
+    cp "$REPO_ROOT/scripts/maintain-draft.ts" "$fx/scripts/"
+    cp "$REPO_ROOT/scripts/validate-roadmap.sh" "$fx/scripts/"
+    cp "$REPO_ROOT/scripts/lib/dashboard-render.ts" "$fx/scripts/lib/"
+    cp "$REPO_ROOT/scripts/lib/project-root.ts" "$fx/scripts/lib/"
+    printf '%s\n' "auto_run_hours: 0" >"$fx/.claude/maintenance-policy.yaml"
+    out=$(PROJECT_OS_ROOT="$fx" bash "$hook" 2>&1)
+    if [ -z "$out" ] && [ ! -f "$fx/.claude/logs/maintenance-ledger.jsonl" ]; then
+        pass "$name: auto_run_hours 0 disables the auto-run"
+    else
+        fail "$name: expected disabled auto-run (out='$out')"
+    fi
+
+    # (d) same fixture, auto-run enabled, no ledger yet -> runs, files drafts,
+    #     prints the visible notice
+    printf '%s\n' "auto_run_hours: 24" >"$fx/.claude/maintenance-policy.yaml"
+    out=$(PROJECT_OS_ROOT="$fx" bash "$hook" 2>&1)
+    if printf '%s' "$out" | grep -q "^Project OS maintenance auto-run: filed"; then
+        pass "$name: first auto-run files drafts and prints the notice"
+    else
+        fail "$name: expected a filed-drafts notice, got '$out'"
+    fi
+    if [ -f "$fx/.claude/logs/maintenance-ledger.jsonl" ]; then
+        pass "$name: auto-run wrote a ledger line"
+    else
+        fail "$name: auto-run left no ledger"
+    fi
+
+    # (e) immediate second invocation -> debounced (fresh ledger), silent
+    out=$(PROJECT_OS_ROOT="$fx" bash "$hook" 2>&1)
+    local lines
+    lines=$(grep -c '"run_id"' "$fx/.claude/logs/maintenance-ledger.jsonl" 2>/dev/null || echo 0)
+    if [ -z "$out" ] && [ "$lines" = "1" ]; then
+        pass "$name: second invocation debounced (no new run)"
+    else
+        fail "$name: expected debounce (out='$out', main ledger lines=$lines)"
+    fi
+}
+
+# ==========================================================================
 # Main
 # ==========================================================================
 
@@ -594,6 +670,7 @@ scenario_8
 scenario_9
 scenario_10
 scenario_11
+scenario_12
 
 REAL_ROADMAP_STATUS_AFTER="$(git -C "$REPO_ROOT" status --porcelain -- ROADMAP.md .claude/logs .claude/maintenance-lock 2>/dev/null)"
 if [ "$REAL_ROADMAP_STATUS_BEFORE" = "$REAL_ROADMAP_STATUS_AFTER" ]; then

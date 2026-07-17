@@ -669,6 +669,15 @@ if [ "$DRY_RUN" -ne 1 ]; then
         OVERFLOW_FIELD=",\"overflow_findings\":${OVERFLOW}"
     fi
     ledger_line "{\"timestamp\":\"${TS}\",\"run_id\":\"${RUN_ID}\",\"checks_run\":${CHECKS_JSON},\"findings_count\":${#FINDINGS_TITLES[@]},\"drafts_filed\":${DRAFTS_JSON},\"skipped_duplicates\":${SKIPPED_DUPLICATES},\"policy_warnings\":${WARNINGS_JSON}${OVERFLOW_FIELD}}"
+
+    # One-line stdout summary — read by humans on manual runs and by the
+    # SessionStart auto-run hook (which relays the "filed" case into session
+    # context so autonomous drafts are always visible, never silent).
+    if [ "${#DRAFTS_FILED[@]}" -gt 0 ]; then
+        echo "maintain: filed ${#DRAFTS_FILED[@]} draft(s): ${DRAFTS_FILED[*]} — review via /pm:approve"
+    else
+        echo "maintain: no drafts filed (findings: ${#FINDINGS_TITLES[@]}, duplicates skipped: ${SKIPPED_DUPLICATES})"
+    fi
 fi
 
 exit 0

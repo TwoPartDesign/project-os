@@ -55,6 +55,7 @@ User ──→ Workflow Commands ──→ Orchestrator ──→ Sub-agents (is
 | `post-write-session.sh` | Scrub secrets from `.claude/sessions/` files after write |
 | `pre-compact.sh` | PreCompact — auto-generate session handoff YAML (10-min debounce) |
 | `session-start-setup.sh` | SessionStart — idempotent activation fallback: runs `setup.sh --check` so a cloned project installs its git hooks on first session |
+| `session-start-maintain.sh` | SessionStart — auto-runs the maintenance loop once per `auto_run_hours` (policy, default 24h); drafts-only, debounced on ledger age, skips worktrees |
 | `session-end-cleanup.sh` | SessionEnd — remove per-session counters, rotate append-only logs |
 | `tool-failure-log.sh` | Log tool failures (timestamp + tool name only) |
 

@@ -76,7 +76,18 @@ bash scripts/maintain.sh            # runs checks, files drafts
 bash scripts/maintain.sh --dry-run  # prints what would be filed, writes nothing
 ```
 
-Scheduled — either works, the script is idempotent and lock-guarded
+**Automatic (default)** — the SessionStart hook
+`.claude/hooks/session-start-maintain.sh` auto-runs the loop at the start of
+the first session after `auto_run_hours` (policy, default 24) have elapsed
+since the last run. Manual runs reset the same clock (debounce reads the
+ledger's age). Set `auto_run_hours: 0` in `.claude/maintenance-policy.yaml`
+to disable auto-runs. When an auto-run files drafts, a one-line notice enters
+the session context — autonomous filings are never silent. There is
+deliberately no confirmation gate on running: the loop only files `[?]`
+drafts, and the consequential step (promotion) is already gated by
+`/pm:approve`. Linked worktrees and non-git copies skip silently.
+
+Other invokers — all fine, the script is idempotent and lock-guarded
 (`.claude/maintenance-lock`, atomic `mkdir`, 1h stale-reclaim so a crashed
 run can't wedge future runs indefinitely):
 

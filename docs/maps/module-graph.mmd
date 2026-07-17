@@ -43,6 +43,7 @@ flowchart LR
     h_post_write_session[".claude/hooks/post-write-session.sh"]
     h_pre_compact[".claude/hooks/pre-compact.sh"]
     h_session_end_cleanup[".claude/hooks/session-end-cleanup.sh"]
+    h_session_start_maintain[".claude/hooks/session-start-maintain.sh"]
     h_session_start_setup[".claude/hooks/session-start-setup.sh"]
     h_tool_failure_log[".claude/hooks/tool-failure-log.sh"]
   end
@@ -106,6 +107,7 @@ flowchart LR
   c_tools_dream_accept -->|references| s_dream_accept
   c_tools_init -->|references| s_codex_review
   c_tools_init -->|references| s_install_global_commands
+  c_tools_maintain -->|references| h_session_start_maintain
   c_tools_maintain -->|references| s_knowledge_index
   c_tools_maintain -->|references| s_maintain
   c_tools_maintain -->|references| s_system_map
@@ -131,6 +133,7 @@ flowchart LR
   cfg_settings -->|wires| h_post_write_session
   cfg_settings -->|wires| h_pre_compact
   cfg_settings -->|wires| h_session_end_cleanup
+  cfg_settings -->|wires| h_session_start_maintain
   cfg_settings -->|wires| h_session_start_setup
   cfg_settings -->|wires| h_tool_failure_log
   h_log_activity -->|sources| l_common
