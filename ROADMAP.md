@@ -72,7 +72,6 @@ Source: `docs/audits/2026-07-11-staleness-audit.md`. Tasks are grouped by file o
 -->
 
 ### Draft
-- [?] Fix knowledge-index.ts path guard on Windows: "Path escapes project root: docs\knowledge\architecture.md" even when run from project root — separator/case mismatch in the startsWith(projectRoot) check; index-vault unusable on Windows (found during dashboard-kanban build pre-flight) #T45
 
 ### Todo
 ### In Progress
@@ -82,6 +81,7 @@ Source: `docs/audits/2026-07-11-staleness-audit.md`. Tasks are grouped by file o
 - [x] Fix invalid regex in scripts/lib/scan-rules.js: the atlassian rule uses inline-modifier group (?-i:) unsupported by Node 22 V8 — security-scanner test-rules errors; audit other rules for the same construct and add a test-rules invocation to CI/smoke (found during #T29) #T33
 - [x] Fix MCP large-response warning: post-mcp-validate.sh size-warning branch echoes to stderr with exit 0 so it never reaches the model — same silent-warning class #T17 fixed elsewhere; also correct validate-mcp-output.sh's new docstring, which claims it is part of the live hook chain (it is not wired in settings.json) #T35
 - [x] Fix pre-commit security hook on deleted files: scan-staged path emits "fatal: path does not exist" for every staged deletion (observed during audit-remediation merge) — skip deleted paths when building the scan list #T36
+- [x] Fix knowledge-index.ts path guard on Windows: separator/case mismatch in startsWith(projectRoot) — replaced with relative()-based isWithinRoot() helper at all 3 guard sites; index-vault verified working (57 files/700 chunks), traversal rejection re-verified, 7 regression tests added (fixed 2026-07-16 as self-maintenance prerequisite) #T45
 <!-- Reviewed 2026-07-16: 4-way adversarial review (P0 security / model routing / orchestration modernization / hygiene) verified all 16 tasks; review fixes applied in the merge and its follow-up commit. -->
 <!-- P0 — security & correctness -->
 - [x] Fix MCP validation hooks: exit code 2 (or additionalContext JSON) so warnings reach the model, remove dead set -e error branch, absolute allowlist path via PROJECT_ROOT, truncate to a copy instead of mutating input (post-mcp-validate.sh, validate-mcp-output.sh) #T17
@@ -126,6 +126,18 @@ Spec: `docs/specs/dashboard-kanban/` (brief, design APPROVED 2026-07-16, tasks).
 - [x] Tab UI in getPage(): Overview|Board nav, view wrappers, kanban CSS, toggle JS (depends: #T41) #T42
 - [x] Unit test suite tests/dashboard-render.test.ts + dashboard-smoke.sh wrapper (depends: #T41) #T43
 - [x] Docs: dashboard.md + architecture.md endpoint updates; document (model:) annotation in roadmap-format.md #T44
+### In Progress
+### Review
+### Done
+
+## Feature: self-maintenance
+
+Spec: `docs/specs/self-maintenance/` (brief DRAFT rev 2, 2026-07-16 — corpus-mined via 4-agent digest sweep, see research.md). Framework-portable: scored system maps + pre-commit auto-heal + governed maintenance loop + dream pass (absorbs `.claude/plans/cryptic-napping-sonnet.md`). Depends on #T45 fix for the knowledge-index staleness leg.
+
+### Draft
+- [?] self-maintenance — brief created from mid-2026 memory/maps research report, awaiting design #T46
+
+### Todo
 ### In Progress
 ### Review
 ### Done

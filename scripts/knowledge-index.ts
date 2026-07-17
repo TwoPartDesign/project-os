@@ -6,7 +6,7 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { existsSync, readFileSync, mkdirSync, statSync, readdirSync, renameSync, realpathSync } from "node:fs";
-import { resolve, relative, join, dirname } from "node:path";
+import { resolve, relative, join, dirname, isAbsolute } from "node:path";
 import { execSync, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -390,6 +390,13 @@ export function normalizeFilePath(filePath: string): string {
   return filePath.replace(/\\/g, "/");
 }
 
+// Separator- and case-safe containment check (string startsWith breaks on
+// Windows: resolve() emits backslashes, and drive letters vary in case).
+export function isWithinRoot(target: string, root: string): boolean {
+  const rel = relative(root, target);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
 // ============================================================================
 // Subcommands
 // ============================================================================
@@ -400,7 +407,7 @@ function cmdIndex(filePath: string, args: string[]): void {
   const fullPath = resolve(projectRoot, filePath);
 
   // Path traversal guard: resolved path must stay inside project root
-  if (!fullPath.startsWith(projectRoot + "/") && fullPath !== projectRoot) {
+  if (!isWithinRoot(fullPath, projectRoot)) {
     console.error(`Error: Path escapes project root: ${filePath}`);
     process.exit(1);
   }
@@ -412,7 +419,7 @@ function cmdIndex(filePath: string, args: string[]): void {
 
   // Resolve symlinks and re-check boundary
   const canonicalPath = realpathSync(fullPath);
-  if (!canonicalPath.startsWith(projectRoot + "/") && canonicalPath !== projectRoot) {
+  if (!isWithinRoot(canonicalPath, realpathSync(projectRoot))) {
     console.error(`Error: Path escapes project root after symlink resolution: ${filePath}`);
     process.exit(1);
   }
@@ -769,7 +776,7 @@ function cmdIndexObservations(sourceFile: string, observationsJson: string): voi
   const projectRoot = getProjectRoot();
 
   const fullSourcePath = resolve(projectRoot, sourceFile);
-  if (!fullSourcePath.startsWith(projectRoot + "/") && fullSourcePath !== projectRoot) {
+  if (!isWithinRoot(fullSourcePath, projectRoot)) {
     console.error(`Error: Path escapes project root: ${sourceFile}`);
     process.exit(1);
   }

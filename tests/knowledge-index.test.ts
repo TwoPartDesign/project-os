@@ -6,6 +6,7 @@ import {
   calculateFreshness,
   normalizeFilePath,
   getSourceType,
+  isWithinRoot,
 } from "../scripts/knowledge-index.ts";
 
 // ==========================================================================
@@ -221,5 +222,48 @@ describe("getSourceType", () => {
 
   it("getSourceType_rootFile_returnsOther", () => {
     strictEqual(getSourceType("ROADMAP.md"), "other");
+  });
+});
+
+// ==========================================================================
+// isWithinRoot (T45: Windows separator/case-safe path containment)
+// ==========================================================================
+
+describe("isWithinRoot", () => {
+  const root = process.platform === "win32" ? "C:\\proj\\repo" : "/proj/repo";
+
+  it("isWithinRoot_nestedChild_true", () => {
+    const child = process.platform === "win32" ? "C:\\proj\\repo\\docs\\a.md" : "/proj/repo/docs/a.md";
+    strictEqual(isWithinRoot(child, root), true);
+  });
+
+  it("isWithinRoot_rootItself_true", () => {
+    strictEqual(isWithinRoot(root, root), true);
+  });
+
+  it("isWithinRoot_parentEscape_false", () => {
+    const outside = process.platform === "win32" ? "C:\\proj\\other\\a.md" : "/proj/other/a.md";
+    strictEqual(isWithinRoot(outside, root), false);
+  });
+
+  it("isWithinRoot_siblingPrefixDir_false", () => {
+    // "repo-evil" starts with "repo" — the old startsWith guard family's classic false-positive
+    const sibling = process.platform === "win32" ? "C:\\proj\\repo-evil\\a.md" : "/proj/repo-evil/a.md";
+    strictEqual(isWithinRoot(sibling, root), false);
+  });
+
+  it("isWithinRoot_mixedSeparators_true_onWindows", () => {
+    if (process.platform !== "win32") return; // separator mixing is a Windows-only concern
+    strictEqual(isWithinRoot("C:/proj/repo/docs/a.md", "C:\\proj\\repo"), true);
+  });
+
+  it("isWithinRoot_driveLetterCaseMismatch_true_onWindows", () => {
+    if (process.platform !== "win32") return;
+    strictEqual(isWithinRoot("c:\\proj\\repo\\docs\\a.md", "C:\\proj\\repo"), true);
+  });
+
+  it("isWithinRoot_differentDrive_false_onWindows", () => {
+    if (process.platform !== "win32") return;
+    strictEqual(isWithinRoot("D:\\proj\\repo\\a.md", "C:\\proj\\repo"), false);
   });
 });
