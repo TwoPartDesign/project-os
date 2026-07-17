@@ -54,6 +54,7 @@
 - `l_common` — `.claude/hooks/_common.sh` (11 dependents)
 - `l_dashboard_render` — `scripts/lib/dashboard-render.ts` (4 dependents)
 - `l_json` — `scripts/lib/json.sh` (2 dependents)
+- `l_project_root` — `scripts/lib/project-root.ts` (8 dependents)
 - `l_scan_rules` — `scripts/lib/scan-rules.js` (0 dependents)
 - `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (3 dependents)
 
@@ -144,7 +145,10 @@
 - `s_dashboard` --sources--> `l_json`
 - `s_dashboard_render_test` --imports--> `l_dashboard_render`
 - `s_dashboard_server` --imports--> `l_dashboard_render`
+- `s_knowledge_index` --imports--> `l_project_root`
 - `s_maintain_draft` --imports--> `l_dashboard_render`
+- `s_maintain_draft` --imports--> `l_project_root`
+- `s_system_map` --imports--> `l_project_root`
 - `s_system_map` --imports--> `l_system_map_lib`
 - `s_system_map_test` --imports--> `l_system_map_lib`
 - `sk_context_filter_skill` --references--> `s_knowledge_index`

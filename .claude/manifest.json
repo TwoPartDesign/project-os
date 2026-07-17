@@ -1,6 +1,6 @@
 {
   "project_os_version": "2.3-dev",
-  "generated": "2026-07-17T13:27:31Z",
+  "generated": "2026-07-17T13:41:20Z",
   "upstream": "TwoPartDesign/project-os",
   "files": {
     ".claude/commands/pm/approve.md": "17a7b0f1e79c5b9451f3d29b684d21388a351bb41cd1e4c1d791781b8cad602b",
@@ -85,19 +85,20 @@
     "scripts/generate-manifest.sh": "b7ea3cbaab3804c93c650232cf728165fc5e4b58993547bb69a047204f20c98e",
     "scripts/update-project.sh": "8973feb32b5c4746b574c95f1bfd57584cb8901aef1b6c6179d1b84a3a2c1304",
     "scripts/sync-hooks.sh": "019f37e2def4e22755112aaf327408f332ff04a5ca43cc9262c2ae6d2750404d",
-    "scripts/knowledge-index.ts": "7a5acd4126b9490c1f5049c570a14485871ab68e7ec2eab39cfbff5e4859cf94",
+    "scripts/knowledge-index.ts": "ba62ad2af035a54f81caf6b99ee2fa4a444df8dbe2bbf1895c868d85bdd3c297",
     "scripts/dashboard-server.ts": "6a1f648971d859f668cd329c57b69345691ed2f56e67de600e357dd2f4cff5ae",
     "scripts/observation-parser.ts": "b083b01f05dcc314843bf61149d7019e03c6f7fc886690b7e66dda8fdf3ed932",
     "scripts/security-scanner.ts": "75dd3e53b1a9a9e7363a34bf61d3ea612ef819f048118f0feb65b77ddc93a8b5",
-    "scripts/system-map.ts": "b208f1120d5a37d0b51c9a6f3d29b34c6cdd43473991e5f51d88abe036229630",
-    "scripts/maintain-draft.ts": "9e395852d32c74bd70469425081a8116a13b107cfc9f31411b783a98cca5227c",
-    "scripts/maintain.sh": "c24d5295325f2d78da24a072ab8f6828125202a5786d41f015e1d3363abc5304",
+    "scripts/system-map.ts": "95782df8f3b02044b170bc72ddc25dbdbdab24e4c55a7e55c6b4827ee705dbc7",
+    "scripts/maintain-draft.ts": "a5675816a5fbdc8ec5af58b920ed993fdd76b380e82d739ddb3bf88452ee1367",
+    "scripts/maintain.sh": "bf067e876be059d623cd7ed9a106c2c03af90a6026414c36487651dacf705023",
     "scripts/dream-accept.sh": "10097122c45d7e09e54150b913a4b427ceeac2f71e8fced8a16875c4efddfeed",
     "scripts/install-hooks.sh": "d6de1d9d4b06c2db5721cf037c588d67c2489b39944bb008f75d7e5486cd2f60",
     "scripts/install-global-commands.sh": "20d077338f2f1184ce1460bb7730b563bb6f295fb3ca78fe22c377d4e0318797",
     "scripts/new-project.sh": "e999e4f12965e311fbfa59b7a5601cf968d4447e28b962ed3524fb3785f4221f",
     "scripts/lib/dashboard-render.ts": "5bff04ec5ca293699041d5d3a744ab9ff6c42ae51abced8fc0a078c238bbb0a6",
     "scripts/lib/json.sh": "862e00924121fa045e7962f97a9aa511e77478bbaf576df5d8aaabd810c4c4b2",
+    "scripts/lib/project-root.ts": "5afd74f2af4d65ab8c491e1bf85ad9642c32035c9a53b20447ee4547c7a2e122",
     "scripts/lib/scan-rules.js": "92a4d768014c6a82c0d9b6bf5c7512a2829e1e5099f27b70418c48c91086ed92",
     "scripts/lib/system-map-lib.ts": "76259127df57ee6baaada3ae0ed97e9a65f8ddd1c2370ab3b4083396c6cd1f4b"
   }

@@ -35,6 +35,7 @@ import {
   findBloat,
 } from "./lib/system-map-lib.ts";
 import type { MapNode, MapEdge, SystemMapGraph, Finding } from "./lib/system-map-lib.ts";
+import { getProjectRoot } from "./lib/project-root.ts";
 
 type Kind = MapNode["kind"];
 
@@ -62,22 +63,6 @@ const KIND_PREFIX: Record<Kind, string> = {
 // Project root
 // ==========================================================================
 
-/**
- * Walks up from the current working directory to the nearest ancestor
- * containing a `.claude` directory. Mirrors `getProjectRoot` in
- * scripts/knowledge-index.ts and scripts/maintain-draft.ts. Falls back to
- * cwd if no `.claude` directory is found within 10 levels.
- */
-function getProjectRoot(): string {
-  let current = process.cwd();
-  for (let i = 0; i < 10; i++) {
-    if (existsSync(resolve(current, ".claude"))) return current;
-    const parent = resolve(current, "..");
-    if (parent === current) break;
-    current = parent;
-  }
-  return process.cwd();
-}
 
 // ==========================================================================
 // Classification (path -> kind, path -> id) — single source of truth used by
@@ -361,17 +346,28 @@ function computeInputs(source: ContentSource): Record<string, string> {
  * deterministic (sorted) result. Content is read once and reused for both
  * hashing and extraction. Never writes anything — see {@link writeArtifacts}.
  */
-function build(source: ContentSource): BuildResult {
-  const paths = source.discover();
+/**
+ * Reads every discoverable input, returning normalized content by path and a
+ * sorted-key hash map (`inputs`) for the lockfile. `readInput` already
+ * normalizes; `sha256` hashes the normalized bytes.
+ */
+function readInputs(source: ContentSource): {
+  contents: Map<string, string>;
+  inputs: Record<string, string>;
+} {
   const contents = new Map<string, string>();
   const inputs: Record<string, string> = {};
-  for (const p of paths) {
+  for (const p of source.discover()) {
     const c = source.readInput(p);
     if (c === null) continue;
     contents.set(p, c);
     inputs[p] = sha256(c);
   }
+  return { contents, inputs };
+}
 
+/** Builds the sorted node list from classified input paths. */
+function buildNodes(contents: Map<string, string>): MapNode[] {
   const nodes: MapNode[] = [];
   for (const p of contents.keys()) {
     const kind = classify(p);
@@ -382,7 +378,16 @@ function build(source: ContentSource): BuildResult {
     if (a.kind !== b.kind) return a.kind < b.kind ? -1 : 1;
     return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
   });
+  return nodes;
+}
 
+/**
+ * Builds the sorted edge list: settings→hook `wires`, command/skill→script
+ * `references`, and script/lib/hook `imports`/`sources`. Edge targets that
+ * resolve to a known node use its id; unknown targets keep the raw path so
+ * `findDanglingRefs` can flag them.
+ */
+function buildEdges(nodes: MapNode[], contents: Map<string, string>): MapEdge[] {
   const pathToId = new Map(nodes.map((n) => [n.path, n.id]));
   const edges: MapEdge[] = [];
 
@@ -396,17 +401,15 @@ function build(source: ContentSource): BuildResult {
 
   for (const n of nodes) {
     if (n.kind !== "command" && n.kind !== "skill") continue;
-    const content = contents.get(n.path)!;
-    for (const ref of extractScriptRefs(content, n.path)) {
+    for (const ref of extractScriptRefs(contents.get(n.path)!, n.path)) {
       edges.push({ from: n.id, to: pathToId.get(ref.target) ?? ref.target, kind: "references" });
     }
   }
 
   for (const n of nodes) {
     if (n.kind !== "script" && n.kind !== "lib" && n.kind !== "hook") continue;
-    const content = contents.get(n.path)!;
     const importKind: MapEdge["kind"] = n.path.endsWith(".sh") ? "sources" : "imports";
-    for (const im of extractImports(content, n.path)) {
+    for (const im of extractImports(contents.get(n.path)!, n.path)) {
       edges.push({ from: n.id, to: pathToId.get(im.target) ?? im.target, kind: importKind });
     }
   }
@@ -416,10 +419,18 @@ function build(source: ContentSource): BuildResult {
     if (a.to !== b.to) return a.to < b.to ? -1 : 1;
     return a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0;
   });
+  return edges;
+}
 
-  const graph = buildGraph(nodes, edges);
-
-  let findings: Finding[] = [];
+/** Runs all finders over the graph and returns a sorted, deduplicated set. */
+function runFindings(
+  source: ContentSource,
+  nodes: MapNode[],
+  edges: MapEdge[],
+  graph: SystemMapGraph,
+  contents: Map<string, string>,
+): Finding[] {
+  const findings: Finding[] = [];
   findings.push(...findUnwiredHooks(graph));
   // Tests are entry points by definition (invoked by npm test / manually) —
   // exclude them from orphan candidacy instead of allowlisting each by name.
@@ -441,8 +452,16 @@ function build(source: ContentSource): BuildResult {
   }
 
   findings.push(...findBloat(collectBloatFiles(source), loadBloatThreshold(source)));
-  findings = sortFindings(findings);
+  return sortFindings(findings);
+}
 
+/** Orchestrates a full build: read inputs → nodes → edges → graph → findings. */
+function build(source: ContentSource): BuildResult {
+  const { contents, inputs } = readInputs(source);
+  const nodes = buildNodes(contents);
+  const edges = buildEdges(nodes, contents);
+  const graph = buildGraph(nodes, edges);
+  const findings = runFindings(source, nodes, edges, graph, contents);
   return { nodes, edges, graph, findings, inputs };
 }
 

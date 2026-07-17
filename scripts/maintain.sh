@@ -375,6 +375,11 @@ run_check_map() {
 
 # ==========================================================================
 # Check 2: staleness — node scripts/knowledge-index.ts stale
+#
+# Scoped to the LIVING knowledge base (docs/knowledge/, plus root docs like
+# CLAUDE.md/README.md if indexed). docs/specs/** is excluded: those are
+# per-feature archival lifecycle docs that are old *by design* once a feature
+# ships, so flagging them as "stale knowledge" every run is noise, not signal.
 # ==========================================================================
 
 run_check_staleness() {
@@ -403,21 +408,27 @@ run_check_staleness() {
     fi
 
     local NAME_LINES
-    # Keep only in-project, repo-relative sources. The knowledge index can hold
-    # leaked entries from test runs (e.g. ../../../AppData/Local/Temp/...); those
-    # must never reach a committed ROADMAP draft (the "no personal paths in
-    # generated docs" constraint). Drop anything absolute or containing "..".
-    mapfile -t NAME_LINES < <(printf '%s\n' "$out" | grep -E '^  [^ ]' | sed -E 's/^  //' | grep -vE '(^/|^[A-Za-z]:|\.\.)')
+    # Filter the raw stale list:
+    #  - drop absolute / traversal paths (leaked test-run entries like
+    #    ../../../AppData/Local/Temp/... must never reach a committed draft —
+    #    the "no personal paths in generated docs" constraint);
+    #  - drop docs/specs/** (archival lifecycle docs, stale by design).
+    mapfile -t NAME_LINES < <(printf '%s\n' "$out" | grep -E '^  [^ ]' | sed -E 's/^  //' | grep -vE '(^/|^[A-Za-z]:|\.\.)' | grep -vE '^docs/specs/')
     if [ "${#NAME_LINES[@]}" -eq 0 ]; then
         return 0
     fi
 
     local SORTED_NAMES
     mapfile -t SORTED_NAMES < <(printf '%s\n' "${NAME_LINES[@]}" | sort -u)
-    local names fp
-    names="$(join_with ", " "${SORTED_NAMES[@]}")"
+    local total=${#SORTED_NAMES[@]}
+    # Cap the human-readable list at the first 10 names + "(+N more)" so the
+    # draft title stays scannable; the fingerprint uses the full sorted set.
+    local DISPLAY=("${SORTED_NAMES[@]:0:10}")
+    local names fp more=""
+    names="$(join_with ", " "${DISPLAY[@]}")"
+    if [ "$total" -gt 10 ]; then more=" (+$((total - 10)) more)"; fi
     fp="$(join_with "," "${SORTED_NAMES[@]}")"
-    add_finding "Review stale knowledge: ${#NAME_LINES[@]} files past ${STALE_THRESHOLD_DAYS}d (${names})" "stale:${fp}"
+    add_finding "Review stale knowledge: ${total} files past ${STALE_THRESHOLD_DAYS}d (${names}${more})" "stale:${fp}"
 }
 
 # ==========================================================================

@@ -49,6 +49,7 @@ flowchart LR
     l_common[".claude/hooks/_common.sh"]
     l_dashboard_render["scripts/lib/dashboard-render.ts"]
     l_json["scripts/lib/json.sh"]
+    l_project_root["scripts/lib/project-root.ts"]
     l_scan_rules["scripts/lib/scan-rules.js"]
     l_system_map_lib["scripts/lib/system-map-lib.ts"]
   end
@@ -137,7 +138,10 @@ flowchart LR
   s_dashboard -->|sources| l_json
   s_dashboard_render_test -->|imports| l_dashboard_render
   s_dashboard_server -->|imports| l_dashboard_render
+  s_knowledge_index -->|imports| l_project_root
   s_maintain_draft -->|imports| l_dashboard_render
+  s_maintain_draft -->|imports| l_project_root
+  s_system_map -->|imports| l_project_root
   s_system_map -->|imports| l_system_map_lib
   s_system_map_test -->|imports| l_system_map_lib
   sk_context_filter_skill -->|references| s_knowledge_index

@@ -9,6 +9,7 @@ import { existsSync, readFileSync, mkdirSync, statSync, readdirSync, renameSync,
 import { resolve, relative, join, dirname, isAbsolute } from "node:path";
 import { execSync, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { getProjectRoot } from "./lib/project-root.ts";
 
 // ============================================================================
 // Type Definitions
@@ -97,16 +98,9 @@ interface Config {
 // Utilities (exported for testing)
 // ============================================================================
 
-export function getProjectRoot(): string {
-  let current = process.cwd();
-  for (let i = 0; i < 10; i++) {
-    if (existsSync(resolve(current, ".claude"))) return current;
-    const parent = resolve(current, "..");
-    if (parent === current) break;
-    current = parent;
-  }
-  return process.cwd();
-}
+// getProjectRoot lives in ./lib/project-root.ts (shared with system-map.ts
+// and maintain-draft.ts); re-exported here for existing importers/tests.
+export { getProjectRoot };
 
 export function loadConfig(): Config {
   const projectRoot = getProjectRoot();

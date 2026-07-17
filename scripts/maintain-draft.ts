@@ -19,6 +19,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { parseRoadmap } from "./lib/dashboard-render.ts";
+import { getProjectRoot } from "./lib/project-root.ts";
 
 /** Heading that identifies the autonomous-drafts feature section. */
 const MAINTENANCE_INBOX_HEADING = "## Feature: maintenance-inbox";
@@ -29,23 +30,6 @@ const MAINTENANCE_INBOX_COMMENT =
 
 /** Default validator invoked after every write, split on spaces at call time. */
 const DEFAULT_VALIDATE_CMD = "bash scripts/validate-roadmap.sh";
-
-/**
- * Walks up from the current working directory to find the nearest ancestor
- * containing a `.claude` directory — the project root. Mirrors
- * `getProjectRoot` in scripts/knowledge-index.ts. Falls back to cwd if no
- * `.claude` directory is found within 10 levels.
- */
-function getProjectRoot(): string {
-  let current = process.cwd();
-  for (let i = 0; i < 10; i++) {
-    if (existsSync(resolve(current, ".claude"))) return current;
-    const parent = resolve(current, "..");
-    if (parent === current) break;
-    current = parent;
-  }
-  return process.cwd();
-}
 
 /**
  * Minimal `--flag value` CLI parser. No `--flag=value` syntax, no boolean
