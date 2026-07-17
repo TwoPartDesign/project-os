@@ -137,6 +137,83 @@ describe("parseRoadmap", () => {
       rmSync(path, { force: true });
     }
   });
+
+  it("parseRoadmap_whitespaceFloodLine_linearTime", () => {
+    // Regression for #T40 (attempt 2): the old Phase B regex
+    // `/^\s*-\s*\[(.)\]\s+(.+)\s+#(T\d+)$/` had a `(.+)\s+` pair that backtracks
+    // O(n^2) across long INTERNAL whitespace runs when the line doesn't end in
+    // `#T\d+` (~8.65s at this size under the old regex). The index-based split
+    // must stay linear.
+    const flood = "- [ ] t" + " ".repeat(112640) + "y";
+    const fixture = [flood, "- [ ] Normal task #T1"].join("\n");
+    const path = writeTmpRoadmap(fixture);
+    try {
+      const start = Date.now();
+      const { tasks } = parseRoadmap(path);
+      const elapsed = Date.now() - start;
+      strictEqual(tasks.get("T1")?.title, "Normal task");
+      ok(tasks.size === 1, `expected only the normal task to parse, got size ${tasks.size}`);
+      ok(elapsed < 1500, `expected parseRoadmap to run in <1500ms, took ${elapsed}ms`);
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+
+  it("parseRoadmap_noTitleLine_rejected", () => {
+    // Old regex's (.+) required at least one non-separator character for the
+    // title; a line with nothing between the marker and #TN must not parse.
+    const fixture = "- [ ] #T5";
+    const path = writeTmpRoadmap(fixture);
+    try {
+      const { tasks } = parseRoadmap(path);
+      strictEqual(tasks.size, 0);
+      ok(!tasks.has("T5"), "line with no title must not be parsed as a task");
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+
+  it("parseRoadmap_multipleHashT_lastTokenWins", () => {
+    // Old regex was greedy and anchored at $, so with multiple #T-shaped tokens
+    // on one line it always resolved to the LAST one; earlier tokens become part
+    // of the title text.
+    const fixture = "- [ ] see #T1 notes #T2";
+    const path = writeTmpRoadmap(fixture);
+    try {
+      const { tasks } = parseRoadmap(path);
+      strictEqual(tasks.size, 1);
+      ok(!tasks.has("T1"), "earlier #T token must not be treated as the task id");
+      const t = tasks.get("T2");
+      strictEqual(t?.id, "T2");
+      strictEqual(t?.title, "see #T1 notes");
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+
+  it("parseRoadmap_nestedDependsBomb_linearTime", () => {
+    // Regression for #T40 (attempt 3): the old dep-extraction regex
+    // /\(depends:\s*(#T\d+(?:,\s*#T\d+)*)\)/ scanned the whole title and was
+    // O(n^2) on repeated "(depends: " prefixes (~470ms at 80KB, growing
+    // quadratically). The index-based bounded-window scan must stay linear.
+    const bomb = "- [ ] " + "(depends: ".repeat(8000) + "#T1,#T2 x #T9";
+    const fixture = [bomb, "- [ ] Normal task (depends: #T1) #T3"].join("\n");
+    const path = writeTmpRoadmap(fixture);
+    try {
+      const start = Date.now();
+      const { tasks } = parseRoadmap(path);
+      const elapsed = Date.now() - start;
+      const normal = tasks.get("T3");
+      strictEqual(normal?.title, "Normal task");
+      strictEqual(normal?.deps.length, 1);
+      strictEqual(normal?.deps[0], "T1");
+      ok(tasks.has("T9"), "bomb line still parses as a task (title junk, no valid deps)");
+      strictEqual(tasks.get("T9")?.deps.length, 0);
+      ok(elapsed < 1500, `expected parseRoadmap to run in <1500ms, took ${elapsed}ms`);
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
 });
 
 // ==========================================================================
