@@ -79,6 +79,7 @@ TEMPLATE_SCRIPTS=(
     "scripts/install-global-commands.sh"
     "scripts/new-project.sh"
     "scripts/setup.sh"
+    "scripts/detect-stack.ts"
 )
 
 # Escape a string for JSON (handles \, ", and control chars)
@@ -102,10 +103,22 @@ echo "  \"files\": {" >> "$MANIFEST"
 
 first=true
 
+# The manifest must always record Project OS's OWN content for a path, never
+# the user's. If a path is content-conflicted, the user's version stays at
+# the canonical path and Project OS's version lands beside it as
+# "<file>.upstream" (see update-project.sh conflict handling). If the
+# manifest recorded the user's hash for that path, the next update-project.sh
+# run would see local==manifest and classify it SAFE_UPDATE
+# (update-project.sh:442-444), silently overwriting the user's file. Hashing
+# the ".upstream" sibling when present keeps the manifest entry equal to
+# Project OS's content, so the classifier correctly yields CONFLICT and the
+# user's file is preserved.
 hash_file() {
     local file="$1"
     local relpath="$2"
-    if [ ! -f "$file" ]; then
+    if [ -f "$file.upstream" ]; then
+        file="$file.upstream"
+    elif [ ! -f "$file" ]; then
         return
     fi
     local hash escaped_path

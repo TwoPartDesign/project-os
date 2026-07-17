@@ -55,7 +55,7 @@
     "scripts/dashboard-server.ts": "3ec9896b8d54a80b8d95ac9a189f3363cf86c96c9c6d76e5b883ec707aed810e",
     "scripts/dashboard.sh": "cace1ee4d56f627541bcd914bfaa1a3545376c5b2ddeeed5253740c8304db442",
     "scripts/dream-accept.sh": "b97403a9b16daab896c4f235895e4100eeeae8d91721146a5557df5ac6e780f6",
-    "scripts/generate-manifest.sh": "b4f69a85929912992950940d79f04909f580430f298dbe6808287346709cd9f1",
+    "scripts/generate-manifest.sh": "89b7731595b7ce2188d5de79f558b326cbf4f34ac6409d3861d30ce1560736bd",
     "scripts/install-global-commands.sh": "f74be9e26312cc7e1fa0e3e34ad4a7f26f2b9d5f400c04f5d30e009a4b97804f",
     "scripts/install-hooks.sh": "d6de1d9d4b06c2db5721cf037c588d67c2489b39944bb008f75d7e5486cd2f60",
     "scripts/knowledge-index.ts": "d7c68c389774278caec3554a77cde7601df6e70ef16aff3f6a550d032789dd6c",
