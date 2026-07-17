@@ -3,7 +3,7 @@ type: knowledge
 tags: [architecture, system-design]
 description: Living system architecture documentation
 links: "[[decisions]], [[patterns]]"
-date: "2026-07-12"
+date: "2026-07-16"
 ---
 
 # System Architecture
@@ -66,17 +66,22 @@ User ──→ Workflow Commands ──→ Orchestrator ──→ Sub-agents (is
 | `context-filter.sh` | Intent-based filtering/indexing for large content |
 | `create-pr.sh` | Generate a PR with AI-assisted description (gh CLI) |
 | `dashboard.sh` / `dashboard-server.ts` | Cross-project status table / live SSE dashboard (port 3400) |
+| `dream-accept.sh` | Accept a staged `/tools:dream` proposal: backup → swap → rebuild index → cleanup |
 | `generate-manifest.sh` | Create `.claude/manifest.json` with sha256 hashes for update tracking |
 | `install-global-commands.sh` | Install `/tools:new-project` globally |
 | `install-hooks.sh` | Install git pre-commit/pre-push security-scanner hooks |
 | `knowledge-index.ts` | FTS5 knowledge indexing and search (`node:sqlite`) |
 | `lib/json.sh` / `lib/scan-rules.js` | Shared JSON helpers / scanner rule database (233 rules) |
+| `lib/system-map-lib.ts` | Extractors + graph builder + readiness scoring for the system map |
+| `maintain-draft.ts` | File a fingerprinted `[?]` draft into ROADMAP.md's maintenance-inbox section |
+| `maintain.sh` | Deterministic maintenance loop — checks, drafts, ledger; never mutates canonical state |
 | `memory-search.sh` | Full-text search across knowledge files |
 | `new-project.sh` | Bootstrap a new Project OS project |
 | `observation-parser.ts` | Extract 5 typed observations from tool output (sensitive-key denylist) |
 | `scrub-secrets.sh` | Scrub secret patterns from a file (delegates to scanner) |
 | `security-scanner.ts` | Zero-dep secrets/PII scanner (8 subcommands) |
 | `sync-hooks.sh` | Sync hooks from the template to a target project |
+| `system-map.ts` | Generate/check/report the framework wiring map (`docs/maps/`) |
 | `update-project.sh` | Check for and apply Project OS updates from upstream |
 | `validate-freshness.sh` | Wrapper for knowledge-index freshness validation |
 | `validate-roadmap.sh` | Validate ROADMAP.md format, deps, cycles, consistency |
@@ -155,6 +160,17 @@ Defense-in-depth secret detection with three enforcement layers:
 - **Hook installer**: `scripts/install-hooks.sh` — validates rules, writes pre-commit and pre-push hooks to `.git/hooks/`
 
 Shell safety: all git operations use `execFileSync("git", [args])` (no string templates). Path traversal guard on all user-supplied paths.
+
+## Self-Maintenance
+
+Four zero-npm-dep components, strict authority split: deterministic code heals generated artifacts; only `/pm:approve` and `/tools:dream-accept` mutate canonical state.
+
+- **System map** (`system-map.ts` + `lib/system-map-lib.ts`) — wiring graph (hooks/commands/skills/scripts/libs) → `docs/maps/`, with readiness findings (orphans, unwired hooks, dangling refs, manifest gaps, bloat).
+- **Pre-commit auto-heal** — hook runs `system-map.ts precommit` after `scan-staged`; on drift, regenerates from the git index (not the working tree), stages `docs/maps/`, re-scans it. Fails only on generator/scan error.
+- **Dream pass** (`/tools:dream`, `/tools:dream-accept`) — stages consolidation under `docs/memory/.dream-output/`; accept backs up to `docs/memory/.archive/`, swaps in, rebuilds the index.
+- **Maintenance loop** (`maintain.sh` + `maintain-draft.ts`) — LLM-free; runs map/staleness/failure/consolidation checks, files fingerprinted `[?]` drafts + a ledger line. Reads `.claude/maintenance-policy.yaml`, never writes it.
+
+Locations: `docs/maps/`, `.claude/maintenance-policy.yaml`, `.claude/logs/maintenance-ledger.jsonl` (rotated, gitignored).
 
 ---
 

@@ -29,3 +29,4 @@ In addition to the handoff file that `/tools:handoff` creates, file session lear
 - [ ] Bugs → `docs/knowledge/bugs.md`
 - [ ] ROADMAP.md reflects current status
 - [ ] Handoff file written if WIP exists (via `/tools:handoff`)
+- [ ] Periodic consolidation: run `/tools:dream` when `docs/memory/` or sessions feel cluttered

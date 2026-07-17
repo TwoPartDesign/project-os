@@ -43,7 +43,7 @@
     ".claude/manifest.json": "6eecd338eeca2905630b7bcb6e1fe64670106781b9ca22ab55c5d4ab0244daf3",
     ".claude/settings.json": "11d77f3a34e3835facd3bbc858d399d8a2451f21d68759272ac941ccaa5ba039",
     ".claude/skills/context-filter/SKILL.md": "be429e91b03044e4a834fc28f29b51b69cf172a3bcb9160b2ed5be26818c291b",
-    ".claude/skills/session-management/SKILL.md": "617a7cbc7f8143a83b875b90ddd046360b4f1cd4d41985ab9bd68dd98519f96e",
+    ".claude/skills/session-management/SKILL.md": "e60cccaa699d7e80351a5f529a58a5ebafc4853152c5de86bf850d84086a4dbb",
     ".claude/skills/spec-driven-dev/SKILL.md": "8b5fe12babe6346eac38ebed916f007aba7711b0644199885195e306aad13253",
     ".claude/skills/tdd-workflow/SKILL.md": "43cd2a28da0a4fda4a5fa7a53433b84152e001469aa0935a8657b6e7182bb05e",
     "scripts/audit-context.sh": "df9d3523fc81619cef2f343046b576c04310abd51f3b6eaf98eec5ff90024a9b",

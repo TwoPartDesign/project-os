@@ -11,6 +11,7 @@ Project OS is a solo-developer governance layer for AI-driven development. It en
 - **Sub-agent orchestration** that routes work to cheaper models automatically
 - **Quality gates** at every phase transition
 - **Session handoffs** for resuming mid-task with zero context loss
+- **A self-maintaining framework** — generated system maps with pre-commit drift healing, a draft-only autonomous maintenance loop, and memory consolidation
 
 Everything is markdown files and bash scripts. No servers, no databases, no external services.
 

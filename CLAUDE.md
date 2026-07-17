@@ -56,6 +56,12 @@ See `.claude/agents/roles.md` for full definitions.
 - Project knowledge: `docs/knowledge/` (decisions, patterns, bugs, architecture)
 - Persistent memory: `docs/memory/` (cross-session, searchable)
 - Specs & designs: `docs/specs/<feature>/` (per-feature lifecycle docs)
+- System map: `docs/maps/system-map.md` (generated wiring map + readiness findings, healed by pre-commit)
+
+## Maintenance Invariants
+- Files/git are the source of truth; the SQLite index is deletable and rebuildable at any time.
+- The maintenance loop (`scripts/maintain.sh`) files `[?]` drafts only — it never mutates canonical state; promotion is `/pm:approve`.
+- Dream archives (`docs/memory/.archive/`) are the permanent verbatim tier — consolidation annotates with provenance, never destroys originals.
 
 ## Skill Triggers
 | Pattern | Skill | Loads |
