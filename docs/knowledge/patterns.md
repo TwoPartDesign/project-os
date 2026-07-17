@@ -82,3 +82,15 @@ Each entry: Pattern Name, When to Use, Example, Anti-pattern to Avoid
 **Example**: `system-map.ts precommit` re-hashes inputs from the index; on drift it regenerates `docs/maps/*`, `git add docs/maps`, runs a scoped scan on the healed files, exits 0. Only a generator or scan error exits 1.
 
 **Anti-pattern**: Failing the commit and making the human regenerate by hand (the "generated — do not edit, now go regenerate" treadmill), or regenerating from the dirty working tree so the committed artifact describes uncommitted state.
+
+---
+
+### Denylist Before Emit
+
+**When to Use**: Any extractor that surfaces config/key-value facts from arbitrary tool output (logs, JSON, env files) into a persisted or indexed artifact.
+
+**Pattern**: Test the key against a sensitive-name denylist (`SECRET|TOKEN|PASSWORD|CREDENTIAL|API_KEY|PRIVATE_KEY|AUTH`, case-insensitive) *before* emitting the observation — never emit a value whose key matches, regardless of format (env-var `KEY=value` or JSON `"key": "value"`). The check happens once, at the point of emission, so every caller downstream inherits the guarantee for free.
+
+**Example**: `extractConfigKeys()` in `scripts/observation-parser.ts` checks `sensitivePatterns.test(key)` for both the env-var and JSON-style code paths and `continue`s past the match without pushing an observation. `tests/observation-parser.test.ts` (`extractConfigKeys_envAndJsonSecrets_excludedFromOutput`, `extractConfigKeys_privateKeyAndCredentialKeys_excludedFromOutput`) asserts the raw secret values never appear anywhere in the serialized output, not just that the observation count is low.
+
+**Anti-pattern**: Redacting or filtering secrets at the *consumer* (e.g. the indexer or dashboard) instead of the extractor — every future consumer of the extractor's output has to remember to re-apply the filter, and one that forgets leaks the secret into logs, the search index, or a UI.
