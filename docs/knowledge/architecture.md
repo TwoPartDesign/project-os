@@ -54,6 +54,7 @@ User ──→ Workflow Commands ──→ Orchestrator ──→ Sub-agents (is
 | `post-tool-use.sh` | Auto-format files after Write/Edit |
 | `post-write-session.sh` | Scrub secrets from `.claude/sessions/` files after write |
 | `pre-compact.sh` | PreCompact — auto-generate session handoff YAML (10-min debounce) |
+| `session-start-setup.sh` | SessionStart — idempotent activation fallback: runs `setup.sh --check` so a cloned project installs its git hooks on first session |
 | `session-end-cleanup.sh` | SessionEnd — remove per-session counters, rotate append-only logs |
 | `tool-failure-log.sh` | Log tool failures (timestamp + tool name only) |
 
@@ -76,6 +77,8 @@ User ──→ Workflow Commands ──→ Orchestrator ──→ Sub-agents (is
 | `maintain-draft.ts` | File a fingerprinted `[?]` draft into ROADMAP.md's maintenance-inbox section |
 | `maintain.sh` | Deterministic maintenance loop — checks, drafts, ledger; never mutates canonical state |
 | `memory-search.sh` | Full-text search across knowledge files |
+| `setup.sh` | Idempotent project activation — installs git hooks + generates the initial map; run by new-project.sh, the SessionStart hook, and once per clone |
+| `lib/project-root.ts` | Shared project-root resolution (imported by knowledge-index/system-map/maintain-draft) |
 | `new-project.sh` | Bootstrap a new Project OS project |
 | `observation-parser.ts` | Extract 5 typed observations from tool output (sensitive-key denylist) |
 | `scrub-secrets.sh` | Scrub secret patterns from a file (delegates to scanner) |

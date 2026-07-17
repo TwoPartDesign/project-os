@@ -43,6 +43,7 @@ flowchart LR
     h_post_write_session[".claude/hooks/post-write-session.sh"]
     h_pre_compact[".claude/hooks/pre-compact.sh"]
     h_session_end_cleanup[".claude/hooks/session-end-cleanup.sh"]
+    h_session_start_setup[".claude/hooks/session-start-setup.sh"]
     h_tool_failure_log[".claude/hooks/tool-failure-log.sh"]
   end
   subgraph lib
@@ -72,6 +73,7 @@ flowchart LR
     s_observation_parser["scripts/observation-parser.ts"]
     s_scrub_secrets["scripts/scrub-secrets.sh"]
     s_security_scanner["scripts/security-scanner.ts"]
+    s_setup["scripts/setup.sh"]
     s_sync_hooks["scripts/sync-hooks.sh"]
     s_system_map["scripts/system-map.ts"]
     s_update_project["scripts/update-project.sh"]
@@ -84,6 +86,7 @@ flowchart LR
     s_knowledge_index_test["tests/knowledge-index.test.ts"]
     s_maintain_draft_test["tests/maintain-draft.test.ts"]
     s_maintain_smoke["tests/maintain-smoke.sh"]
+    s_new_project_smoke["tests/new-project-smoke.sh"]
     s_scanner_smoke["tests/scanner-smoke.sh"]
     s_system_map_smoke["tests/system-map-smoke.sh"]
     s_system_map_test["tests/system-map.test.ts"]
@@ -127,6 +130,7 @@ flowchart LR
   cfg_settings -->|wires| h_post_write_session
   cfg_settings -->|wires| h_pre_compact
   cfg_settings -->|wires| h_session_end_cleanup
+  cfg_settings -->|wires| h_session_start_setup
   cfg_settings -->|wires| h_tool_failure_log
   h_log_activity -->|sources| l_common
   h_output_index -->|sources| l_common

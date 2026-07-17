@@ -71,7 +71,7 @@ for script in memory-search.sh audit-context.sh scrub-secrets.sh \
               context-filter.sh validate-freshness.sh \
               codex-review.sh generate-manifest.sh update-project.sh \
               sync-hooks.sh maintain.sh dream-accept.sh \
-              install-hooks.sh install-global-commands.sh; do
+              install-hooks.sh install-global-commands.sh setup.sh; do
   cp "$TEMPLATE_DIR/scripts/$script" "$FULL_PATH/scripts/"
 done
 mkdir -p "$FULL_PATH/scripts/lib"
@@ -122,6 +122,13 @@ build/
 GI
 
 git init
+
+# Activate the project: install git hooks (secret scanner + system-map
+# auto-heal) and generate the initial system map. Idempotent and Node-guarded;
+# the same routine runs as a SessionStart fallback for cloned projects. The
+# initial commit below then passes through the freshly installed hooks.
+bash "$FULL_PATH/scripts/setup.sh" || echo "WARN: setup.sh reported an issue; run 'bash scripts/setup.sh' after 'cd $FULL_PATH'." >&2
+
 git add .
 git commit -m "chore: initialize project with Project OS scaffold"
 
@@ -134,3 +141,8 @@ echo "  claude"
 echo "  /tools:init               # Fill in project variables (run this first)"
 echo "  /pm:prd [feature-name]    # Start with product thinking"
 echo "  /workflows:idea [name]    # Or jump into a feature spec"
+echo ""
+echo "Already set up: git hooks + system map (via scripts/setup.sh)."
+echo "If you later CLONE this project elsewhere, run 'bash scripts/setup.sh'"
+echo "once to reinstall git hooks (they don't travel with 'git clone') — or"
+echo "just open it in Claude, which runs that setup automatically."

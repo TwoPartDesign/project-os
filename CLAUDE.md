@@ -74,7 +74,7 @@ See `.claude/agents/roles.md` for full definitions.
 
 ## Rules
 - Never commit with TODO, FIXME, or HACK without a linked task in ROADMAP.md
-- Never hardcode secrets, tokens, or credentials — enforced by pre-commit hook (`bash scripts/install-hooks.sh` once per clone)
+- Never hardcode secrets, tokens, or credentials — enforced by pre-commit hook (activated by `bash scripts/setup.sh`, auto-run on project creation and session start)
 - All public functions need docstrings
 - Test files mirror source structure: `src/foo.ts` -> `tests/foo.test.ts`
 - Commits are conventional: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`

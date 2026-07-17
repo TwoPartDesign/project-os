@@ -287,6 +287,7 @@ TEMPLATE_SCRIPTS=(
     "scripts/install-hooks.sh"
     "scripts/install-global-commands.sh"
     "scripts/new-project.sh"
+    "scripts/setup.sh"
 )
 
 for relpath in "${TEMPLATE_FILES[@]}" "${TEMPLATE_SCRIPTS[@]}"; do

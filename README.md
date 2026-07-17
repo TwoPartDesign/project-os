@@ -57,13 +57,13 @@ cd ~/projects/my-app && claude
 /tools:init
 ```
 
-### Security hooks (once per clone)
+### Activation (once per clone)
 
 ```bash
-bash scripts/install-hooks.sh
+bash scripts/setup.sh
 ```
 
-Installs pre-commit and pre-push hooks that block secrets, tokens, and PII from being committed or pushed.
+`new-project.sh` runs this for you automatically, and opening the project in Claude runs it via a SessionStart hook — so you usually never type it. Run it by hand only when you **clone** an existing Project OS project (git hooks live in `.git/hooks` and don't travel with `git clone`). It is idempotent: it installs the pre-commit/pre-push secret+PII scanner and generates the initial system map, skipping anything already in place. `bash scripts/install-hooks.sh` still installs just the git hooks if that's all you want.
 
 ## The Workflow
 
@@ -131,7 +131,7 @@ Zero-dep secret detection with three enforcement layers:
 - **Pre-push hook** — scans the diff being pushed as a second gate
 - **Ship workflow** — automatic scan-diff against the base branch before any feature ships
 
-233 detection rules (219 ported from gitleaks, 14 custom PII/privacy), Shannon entropy filtering, and inline `// scan:allow` suppression. Run `bash scripts/install-hooks.sh` once per clone to activate.
+233 detection rules (219 ported from gitleaks, 14 custom PII/privacy), Shannon entropy filtering, and inline `// scan:allow` suppression. Activated by `bash scripts/setup.sh` (auto-run on project creation and on session start).
 
 Ad-hoc scanning:
 ```bash
@@ -168,7 +168,7 @@ Configured in `.claude/settings.json` via `"model"` and `CLAUDE_CODE_SUBAGENT_MO
 - **`/clear` between unrelated tasks.** Fresh context = better performance.
 - **The knowledge vault compounds.** Document decisions and root causes as you go.
 - **`/pm:approve` after planning** to promote drafts before building.
-- **Run `bash scripts/install-hooks.sh` once per clone** to activate the pre-commit/pre-push secret scanner. Use `node scripts/security-scanner.ts scan-files <path>` for ad-hoc scans.
+- **Run `bash scripts/setup.sh` once per clone** (auto-run on creation and on session start) to activate the pre-commit/pre-push secret scanner and system-map auto-heal. Use `node scripts/security-scanner.ts scan-files <path>` for ad-hoc scans.
 - **For small changes** skip the pipeline entirely.
 
 For the full architecture reference, implementation details, and build spec, see [project-os-guide.md](project-os-guide.md).

@@ -78,6 +78,7 @@ TEMPLATE_SCRIPTS=(
     "scripts/install-hooks.sh"
     "scripts/install-global-commands.sh"
     "scripts/new-project.sh"
+    "scripts/setup.sh"
 )
 
 # Escape a string for JSON (handles \, ", and control chars)
