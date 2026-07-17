@@ -23,6 +23,7 @@ Before dispatching any agents:
    docs/specs/$ARGUMENTS/tasks/T1/
    docs/specs/$ARGUMENTS/tasks/T2/
    ...
+   docs/specs/$ARGUMENTS/waves/
    ```
 3. For each task directory, create a `context/` subdirectory:
    - If per-task context dirs already exist (from a prior plan phase), use them as-is
@@ -104,6 +105,8 @@ Log each: `bash .claude/hooks/log-activity.sh task-spawned "feature=$ARGUMENTS" 
 
 **2. Prepare agent context packets**
 Before assembling any packets, read `.claude/rules/bash.md` and extract the full content of its `## Agent Rules` section (everything after that heading). Store this as `BASH_AGENT_RULES` — it will be substituted into every agent prompt below.
+
+If `docs/specs/$ARGUMENTS/waves/wave-{N-1}-handoff.md` exists (the prior wave's handoff, N = this batch's number), read it first — it's the primary context for what the prior wave changed, its gotchas, and follow-ups this batch should account for.
 
 For each task in the batch, assemble ONLY:
 - The specific task description from tasks.md (NOT the full task list)
@@ -189,7 +192,23 @@ Each time the running set drains (all dispatched agents have completed) and befo
   2. Re-dispatch to the same agent (or escalate to a higher-tier model if the fix is non-trivial) to resolve
   3. If the agent cannot fix, stash that task's changes to preserve them: `git stash push -m "revert TN: [reason]" -- [task files]` and mark the task `[!]` in ROADMAP.md with a blocker note. Avoid `git checkout --` which permanently discards work.
   4. Never leave the test suite red between batches
-- Only dispatch the next batch when the gate passes
+- **Goal predicate:** before advancing, confirm a declarative exit condition holds for this batch — e.g. `goal: all tasks in this batch are [~], full test suite green, no [!] markers`. This is a Project OS convention (markdown-protocol only, not a dependency on any native `/goal` primitive). If the predicate isn't satisfied, loop through the retry steps above, up to the 2-retry cap in `.claude/rules/escalation.md`; if still unmet after 2 retries, stop dispatching and surface the blocker using the escalation message format.
+- Only dispatch the next batch when the goal predicate is satisfied
+- Write `docs/specs/$ARGUMENTS/waves/wave-N-handoff.md` (N = this batch's number) capturing what the next wave needs:
+  ```yaml
+  ---
+  wave: N
+  completed_tasks: [T3, T4, T5]
+  failed_tasks: []
+  files_changed: [...]
+  goal_satisfied: true
+  ---
+  ## Gotchas
+  - ...
+  ## Follow-ups for later waves
+  - ...
+  ```
+  Auto-indexed by `output-index.sh` (FTS5) for free — no extra step needed.
 
 ### After all tasks complete:
 

@@ -6,8 +6,10 @@
 #   bash scripts/update-project.sh --apply            # Apply compatible updates
 #   bash scripts/update-project.sh --apply --major    # Allow major version upgrades
 #   bash scripts/update-project.sh --target v2.3      # Target a specific version
+#   bash scripts/update-project.sh --diff-upstream    # Show unadopted upstream commits (no network)
 #
 # Requires: gh CLI (authenticated), sha256sum
+# --diff-upstream requires neither — it reads a local upstream cache (see --help)
 # Run from project root.
 
 set -euo pipefail
@@ -26,21 +28,25 @@ UPSTREAM="TwoPartDesign/project-os"
 APPLY=false
 ALLOW_MAJOR=false
 TARGET_VERSION=""
+DIFF_UPSTREAM=false
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --apply) APPLY=true ;;
         --major) ALLOW_MAJOR=true ;;
+        --diff-upstream) DIFF_UPSTREAM=true ;;
         --target)
             if [ $# -lt 2 ]; then echo "ERROR: --target requires a version argument" >&2; exit 1; fi
             TARGET_VERSION="$2"; shift ;;
         --help|-h)
-            echo "Usage: update-project.sh [--apply] [--major] [--target VERSION]"
+            echo "Usage: update-project.sh [--apply] [--major] [--target VERSION] [--diff-upstream]"
             echo ""
             echo "Flags:"
-            echo "  --apply    Apply updates (default is dry-run/check only)"
-            echo "  --major    Allow major version upgrades (default: same major only)"
-            echo "  --target   Target a specific version (e.g., v2.3)"
+            echo "  --apply           Apply updates (default is dry-run/check only)"
+            echo "  --major           Allow major version upgrades (default: same major only)"
+            echo "  --target          Target a specific version (e.g., v2.3)"
+            echo "  --diff-upstream   Show upstream commits not yet adopted, grouped by area."
+            echo "                    Reads a local upstream cache only — no network, no gh required."
             echo ""
             echo "Without --apply, shows what would change."
             exit 0
@@ -93,6 +99,93 @@ else
 fi
 
 echo "Current version: $CURRENT_VERSION"
+
+# --- Diff-upstream mode: what's changed upstream that we haven't adopted ---
+# No network mid-run — reads a local clone of the upstream repo (the "upstream
+# cache") if one is present. Degrades gracefully (prints instructions, exit 0)
+# if git or the cache is missing.
+
+if [ "$DIFF_UPSTREAM" = true ]; then
+    if ! command -v git &>/dev/null; then
+        echo ""
+        echo "No git found — cannot diff against upstream. Skipping --diff-upstream."
+        exit 0
+    fi
+
+    UPSTREAM_CACHE="${PROJECT_OS_UPSTREAM_CACHE:-$HOME/.project-os-upstream-cache}"
+
+    if [ ! -d "$UPSTREAM_CACHE/.git" ]; then
+        echo ""
+        echo "No upstream cache found at $UPSTREAM_CACHE."
+        echo "--diff-upstream never fetches over the network mid-run — populate the cache once:"
+        echo "  git clone https://github.com/$UPSTREAM.git \"$UPSTREAM_CACHE\""
+        echo "Refresh it later with: git -C \"$UPSTREAM_CACHE\" pull"
+        echo "Then re-run: bash scripts/update-project.sh --diff-upstream"
+        exit 0
+    fi
+
+    echo ""
+    echo "Diffing upstream ($UPSTREAM_CACHE) against local version: $CURRENT_VERSION"
+    echo ""
+
+    RANGE=""
+    if [ "$CURRENT_VERSION" != "unknown" ]; then
+        for candidate in "v$CURRENT_VERSION" "$CURRENT_VERSION"; do
+            if git -C "$UPSTREAM_CACHE" rev-parse -q --verify "$candidate" >/dev/null 2>&1; then
+                RANGE="$candidate..HEAD"
+                break
+            fi
+        done
+    fi
+
+    if [ -z "$RANGE" ]; then
+        echo "NOTE: local version tag not found in upstream cache — showing last 90 days instead."
+        LOG=$(git -C "$UPSTREAM_CACHE" log --oneline --no-merges --since="90 days ago" -- .claude/ scripts/ 2>/dev/null || true)
+    else
+        LOG=$(git -C "$UPSTREAM_CACHE" log --oneline --no-merges "$RANGE" -- .claude/ scripts/ 2>/dev/null || true)
+    fi
+
+    if [ -z "$LOG" ]; then
+        echo "No upstream changes found under .claude/ or scripts/ in range. Nothing to adopt."
+        exit 0
+    fi
+
+    # Group commits by area (command / skill / hook / agent / rule / script)
+    declare -A AREA_COMMITS
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        hash="${line%% *}"
+        files=$(git -C "$UPSTREAM_CACHE" show --name-only --pretty=format: "$hash" -- .claude/ scripts/ 2>/dev/null || true)
+        areas=""
+        echo "$files" | grep -q '^\.claude/commands/' && areas="$areas command"
+        echo "$files" | grep -q '^\.claude/skills/' && areas="$areas skill"
+        echo "$files" | grep -q '^\.claude/hooks/' && areas="$areas hook"
+        echo "$files" | grep -q '^\.claude/agents/' && areas="$areas agent"
+        echo "$files" | grep -q '^\.claude/rules/' && areas="$areas rule"
+        echo "$files" | grep -qE '^scripts/' && areas="$areas script"
+        areas="${areas# }"
+        [ -z "$areas" ] && areas="other"
+        for area in $areas; do
+            if [ -z "${AREA_COMMITS[$area]:-}" ]; then
+                AREA_COMMITS["$area"]="  $line"
+            else
+                AREA_COMMITS["$area"]="${AREA_COMMITS[$area]}"$'\n'"  $line"
+            fi
+        done
+    done <<< "$LOG"
+
+    for area in command skill hook agent rule script other; do
+        if [ -n "${AREA_COMMITS[$area]:-}" ]; then
+            count=$(echo "${AREA_COMMITS[$area]}" | grep -c '^  ' || true)
+            echo "$area ($count):"
+            echo "${AREA_COMMITS[$area]}"
+            echo ""
+        fi
+    done
+
+    echo "Review these against your local .claude/ and scripts/. Adopt manually, or via --target + --apply once you know what you want."
+    exit 0
+fi
 
 # --- Step 2: Fetch available releases ---
 

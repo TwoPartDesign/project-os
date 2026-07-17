@@ -111,14 +111,18 @@ Check in this exact order — **terminal states first** (first match wins):
 
 ## Gate Policy Reference
 
-| Gate | Auto-approve condition | Pause condition |
-|---|---|---|
-| Design approval | `design.md` contains `Status: APPROVED` | Design lacks `Status: APPROVED` (not yet approved by user) |
-| Task approval (`[?]` → `[ ]`) | Always — MVP applies approval directly without invoking `/pm:approve` | Never |
-| Rebuild mode choice | Auto Mode 1 (re-implement) — inlined, does not invoke `/workflows:rebuild` | Never |
-| Review failure — first time | Auto-trigger Mode 1 rebuild and re-review | — |
-| Review failure — second time | Never | Always — surface findings and halt |
-| Ship pre-check | Never | Always pauses for user confirmation |
+Each auto-advanced transition carries a declarative **goal predicate** — a Project OS convention (markdown-protocol only, no native `/goal` dependency) the orchestrator confirms before advancing. If unmet, treat it like any other phase failure: retry per the phase's own logic, up to the 2-retry cap in `.claude/rules/escalation.md`, then halt with the escalation message format.
+
+| Gate | Goal predicate | Auto-approve condition | Pause condition |
+|---|---|---|---|
+| Design approval | `design.md` contains `Status: APPROVED` | `design.md` contains `Status: APPROVED` | Design lacks `Status: APPROVED` (not yet approved by user) |
+| Task approval (`[?]` → `[ ]`) | all qualifying `[?]` tasks promoted, `validate-roadmap.sh` clean | Always — MVP applies approval directly without invoking `/pm:approve` | Never |
+| Rebuild mode choice | `[!]` tasks reset to `[-]` and re-dispatched | Auto Mode 1 (re-implement) — inlined, does not invoke `/workflows:rebuild` | Never |
+| Review failure — first time | `review.md` contains `GATE PASSED` or `GATE FAILED` (parseable) | Auto-trigger Mode 1 rebuild and re-review | — |
+| Review failure — second time | `review.md` contains `GATE PASSED` | Never | Always — surface findings and halt |
+| Ship pre-check | user confirms `y` | Never | Always pauses for user confirmation |
+
+Build-phase completion carries the same convention even though it isn't a row above: goal predicate `all feature tasks are [~] or [x], no [!] markers, none still [-]` — see Phase: build below for the pause/retry behavior when it's unmet.
 
 ## Dry-Run Mode
 
