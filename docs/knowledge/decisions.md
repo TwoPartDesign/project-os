@@ -15,6 +15,22 @@ Each entry: Date, Decision, Context, Alternatives Considered, Rationale
 
 <!-- Entries get appended here by workflows and handoff commands -->
 
+## 2026-07-16 — Self-Maintenance: Deterministic Maps + Draft-Only Autonomy
+
+**Decision**: Add framework self-maintenance in four parts, all zero-dep and template-portable: (1) a deterministic **system map** (`system-map.ts` + `lib/system-map-lib.ts`) of the framework's own wiring — settings→hooks, command/skill→script refs, imports, manifest coverage — with graph findings (unwired hooks, orphans, dangling refs, manifest gaps, bloat); (2) **pre-commit auto-heal** — the generated hook regenerates maps from the git INDEX and re-stages them, healing drift rather than blocking (only generator/scan errors block); (3) a **dream pass** (`/tools:dream`) for non-destructive memory consolidation with volatility tiers, provenance, and human-gated contradictions; (4) a **draft-only maintenance loop** (`maintain.sh`) that runs deterministic checks and files `[?]` ROADMAP drafts — never mutating canonical state.
+
+**Context**: The 2026-07-11 staleness audit found the framework rots its own wiring (manifest drift, doc contradictions). Two research passes (an uploaded report + a 149-digest corpus sweep) converged on: deterministic generation + freshness guarantee for maps, and human-gated (not auto-applying) autonomy for maintenance. Framework-first framing (Project OS is cloned into many projects) ruled out machine-specific coupling.
+
+**Alternatives Considered**:
+- **LLM-driven maintenance loop** — rejected: the checks are deterministic (hashes, counts, staleness queries); an LLM adds cost, nondeterminism, and the unattended-agent incident class the research documents. Judgment is routed to the human who reviews the drafts.
+- **Drift = fail the commit** (the uploaded report's model) — rejected for deterministic artifacts: heal + stage instead; fail only on generator error.
+- **PostToolUse map regen** — rejected: rebuild storms (the research's own cited warning); pre-commit + on-demand gives the freshness guarantee without the churn.
+- **beads / second task store, embeddings, MCP memory servers, approve-token gating, Stop-hook handoff enforcement** — all rejected (see `docs/specs/self-maintenance/research.md`): ROADMAP `#TN` graph is the task-graph-as-memory; FTS5 + grep win at this scale; `/pm:approve` + `/tools:dream-accept` already gate mutations.
+
+**Rationale**: The maps are trustworthy because they're generated from source; the loop is safe because its only write surface is `[?]` drafts + a ledger + dream staging, structurally bounded by a human-owned policy file it reads but never writes. Draft-only autonomy is a deliberate differentiator against the industry trend toward less human-in-the-loop (Anthropic RSI essay, GPT-5.6 self-training — both in the corpus). Embeddings stay deferred but now **measured**: search-miss instrumentation logs zero-result queries so the "defer until lexical recall fails" policy is an instrument, not a hope.
+
+**Review note**: The 3-reviewer adversarial pass found 3 HIGH (raw-fingerprint injection in the loop's only ROADMAP writer; map check lacking fixture coverage; uncommitted governance record) — all verified and fixed in-cycle. Lesson recorded: **a general-purpose CLI that is "the only trusted writer" must self-enforce sanitization** — call-site safety is incidental and brittle.
+
 ## 2026-02-24 — Strategic Repositioning: "Governance Layer" Framing
 
 **Decision**: Reframe Project OS identity from "spec-driven scaffold" to "solo-developer governance layer for AI-driven development" across README, CLAUDE.md, design-principles.md, architecture.md, and project-os-guide.md.

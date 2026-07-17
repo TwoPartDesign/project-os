@@ -58,3 +58,27 @@ Each entry: Pattern Name, When to Use, Example, Anti-pattern to Avoid
 - False positive: add `// scan:allow` on the line, or add the pattern to allowlist stopwords
 
 **Anti-pattern**: Relying solely on `.gitignore` to prevent secret leakage. Using `--no-verify` to bypass hooks without the ship workflow as a backup safety net.
+
+---
+
+### Sole-Writer Self-Enforcement
+
+**When to Use**: When a CLI or module is documented as the *only* sanctioned path to mutate a sensitive artifact (e.g. `maintain-draft.ts` is the only writer the autonomous loop may use to touch ROADMAP.md).
+
+**Pattern**: The writer must enforce its own invariants (sanitize all inputs that reach the artifact), not rely on callers to pass clean data. Sanitize every field written, not just the obvious one — `maintain-draft.ts` originally sanitized `--title` but wrote `--fingerprint` raw; a newline in the fingerprint could break out of its HTML comment and forge a task line. The safety at the current call sites (bash tooling that strips newlines) was incidental, not guaranteed.
+
+**Example**: `sanitizeFingerprint()` applied once before both the dedup match and the write, mirroring `sanitizeTitle()`. Regression test injects a newline-laden fingerprint and asserts no standalone forged task line survives.
+
+**Anti-pattern**: "The only caller today passes safe values, so the writer doesn't need to sanitize." Call sites change; a general-purpose writer outlives the assumptions of its first caller.
+
+---
+
+### Deterministic Artifact: Heal, Don't Block
+
+**When to Use**: A committed artifact is fully generated from source (system maps, lockfiles, generated code) and can be regenerated at any time.
+
+**Pattern**: On a pre-commit freshness check, if the artifact drifted, **regenerate it from the staged (index) content and re-stage it** — the commit proceeds with a correct artifact. Reserve hard commit failure for cases the machine genuinely can't resolve (generator crash, a scan finding in the regenerated output). Read inputs from the git index (`git show :<path>`), never the working tree, so a partially-staged commit produces an artifact describing exactly what's being committed.
+
+**Example**: `system-map.ts precommit` re-hashes inputs from the index; on drift it regenerates `docs/maps/*`, `git add docs/maps`, runs a scoped scan on the healed files, exits 0. Only a generator or scan error exits 1.
+
+**Anti-pattern**: Failing the commit and making the human regenerate by hand (the "generated — do not edit, now go regenerate" treadmill), or regenerating from the dirty working tree so the committed artifact describes uncommitted state.

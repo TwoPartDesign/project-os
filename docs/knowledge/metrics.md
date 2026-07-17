@@ -21,6 +21,20 @@ Track per-feature implementation metrics. Updated by `/workflows:ship` and query
 
 <!-- Entries added by /workflows:ship -->
 
+### Feature: self-maintenance
+
+- **Duration**: 2026-07-16 (single day, multi-session, largely autonomous)
+- **Tasks**: 9 total (T46 umbrella + T47-T54; +T45 prerequisite), 9 completed, 0 blocked
+- **Waves**: 4 batches (B1: T47|T48|T49|T54 parallel worktrees; B2: T50; B3: T52 then T51 serialized; B4: T53)
+- **Revisions**: 1 review cycle — 3 HIGH found, all verified + fixed in-cycle (GATE PASSED WITH NOTES)
+- **First-pass review rate**: 8/8 tasks passed; 3 cross-cutting HIGH findings fixed at the gate, not per-task rebuilds
+- **Compete usage**: 0
+- **Model split**: orchestration Fable 5; all implementation + review sub-agents Sonnet 5 (design review + 3 review reviewers on Opus 4.8)
+- **Lines changed**: +5183 / -86 (30 files, incl. T45 prerequisite)
+- **Adversarial passes**: 1 design review (12 findings resolved pre-build) + 3-reviewer implementation review (drift/security/quality)
+- **Self-validation**: the maintenance loop's first real run surfaced genuine drift (9 manifest gaps, 104 stale files, 12 recurring failures) — the feature exercised itself during build/review
+- **PR**: none (committed to master; framework repo)
+
 ### Feature: web-fetch
 
 > **Historical**: the web-fetch MCP server code was extracted from this repo to a standalone repository in commit `d2f7cec` (2026-04-08). Metrics retained for the record; the code no longer lives here.
