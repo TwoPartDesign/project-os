@@ -62,6 +62,7 @@ flowchart LR
     s_create_pr["scripts/create-pr.sh"]
     s_dashboard_server["scripts/dashboard-server.ts"]
     s_dashboard["scripts/dashboard.sh"]
+    s_detect_stack["scripts/detect-stack.ts"]
     s_dream_accept["scripts/dream-accept.sh"]
     s_generate_manifest["scripts/generate-manifest.sh"]
     s_install_global_commands["scripts/install-global-commands.sh"]
@@ -82,6 +83,7 @@ flowchart LR
     s_validate_roadmap["scripts/validate-roadmap.sh"]
     s_dashboard_render_test["tests/dashboard-render.test.ts"]
     s_dashboard_smoke["tests/dashboard-smoke.sh"]
+    s_detect_stack_test["tests/detect-stack.test.ts"]
     s_dream_accept_smoke["tests/dream-accept-smoke.sh"]
     s_hook_smoke["tests/hook-smoke.sh"]
     s_knowledge_index_test["tests/knowledge-index.test.ts"]
@@ -149,6 +151,7 @@ flowchart LR
   s_dashboard -->|sources| l_json
   s_dashboard_render_test -->|imports| l_dashboard_render
   s_dashboard_server -->|imports| l_dashboard_render
+  s_detect_stack_test -->|imports| s_detect_stack
   s_knowledge_index -->|imports| l_project_root
   s_maintain_draft -->|imports| l_dashboard_render
   s_maintain_draft -->|imports| l_project_root
