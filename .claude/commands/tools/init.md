@@ -23,21 +23,61 @@ If nothing found in memory, note it and proceed — you will build recommendatio
 
 ## Step 1b: Discover existing project docs
 
-Before asking any questions, scan the project for existing documentation that might already answer them. This reduces how much the user has to type.
+Before asking any questions, gather everything that might already answer them — from a deterministic stack detector and from a scan of the project's own docs. This reduces how much the user has to type.
 
-### Locations to check (in priority order)
+### Detect the stack
 
-1. **README.md** / **README.rst** — often has project name, description, and stack
+Run the stack detector first. It is the **single source of truth** for manifest-derived fields — do not hand-read `package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, etc. yourself; the detector already does this deterministically and safely (read-only, never executes project code):
+
+```bash
+node scripts/detect-stack.ts .
+```
+
+It prints one JSON object to stdout, e.g.:
+
+```json
+{
+  "language": "typescript", "package_manager": "pnpm", "framework": "next",
+  "database": "sqlite", "test_runner": "vitest", "formatter": "prettier",
+  "confidence": "high", "signals": ["package.json", "pnpm-lock.yaml", "deps:next", "devDeps:vitest"],
+  "fallback_used": false
+}
+```
+
+JSON field mapping:
+
+| JSON field | Pre-fill field | Notes |
+|---|---|---|
+| `language` | Stack (language/runtime) | nullable; e.g. `"typescript"`, `"python"`, `"go"`, `"rust"`, `"ruby"`, `"php"`, `"csharp"` |
+| `package_manager` | Stack (context) | nullable; e.g. `"npm"`, `"pnpm"`, `"poetry"`, `"uv"` |
+| `framework` | Framework | nullable; e.g. `"next"`, `"fastapi"`, `"django"` |
+| `database` | Database | nullable; e.g. `"prisma"`, `"sqlite3"`, `"pg"` |
+| `test_runner` | Test runner | nullable; e.g. `"vitest"`, `"jest"`, `"pytest"` |
+| `formatter` | Formatter | nullable; e.g. `"prettier"`, `"black"`, `"ruff"` |
+| `confidence` | — | `"high"` (manifest + lockfile matched) / `"medium"` (manifest only) / `"low"` (nothing matched) |
+| `signals` | — | file/key names that produced the result (never values) — cite these when presenting the pre-fill, e.g. "detected via package.json + pnpm-lock.yaml + deps:next" |
+| `fallback_used` | — | `true` exactly when `confidence` is `"low"` — triggers the census fallback below |
+
+Any non-null field is **pre-filled** — show it with its `confidence` for confirmation in Step 4 rather than asking from scratch (e.g. "Detected TypeScript / pnpm / Next.js / Vitest — high confidence, from package.json + pnpm-lock.yaml"). `medium`-confidence values are still pre-filled, just flag them as less certain.
+
+### Census fallback (when confidence is low)
+
+If `confidence` is `"low"` (`fallback_used: true` — no manifest matched at all), the detector alone can't name a language. Fall back to an extension census to produce a **suggestion**, never a pre-fill:
+
+1. Glob `**/*.{ts,tsx,js,py,go,rs,rb,php,cs,sh}` from the project root.
+2. Skip these directories entirely: `.git`, `node_modules`, `dist`, `build`, `vendor`, `.venv`, `target`.
+3. Count matches per extension.
+4. The extension with the most matches is a *suggestion* — present it to the user for confirmation in Round 2 (e.g. "No manifest found, but most files are `.py` — Python?"). Unlike a `medium`/`high`-confidence detector value, a census result is **never auto-committed** as a pre-fill; it must be confirmed like any unanswered question.
+
+### Locations to check for docs (in priority order)
+
+1. **README.md** / **README.rst** — often has project name and description
 2. **docs/product.md** — may have vision/scope already filled
 3. **docs/tech.md** — may have stack decisions already filled
 4. **docs/specs/** — any spec files that describe the feature set
 5. **PRD.md**, **prd.md**, `docs/PRD.md`, `docs/prd.md` — external product requirements doc
 6. **SPEC.md**, `docs/SPEC.md` — external spec
-7. **package.json** — reveals language (Node/TS), framework, test runner, formatter
-8. **pyproject.toml** / **setup.py** — reveals Python stack
-9. **go.mod** — reveals Go stack
-10. **Cargo.toml** — reveals Rust stack
-11. ***.md** files in the project root (any docs the user may have dropped in)
+7. ***.md** files in the project root (any docs the user may have dropped in)
 
 Use Glob to find which of these exist, then Read any that do.
 
@@ -47,27 +87,22 @@ Build a pre-fill map from what you find:
 
 | Field | Extraction hint |
 |---|---|
-| Project name | README `#` heading, package.json `name`, or folder name |
-| Description / one-liner | README first paragraph, package.json `description` |
-| Stack (language/runtime) | `package.json` → Node/TS, `pyproject.toml` → Python, `go.mod` → Go, etc. |
-| Framework | `package.json` dependencies (`next`, `express`, `fastapi`, etc.) |
-| Database | Dependencies or tech doc mentions (`sqlite`, `postgres`, `prisma`, etc.) |
-| Test runner | `package.json` `scripts.test`, `devDependencies` (`vitest`, `jest`, `pytest`) |
-| Formatter | `devDependencies` or config files (`prettier`, `eslint`, `black`) |
+| Project name | README `#` heading, or folder name |
+| Description / one-liner | README first paragraph |
 | Scope / v0.1 | PRD or spec "scope", "MVP", or "v0.1" sections |
 | Out of scope | PRD "out of scope" or "non-goals" sections |
 
-Store extracted values in a pre-fill map. Any field with a confident value from docs is **pre-filled** — show it for confirmation in Step 4 rather than asking from scratch.
+Merge these into the same pre-fill map used for the detector's fields. Any field with a confident value from docs is **pre-filled** — show it for confirmation in Step 4 rather than asking from scratch.
 
-**Conflict resolution — docs vs memory**: When a doc-derived value (e.g. `package.json` says Jest) conflicts with a memory-based recommendation (e.g. memory says always use Vitest), surface both and ask which to use. Don't silently pick one.
+**Conflict resolution — detector vs docs vs memory**: A field can now have up to three candidate values — the detector's manifest-derived value, a doc-derived value, and a memory-based recommendation (e.g. detect-stack reports `test_runner: "jest"`, `docs/tech.md` says "we use Mocha", and memory recommends "always use Vitest"). When any two of these disagree, surface *all* values found and their sources, and ask the user which to use. Don't silently pick one.
 
 ### Summarize what was found
 
 Before proceeding to Step 2, briefly tell the user:
 
-> "Found existing docs: [list of files]. Pre-filled: [field list]. Will ask about: [remaining fields]."
+> "Detected stack: [language/framework/etc., with confidence]. Found existing docs: [list of files]. Pre-filled: [field list]. Will ask about: [remaining fields]."
 
-If no relevant docs found, note it and proceed normally.
+If detection found nothing and no relevant docs were found, note it and proceed normally.
 
 ## Step 2: Global CLAUDE.md (optional, lightweight)
 
@@ -186,7 +221,7 @@ In a single message, ask only the fields not pre-filled. Open-ended fields (name
 
 ### Round 2 — Stack
 
-Present your recommendations based on memory findings (e.g. "Based on your past projects you've used TypeScript + Vitest — recommend the same here"). For any field pre-filled from docs, show detected value for confirmation. Ask only fields not pre-filled.
+Present your recommendations based on memory findings (e.g. "Based on your past projects you've used TypeScript + Vitest — recommend the same here"). For any field pre-filled in Step 1b (from the detector, docs, or a census suggestion), show the value for confirmation. Ask only fields not pre-filled.
 
 For language/runtime, use a picklist if the project type suggests standard choices:
 

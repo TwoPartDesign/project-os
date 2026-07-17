@@ -67,7 +67,7 @@
 - `s_create_pr` — `scripts/create-pr.sh` (1 dependent)
 - `s_dashboard_server` — `scripts/dashboard-server.ts` (1 dependent)
 - `s_dashboard` — `scripts/dashboard.sh` (1 dependent)
-- `s_detect_stack` — `scripts/detect-stack.ts` (1 dependent)
+- `s_detect_stack` — `scripts/detect-stack.ts` (2 dependents)
 - `s_dream_accept` — `scripts/dream-accept.sh` (1 dependent)
 - `s_generate_manifest` — `scripts/generate-manifest.sh` (1 dependent)
 - `s_install_global_commands` — `scripts/install-global-commands.sh` (1 dependent)
@@ -115,6 +115,7 @@
 - `c_tools_dream` --references--> `s_knowledge_index`
 - `c_tools_dream_accept` --references--> `s_dream_accept`
 - `c_tools_init` --references--> `s_codex_review`
+- `c_tools_init` --references--> `s_detect_stack`
 - `c_tools_init` --references--> `s_install_global_commands`
 - `c_tools_maintain` --references--> `h_session_start_maintain`
 - `c_tools_maintain` --references--> `s_knowledge_index`
