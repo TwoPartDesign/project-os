@@ -84,6 +84,23 @@ function sanitizeTitle(raw: string): string {
   return t;
 }
 
+/**
+ * Sanitizes a fingerprint before it is used for dedup matching or written
+ * into the `maint-fp:` comment. Strips CR/LF (a raw newline would break out
+ * of the single-line HTML comment and inject a forged ROADMAP line — this is
+ * the ONLY writer the autonomous loop may use, so the guard lives here, not
+ * at the call sites) and the comment-closing `>` / markdown `#<`, collapses
+ * whitespace, trims, and caps at 200 chars. Applied once, before both the
+ * dedup check and the write, so the two always agree.
+ */
+function sanitizeFingerprint(raw: string): string {
+  let f = raw.replace(/[\r\n]/g, "");
+  f = f.replace(/[#<>]/g, "");
+  f = f.replace(/\s+/g, " ").trim();
+  if (f.length > 200) f = f.slice(0, 200).trim();
+  return f;
+}
+
 /** Detects whether `content` uses CRLF or LF line endings; defaults to LF. */
 function detectEol(content: string): string {
   return content.includes("\r\n") ? "\r\n" : "\n";
@@ -202,7 +219,7 @@ function appendDraftTask(
 function main(): void {
   const args = parseArgs(process.argv.slice(2));
 
-  const fingerprint = args.fingerprint || "";
+  const fingerprint = sanitizeFingerprint(args.fingerprint || "");
   if (!fingerprint) {
     console.error("error: missing --fingerprint");
     process.exit(1);

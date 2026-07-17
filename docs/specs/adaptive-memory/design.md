@@ -7,6 +7,8 @@ origin: Claudex analysis (github.com/grigorijejakisic/Claudex)
 
 # PRD: Adaptive Memory — Claudex-Inspired Enhancements for Project OS
 
+> **Phase 2 progress (2026-07-16)**: Experience Pattern Mining / consolidation partially shipped via `/tools:dream` + `/tools:dream-accept` (self-maintenance feature, T49) — non-destructive staging consolidation over docs/memory + sessions with volatility tiers, provenance citations, and human-gated contradiction resolution. See `docs/specs/self-maintenance/design.md`.
+
 ## Context
 
 [Claudex](https://github.com/grigorijejakisic/Claudex) is a heavyweight local-first memory system for LLM coding agents — 21-table SQLite, Qdrant vector search, ACT-R cognitive decay, experience pattern mining, and a background "Angel" daemon. It achieves 90.8% LoCoMo accuracy and outperforms Mem0/Zep.

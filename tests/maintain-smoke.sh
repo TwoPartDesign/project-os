@@ -414,6 +414,78 @@ scenario_8() {
 }
 
 # ==========================================================================
+# Scenario 9: map check against a stub system-map.ts — exercises the
+# report --json HIGH-severity filter + subject extraction in a controlled
+# fixture (previously only ever run against the live repo).
+# ==========================================================================
+
+scenario_9() {
+    local name="scenario9-map-check"
+    local fx
+    fx="$(new_fixture)"
+    mkdir -p "$fx/scripts"
+    # Stub CLI (plain JS is valid TS): `check` -> fresh (exit 0);
+    # `report --json` -> one HIGH + one LOW finding.
+    printf '%s\n' \
+        'const mode = process.argv[2];' \
+        'if (mode === "check") { process.exit(0); }' \
+        'if (mode === "report") {' \
+        '  console.log(JSON.stringify([' \
+        '    { severity: "HIGH", kind: "unwired-hook", subject: "stub-hook.sh", detail: "x" },' \
+        '    { severity: "LOW", kind: "bloat", subject: "stub-doc.md", detail: "y" }' \
+        '  ]));' \
+        '  process.exit(0);' \
+        '}' \
+        'process.exit(0);' \
+        >"$fx/scripts/system-map.ts"
+    printf '%s\n' "checks: map" >"$fx/.claude/maintenance-policy.yaml"
+
+    local out ec
+    out=$(PROJECT_OS_ROOT="$fx" bash "$MAINTAIN_SH" 2>&1)
+    ec=$?
+    if [ "$ec" -ne 0 ]; then
+        fail "$name: maintain.sh exited $ec: $out"
+        return
+    fi
+
+    local line
+    line="$(last_main_ledger_line "$fx")"
+    local checks
+    checks="$(ledger_get_checks_run "$line")"
+    if [ "$checks" = "map" ]; then
+        pass "$name: only the map check ran"
+    else
+        fail "$name: expected checks_run [map], got '$checks'"
+    fi
+
+    local dcount
+    dcount="$(ledger_get_drafts_filed_count "$line")"
+    if [ "$dcount" = "1" ]; then
+        pass "$name: exactly one readiness draft filed"
+    else
+        fail "$name: expected 1 draft, got '$dcount' ($line)"
+    fi
+
+    local roadmap
+    roadmap="$(cat "$fx/ROADMAP.md")"
+    if printf '%s' "$roadmap" | grep -q "stub-hook.sh"; then
+        pass "$name: HIGH subject cited in the draft"
+    else
+        fail "$name: HIGH subject stub-hook.sh missing from ROADMAP"
+    fi
+    if printf '%s' "$roadmap" | grep -q "stub-doc.md"; then
+        fail "$name: LOW subject stub-doc.md leaked into the draft (should be HIGH-only)"
+    else
+        pass "$name: LOW subject correctly excluded"
+    fi
+    if printf '%s' "$roadmap" | grep -q "map:stub-hook.sh"; then
+        pass "$name: fingerprint derived from HIGH subjects"
+    else
+        fail "$name: expected fingerprint map:stub-hook.sh"
+    fi
+}
+
+# ==========================================================================
 # Main
 # ==========================================================================
 
@@ -427,6 +499,7 @@ scenario_5
 scenario_6
 scenario_7
 scenario_8
+scenario_9
 
 REAL_ROADMAP_STATUS_AFTER="$(git -C "$REPO_ROOT" status --porcelain -- ROADMAP.md .claude/logs .claude/maintenance-lock 2>/dev/null)"
 if [ "$REAL_ROADMAP_STATUS_BEFORE" = "$REAL_ROADMAP_STATUS_AFTER" ]; then

@@ -403,7 +403,11 @@ run_check_staleness() {
     fi
 
     local NAME_LINES
-    mapfile -t NAME_LINES < <(printf '%s\n' "$out" | grep -E '^  [^ ]' | sed -E 's/^  //')
+    # Keep only in-project, repo-relative sources. The knowledge index can hold
+    # leaked entries from test runs (e.g. ../../../AppData/Local/Temp/...); those
+    # must never reach a committed ROADMAP draft (the "no personal paths in
+    # generated docs" constraint). Drop anything absolute or containing "..".
+    mapfile -t NAME_LINES < <(printf '%s\n' "$out" | grep -E '^  [^ ]' | sed -E 's/^  //' | grep -vE '(^/|^[A-Za-z]:|\.\.)')
     if [ "${#NAME_LINES[@]}" -eq 0 ]; then
         return 0
     fi

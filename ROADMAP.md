@@ -135,7 +135,15 @@ Spec: `docs/specs/dashboard-kanban/` (brief, design APPROVED 2026-07-16, tasks).
 Spec: `docs/specs/self-maintenance/` (brief DRAFT rev 2, 2026-07-16 — corpus-mined via 4-agent digest sweep, see research.md). Framework-portable: scored system maps + pre-commit auto-heal + governed maintenance loop + dream pass (absorbs `.claude/plans/cryptic-napping-sonnet.md`). Depends on #T45 fix for the knowledge-index staleness leg.
 
 ### Draft
-- [?] self-maintenance — brief created from mid-2026 memory/maps research report, awaiting design #T46
+- [x] self-maintenance umbrella — design APPROVED 2026-07-16 (1 adversarial round, 12 findings resolved); tracks feature completion at ship #T46
+- [x] system-map-lib.ts: extractors (hook wiring, script refs, imports), graph + findings (unwired/orphan/dangling/manifest-gap/bloat, dependent counts), CRLF-normalized hashing + unit tests #T47
+- [x] maintain-draft.ts: governed ROADMAP draft filing — next-ID via dashboard-render parseRoadmap, fixed-string fingerprint dedup, snapshot/validate/restore + tests #T48
+- [x] Dream pass: /tools:dream + /tools:dream-accept commands, dream-accept.sh (allowlist timestamp, swap marker + recovery), volatility tiers/provenance/contradiction-flagging + smoke test #T49
+- [x] system-map.ts CLI: generate/check/report/precommit (git-index reads, scoped scan after heal), first committed docs/maps artifacts + smoke tests incl. partial-staging + CRLF (depends: #T47) #T50
+- [x] Template sync: pre-commit template map step, 3 hardcoded script lists updated (generate-manifest/new-project/update-project), post-apply check --heal, hooks reinstalled, manifest regenerated (depends: #T50) #T51
+- [x] maintain.sh loop: mkdir lock, validated policy file, 5 checks (map/staleness/failures/consolidation/search-miss), draft cap, ledger + inline rotation, --dry-run, maintain.md command doc + smoke suite (depends: #T48, #T50, #T54) #T52
+- [x] Search-miss instrumentation: knowledge-index.ts search logging (JSONL + rotation, never breaks search) + tests — feeds maintain.sh recall-gap check; adopted from second memory spec review #T54
+- [x] Docs: CLAUDE.md map reference, architecture.md self-maintenance section + tables, README bullet; map check green after edits (depends: #T49, #T51, #T52) #T53
 
 ### Todo
 ### In Progress

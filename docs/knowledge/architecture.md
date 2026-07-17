@@ -168,7 +168,7 @@ Four zero-npm-dep components, strict authority split: deterministic code heals g
 - **System map** (`system-map.ts` + `lib/system-map-lib.ts`) — wiring graph (hooks/commands/skills/scripts/libs) → `docs/maps/`, with readiness findings (orphans, unwired hooks, dangling refs, manifest gaps, bloat).
 - **Pre-commit auto-heal** — hook runs `system-map.ts precommit` after `scan-staged`; on drift, regenerates from the git index (not the working tree), stages `docs/maps/`, re-scans it. Fails only on generator/scan error.
 - **Dream pass** (`/tools:dream`, `/tools:dream-accept`) — stages consolidation under `docs/memory/.dream-output/`; accept backs up to `docs/memory/.archive/`, swaps in, rebuilds the index.
-- **Maintenance loop** (`maintain.sh` + `maintain-draft.ts`) — LLM-free; runs map/staleness/failure/consolidation checks, files fingerprinted `[?]` drafts + a ledger line. Reads `.claude/maintenance-policy.yaml`, never writes it.
+- **Maintenance loop** (`maintain.sh` + `maintain-draft.ts`) — LLM-free; runs map / staleness / failures / consolidation / search-miss checks (the last driven by `knowledge-index.ts` search-log instrumentation at `.claude/logs/search-log.jsonl`), files fingerprinted `[?]` drafts + a ledger line. Reads `.claude/maintenance-policy.yaml`, never writes it.
 
 Locations: `docs/maps/`, `.claude/maintenance-policy.yaml`, `.claude/logs/maintenance-ledger.jsonl` (rotated, gitignored).
 
