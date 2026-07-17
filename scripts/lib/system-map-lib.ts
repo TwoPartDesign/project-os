@@ -302,24 +302,27 @@ export function dependents(graph: SystemMapGraph, nodeId: string): number {
 // ==========================================================================
 
 /**
- * Flags every `kind: "hook"` node with zero incoming `wires` edges as a HIGH
- * finding — a hook script that exists on disk but is never wired into
- * `.claude/settings.json`'s `hooks` block will silently never run. NOTE:
- * `.claude/hooks/_common.sh` is a sourced library, not an invoked hook, and
- * must be classified `kind: "lib"` by the caller when building nodes — it is
- * never wired directly and would otherwise show up here as a false positive.
+ * Flags every `kind: "hook"` node with zero incoming edges of ANY kind as a
+ * HIGH finding — a hook script that is neither wired into
+ * `.claude/settings.json`'s `hooks` block (`wires` edge) nor invoked from a
+ * command/skill/script (`references` edge) will silently never run.
+ * Command-invoked hooks (e.g. log-activity.sh, notify-phase-change.sh) are
+ * legitimate and must NOT be flagged — any incoming edge counts as wired,
+ * not just `wires` (orchestrator fix after first real-repo run, 2026-07-16).
+ * NOTE: `.claude/hooks/_common.sh` is a sourced library, not an invoked hook,
+ * and must be classified `kind: "lib"` by the caller when building nodes.
  */
 export function findUnwiredHooks(graph: SystemMapGraph): Finding[] {
   const findings: Finding[] = [];
   for (const n of graph.nodes) {
     if (n.kind !== "hook") continue;
-    const wired = (graph.incoming.get(n.id) || []).some((e) => e.kind === "wires");
+    const wired = (graph.incoming.get(n.id) || []).length > 0;
     if (!wired) {
       findings.push({
         severity: "HIGH",
         kind: "unwired-hook",
         subject: n.id,
-        detail: `Hook ${n.path} is not wired in .claude/settings.json (no incoming "wires" edge).`,
+        detail: `Hook ${n.path} has no incoming edges — not wired in .claude/settings.json and not invoked by any command, skill, or script.`,
       });
     }
   }

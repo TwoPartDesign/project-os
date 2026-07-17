@@ -1,0 +1,137 @@
+flowchart LR
+  subgraph command
+    c_pm_approve[".claude/commands/pm/approve.md"]
+    c_pm_epic[".claude/commands/pm/epic.md"]
+    c_pm_prd[".claude/commands/pm/prd.md"]
+    c_pm_status[".claude/commands/pm/status.md"]
+    c_tools_catchup[".claude/commands/tools/catchup.md"]
+    c_tools_commit[".claude/commands/tools/commit.md"]
+    c_tools_dashboard[".claude/commands/tools/dashboard.md"]
+    c_tools_dream_accept[".claude/commands/tools/dream-accept.md"]
+    c_tools_dream[".claude/commands/tools/dream.md"]
+    c_tools_handoff[".claude/commands/tools/handoff.md"]
+    c_tools_init[".claude/commands/tools/init.md"]
+    c_tools_kv[".claude/commands/tools/kv.md"]
+    c_tools_metrics[".claude/commands/tools/metrics.md"]
+    c_tools_new_project[".claude/commands/tools/new-project.md"]
+    c_tools_research[".claude/commands/tools/research.md"]
+    c_tools_set_models[".claude/commands/tools/set-models.md"]
+    c_tools_update[".claude/commands/tools/update.md"]
+    c_workflows_build[".claude/commands/workflows/build.md"]
+    c_workflows_compete_review[".claude/commands/workflows/compete-review.md"]
+    c_workflows_compete[".claude/commands/workflows/compete.md"]
+    c_workflows_design[".claude/commands/workflows/design.md"]
+    c_workflows_idea[".claude/commands/workflows/idea.md"]
+    c_workflows_mvp[".claude/commands/workflows/mvp.md"]
+    c_workflows_plan[".claude/commands/workflows/plan.md"]
+    c_workflows_rebuild[".claude/commands/workflows/rebuild.md"]
+    c_workflows_review[".claude/commands/workflows/review.md"]
+    c_workflows_ship[".claude/commands/workflows/ship.md"]
+  end
+  subgraph config
+    cfg_manifest[".claude/manifest.json"]
+    cfg_settings[".claude/settings.json"]
+  end
+  subgraph hook
+    h_compact_suggest[".claude/hooks/compact-suggest.sh"]
+    h_log_activity[".claude/hooks/log-activity.sh"]
+    h_notify_phase_change[".claude/hooks/notify-phase-change.sh"]
+    h_output_index[".claude/hooks/output-index.sh"]
+    h_post_mcp_validate[".claude/hooks/post-mcp-validate.sh"]
+    h_post_tool_use[".claude/hooks/post-tool-use.sh"]
+    h_post_write_session[".claude/hooks/post-write-session.sh"]
+    h_pre_compact[".claude/hooks/pre-compact.sh"]
+    h_session_end_cleanup[".claude/hooks/session-end-cleanup.sh"]
+    h_tool_failure_log[".claude/hooks/tool-failure-log.sh"]
+  end
+  subgraph lib
+    l_common[".claude/hooks/_common.sh"]
+    l_dashboard_render["scripts/lib/dashboard-render.ts"]
+    l_json["scripts/lib/json.sh"]
+    l_scan_rules["scripts/lib/scan-rules.js"]
+    l_system_map_lib["scripts/lib/system-map-lib.ts"]
+  end
+  subgraph script
+    s_audit_context["scripts/audit-context.sh"]
+    s_codex_review["scripts/codex-review.sh"]
+    s_context_filter["scripts/context-filter.sh"]
+    s_create_pr["scripts/create-pr.sh"]
+    s_dashboard_server["scripts/dashboard-server.ts"]
+    s_dashboard["scripts/dashboard.sh"]
+    s_dream_accept["scripts/dream-accept.sh"]
+    s_generate_manifest["scripts/generate-manifest.sh"]
+    s_install_global_commands["scripts/install-global-commands.sh"]
+    s_install_hooks["scripts/install-hooks.sh"]
+    s_knowledge_index["scripts/knowledge-index.ts"]
+    s_maintain_draft["scripts/maintain-draft.ts"]
+    s_memory_search["scripts/memory-search.sh"]
+    s_new_project["scripts/new-project.sh"]
+    s_observation_parser["scripts/observation-parser.ts"]
+    s_scrub_secrets["scripts/scrub-secrets.sh"]
+    s_security_scanner["scripts/security-scanner.ts"]
+    s_sync_hooks["scripts/sync-hooks.sh"]
+    s_system_map["scripts/system-map.ts"]
+    s_update_project["scripts/update-project.sh"]
+    s_validate_freshness["scripts/validate-freshness.sh"]
+    s_validate_roadmap["scripts/validate-roadmap.sh"]
+    s_dashboard_render_test["tests/dashboard-render.test.ts"]
+    s_dashboard_smoke["tests/dashboard-smoke.sh"]
+    s_dream_accept_smoke["tests/dream-accept-smoke.sh"]
+    s_hook_smoke["tests/hook-smoke.sh"]
+    s_knowledge_index_test["tests/knowledge-index.test.ts"]
+    s_maintain_draft_test["tests/maintain-draft.test.ts"]
+    s_scanner_smoke["tests/scanner-smoke.sh"]
+    s_system_map_smoke["tests/system-map-smoke.sh"]
+    s_system_map_test["tests/system-map.test.ts"]
+  end
+  subgraph skill
+    sk_context_filter_skill[".claude/skills/context-filter/SKILL.md"]
+    sk_session_management_skill[".claude/skills/session-management/SKILL.md"]
+    sk_spec_driven_dev_skill[".claude/skills/spec-driven-dev/SKILL.md"]
+    sk_tdd_workflow_skill[".claude/skills/tdd-workflow/SKILL.md"]
+  end
+  c_pm_approve -->|references| s_validate_roadmap
+  c_tools_catchup -->|references| s_knowledge_index
+  c_tools_dashboard -->|references| s_dashboard
+  c_tools_dashboard -->|references| s_dashboard_server
+  c_tools_dream -->|references| s_knowledge_index
+  c_tools_dream_accept -->|references| s_dream_accept
+  c_tools_init -->|references| s_codex_review
+  c_tools_init -->|references| s_install_global_commands
+  c_tools_update -->|references| s_generate_manifest
+  c_tools_update -->|references| s_sync_hooks
+  c_tools_update -->|references| s_update_project
+  c_workflows_build -->|references| h_log_activity
+  c_workflows_build -->|references| h_notify_phase_change
+  c_workflows_build -->|references| s_knowledge_index
+  c_workflows_build -->|references| s_validate_roadmap
+  c_workflows_compete -->|references| h_notify_phase_change
+  c_workflows_mvp -->|references| s_validate_roadmap
+  c_workflows_plan -->|references| s_validate_roadmap
+  c_workflows_review -->|references| h_log_activity
+  c_workflows_review -->|references| h_notify_phase_change
+  c_workflows_ship -->|references| h_log_activity
+  c_workflows_ship -->|references| s_create_pr
+  c_workflows_ship -->|references| s_security_scanner
+  cfg_settings -->|wires| h_compact_suggest
+  cfg_settings -->|wires| h_output_index
+  cfg_settings -->|wires| h_post_mcp_validate
+  cfg_settings -->|wires| h_post_tool_use
+  cfg_settings -->|wires| h_post_write_session
+  cfg_settings -->|wires| h_pre_compact
+  cfg_settings -->|wires| h_session_end_cleanup
+  cfg_settings -->|wires| h_tool_failure_log
+  h_log_activity -->|sources| l_common
+  h_output_index -->|sources| l_common
+  h_post_tool_use -->|sources| l_common
+  h_post_write_session -->|sources| l_common
+  h_pre_compact -->|sources| l_common
+  h_session_end_cleanup -->|sources| l_common
+  h_tool_failure_log -->|sources| l_common
+  s_dashboard -->|sources| l_json
+  s_dashboard_render_test -->|imports| l_dashboard_render
+  s_dashboard_server -->|imports| l_dashboard_render
+  s_maintain_draft -->|imports| l_dashboard_render
+  s_system_map -->|imports| l_system_map_lib
+  s_system_map_test -->|imports| l_system_map_lib
+  sk_context_filter_skill -->|references| s_knowledge_index

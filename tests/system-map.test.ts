@@ -258,7 +258,7 @@ describe("dependents", () => {
 // ==========================================================================
 
 describe("findUnwiredHooks", () => {
-  it("findUnwiredHooks_unwiredHook_flaggedHigh_wiredAndLibIgnored", () => {
+  it("findUnwiredHooks_zeroIncomingHook_flaggedHigh_wiredAndLibIgnored", () => {
     const nodes: MapNode[] = [
       { id: "h_pre_tool_use", kind: "hook", path: ".claude/hooks/pre-tool-use.sh" },
       { id: "h_post_tool_use", kind: "hook", path: ".claude/hooks/post-tool-use.sh" },
@@ -274,9 +274,21 @@ describe("findUnwiredHooks", () => {
         kind: "unwired-hook",
         subject: "h_pre_tool_use",
         detail:
-          'Hook .claude/hooks/pre-tool-use.sh is not wired in .claude/settings.json (no incoming "wires" edge).',
+          "Hook .claude/hooks/pre-tool-use.sh has no incoming edges — not wired in .claude/settings.json and not invoked by any command, skill, or script.",
       },
     ]);
+  });
+
+  it("findUnwiredHooks_commandInvokedHook_notFlagged", () => {
+    // log-activity.sh-style hooks: invoked by workflow commands (`references`
+    // edge), never event-wired in settings.json — must NOT be flagged.
+    const nodes: MapNode[] = [
+      { id: "h_log_activity", kind: "hook", path: ".claude/hooks/log-activity.sh" },
+      { id: "cmd_build", kind: "command", path: ".claude/commands/workflows/build.md" },
+    ];
+    const edges: MapEdge[] = [{ from: "cmd_build", to: "h_log_activity", kind: "references" }];
+    const graph = buildGraph(nodes, edges);
+    deepStrictEqual(findUnwiredHooks(graph), []);
   });
 });
 
