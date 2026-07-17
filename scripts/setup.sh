@@ -72,7 +72,17 @@ fi
 # --- Git hooks -----------------------------------------------------------------
 if [ -d "$ROOT/.git" ]; then
     HOOK="$ROOT/.git/hooks/pre-commit"
-    if [ -f "$HOOK" ] && grep -q "security-scanner.ts scan-staged" "$HOOK" 2>/dev/null; then
+    # Gate on the exact installer marker, never a substring a hostile
+    # pre-existing hook could spoof in a comment (e.g. "security-scanner.ts
+    # scan-staged"). In --adopt mode the gate is bypassed entirely: always
+    # delegate to install-hooks.sh, whose marker-based rename logic is
+    # idempotent and performs the quarantine — a spoofed hook must still be
+    # renamed and replaced, never skipped.
+    ALREADY_INSTALLED=0
+    if [ -f "$HOOK" ] && grep -q "Auto-installed by Project OS security scanner" "$HOOK" 2>/dev/null; then
+        ALREADY_INSTALLED=1
+    fi
+    if [ "$ADOPT" -eq 0 ] && [ "$ALREADY_INSTALLED" -eq 1 ]; then
         say "Git hooks: already installed."
     else
         # --adopt: pass --no-chain so a pre-existing (possibly hostile) hook is

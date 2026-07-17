@@ -781,22 +781,84 @@ async function cmdTestPattern(ruleId: string): Promise<void> {
 // Subcommand: install-hooks
 // ============================================================================
 
+// Standard git hook names (client + server side). Used in --no-chain (adopt)
+// mode to quarantine every pre-existing hook, not just pre-commit/pre-push —
+// a hostile repo could plant e.g. commit-msg or post-checkout instead.
+const ALL_GIT_HOOK_NAMES = [
+  "applypatch-msg",
+  "pre-applypatch",
+  "post-applypatch",
+  "pre-commit",
+  "pre-merge-commit",
+  "prepare-commit-msg",
+  "commit-msg",
+  "post-commit",
+  "pre-rebase",
+  "post-checkout",
+  "post-merge",
+  "pre-push",
+  "pre-receive",
+  "update",
+  "post-receive",
+  "post-update",
+  "push-to-checkout",
+  "pre-auto-gc",
+  "post-rewrite",
+  "sendemail-validate",
+  "fsmonitor-watchman",
+];
+
 function cmdInstallHooks(projectRoot: string, opts: { noChain?: boolean } = {}): void {
   const noChain = opts.noChain ?? false;
+  const ourMarker = "Auto-installed by Project OS security scanner";
 
-  let gitDir: string;
+  // Resolve the hooks directory the way git itself resolves it: honors
+  // core.hooksPath (and worktree-relative .git files). `--git-dir` +
+  // join("hooks") ignores core.hooksPath entirely, which lets a hostile repo
+  // keep its live hooks at the git-honored location while quarantine and
+  // install land somewhere git never looks.
+  let hooksDir: string;
   try {
-    gitDir = execFileSync("git", ["rev-parse", "--git-dir"], { cwd: projectRoot })
+    const gitPathOutput = execFileSync("git", ["rev-parse", "--git-path", "hooks"], {
+      cwd: projectRoot,
+    })
       .toString()
       .trim();
+    // --git-path may print a path relative to cwd (projectRoot here) or an
+    // absolute path (e.g. an absolute core.hooksPath) — resolve() passes
+    // absolute inputs through unchanged and joins relative ones onto
+    // projectRoot, so this is correct either way.
+    hooksDir = resolve(projectRoot, gitPathOutput);
   } catch (err) {
-    process.stderr.write(`Error: could not find .git directory: ${(err as Error).message}\n`);
+    process.stderr.write(`Error: could not resolve git hooks directory: ${(err as Error).message}\n`);
     process.exit(2);
   }
 
-  // Resolve relative git dir to absolute
-  const absGitDir = resolve(projectRoot, gitDir);
-  const hooksDir = join(absGitDir, "hooks");
+  // --no-chain (adopt) mode: quarantine EVERY pre-existing hook file lacking
+  // our marker — not just pre-commit/pre-push — before installing anything.
+  // Renamed to `<name>.pre-adopt`, which nothing invokes. `.sample` files and
+  // files already suffixed `.pre-adopt`/`.local` are untouched because this
+  // only matches exact standard hook filenames.
+  if (noChain) {
+    for (const name of ALL_GIT_HOOK_NAMES) {
+      const hookPath = join(hooksDir, name);
+      if (!existsSync(hookPath)) continue;
+      let existing: string;
+      try {
+        existing = readFileSync(hookPath, "utf-8");
+      } catch {
+        continue;
+      }
+      if (existing.includes(ourMarker)) continue;
+      const quarantinePath = hookPath + ".pre-adopt";
+      try {
+        renameSync(hookPath, quarantinePath);
+        process.stderr.write(`Renamed existing ${name} to ${name}.pre-adopt (adopt quarantine)\n`);
+      } catch (err) {
+        process.stderr.write(`Warning: could not rename ${hookPath}: ${(err as Error).message}\n`);
+      }
+    }
+  }
 
   // In --no-chain (adopt) mode, a pre-existing hook is quarantined, never
   // invoked — so the generated hook omits the chain block entirely. Default
@@ -842,7 +904,6 @@ ${chainBlock}`;
 
   for (const hook of hooks) {
     const hookPath = join(hooksDir, hook.name);
-    const ourMarker = "Auto-installed by Project OS security scanner";
 
     if (existsSync(hookPath)) {
       const existing = readFileSync(hookPath, "utf-8");
