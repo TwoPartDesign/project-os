@@ -179,6 +179,23 @@ describe("extractConfigKeys", () => {
     ok(!serialized.includes("xyz789"), "credential value leaked into output");
   });
 
+  it("extractConfigKeys_camelCaseSecretKeys_excludedFromOutput", () => {
+    // Regression: separator-free camelCase keys (apiKey, privateKey) must be
+    // caught by the denylist too — they'd otherwise slip past the underscored
+    // API_KEY/PRIVATE_KEY forms and leak the secret value into the index.
+    const lines = [
+      '{"apiKey": "sk-ant-SHOULD-NOT-LEAK", "name": "app"}',
+      '{"privateKey": "-----BEGIN-SHOULD-NOT-LEAK-----"}',
+      '{"authToken": "ghp_SHOULD_NOT_LEAK"}',
+    ];
+    const result = extractConfigKeys(lines);
+    const keys = result.map((o) => o.metadata.key);
+    deepStrictEqual(keys, ["name"]);
+    const serialized = JSON.stringify(result);
+    ok(!serialized.includes("SHOULD-NOT-LEAK"), "camelCase apiKey/privateKey value leaked");
+    ok(!serialized.includes("SHOULD_NOT_LEAK"), "camelCase authToken value leaked");
+  });
+
   it("extractConfigKeys_duplicateEnvVarLines_deduped", () => {
     const result = extractConfigKeys(["PORT=3000", "PORT=3000"]);
     strictEqual(result.length, 1);

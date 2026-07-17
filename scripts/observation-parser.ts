@@ -194,8 +194,14 @@ export function extractConfigKeys(lines: string[]): Observation[] {
   // JSON style: "key": "value" or "key": value (non-object values)
   const jsonKvRe = /"([a-zA-Z_]+)":\s*"?([^",}\n]+)"?/g;
 
-  // Skip keys that may contain sensitive values
-  const sensitivePatterns = /SECRET|TOKEN|PASSWORD|CREDENTIAL|API_KEY|PRIVATE_KEY|AUTH/i;
+  // Skip keys that may contain sensitive values. The key is normalized by
+  // stripping `_`/`-` before the test so camelCase JSON keys are caught too:
+  // `apiKey`/`privateKey` would otherwise slip past `API_KEY`/`PRIVATE_KEY`
+  // (which require the underscore) and leak a secret value into the index.
+  // Over-suppression is the safe direction here — a missed observation never
+  // leaks; a missed secret does.
+  const sensitivePatterns = /SECRET|TOKEN|PASSWORD|CREDENTIAL|APIKEY|PRIVATEKEY|AUTH/i;
+  const isSensitiveKey = (k: string): boolean => sensitivePatterns.test(k.replace(/[_-]/g, ""));
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -203,7 +209,7 @@ export function extractConfigKeys(lines: string[]): Observation[] {
 
     const envMatch = envVarRe.exec(trimmed);
     if (envMatch) {
-      if (sensitivePatterns.test(envMatch[1])) continue;
+      if (isSensitiveKey(envMatch[1])) continue;
       const key = envMatch[1];
       const value = envMatch[2].trim();
       const content = trimmed.substring(0, 500);
@@ -226,7 +232,7 @@ export function extractConfigKeys(lines: string[]): Observation[] {
     let jsonMatch: RegExpExecArray | null;
     while ((jsonMatch = jsonKvRe.exec(line)) !== null) {
       const key = jsonMatch[1];
-      if (sensitivePatterns.test(key)) continue;
+      if (isSensitiveKey(key)) continue;
       const value = jsonMatch[2].trim();
       const content = `"${key}": "${value}"`;
       if (!seen.has(content)) {

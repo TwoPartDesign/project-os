@@ -1,5 +1,47 @@
 # Project OS — SOTA Adoption Plan (May 2026)
 
+> ## ⟳ REVISED SCOPE — 2026-07-17 (supersedes the Tier tables below)
+>
+> The **self-maintenance** feature shipped 2026-07-16 (#T46–T54) absorbed the most
+> valuable part of this plan — the internal-drift / staleness-review axis. This
+> revision re-scopes #T34 to only the work that is still real, portable, and
+> unshipped. Read this block as authoritative; the original Tier 1–3 detail below
+> is kept for provenance and cross-reference.
+>
+> ### Already delivered by self-maintenance (drop from #T34)
+> - **1.3 `/tools:audit-knowledge`** — SUBSUMED. `scripts/maintain.sh` already runs
+>   the staleness / bloat / drift checks and files `[?]` drafts routed through
+>   `/pm:approve`; `scripts/system-map.ts` covers readiness/drift. The bespoke
+>   interactive keep/edit/archive command adds little over the draft→approve flow.
+> - The plan's whole **"staleness review strategy"** (3 drift axes) — the *internal*
+>   axis is done. Only the *upstream* and *external* axes remain (see below).
+>
+> ### #T34 revised deliverables — a small "workflow-ergonomics" feature (portable)
+> | # | Item | Effort | Note |
+> |---|------|--------|------|
+> | 1.1 | `/goal` exit predicates on wave gates + MVP phase transitions | S | Markdown-protocol only, no code. **Verify `/goal` is still the current native primitive before building** (plan cites a specific Claude Code version). |
+> | 1.2 | Structured wave-handoff artifact (`waves/wave-N-handoff.md`) | S | Better long-build context continuity; FTS5-indexed for free. |
+> | 1.4 | `/tools:update --diff-upstream` | S | The *upstream*-drift axis: surfaces framework improvements not yet pulled. |
+>
+> Ship these three as one feature. None is load-bearing — this is polish, lower
+> urgency than #T9 (which closes a real coverage gap).
+>
+> ### Deferred / re-decide (NOT in the revised #T34 core)
+> - **1.5 `/tools:sota-scan`** — the *external*-drift axis, but it scans a
+>   **machine-local** research-digest directory, so it is NOT framework-portable.
+>   Keep as a personal, this-machine tool if wanted; do not bundle into the
+>   template feature. Decide explicitly before including.
+> - **Tier 2** (2.1 phased-compaction, 2.2 cache-bust warning, 2.3 diff-review
+>   gate) — unchanged, still a separate later cycle.
+> - **Tier 3** — still rejected (embeddings/vendor deps); re-confirmed by the
+>   self-maintenance research pass (`docs/specs/self-maintenance/research.md`).
+>
+> ### Recommended path
+> A short `/workflows:design` re-scoping pass (drop 1.3, decide 1.5, verify
+> `/goal`), then build 1.1+1.2+1.4 via `/workflows:mvp`. Roughly one MVP run.
+
+---
+
 ## Context
 
 Mined 30 days of AI-agent-research digests (2026-04-26 → 2026-05-26) for ideas Project OS could adopt. The community is converging on three patterns Project OS is partially missing: (1) **semantic completion predicates** (Claude Code `/goal`, Codex CLI `/goal`); (2) **structured inter-agent handoff files** ("9-agent team," `agent-lanes`); (3) **retrieval-quality upgrades over markdown vaults** (memtrace RRF, agentic-RAG-on-Obsidian). Separately, the user wants an on-demand **staleness review** so old approaches in `docs/knowledge/` don't quietly outlive their usefulness.
