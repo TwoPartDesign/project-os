@@ -171,11 +171,10 @@
 
 ## Findings
 
-- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 2955 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 3715 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 3108 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 5064 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 2533 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/windows-bash-scanner.md — docs/knowledge/windows-bash-scanner.md is approximately 2678 tokens, exceeding the 2500-token warn threshold.
-- MEDIUM manifest-gap s_detect_stack — scripts/detect-stack.ts is missing from the manifest's files map.
 - MEDIUM orphan-script s_audit_context — Script scripts/audit-context.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_context_filter — Script scripts/context-filter.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_install_hooks — Script scripts/install-hooks.sh has no incoming references and is not in the orphan allowlist.
