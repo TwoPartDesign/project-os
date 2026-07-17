@@ -70,7 +70,7 @@
     "scripts/observation-parser.ts": "5fda44a76e8c9cd863e6ceccac0e4e36809ff922d076bb52c9fd2fd76d864e98",
     "scripts/scrub-secrets.sh": "9878c06084c956008b978023c7efc6571d989efe94715fe4ddd9641277f4896a",
     "scripts/security-scanner.ts": "8412adf82b156ce9472ef65521875f3abc414e981b166d6cb81619c8b0f6c6dd",
-    "scripts/setup.sh": "a98d4d1a847a1bd8d19001a90c847f41cc691704f9980df9b8d4be3b62b4ee4b",
+    "scripts/setup.sh": "76bb28a225193e3c1779d3d0a8ac77aeccc47f6043e85cae9912b2523cf86542",
     "scripts/sync-hooks.sh": "019f37e2def4e22755112aaf327408f332ff04a5ca43cc9262c2ae6d2750404d",
     "scripts/system-map.ts": "b4a8a281a2eb3b4cf06171b5accdbddab7755417bed1788ef2ada1cb6972281c",
     "scripts/update-project.sh": "e5f8ff16ec265f1c5b0f79c2674100bd495e61312336fe4187a3f9b216d7b236",

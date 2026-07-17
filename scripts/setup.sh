@@ -72,8 +72,19 @@ if [ -d "$ROOT/.git" ]; then
             warn "Could not install git hooks (install-hooks.sh failed) — run it manually: bash scripts/install-hooks.sh"
         fi
     fi
+elif [ -f "$ROOT/.git" ]; then
+    # Linked git worktree (.git is a pointer FILE, not a directory): hooks live
+    # in — and are shared from — the main repository's .git/hooks, so there is
+    # nothing to install here. Silent: agent worktree sessions hit this on
+    # every SessionStart and must not accumulate warning noise.
+    say "Git hooks: linked worktree — shared with the main repository, nothing to install."
 else
-    warn "Not a git repository — skipped git-hook install. Run 'git init' then: bash scripts/setup.sh"
+    # Truly not a git repo. In --check mode (SessionStart fallback) stay quiet:
+    # a scratch/exported copy shouldn't warn on every session. In verbose mode
+    # (explicit setup run) tell the user what to do.
+    if [ "$MODE" = "verbose" ]; then
+        warn "Not a git repository — skipped git-hook install. Run 'git init' then: bash scripts/setup.sh"
+    fi
 fi
 
 # --- Initial system map --------------------------------------------------------
