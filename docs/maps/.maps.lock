@@ -13,6 +13,7 @@
     ".claude/commands/tools/handoff.md": "783bf793ecaecac8b67ffdc68be7302ac79710ef5236c53caf27ca6b3e2e0699",
     ".claude/commands/tools/init.md": "1a5c4792eee915a646f4856a16edef83a7730409136f6159f6fda4dd0a68e234",
     ".claude/commands/tools/kv.md": "834b975d1ba9834ff3c8e6c9d995a10ad0a15760337c0e21a649c27cf010f9f4",
+    ".claude/commands/tools/maintain.md": "1840ac72c1d8ddbb6dadc724b8aaeaf4513bb7bbbc3b27627e884bbf5e0c4021",
     ".claude/commands/tools/metrics.md": "8d13bef403e28643f4e94b99e6f7060928bc9e7654ed6f45f4f6bda6af1e42c4",
     ".claude/commands/tools/new-project.md": "446e7e4937871c5c0f8eb7c165fffa5cca161b2e3ff509decbf527816e4cbc49",
     ".claude/commands/tools/research.md": "f127ff876a5884edaaf78928693d73b6e2e017e38f013bb8736adc556add87a9",
@@ -61,6 +62,7 @@
     "scripts/lib/scan-rules.js": "fa7fb6646c3d6decdd0ef2254541715c9285a68d7b0bc6afebdfddb208133629",
     "scripts/lib/system-map-lib.ts": "e1662667a751b9aa64ff0312fa9be728b0f79d9872c53705d9ac0f707ec6dc7a",
     "scripts/maintain-draft.ts": "bf481ac2b380d42066a77b14310dffd5d29798165ca0e86d08a313c2c5ac843d",
+    "scripts/maintain.sh": "8e9893ad9be09c71067bd92d6d280922b32e519e2e453fe23ba4e6cad1188646",
     "scripts/memory-search.sh": "d267f24d2eaeb23ba78abfcd160bdac6876ddb6016bec651d5dcd84e742dee90",
     "scripts/new-project.sh": "0a7944d5349a144a631bc3c5b92c6571841af64b2cd252bdb6eaa6ae031b56c5",
     "scripts/observation-parser.ts": "b083b01f05dcc314843bf61149d7019e03c6f7fc886690b7e66dda8fdf3ed932",
@@ -77,6 +79,7 @@
     "tests/hook-smoke.sh": "bcbc580a1b5ca53bd21f6fbf35365be1c7c566cdc429016bc3f83b9efe37368d",
     "tests/knowledge-index.test.ts": "cf9c82f083da35decfe18ca00a4d0a73677cc38a7bc3b6f3f37b410f7adfc476",
     "tests/maintain-draft.test.ts": "1cb2371557ce959ff06abe1971449826d9fb1c6f15bf7dd3e6409821a5f402e8",
+    "tests/maintain-smoke.sh": "da0129f3477e72f4a8070ca71479ca9f26aa6f3998aeb2b9fb073cf3d6796eb9",
     "tests/scanner-smoke.sh": "c5f49d4398bd56bd3736db5fb6b13435b4585e7d0f13f31cf4e5284113a7f3a8",
     "tests/system-map-smoke.sh": "67d02e77d5e6bf439b28cd9254bae9984c9a7dfaade5019feb58b297e532f322",
     "tests/system-map.test.ts": "a30c8f6feff6fcfb2377e26e0b8ae102fe153ef84177162862ffd5412facbc8c"

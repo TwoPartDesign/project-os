@@ -17,6 +17,7 @@
 - `c_tools_handoff` — `.claude/commands/tools/handoff.md` (0 dependents)
 - `c_tools_init` — `.claude/commands/tools/init.md` (0 dependents)
 - `c_tools_kv` — `.claude/commands/tools/kv.md` (0 dependents)
+- `c_tools_maintain` — `.claude/commands/tools/maintain.md` (0 dependents)
 - `c_tools_metrics` — `.claude/commands/tools/metrics.md` (0 dependents)
 - `c_tools_new_project` — `.claude/commands/tools/new-project.md` (0 dependents)
 - `c_tools_research` — `.claude/commands/tools/research.md` (0 dependents)
@@ -54,7 +55,7 @@
 - `l_dashboard_render` — `scripts/lib/dashboard-render.ts` (4 dependents)
 - `l_json` — `scripts/lib/json.sh` (2 dependents)
 - `l_scan_rules` — `scripts/lib/scan-rules.js` (0 dependents)
-- `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (2 dependents)
+- `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (3 dependents)
 
 ### script
 - `s_audit_context` — `scripts/audit-context.sh` (0 dependents)
@@ -67,15 +68,16 @@
 - `s_generate_manifest` — `scripts/generate-manifest.sh` (1 dependent)
 - `s_install_global_commands` — `scripts/install-global-commands.sh` (1 dependent)
 - `s_install_hooks` — `scripts/install-hooks.sh` (0 dependents)
-- `s_knowledge_index` — `scripts/knowledge-index.ts` (4 dependents)
+- `s_knowledge_index` — `scripts/knowledge-index.ts` (5 dependents)
 - `s_maintain_draft` — `scripts/maintain-draft.ts` (0 dependents)
+- `s_maintain` — `scripts/maintain.sh` (1 dependent)
 - `s_memory_search` — `scripts/memory-search.sh` (0 dependents)
 - `s_new_project` — `scripts/new-project.sh` (0 dependents)
 - `s_observation_parser` — `scripts/observation-parser.ts` (0 dependents)
 - `s_scrub_secrets` — `scripts/scrub-secrets.sh` (0 dependents)
 - `s_security_scanner` — `scripts/security-scanner.ts` (1 dependent)
 - `s_sync_hooks` — `scripts/sync-hooks.sh` (1 dependent)
-- `s_system_map` — `scripts/system-map.ts` (0 dependents)
+- `s_system_map` — `scripts/system-map.ts` (1 dependent)
 - `s_update_project` — `scripts/update-project.sh` (1 dependent)
 - `s_validate_freshness` — `scripts/validate-freshness.sh` (0 dependents)
 - `s_validate_roadmap` — `scripts/validate-roadmap.sh` (4 dependents)
@@ -85,6 +87,7 @@
 - `s_hook_smoke` — `tests/hook-smoke.sh` (0 dependents)
 - `s_knowledge_index_test` — `tests/knowledge-index.test.ts` (0 dependents)
 - `s_maintain_draft_test` — `tests/maintain-draft.test.ts` (0 dependents)
+- `s_maintain_smoke` — `tests/maintain-smoke.sh` (0 dependents)
 - `s_scanner_smoke` — `tests/scanner-smoke.sh` (0 dependents)
 - `s_system_map_smoke` — `tests/system-map-smoke.sh` (0 dependents)
 - `s_system_map_test` — `tests/system-map.test.ts` (0 dependents)
@@ -105,6 +108,9 @@
 - `c_tools_dream_accept` --references--> `s_dream_accept`
 - `c_tools_init` --references--> `s_codex_review`
 - `c_tools_init` --references--> `s_install_global_commands`
+- `c_tools_maintain` --references--> `s_knowledge_index`
+- `c_tools_maintain` --references--> `s_maintain`
+- `c_tools_maintain` --references--> `s_system_map`
 - `c_tools_update` --references--> `s_generate_manifest`
 - `c_tools_update` --references--> `s_sync_hooks`
 - `c_tools_update` --references--> `s_update_project`
@@ -149,11 +155,13 @@
 - LOW bloat docs/knowledge/windows-bash-scanner.md — docs/knowledge/windows-bash-scanner.md is approximately 2678 tokens, exceeding the 2500-token warn threshold.
 - MEDIUM manifest-gap c_tools_dream — .claude/commands/tools/dream.md is missing from the manifest's files map.
 - MEDIUM manifest-gap c_tools_dream_accept — .claude/commands/tools/dream-accept.md is missing from the manifest's files map.
+- MEDIUM manifest-gap c_tools_maintain — .claude/commands/tools/maintain.md is missing from the manifest's files map.
 - MEDIUM manifest-gap l_dashboard_render — scripts/lib/dashboard-render.ts is missing from the manifest's files map.
 - MEDIUM manifest-gap l_system_map_lib — scripts/lib/system-map-lib.ts is missing from the manifest's files map.
 - MEDIUM manifest-gap s_dream_accept — scripts/dream-accept.sh is missing from the manifest's files map.
 - MEDIUM manifest-gap s_install_global_commands — scripts/install-global-commands.sh is missing from the manifest's files map.
 - MEDIUM manifest-gap s_install_hooks — scripts/install-hooks.sh is missing from the manifest's files map.
+- MEDIUM manifest-gap s_maintain — scripts/maintain.sh is missing from the manifest's files map.
 - MEDIUM manifest-gap s_maintain_draft — scripts/maintain-draft.ts is missing from the manifest's files map.
 - MEDIUM manifest-gap s_new_project — scripts/new-project.sh is missing from the manifest's files map.
 - MEDIUM manifest-gap s_system_map — scripts/system-map.ts is missing from the manifest's files map.
@@ -164,5 +172,4 @@
 - MEDIUM orphan-script s_memory_search — Script scripts/memory-search.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_observation_parser — Script scripts/observation-parser.ts has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_scrub_secrets — Script scripts/scrub-secrets.sh has no incoming references and is not in the orphan allowlist.
-- MEDIUM orphan-script s_system_map — Script scripts/system-map.ts has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_validate_freshness — Script scripts/validate-freshness.sh has no incoming references and is not in the orphan allowlist.

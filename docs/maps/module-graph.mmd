@@ -12,6 +12,7 @@ flowchart LR
     c_tools_handoff[".claude/commands/tools/handoff.md"]
     c_tools_init[".claude/commands/tools/init.md"]
     c_tools_kv[".claude/commands/tools/kv.md"]
+    c_tools_maintain[".claude/commands/tools/maintain.md"]
     c_tools_metrics[".claude/commands/tools/metrics.md"]
     c_tools_new_project[".claude/commands/tools/new-project.md"]
     c_tools_research[".claude/commands/tools/research.md"]
@@ -64,6 +65,7 @@ flowchart LR
     s_install_hooks["scripts/install-hooks.sh"]
     s_knowledge_index["scripts/knowledge-index.ts"]
     s_maintain_draft["scripts/maintain-draft.ts"]
+    s_maintain["scripts/maintain.sh"]
     s_memory_search["scripts/memory-search.sh"]
     s_new_project["scripts/new-project.sh"]
     s_observation_parser["scripts/observation-parser.ts"]
@@ -80,6 +82,7 @@ flowchart LR
     s_hook_smoke["tests/hook-smoke.sh"]
     s_knowledge_index_test["tests/knowledge-index.test.ts"]
     s_maintain_draft_test["tests/maintain-draft.test.ts"]
+    s_maintain_smoke["tests/maintain-smoke.sh"]
     s_scanner_smoke["tests/scanner-smoke.sh"]
     s_system_map_smoke["tests/system-map-smoke.sh"]
     s_system_map_test["tests/system-map.test.ts"]
@@ -98,6 +101,9 @@ flowchart LR
   c_tools_dream_accept -->|references| s_dream_accept
   c_tools_init -->|references| s_codex_review
   c_tools_init -->|references| s_install_global_commands
+  c_tools_maintain -->|references| s_knowledge_index
+  c_tools_maintain -->|references| s_maintain
+  c_tools_maintain -->|references| s_system_map
   c_tools_update -->|references| s_generate_manifest
   c_tools_update -->|references| s_sync_hooks
   c_tools_update -->|references| s_update_project

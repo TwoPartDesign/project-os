@@ -1,0 +1,37 @@
+# .claude/maintenance-policy.yaml
+#
+# Human-owned tuning for the autonomous maintenance loop (scripts/maintain.sh).
+# The loop READS this file but NEVER WRITES it — the `checks` key may narrow
+# what the loop runs, but the loop can never widen its own scope. Edit freely;
+# a malformed numeric value falls back to its documented default and is noted
+# in the ledger (.claude/logs/maintenance-ledger.jsonl) as a policy_warning
+# rather than crashing the run.
+#
+# Flat `key: value` pairs only — parsed with anchored grep, no YAML library.
+
+# Age (days) past which a knowledge file is flagged by the staleness check.
+stale_threshold_days: 90
+
+# Maximum number of [?] drafts filed in a single run, across all checks.
+max_drafts_per_run: 3
+
+# Tool failures (since the last run) before the failures check drafts.
+failure_draft_threshold: 5
+
+# docs/memory/*.md file count that triggers a consolidation ("/tools:dream") draft.
+consolidation_pressure_files: 12
+
+# .claude/sessions/*.yaml file count that triggers a consolidation draft.
+consolidation_pressure_sessions: 40
+
+# Zero-result search-log queries (since the last run) before the search-miss
+# check drafts.
+search_miss_threshold: 5
+
+# Per-file token estimate (chars/4) above which the map check's bloat finding
+# fires for an always-loaded file (CLAUDE.md, docs/knowledge/*.md).
+bloat_warn_tokens: 2500
+
+# Comma-separated subset of: map, staleness, failures, consolidation,
+# search-miss. Narrows which checks the loop runs this cycle.
+checks: map,staleness,failures,consolidation,search-miss
