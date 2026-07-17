@@ -68,7 +68,7 @@
     "scripts/maintain-draft.ts": "ceb0092afa2f720e9fc0b7910fe4dd68a04931b5dc8cd8d6ac95cee71f6dd379",
     "scripts/maintain.sh": "0b0feee68a391281a1083092dea44120ab543461ee0be1765fc1d69cb5745fee",
     "scripts/memory-search.sh": "d267f24d2eaeb23ba78abfcd160bdac6876ddb6016bec651d5dcd84e742dee90",
-    "scripts/new-project.sh": "ee2aa92ed473425da8eae2d11abf7349e0d9940c99f38deda14caf1e8833abd8",
+    "scripts/new-project.sh": "c171686611065cc8842001da88605c74f08352d7b4b1b57b3baa8210d15d94ae",
     "scripts/observation-parser.ts": "5fda44a76e8c9cd863e6ceccac0e4e36809ff922d076bb52c9fd2fd76d864e98",
     "scripts/scrub-secrets.sh": "9878c06084c956008b978023c7efc6571d989efe94715fe4ddd9641277f4896a",
     "scripts/security-scanner.ts": "36ac0ad43f02b0e5e1b1f8b786e1a81e3f8ea5aeb4b2f27bd26b4957460062f2",
