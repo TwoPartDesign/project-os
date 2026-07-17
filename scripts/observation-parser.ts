@@ -74,7 +74,12 @@ export function extractErrorPatterns(lines: string[]): Observation[] {
       let stackCount = 0;
       let j = i + 1;
       while (j < lines.length && stackCount < 3 && stackTraceRe.test(lines[j])) {
-        content += "\n" + lines[j].trim();
+        const stackLineTrimmed = lines[j].trim();
+        content += "\n" + stackLineTrimmed;
+        // Mark the merged stack line's standalone form as seen so the outer
+        // loop doesn't emit it a second time as its own observation once it
+        // reaches this index (see extractErrorPatterns_stackTraceFollowingError_*).
+        seen.add(stackLineTrimmed.substring(0, 500));
         stackCount++;
         j++;
       }
@@ -94,6 +99,11 @@ export function extractErrorPatterns(lines: string[]): Observation[] {
           metadata: {},
         });
       }
+
+      // Skip the outer loop past the merged stack lines (belt-and-suspenders
+      // alongside the seen-set entries above — avoids re-scanning lines we
+      // already consumed here).
+      i = j - 1;
     } else if (isStackTrace) {
       // Standalone stack trace line not following an error line
       const content = trimmed.substring(0, 500);
@@ -192,7 +202,11 @@ export function extractConfigKeys(lines: string[]): Observation[] {
   // ENV VAR style: KEY=VALUE at start of line (uppercase letters, digits, underscores)
   const envVarRe = /^([A-Z][A-Z0-9_]*)=(.*)/;
   // JSON style: "key": "value" or "key": value (non-object values)
-  const jsonKvRe = /"([a-zA-Z_]+)":\s*"?([^",}\n]+)"?/g;
+  // Key charset mirrors envVarRe's identifier rule (leading letter/underscore,
+  // then letters/digits/underscores) so digit-bearing keys like "s3Bucket" or
+  // "oauth2Token" are captured too — the sensitive-key denylist below still
+  // applies to the widened charset.
+  const jsonKvRe = /"([a-zA-Z_][a-zA-Z0-9_]*)":\s*"?([^",}\n]+)"?/g;
 
   // Skip keys that may contain sensitive values. The key is normalized by
   // stripping `_`/`-` before the test so camelCase JSON keys are caught too:
@@ -468,6 +482,25 @@ export function parseObservations(text: string): Observation[] {
   return deduped.slice(0, 100);
 }
 
+/**
+ * Parse tool output text and return a full ParseResult (observations plus
+ * raw_line_count / observation_count metadata).
+ *
+ * Thin wrapper around parseObservations(): that function keeps returning a
+ * bare Observation[] for callers that only want the list (e.g. tests calling
+ * individual extractors' composition), while this wrapper is what the CLI
+ * (isMain block below) uses so the ParseResult shape is assembled in exactly
+ * one place instead of being duplicated inline.
+ */
+export function parse(text: string): ParseResult {
+  const observations = parseObservations(text);
+  return {
+    observations,
+    raw_line_count: text.split("\n").length,
+    observation_count: observations.length,
+  };
+}
+
 // ============================================================================
 // CLI helpers
 // ============================================================================
@@ -527,14 +560,7 @@ if (isMain) {
       }
     }
 
-    const lines = text.split("\n");
-    const observations = parseObservations(text);
-
-    const result: ParseResult = {
-      observations,
-      raw_line_count: lines.length,
-      observation_count: observations.length,
-    };
+    const result = parse(text);
 
     console.log(JSON.stringify(result, null, 2));
     process.exit(0);
