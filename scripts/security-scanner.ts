@@ -56,6 +56,8 @@ interface ScanOptions {
   noEntropy: boolean;
   quiet: boolean;
   allowlistPath: string | null;
+  // install-hooks only: quarantine pre-existing hooks instead of chaining them.
+  noChain: boolean;
 }
 
 // ============================================================================
@@ -779,7 +781,9 @@ async function cmdTestPattern(ruleId: string): Promise<void> {
 // Subcommand: install-hooks
 // ============================================================================
 
-function cmdInstallHooks(projectRoot: string): void {
+function cmdInstallHooks(projectRoot: string, opts: { noChain?: boolean } = {}): void {
+  const noChain = opts.noChain ?? false;
+
   let gitDir: string;
   try {
     gitDir = execFileSync("git", ["rev-parse", "--git-dir"], { cwd: projectRoot })
@@ -794,6 +798,16 @@ function cmdInstallHooks(projectRoot: string): void {
   const absGitDir = resolve(projectRoot, gitDir);
   const hooksDir = join(absGitDir, "hooks");
 
+  // In --no-chain (adopt) mode, a pre-existing hook is quarantined, never
+  // invoked — so the generated hook omits the chain block entirely. Default
+  // mode stays byte-identical to the pre-adopt behavior (chain to `.local`).
+  const chainBlock = noChain
+    ? ""
+    : `if [ -f "\${0}.local" ]; then
+  bash "\${0}.local" "$@"
+fi
+`;
+
   const preCommitContent = `#!/usr/bin/env bash
 # Auto-installed by Project OS security scanner
 node scripts/security-scanner.ts scan-staged
@@ -807,10 +821,7 @@ if [ -f "scripts/system-map.ts" ]; then
   node scripts/system-map.ts precommit
   if [ $? -ne 0 ]; then exit 1; fi
 fi
-if [ -f "\${0}.local" ]; then
-  bash "\${0}.local" "$@"
-fi
-`;
+${chainBlock}`;
 
   const prePushContent = `#!/usr/bin/env bash
 # Auto-installed by Project OS security scanner
@@ -822,10 +833,7 @@ if [ $RESULT -ne 0 ]; then
   echo "Use --no-verify to bypass (NOT recommended)."
   exit 1
 fi
-if [ -f "\${0}.local" ]; then
-  bash "\${0}.local" "$@"
-fi
-`;
+${chainBlock}`;
 
   const hooks: Array<{ name: string; content: string }> = [
     { name: "pre-commit", content: preCommitContent },
@@ -839,11 +847,14 @@ fi
     if (existsSync(hookPath)) {
       const existing = readFileSync(hookPath, "utf-8");
       if (!existing.includes(ourMarker)) {
-        // Rename existing to .local to preserve it
-        const localPath = hookPath + ".local";
+        // Rename existing to preserve it. Default: `.local` (auto-chained by
+        // the generated hook above). --no-chain (adopt): `.pre-adopt`, which
+        // nothing invokes — quarantines a possibly-hostile pre-existing hook.
+        const suffix = noChain ? ".pre-adopt" : ".local";
+        const localPath = hookPath + suffix;
         try {
           renameSync(hookPath, localPath);
-          process.stderr.write(`Renamed existing ${hook.name} to ${hook.name}.local\n`);
+          process.stderr.write(`Renamed existing ${hook.name} to ${hook.name}${suffix}\n`);
         } catch (err) {
           process.stderr.write(
             `Warning: could not rename ${hookPath}: ${(err as Error).message}\n`,
@@ -885,6 +896,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     noEntropy: false,
     quiet: false,
     allowlistPath: null,
+    noChain: false,
   };
 
   let subcommand: string | null = null;
@@ -925,6 +937,9 @@ function parseArgs(argv: string[]): ParsedArgs {
       case "--quiet":
         options.quiet = true;
         break;
+      case "--no-chain":
+        options.noChain = true;
+        break;
       default:
         if (arg.startsWith("--")) {
           process.stderr.write(`Error: unknown option: ${arg}\n`);
@@ -963,6 +978,9 @@ Options:
   --allowlist PATH           Additional allowlist JSON file
   --no-entropy               Disable entropy checks
   --quiet                    Only output findings count + exit code
+  --no-chain                 install-hooks only: quarantine a pre-existing
+                              hook as <hook>.pre-adopt instead of <hook>.local
+                              and never invoke it (used by adopt mode)
 `.trimStart());
 }
 
@@ -1019,7 +1037,7 @@ async function main(): Promise<void> {
     }
 
     case "install-hooks":
-      cmdInstallHooks(projectRoot);
+      cmdInstallHooks(projectRoot, { noChain: options.noChain });
       break;
 
     case null:

@@ -16,4 +16,4 @@ node "$SCRIPT_DIR/security-scanner.ts" test-rules --quiet
 echo "Rules OK."
 
 echo "Installing git hooks..."
-node "$SCRIPT_DIR/security-scanner.ts" install-hooks
+node "$SCRIPT_DIR/security-scanner.ts" install-hooks "$@"

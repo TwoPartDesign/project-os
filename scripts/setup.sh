@@ -15,11 +15,21 @@
 #   bash scripts/setup.sh            # verbose: report every step
 #   bash scripts/setup.sh --check    # quiet: act only when something is missing
 #                                    #   (used by the SessionStart fallback hook)
+#   bash scripts/setup.sh --adopt    # verbose: install hooks in quarantine mode
+#                                    #   (--no-chain — see install-hooks.sh); used by
+#                                    #   the adopt-existing-project flow so a hostile
+#                                    #   pre-existing hook is never chained/invoked
 
 set -uo pipefail
 
 MODE="verbose"
-if [ "${1:-}" = "--check" ]; then MODE="check"; fi
+ADOPT=0
+for arg in "$@"; do
+    case "$arg" in
+        --check) MODE="check" ;;
+        --adopt) ADOPT=1 ;;
+    esac
+done
 
 # Resolve project root: explicit override (tests) or walk up to a .claude dir.
 resolve_root() {
@@ -65,7 +75,13 @@ if [ -d "$ROOT/.git" ]; then
     if [ -f "$HOOK" ] && grep -q "security-scanner.ts scan-staged" "$HOOK" 2>/dev/null; then
         say "Git hooks: already installed."
     else
-        if bash "$ROOT/scripts/install-hooks.sh" >/dev/null 2>&1; then
+        # --adopt: pass --no-chain so a pre-existing (possibly hostile) hook is
+        # quarantined to <hook>.pre-adopt and never invoked, instead of the
+        # default <hook>.local auto-chain. INSTALL_HOOKS_FLAG is always either
+        # empty or a single no-space flag, so the unquoted expansion below is safe.
+        INSTALL_HOOKS_FLAG=""
+        if [ "$ADOPT" -eq 1 ]; then INSTALL_HOOKS_FLAG="--no-chain"; fi
+        if bash "$ROOT/scripts/install-hooks.sh" $INSTALL_HOOKS_FLAG >/dev/null 2>&1; then
             notice "Project OS: installed git pre-commit/pre-push hooks (secret scanner + map auto-heal)."
             DID_SOMETHING=1
         else
