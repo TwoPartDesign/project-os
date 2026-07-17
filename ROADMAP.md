@@ -120,7 +120,9 @@ Spec: `docs/specs/dashboard-kanban/` (brief, design APPROVED 2026-07-16, tasks).
 ### Draft
 ### Todo
 <!-- Auto-approved 2026-07-16 by /workflows:mvp (user-authorized autonomous run) -->
-- [~] Extract scripts/lib/dashboard-render.ts (parseRoadmap, esc, marker maps) + annotation-tolerant task regex (model/agent suffixes) #T40
+- [!] Extract scripts/lib/dashboard-render.ts (parseRoadmap, esc, marker maps) + annotation-tolerant task regex (model/agent suffixes) #T40
+  <!-- Review attempt 1: quadratic annotation regex — FIXED+verified (3d23d35). Attempt 2: second, PRE-EXISTING quadratic vector found in Phase B `(.+)\s+#T\d+$` (internal whitespace flood, 112KB→8.6s; old regex equally affected). MVP 2-attempt cap reached — human decision required. Fix spec in revision-request.md. -->
+
 - [~] renderKanban() in lib + /api/kanban route in dashboard-server.ts (depends: #T40) #T41
 - [~] Tab UI in getPage(): Overview|Board nav, view wrappers, kanban CSS, toggle JS (depends: #T41) #T42
 - [~] Unit test suite tests/dashboard-render.test.ts + dashboard-smoke.sh wrapper (depends: #T41) #T43
