@@ -803,6 +803,10 @@ if [ $RESULT -ne 0 ]; then
   echo "Use --no-verify to bypass (NOT recommended)."
   exit 1
 fi
+if [ -f "scripts/system-map.ts" ]; then
+  node scripts/system-map.ts precommit
+  if [ $? -ne 0 ]; then exit 1; fi
+fi
 if [ -f "\${0}.local" ]; then
   bash "\${0}.local" "$@"
 fi

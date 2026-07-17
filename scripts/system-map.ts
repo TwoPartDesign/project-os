@@ -611,8 +611,9 @@ function cmdReport(root: string, json: boolean): void {
  * tree). Fresh vs the committed `.maps.lock` -> silent exit 0. On drift,
  * regenerates all three artifacts from the index content, writes them to
  * the working tree, `git add`s `docs/maps` only, then (if
- * scripts/security-scanner.ts exists) runs a scoped `scan-files docs/maps`
- * — a nonzero scan exits 1. Healed -> prints `map: healed and staged`.
+ * scripts/security-scanner.ts exists) runs a scoped `scan-files` over the
+ * three map artifacts explicitly (scan-files cannot read directories) —
+ * a nonzero scan exits 1. Healed -> prints `map: healed and staged`.
  */
 function cmdPrecommit(root: string): void {
   const source = gitIndexSource(root);
@@ -651,10 +652,19 @@ function cmdPrecommit(root: string): void {
 
   const scannerPath = resolve(root, "scripts/security-scanner.ts");
   if (existsSync(scannerPath)) {
-    execFileSync("node", ["scripts/security-scanner.ts", "scan-files", "docs/maps"], {
-      cwd: root,
-      stdio: "inherit",
-    });
+    // Explicit file list — scan-files cannot read a directory (EISDIR),
+    // which silently skipped the healed content when passed "docs/maps".
+    execFileSync(
+      "node",
+      [
+        "scripts/security-scanner.ts",
+        "scan-files",
+        "docs/maps/system-map.md",
+        "docs/maps/module-graph.mmd",
+        "docs/maps/.maps.lock",
+      ],
+      { cwd: root, stdio: "inherit" }
+    );
   }
 
   console.log("map: healed and staged");

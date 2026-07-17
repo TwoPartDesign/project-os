@@ -254,6 +254,7 @@ done
 
 TEMPLATE_FILES=(
     ".claude/settings.json"
+    ".claude/maintenance-policy.yaml"
     "docs/knowledge/decisions.md"
     "docs/knowledge/patterns.md"
     "docs/knowledge/bugs.md"
@@ -279,6 +280,13 @@ TEMPLATE_SCRIPTS=(
     "scripts/dashboard-server.ts"
     "scripts/observation-parser.ts"
     "scripts/security-scanner.ts"
+    "scripts/system-map.ts"
+    "scripts/maintain-draft.ts"
+    "scripts/maintain.sh"
+    "scripts/dream-accept.sh"
+    "scripts/install-hooks.sh"
+    "scripts/install-global-commands.sh"
+    "scripts/new-project.sh"
 )
 
 for relpath in "${TEMPLATE_FILES[@]}" "${TEMPLATE_SCRIPTS[@]}"; do
@@ -461,6 +469,22 @@ if [ "$conflicts" -gt 0 ]; then
 else
     echo "Regenerating manifest..."
     bash "$PROJECT_ROOT/scripts/generate-manifest.sh" "${CHOSEN#v}"
+
+    # --- Step 10: Verify system map integrity ---
+    if [ -f "$PROJECT_ROOT/scripts/system-map.ts" ]; then
+        echo "Verifying system map..."
+        if node "$PROJECT_ROOT/scripts/system-map.ts" check >/dev/null 2>&1; then
+            MAP_WAS_FRESH=true
+        else
+            MAP_WAS_FRESH=false
+        fi
+        node "$PROJECT_ROOT/scripts/system-map.ts" check --heal >/dev/null 2>&1 || true
+        if [ "$MAP_WAS_FRESH" = true ]; then
+            echo "map verified"
+        else
+            echo "map healed after update"
+        fi
+    fi
 fi
 
 # --- Summary ---

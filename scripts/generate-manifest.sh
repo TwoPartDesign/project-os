@@ -37,6 +37,7 @@ TEMPLATE_DIRS=(
 
 TEMPLATE_FILES=(
     ".claude/settings.json"
+    ".claude/maintenance-policy.yaml"
     "docs/knowledge/decisions.md"
     "docs/knowledge/patterns.md"
     "docs/knowledge/bugs.md"
@@ -62,6 +63,13 @@ TEMPLATE_SCRIPTS=(
     "scripts/dashboard-server.ts"
     "scripts/observation-parser.ts"
     "scripts/security-scanner.ts"
+    "scripts/system-map.ts"
+    "scripts/maintain-draft.ts"
+    "scripts/maintain.sh"
+    "scripts/dream-accept.sh"
+    "scripts/install-hooks.sh"
+    "scripts/install-global-commands.sh"
+    "scripts/new-project.sh"
 )
 
 # Escape a string for JSON (handles \, ", and control chars)

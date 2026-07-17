@@ -53,6 +53,7 @@ cp -r "$TEMPLATE_DIR/.claude/rules" "$FULL_PATH/.claude/"
 cp -r "$TEMPLATE_DIR/.claude/hooks" "$FULL_PATH/.claude/"
 cp -r "$TEMPLATE_DIR/.claude/security" "$FULL_PATH/.claude/"
 cp "$TEMPLATE_DIR/.claude/settings.json" "$FULL_PATH/.claude/"
+cp "$TEMPLATE_DIR/.claude/maintenance-policy.yaml" "$FULL_PATH/.claude/"
 
 sed "s/\[PROJECT_NAME\]/$PROJECT_NAME/g" "$TEMPLATE_DIR/CLAUDE.template.md" > "$FULL_PATH/CLAUDE.md"
 cp "$TEMPLATE_DIR/ROADMAP.template.md" "$FULL_PATH/ROADMAP.md"
@@ -69,12 +70,13 @@ for script in memory-search.sh audit-context.sh scrub-secrets.sh \
               validate-roadmap.sh create-pr.sh dashboard.sh \
               context-filter.sh validate-freshness.sh \
               codex-review.sh generate-manifest.sh update-project.sh \
-              sync-hooks.sh; do
+              sync-hooks.sh maintain.sh dream-accept.sh; do
   cp "$TEMPLATE_DIR/scripts/$script" "$FULL_PATH/scripts/"
 done
 mkdir -p "$FULL_PATH/scripts/lib"
 cp -r "$TEMPLATE_DIR/scripts/lib/." "$FULL_PATH/scripts/lib/"
-for ts_script in knowledge-index.ts dashboard-server.ts observation-parser.ts security-scanner.ts; do
+for ts_script in knowledge-index.ts dashboard-server.ts observation-parser.ts security-scanner.ts \
+                 system-map.ts maintain-draft.ts; do
   [ -f "$TEMPLATE_DIR/scripts/$ts_script" ] && cp "$TEMPLATE_DIR/scripts/$ts_script" "$FULL_PATH/scripts/"
 done
 find "$FULL_PATH/scripts" -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
