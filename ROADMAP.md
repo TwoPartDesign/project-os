@@ -165,6 +165,48 @@ Small quality items surfaced during self-maintenance / #T9 reviews (2026-07-17).
 ### Review
 ### Done
 
+## Feature: maintenance-inbox
+<!-- Drafts filed autonomously by scripts/maintain.sh — promote via /pm:approve -->
+
+### Draft
+- [ ] Review stale knowledge: 4 files past 90d (docs/knowledge/design-principles.md,docs/knowledge/kv.md,docs/knowledge/metrics.md,docs/knowledge/roadmap-format.md) #T61
+  <!-- maint-fp: stale:docs/knowledge/design-principles.md,docs/knowledge/kv.md,docs/knowledge/metrics.md,docs/knowledge/roadmap-format.md -->
+- [ ] Investigate recurring Bash failures (14 since start) #T62
+  <!-- maint-fp: failures:Bash:14 -->
+- [ ] Run /tools:dream — 12 memory files / 14 session files, consolidation due #T63
+  <!-- maint-fp: dream:12:14 -->
+
+### Todo
+
+### In Progress
+
+### Review
+
+### Done
+
+## Feature: adopt-existing-project
+
+Spec: `docs/specs/adopt-existing-project/` (brief DRAFT 2026-07-17). In-place `--adopt` mode for `/tools:new-project` + `new-project.sh` (Case E detection, non-destructive scaffold into existing codebases, git-aware) plus deterministic stack detection (`detect-stack.ts` manifest+lockfile tier, extension-census fallback) shared with `/tools:init`.
+
+### Draft
+- [ ] adopt-existing-project umbrella — design APPROVED 2026-07-17 (3 adversarial rounds: REJECT→REJECT→APPROVE-WITH-REVISIONS); tracks feature completion at ship #T64
+- [-] detect-stack.ts: deterministic stack detection (manifest+lockfile tiers, JSON out, never executes repo code) + 6 unit tests #T65
+- [-] Hook-quarantine chain: security-scanner install-hooks --no-chain (.pre-adopt rename, no chaining) + install-hooks.sh arg passthrough + setup.sh --adopt #T66
+- [-] update-project.sh --local-upstream <dir>: offline upstream source, short-circuits gh entirely, classifier untouched; + detect-stack sync-list entry #T67
+- [-] generate-manifest.sh: hash <path>.upstream when present (prevents SAFE_UPDATE clobber of user files post-adopt); + detect-stack in TEMPLATE_SCRIPTS #T68
+- [-] new-project.sh adopt skeleton: --adopt/--dry-run/--allow-nested args, pre-flight (manifest refusal, symlink scan, nested-repo, worktree warning), DRY_RUN mutation guard #T69
+- [ ] new-project.sh copy engine: copy_safe two-class policy (.upstream/.pre-adopt), orphan sweep with exclusion rule, .obsidian guard, CLAUDE.md temp-file sed (depends: #T69) #T70
+- [ ] new-project.sh finish: gitignore marker-block merge, setup --adopt + manifest invocation, report-before-commit, pathspec-only commit (depends: #T70, #T66, #T68) #T71
+- [ ] tools/new-project.md: Case E adopt flow (dry-run plan → confirm → run → detect-stack summary), manifest.json as the Project OS marker (depends: #T69) #T72
+- [ ] tools/init.md Step 1b: detect-stack.ts as single source for manifest-derived fields + extension-census fallback + 3-way conflict rule (depends: #T65) #T73
+- [ ] Smoke-test adopt scenarios: hostile+legit seeded fixture, 11 assertions incl. real-classifier manifest safety via --local-upstream (depends: #T71, #T67) #T74
+- [ ] Docs: ADR (two-class policy, gitignore block, manifest rule, hook quarantine, residual risks) + architecture.md updates (depends: #T74) #T75
+
+### Todo
+### In Progress
+### Review
+### Done
+
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->
 - [x] SOTA adoption — workflow ergonomics (RE-SCOPED 2026-07-17, SHIPPED same day): shipped `/goal` wave/MVP exit predicates + wave-handoff artifact + `tools:update --diff-upstream`. `tools:audit-knowledge` dropped (subsumed by self-maintenance maintain.sh/system-map); `tools:sota-scan` deferred as machine-local. Needs a short re-scoping design pass first. Revised plan: `.claude/plans/sota-adoption-2026-05.md` (see REVISED SCOPE block) #T34
