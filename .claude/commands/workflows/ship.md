@@ -44,6 +44,20 @@ If findings are reported:
 
 If the scanner is not installed (`scripts/security-scanner.ts` missing), warn the user but do not block.
 
+### 1.6. System Map Health
+Verify the wiring map is fresh and review its findings for the shipped changes:
+
+```bash
+node scripts/system-map.ts check
+node scripts/system-map.ts report
+```
+
+- `check` must exit 0 (fresh) — if it reports drift, run `check --heal` and stage the healed maps with the ship commit.
+- **HIGH findings** (unwired hooks, dangling refs) that involve files touched by this feature: STOP and fix — the feature wired something wrong. HIGH findings on untouched files: report to the user; they predate this feature.
+- **MEDIUM/LOW** (manifest gaps, orphans, bloat): report; the user decides or leaves them to the maintenance loop's next draft.
+
+If `scripts/system-map.ts` is missing, warn but do not block.
+
 ### 2. Test Suite
 Run the full test suite. ALL tests must pass. No skipped tests allowed unless documented in the review.
 

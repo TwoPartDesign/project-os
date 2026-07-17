@@ -56,7 +56,7 @@ See `.claude/agents/roles.md` for full definitions.
 - Project knowledge: `docs/knowledge/` (decisions, patterns, bugs, architecture)
 - Persistent memory: `docs/memory/` (cross-session, searchable)
 - Specs & designs: `docs/specs/<feature>/` (per-feature lifecycle docs)
-- System map: `docs/maps/system-map.md` (generated wiring map + readiness findings, healed by pre-commit)
+- System map: `docs/maps/system-map.md` — CONSULT IT before changing hook/command/skill/script wiring (it answers "what references this?"); run `node scripts/system-map.ts report` for current health findings. Healed by pre-commit; never hand-edit.
 
 ## Maintenance Invariants
 - Files/git are the source of truth; the SQLite index is deletable and rebuildable at any time.
@@ -71,6 +71,7 @@ See `.claude/agents/roles.md` for full definitions.
 | handoff, done, end session | session-management | Auto-save protocol |
 | deploy, ship, release, external | workflows:ship | Pre-ship checklist + PR generation |
 | filter, compress, large output, stale, fresh | context-filter | Filter protocol |
+| drift, unwired, orphan, health check, maintenance | tools:maintain | Draft-only health sweep + `system-map.ts report` |
 
 ## Rules
 - Never commit with TODO, FIXME, or HACK without a linked task in ROADMAP.md

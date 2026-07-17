@@ -117,15 +117,18 @@ flowchart LR
   c_workflows_build -->|references| h_log_activity
   c_workflows_build -->|references| h_notify_phase_change
   c_workflows_build -->|references| s_knowledge_index
+  c_workflows_build -->|references| s_system_map
   c_workflows_build -->|references| s_validate_roadmap
   c_workflows_compete -->|references| h_notify_phase_change
   c_workflows_mvp -->|references| s_validate_roadmap
   c_workflows_plan -->|references| s_validate_roadmap
   c_workflows_review -->|references| h_log_activity
   c_workflows_review -->|references| h_notify_phase_change
+  c_workflows_review -->|references| s_system_map
   c_workflows_ship -->|references| h_log_activity
   c_workflows_ship -->|references| s_create_pr
   c_workflows_ship -->|references| s_security_scanner
+  c_workflows_ship -->|references| s_system_map
   cfg_settings -->|wires| h_compact_suggest
   cfg_settings -->|wires| h_output_index
   cfg_settings -->|wires| h_post_mcp_validate

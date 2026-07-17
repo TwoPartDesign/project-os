@@ -42,6 +42,7 @@ YOUR TASK:
 2. Check that no UNPLANNED changes were made (scope creep)
 3. Check that the implementation follows the design's architectural decisions
 4. Check for TODO/FIXME/HACK comments without corresponding ROADMAP entries
+5. If the feature touched framework wiring (hooks/commands/skills/scripts): read `docs/maps/system-map.md` and run `node scripts/system-map.ts report` — new HIGH findings (unwired hooks, dangling refs) on files this feature touched are DRIFT; also verify the map's edges for new/changed files match what the design intended to wire
 
 Output format:
 - DRIFT: [description of mismatch] | Severity: CRITICAL/HIGH/MEDIUM/LOW

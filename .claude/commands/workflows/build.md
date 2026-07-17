@@ -31,6 +31,7 @@ Before dispatching any agents:
    - This fallback ensures build is resilient to both old-style (single tasks.md) and new-style (per-task dirs) plans
 4. Run `bash scripts/validate-roadmap.sh` to verify dependency integrity.
 5. Run `node scripts/knowledge-index.ts index-vault` to ensure the knowledge index is current before spawning sub-agents.
+6. Run `node scripts/system-map.ts check` (heal with `--heal` if drifted) and skim `node scripts/system-map.ts report` — starting a build on top of unknown HIGH readiness findings (unwired hooks, dangling refs) compounds them. Findings that overlap this feature's task files should be flagged to the user before dispatch; unrelated findings are the maintenance loop's job, not this build's.
 
 **Agent Rules note:** The `## Agent Rules` sections in `.claude/rules/*.md` are hand-maintained distillations, included verbatim in agent prompts (see Execution Protocol). When editing a rule file, update its `## Agent Rules` section in the same edit — there is no automated freshness check.
 
@@ -111,6 +112,7 @@ If `docs/specs/$ARGUMENTS/waves/wave-{N-1}-handoff.md` exists (the prior wave's 
 For each task in the batch, assemble ONLY:
 - The specific task description from tasks.md (NOT the full task list)
 - The relevant section from `docs/specs/$ARGUMENTS/design.md` (NOT the full design)
+- If the task creates or modifies framework wiring (hook, command, or skill files, or anything under scripts/): the relevant node/edge lines from `docs/maps/system-map.md` for the touched files — so the agent sees what references what it's changing without grepping for it. Excerpt only; never the whole map.
 - Project conventions from CLAUDE.md
 - Agent rules: extract the `## Agent Rules` section from `.claude/rules/tests.md` and `.claude/rules/escalation.md` and include in the conventions block. Do NOT include the full rule files — only the `## Agent Rules` section from each. Bash rules go in the dedicated CRITICAL section below, not here.
 - The specific files the task mentions (read them for current state)

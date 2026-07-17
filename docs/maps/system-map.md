@@ -56,9 +56,9 @@
 - `l_common` — `.claude/hooks/_common.sh` (11 dependents)
 - `l_dashboard_render` — `scripts/lib/dashboard-render.ts` (4 dependents)
 - `l_json` — `scripts/lib/json.sh` (2 dependents)
-- `l_project_root` — `scripts/lib/project-root.ts` (8 dependents)
+- `l_project_root` — `scripts/lib/project-root.ts` (10 dependents)
 - `l_scan_rules` — `scripts/lib/scan-rules.js` (0 dependents)
-- `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (3 dependents)
+- `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (6 dependents)
 
 ### script
 - `s_audit_context` — `scripts/audit-context.sh` (0 dependents)
@@ -81,7 +81,7 @@
 - `s_security_scanner` — `scripts/security-scanner.ts` (1 dependent)
 - `s_setup` — `scripts/setup.sh` (0 dependents)
 - `s_sync_hooks` — `scripts/sync-hooks.sh` (1 dependent)
-- `s_system_map` — `scripts/system-map.ts` (1 dependent)
+- `s_system_map` — `scripts/system-map.ts` (4 dependents)
 - `s_update_project` — `scripts/update-project.sh` (1 dependent)
 - `s_validate_freshness` — `scripts/validate-freshness.sh` (0 dependents)
 - `s_validate_roadmap` — `scripts/validate-roadmap.sh` (4 dependents)
@@ -124,15 +124,18 @@
 - `c_workflows_build` --references--> `h_log_activity`
 - `c_workflows_build` --references--> `h_notify_phase_change`
 - `c_workflows_build` --references--> `s_knowledge_index`
+- `c_workflows_build` --references--> `s_system_map`
 - `c_workflows_build` --references--> `s_validate_roadmap`
 - `c_workflows_compete` --references--> `h_notify_phase_change`
 - `c_workflows_mvp` --references--> `s_validate_roadmap`
 - `c_workflows_plan` --references--> `s_validate_roadmap`
 - `c_workflows_review` --references--> `h_log_activity`
 - `c_workflows_review` --references--> `h_notify_phase_change`
+- `c_workflows_review` --references--> `s_system_map`
 - `c_workflows_ship` --references--> `h_log_activity`
 - `c_workflows_ship` --references--> `s_create_pr`
 - `c_workflows_ship` --references--> `s_security_scanner`
+- `c_workflows_ship` --references--> `s_system_map`
 - `cfg_settings` --wires--> `h_compact_suggest`
 - `cfg_settings` --wires--> `h_output_index`
 - `cfg_settings` --wires--> `h_post_mcp_validate`
