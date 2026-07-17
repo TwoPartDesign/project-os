@@ -92,6 +92,7 @@
 - `s_maintain_draft_test` — `tests/maintain-draft.test.ts` (0 dependents)
 - `s_maintain_smoke` — `tests/maintain-smoke.sh` (0 dependents)
 - `s_new_project_smoke` — `tests/new-project-smoke.sh` (0 dependents)
+- `s_observation_parser_test` — `tests/observation-parser.test.ts` (0 dependents)
 - `s_scanner_smoke` — `tests/scanner-smoke.sh` (0 dependents)
 - `s_system_map_smoke` — `tests/system-map-smoke.sh` (0 dependents)
 - `s_system_map_test` — `tests/system-map.test.ts` (0 dependents)
@@ -159,7 +160,7 @@
 
 ## Findings
 
-- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 2881 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 2909 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 3389 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 2533 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/windows-bash-scanner.md — docs/knowledge/windows-bash-scanner.md is approximately 2678 tokens, exceeding the 2500-token warn threshold.
