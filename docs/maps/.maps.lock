@@ -86,7 +86,7 @@
     "tests/knowledge-index.test.ts": "cf9c82f083da35decfe18ca00a4d0a73677cc38a7bc3b6f3f37b410f7adfc476",
     "tests/maintain-draft.test.ts": "c20e8a87d79c5a074aadc235a1ac311b5512579f6e2e199051793c3218589c27",
     "tests/maintain-smoke.sh": "034367b896211010bc376138b5f05226719f68aace5c1ed9adf97a9edecfd2d9",
-    "tests/new-project-smoke.sh": "9cd1fa75d1c5ea58f6761f0094f8abc18a4d03597877d92d612b7e0c73911a6b",
+    "tests/new-project-smoke.sh": "830072ae759b6d40ec508812be58a4d522ae2b8fa127edafc3e66e49188f7d5b",
     "tests/observation-parser.test.ts": "231883f297af5d54c9410cc035a7e4b0bcaad239239b9f3e8b0b73928317447a",
     "tests/scanner-smoke.sh": "c5f49d4398bd56bd3736db5fb6b13435b4585e7d0f13f31cf4e5284113a7f3a8",
     "tests/system-map-smoke.sh": "c9d83f43eb1bd3ad806c47a18c1628dff41e1ca57599345816bf6b084f32e991",

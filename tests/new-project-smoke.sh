@@ -597,6 +597,141 @@ assert_contains "$ADOPT_OUT" "--allow-nested" "scenario10c: refusal message sugg
 HASH_10C_AFTER="$(hash_tree "$NESTED10C")"
 assert_eq "$HASH_10C_BEFORE" "$HASH_10C_AFTER" "scenario10c: zero writes on nested-repo refusal"
 
+# ================================================================================
+# Scenario 12: hook-quarantine security regressions (#T74 revision-request item
+# 9, review round 1). Each planted hook writes a canary file if it is ever
+# actually executed; the assertions prove the canary stays absent, i.e. the
+# hostile hook was quarantined (renamed, never chained/invoked) before the
+# adopt commit ran -- not merely that a byte pattern matched.
+# ================================================================================
+
+# --- Scenario 12a: spoofed marker-string comment does not bypass quarantine --
+echo ""
+echo "=== Adopt scenario 12a: hostile pre-commit spoofing the marker substring is still quarantined ==="
+S12A="$(new_tmp)"
+seed_fixture "$S12A"
+CANARY_12A="$S12A/.canary-12a"
+printf '#!/bin/sh\n# this comment mentions security-scanner.ts scan-staged to spoof the old gate\ntouch "%s"\nexit 0\n' "$CANARY_12A" > "$S12A/.git/hooks/pre-commit"
+chmod +x "$S12A/.git/hooks/pre-commit" 2>/dev/null || true
+run_adopt "$NEW_PROJECT" "$S12A"
+if [ "$ADOPT_EC" -eq 0 ]; then pass "scenario12a: adopt exits 0"; else fail "scenario12a: adopt exited $ADOPT_EC: $ADOPT_OUT"; fi
+assert_file "$S12A/.git/hooks/pre-commit.pre-adopt" "scenario12a: spoofed pre-commit hook quarantined to .pre-adopt"
+assert_contains "$(safe_cat "$S12A/.git/hooks/pre-commit.pre-adopt")" "security-scanner.ts scan-staged" "scenario12a: quarantined file still contains the spoofed comment (confirms it's the hostile original)"
+if [ -f "$S12A/.git/hooks/pre-commit" ]; then
+    if grep -q "Auto-installed by Project OS security scanner" "$S12A/.git/hooks/pre-commit" 2>/dev/null; then
+        pass "scenario12a: our marker hook installed at pre-commit"
+    else
+        fail "scenario12a: installed pre-commit hook missing our marker"
+    fi
+else
+    fail "scenario12a: .git/hooks/pre-commit missing after adopt"
+fi
+if [ -f "$CANARY_12A" ]; then fail "scenario12a: spoofed hook was executed (canary present)"; else pass "scenario12a: spoofed hook never executed (canary absent)"; fi
+if git -C "$S12A" log --oneline 2>/dev/null | grep -q "adopt Project OS scaffold"; then pass "scenario12a: adopt commit exists"; else fail "scenario12a: adopt commit missing"; fi
+
+# --- Scenario 12b: planted commit-msg hook quarantined, never invoked --------
+echo ""
+echo "=== Adopt scenario 12b: planted commit-msg hook quarantined, adopt commit succeeds without executing it ==="
+S12B="$(new_tmp)"
+seed_fixture "$S12B"
+CANARY_12B="$S12B/.canary-12b"
+printf '#!/bin/sh\ntouch "%s"\nexit 0\n' "$CANARY_12B" > "$S12B/.git/hooks/commit-msg"
+chmod +x "$S12B/.git/hooks/commit-msg" 2>/dev/null || true
+run_adopt "$NEW_PROJECT" "$S12B"
+if [ "$ADOPT_EC" -eq 0 ]; then pass "scenario12b: adopt exits 0"; else fail "scenario12b: adopt exited $ADOPT_EC: $ADOPT_OUT"; fi
+assert_file "$S12B/.git/hooks/commit-msg.pre-adopt" "scenario12b: commit-msg hook quarantined to .pre-adopt"
+if [ -f "$S12B/.git/hooks/commit-msg" ]; then fail "scenario12b: commit-msg hook still present at original (non-quarantined) path"; else pass "scenario12b: commit-msg hook no longer live at original path"; fi
+if [ -f "$CANARY_12B" ]; then fail "scenario12b: commit-msg hook was executed (canary present)"; else pass "scenario12b: commit-msg hook never executed (canary absent)"; fi
+if git -C "$S12B" log --oneline 2>/dev/null | grep -q "adopt Project OS scaffold"; then pass "scenario12b: adopt commit succeeded"; else fail "scenario12b: adopt commit missing"; fi
+
+# --- Scenario 12c: core.hooksPath honored -- quarantine + install land at the
+# git-honored path, not the ignored default .git/hooks -------------------------
+echo ""
+echo "=== Adopt scenario 12c: core.hooksPath honored for quarantine and install ==="
+S12C="$(new_tmp)"
+seed_fixture "$S12C"
+mkdir -p "$S12C/.githooks"
+CANARY_12C="$S12C/.canary-12c"
+printf '#!/bin/sh\ntouch "%s"\nexit 0\n' "$CANARY_12C" > "$S12C/.githooks/pre-commit"
+chmod +x "$S12C/.githooks/pre-commit" 2>/dev/null || true
+git -C "$S12C" config core.hooksPath .githooks
+run_adopt "$NEW_PROJECT" "$S12C"
+if [ "$ADOPT_EC" -eq 0 ]; then pass "scenario12c: adopt exits 0"; else fail "scenario12c: adopt exited $ADOPT_EC: $ADOPT_OUT"; fi
+assert_file "$S12C/.githooks/pre-commit.pre-adopt" "scenario12c: hostile .githooks/pre-commit quarantined to .pre-adopt"
+if [ -f "$S12C/.githooks/pre-commit" ]; then
+    if grep -q "Auto-installed by Project OS security scanner" "$S12C/.githooks/pre-commit" 2>/dev/null; then
+        pass "scenario12c: our marker hook installed at the git-honored .githooks/pre-commit path"
+    else
+        fail "scenario12c: installed hook at .githooks/pre-commit missing our marker"
+    fi
+else
+    fail "scenario12c: .githooks/pre-commit missing after adopt"
+fi
+if [ -f "$S12C/.git/hooks/pre-commit" ] && grep -q "Auto-installed by Project OS security scanner" "$S12C/.git/hooks/pre-commit" 2>/dev/null; then
+    fail "scenario12c: a hook was (incorrectly) installed at the non-honored .git/hooks path"
+else
+    pass "scenario12c: nothing installed at the non-git-honored .git/hooks path"
+fi
+if [ -f "$CANARY_12C" ]; then fail "scenario12c: hostile .githooks hook was executed (canary present)"; else pass "scenario12c: hostile .githooks hook never executed (canary absent)"; fi
+
+# --- Scenario 12d: symlink pre-flight refusal, zero writes -------------------
+echo ""
+echo "=== Adopt scenario 12d: symlink planted under a template-managed tree refused pre-flight ==="
+S12D="$(new_tmp)"
+seed_fixture "$S12D"
+LINK_TARGET_12D="$(new_tmp)"
+SYMLINK_REL_12D="scripts/evil-link"
+set +e
+MSYS=winsymlinks:nativestrict ln -s "$LINK_TARGET_12D" "$S12D/$SYMLINK_REL_12D" 2>/dev/null
+LN_EC_12D=$?
+set -e
+FALLBACK_12D=0
+if [ "$LN_EC_12D" -ne 0 ] || [ ! -L "$S12D/$SYMLINK_REL_12D" ]; then
+    # scripts/evil-link creation failed (insufficient privileges for native
+    # symlinks on this host) -- fall back to a location the existing
+    # scenario10b symlink test doesn't already cover.
+    rm -f "$S12D/$SYMLINK_REL_12D" 2>/dev/null || true
+    SYMLINK_REL_12D=".claude/hooks/evil-link"
+    mkdir -p "$S12D/.claude/hooks"
+    set +e
+    MSYS=winsymlinks:nativestrict ln -s "$LINK_TARGET_12D" "$S12D/$SYMLINK_REL_12D" 2>/dev/null
+    LN_EC_12D=$?
+    set -e
+    FALLBACK_12D=1
+fi
+if [ "$LN_EC_12D" -eq 0 ] && [ -L "$S12D/$SYMLINK_REL_12D" ]; then
+    if [ "$FALLBACK_12D" -eq 1 ]; then
+        echo "NOTE: scenario12d fell back to $SYMLINK_REL_12D (scripts/evil-link symlink creation failed on this host)."
+    fi
+    HASH_12D_BEFORE="$(hash_tree "$S12D")"
+    run_adopt "$NEW_PROJECT" "$S12D"
+    if [ "$ADOPT_EC" -ne 0 ]; then pass "scenario12d: adopt refuses (nonzero exit) on symlink at $SYMLINK_REL_12D"; else fail "scenario12d: adopt did not refuse symlinked $SYMLINK_REL_12D"; fi
+    assert_contains "$ADOPT_OUT" "evil-link" "scenario12d: refusal message lists the offending symlink path"
+    HASH_12D_AFTER="$(hash_tree "$S12D")"
+    assert_eq "$HASH_12D_BEFORE" "$HASH_12D_AFTER" "scenario12d: zero writes on symlink refusal"
+else
+    echo "SKIP: scenario12d (could not create a native symlink on this system, even at the fallback path)"
+fi
+
+# --- Scenario 12e: pre-existing executable orphan is reported, never chmod'd,
+# never modified, and never re-staged --------------------------------------
+echo ""
+echo "=== Adopt scenario 12e: pre-existing scripts/hostile.sh orphan is reported, not chmod'd or touched ==="
+S12E="$(new_tmp)"
+seed_fixture "$S12E"
+printf '#!/bin/sh\necho "hostile pre-existing orphan script"\n' > "$S12E/scripts/hostile.sh"
+git -C "$S12E" add scripts/hostile.sh
+git -C "$S12E" commit --quiet -m "seed: add hostile.sh orphan"
+HOSTILE_MODE_BEFORE="$(git -C "$S12E" ls-files -s scripts/hostile.sh)"
+HOSTILE_CONTENT_BEFORE="$(safe_cat "$S12E/scripts/hostile.sh")"
+run_adopt "$NEW_PROJECT" "$S12E"
+if [ "$ADOPT_EC" -eq 0 ]; then pass "scenario12e: adopt exits 0"; else fail "scenario12e: adopt exited $ADOPT_EC: $ADOPT_OUT"; fi
+assert_contains "$ADOPT_OUT" "UNREVIEWED-EXECUTABLE" "scenario12e: UNREVIEWED-EXECUTABLE section present in report"
+assert_contains "$ADOPT_OUT" "scripts/hostile.sh" "scenario12e: scripts/hostile.sh listed as unreviewed executable"
+assert_eq "$HOSTILE_CONTENT_BEFORE" "$(safe_cat "$S12E/scripts/hostile.sh")" "scenario12e: scripts/hostile.sh content byte-identical after adopt"
+HOSTILE_MODE_AFTER="$(git -C "$S12E" ls-files -s scripts/hostile.sh)"
+assert_eq "$HOSTILE_MODE_BEFORE" "$HOSTILE_MODE_AFTER" "scenario12e: scripts/hostile.sh git index mode unchanged (never re-staged/chmod'd by adopt)"
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     echo "ALL ASSERTIONS PASSED"
