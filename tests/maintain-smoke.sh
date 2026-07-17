@@ -486,6 +486,47 @@ scenario_9() {
 }
 
 # ==========================================================================
+# Scenario 10: two tools both over the failure threshold -> BOTH drafted
+# (regression for the single-winner bug that permanently lost a co-occurring
+# second tool, since the ledger window advances every run).
+# ==========================================================================
+
+scenario_10() {
+    local name="scenario10-failures-multi-tool"
+    local fx
+    fx="$(new_fixture)"
+    local i
+    for i in 1 2 3 4 5 6; do
+        printf '2026-01-01T00:00:0%sZ FAIL tool=Bash\n' "$i" >>"$fx/.claude/logs/tool-failures.log"
+    done
+    for i in 1 2 3 4 5; do
+        printf '2026-01-01T00:00:1%sZ FAIL tool=Read\n' "$i" >>"$fx/.claude/logs/tool-failures.log"
+    done
+    printf '%s\n' "checks: failures" >"$fx/.claude/maintenance-policy.yaml"
+
+    local out ec
+    out=$(PROJECT_OS_ROOT="$fx" bash "$MAINTAIN_SH" 2>&1)
+    ec=$?
+    if [ "$ec" -ne 0 ]; then
+        fail "$name: maintain.sh exited $ec: $out"
+        return
+    fi
+
+    local roadmap
+    roadmap="$(cat "$fx/ROADMAP.md")"
+    if printf '%s' "$roadmap" | grep -q "recurring Bash failures"; then
+        pass "$name: Bash failures drafted"
+    else
+        fail "$name: Bash failures draft missing"
+    fi
+    if printf '%s' "$roadmap" | grep -q "recurring Read failures"; then
+        pass "$name: co-occurring Read failures also drafted (not lost)"
+    else
+        fail "$name: Read failures draft missing — single-winner regression"
+    fi
+}
+
+# ==========================================================================
 # Main
 # ==========================================================================
 
@@ -500,6 +541,7 @@ scenario_6
 scenario_7
 scenario_8
 scenario_9
+scenario_10
 
 REAL_ROADMAP_STATUS_AFTER="$(git -C "$REPO_ROOT" status --porcelain -- ROADMAP.md .claude/logs .claude/maintenance-lock 2>/dev/null)"
 if [ "$REAL_ROADMAP_STATUS_BEFORE" = "$REAL_ROADMAP_STATUS_AFTER" ]; then

@@ -17,8 +17,16 @@ fi
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MANIFEST="$PROJECT_ROOT/.claude/manifest.json"
 
-# Determine version
+# Determine version. Precedence: explicit arg > existing "-dev" marker in the
+# current manifest (a forward dev version must not be clobbered by a regen that
+# falls back to the latest tag) > latest git tag > "unknown".
 VERSION="${1:-}"
+if [ -z "$VERSION" ] && [ -f "$MANIFEST" ]; then
+    EXISTING_VERSION=$(grep -m1 '"project_os_version"' "$MANIFEST" | sed -E 's/.*"project_os_version"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/')
+    case "$EXISTING_VERSION" in
+        *-dev) VERSION="$EXISTING_VERSION" ;;
+    esac
+fi
 if [ -z "$VERSION" ]; then
     VERSION=$(git -C "$PROJECT_ROOT" describe --tags --abbrev=0 2>/dev/null || echo "unknown")
 fi

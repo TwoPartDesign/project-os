@@ -462,19 +462,22 @@ run_check_failures() {
         done <"$activity"
     fi
 
-    local worst_tool="" worst_count=0 t
+    # File one finding per tool at/over threshold, not just the single worst —
+    # the ledger timestamp advances every run, so a co-occurring second tool
+    # skipped here would be lost permanently, not merely deferred. Sorted for
+    # deterministic ordering; the global draft cap still bounds how many land.
+    local over_tools=() t
     for t in "${!tool_counts[@]}"; do
-        if [ "${tool_counts[$t]}" -gt "$worst_count" ]; then
-            worst_count="${tool_counts[$t]}"
-            worst_tool="$t"
-        elif [ "${tool_counts[$t]}" -eq "$worst_count" ] && [ -n "$worst_tool" ] && [[ "$t" < "$worst_tool" ]]; then
-            worst_tool="$t"
+        if [ "${tool_counts[$t]}" -ge "$FAILURE_DRAFT_THRESHOLD" ]; then
+            over_tools+=("$t")
         fi
     done
-
-    if [ -n "$worst_tool" ] && [ "$worst_count" -ge "$FAILURE_DRAFT_THRESHOLD" ]; then
-        add_finding "Investigate recurring ${worst_tool} failures (${worst_count} since ${LAST_RUN_TS:-start})" "failures:${worst_tool}:${worst_count}"
-    fi
+    local SORTED_TOOLS
+    mapfile -t SORTED_TOOLS < <(printf '%s\n' "${over_tools[@]}" | sort)
+    for t in "${SORTED_TOOLS[@]}"; do
+        [ -z "$t" ] && continue
+        add_finding "Investigate recurring ${t} failures (${tool_counts[$t]} since ${LAST_RUN_TS:-start})" "failures:${t}:${tool_counts[$t]}"
+    done
 }
 
 # ==========================================================================

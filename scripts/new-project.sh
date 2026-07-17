@@ -70,7 +70,8 @@ for script in memory-search.sh audit-context.sh scrub-secrets.sh \
               validate-roadmap.sh create-pr.sh dashboard.sh \
               context-filter.sh validate-freshness.sh \
               codex-review.sh generate-manifest.sh update-project.sh \
-              sync-hooks.sh maintain.sh dream-accept.sh; do
+              sync-hooks.sh maintain.sh dream-accept.sh \
+              install-hooks.sh install-global-commands.sh; do
   cp "$TEMPLATE_DIR/scripts/$script" "$FULL_PATH/scripts/"
 done
 mkdir -p "$FULL_PATH/scripts/lib"

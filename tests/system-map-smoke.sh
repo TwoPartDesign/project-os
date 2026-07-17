@@ -255,20 +255,27 @@ fi
 rm -rf "$FIXTURE_4A" "$FIXTURE_4B"
 echo ""
 
-# --- Scenario 5: real repo -----------------------------------------------------
-echo "Scenario 5: real repo generate -> check exit 0 -> report exit 0"
-
-set +e
-OUT_5A="$(node "$SYSTEM_MAP" generate 2>&1)"
-EXIT_5A=$?
-set -e
-assert_eq "realRepo_generate_exitsZero" "0" "$EXIT_5A" "$OUT_5A"
+# --- Scenario 5: real repo (READ-ONLY) ----------------------------------------
+# Only `check` and `report` run against the real repo — both are read-only.
+# `generate` is deliberately NOT run here: it would overwrite the committed
+# docs/maps/* as a side effect of the test suite (a fixture-isolation
+# violation, and a corruption risk if generate ever regresses). Determinism
+# of `generate` is already covered by the isolated fixtures in scenarios 1-4.
+# `check` must exit 0 (committed maps fresh) OR 3 (drift from uncommitted
+# working-tree edits — normal mid-development) — NOT 1 (generator error). We
+# assert "not a generator error" so the test isn't fragile to uncommitted
+# state; the pre-commit hook enforces freshness at commit time.
+echo "Scenario 5: real repo check (0|3, not 1) -> report exit 0 (read-only)"
 
 set +e
 OUT_5B="$(node "$SYSTEM_MAP" check 2>&1)"
 EXIT_5B=$?
 set -e
-assert_eq "realRepo_check_exitsZero" "0" "$EXIT_5B" "$OUT_5B"
+if [ "$EXIT_5B" = "0" ] || [ "$EXIT_5B" = "3" ]; then
+    pass "realRepo_check_noGeneratorError"
+else
+    fail "realRepo_check_noGeneratorError" "expected exit 0 or 3, got $EXIT_5B: $OUT_5B"
+fi
 
 set +e
 OUT_5C="$(node "$SYSTEM_MAP" report 2>&1)"
