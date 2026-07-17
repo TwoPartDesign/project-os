@@ -68,6 +68,7 @@ User ──→ Workflow Commands ──→ Orchestrator ──→ Sub-agents (is
 | `context-filter.sh` | Intent-based filtering/indexing for large content |
 | `create-pr.sh` | Generate a PR with AI-assisted description (gh CLI) |
 | `dashboard.sh` / `dashboard-server.ts` | Cross-project status table / live SSE dashboard (port 3400) |
+| `detect-stack.ts` | Deterministic stack detection (language/package manager/framework/test runner/formatter/database) from manifest + lockfile signals; JSON out, read-only, no repo code executed |
 | `dream-accept.sh` | Accept a staged `/tools:dream` proposal: backup → swap → rebuild index → cleanup |
 | `generate-manifest.sh` | Create `.claude/manifest.json` with sha256 hashes for update tracking |
 | `install-global-commands.sh` | Install `/tools:new-project` globally |
@@ -78,15 +79,15 @@ User ──→ Workflow Commands ──→ Orchestrator ──→ Sub-agents (is
 | `maintain-draft.ts` | File a fingerprinted `[?]` draft into ROADMAP.md's maintenance-inbox section |
 | `maintain.sh` | Deterministic maintenance loop — checks, drafts, ledger; never mutates canonical state |
 | `memory-search.sh` | Full-text search across knowledge files |
-| `setup.sh` | Idempotent project activation — installs git hooks + generates the initial map; run by new-project.sh, the SessionStart hook, and once per clone |
+| `setup.sh` | Idempotent project activation — installs git hooks + generates the initial map; run by new-project.sh, the SessionStart hook, and once per clone; `--adopt` runs hook install in quarantine mode (`--no-chain`) for in-place adoption targets |
 | `lib/project-root.ts` | Shared project-root resolution (imported by knowledge-index/system-map/maintain-draft) |
-| `new-project.sh` | Bootstrap a new Project OS project |
+| `new-project.sh` | Bootstrap a new Project OS project, or adopt Project OS in place into a pre-existing repo via `--adopt <target-dir>` (two-class collision policy, orphan quarantine, `--dry-run` plan preview) |
 | `observation-parser.ts` | Extract 5 typed observations from tool output (sensitive-key denylist) |
 | `scrub-secrets.sh` | Scrub secret patterns from a file (delegates to scanner) |
 | `security-scanner.ts` | Zero-dep secrets/PII scanner (8 subcommands) |
 | `sync-hooks.sh` | Sync hooks from the template to a target project |
 | `system-map.ts` | Generate/check/report the framework wiring map (`docs/maps/`) |
-| `update-project.sh` | Check for and apply Project OS updates from upstream |
+| `update-project.sh` | Check for and apply Project OS updates from upstream; `--local-upstream <dir>` sources the template from a local directory instead of a `gh` release, for offline updates and offline testing of the classification loop |
 | `validate-freshness.sh` | Wrapper for knowledge-index freshness validation |
 | `validate-roadmap.sh` | Validate ROADMAP.md format, deps, cycles, consistency |
 
