@@ -94,3 +94,15 @@ Each entry: Pattern Name, When to Use, Example, Anti-pattern to Avoid
 **Example**: `extractConfigKeys()` in `scripts/observation-parser.ts` runs `isSensitiveKey(key)` = `sensitivePatterns.test(key.replace(/[_-]/g, ""))` for both the env-var and JSON code paths and `continue`s past a match without pushing an observation. `tests/observation-parser.test.ts` asserts the raw secret values never appear anywhere in the serialized output for snake_case (`extractConfigKeys_envAndJsonSecrets_excludedFromOutput`) AND camelCase (`extractConfigKeys_camelCaseSecretKeys_excludedFromOutput`) keys — not merely that the observation count is low.
 
 **Anti-pattern**: A denylist that assumes one key-casing convention (`API_KEY` only) — camelCase variants slip through. Or redacting at the *consumer* (indexer/dashboard) instead of the extractor — every future consumer has to remember the filter, and one that forgets leaks the secret into the search index or a UI.
+
+---
+
+### Mitigate Against the Platform's Real Surface, Not Its Defaults
+
+**When to Use**: Any security mitigation that intercepts a platform mechanism (git hooks, config resolution, module loading, PATH lookup).
+
+**Pattern**: Enumerate where the platform *actually* looks — not where it looks by default — and mitigate there. Resolve indirection the same way the platform does (`git rev-parse --git-path hooks`, which honors `core.hooksPath`, not `--git-dir` + `/hooks`); cover the full mechanism surface (all 20 git hook types fire on operations you perform, not just the two you install); and gate on markers you wrote, never on substrings an attacker's file can contain. When a read-only classifier reports what a mitigation will do (e.g. in a dry run), it must share the mitigation's own definition of scope — two hand-maintained lists WILL drift.
+
+**Example**: adopt-existing-project review round 1: three independent quarantine bypasses — a spoofable substring gate (`grep "scan-staged"` matched a hostile hook's comment), `core.hooksPath` redirecting git away from the quarantined directory, and unquarantined `commit-msg`/`post-commit` hooks firing on the adopt commit. All three passed the original tests, which only exercised a naive `echo` hook at the default path. Fixed with marker-exact gating, `--git-path` resolution, the full 20-name quarantine, and canary-file regression tests (hook writes a file if executed; assert absent).
+
+**Anti-pattern**: Testing a security control only with a naive payload at the default location; gating "already installed" on any string that user-controlled content can also contain; letting the report/dry-run classifier enumerate a different scope than the enforcement code.

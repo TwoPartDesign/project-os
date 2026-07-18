@@ -57,6 +57,10 @@ cd ~/projects/my-app && claude
 /tools:init
 ```
 
+### Adopting an existing codebase
+
+Already have a project? Run `/tools:new-project` from inside its folder (or directly: `bash scripts/new-project.sh --adopt <dir> --dry-run` to preview, then without `--dry-run`). Adoption scaffolds Project OS **in place, non-destructively**: your files always survive — content files (your `CLAUDE.md`, docs, `.gitignore`) keep their spots with Project OS's versions saved as `<file>.upstream`; framework paths (`.claude/`, `scripts/`) get Project OS's versions with any pre-existing file preserved as `<file>.pre-adopt`; existing git hooks are quarantined, never executed; everything displaced is listed in an adopt report before anything is committed. `scripts/detect-stack.ts` then detects your language/framework/test stack from manifests and lockfiles to pre-fill `/tools:init`.
+
 ### Activation (once per clone)
 
 ```bash

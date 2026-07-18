@@ -21,6 +21,20 @@ Track per-feature implementation metrics. Updated by `/workflows:ship` and query
 
 <!-- Entries added by /workflows:ship -->
 
+### Feature: adopt-existing-project
+
+- **Duration**: 2026-07-17 (single day, single session, fully autonomous idea→ship; ship gate + task approval human-confirmed)
+- **Tasks**: 12 total (#T64 umbrella + #T65-#T75), 12 completed, 0 blocked
+- **Waves**: 4 dispatch batches (B1: T65|T66|T67|T68|T69 parallel; B2: T70|T72|T73; B3: T71; B4: T74→T75) + 1 rebuild wave (3 fix agents)
+- **Revisions**: design 3 adversarial rounds (REJECT→REJECT→APPROVE-WITH-REVISIONS); implementation 2 review cycles (r1 FAILED: 2 CRITICAL + 2 HIGH hook-quarantine/symlink bypasses, all fixed; r2 PASSED, 1 MEDIUM note fixed in-cycle)
+- **First-pass review rate**: 6/11 tasks untouched by rebuild (T65, T67, T68, T72, T73, T75); 5 rebuilt (T66, T69-T71, T74)
+- **Compete usage**: 0
+- **Model split**: orchestration Fable 5; implementation sub-agents Sonnet 5; rebuild fix agents + all reviewers Opus 4.8
+- **Lines changed**: +2728 / -258 (20 files vs origin/master)
+- **Tests**: smoke suite 127→607 lines (29→143 assertions incl. 10 canary-based security-regression scenarios); detect-stack 6-test node suite; full node suite 128/128
+- **Notable**: review r1 found 3 independent hook-quarantine bypasses that all passed the original tests (spoofable marker substring, core.hooksPath evasion, unquarantined hook types) → new patterns.md entry "Mitigate Against the Platform's Real Surface, Not Its Defaults"; follow-up #T76 filed (narrow blanket scripts/* permission allows)
+- **PR**: none (committed to master; framework repo)
+
 ### Feature: self-maintenance
 
 - **Duration**: 2026-07-16 (single day, multi-session, largely autonomous)
