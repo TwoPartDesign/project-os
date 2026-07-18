@@ -173,7 +173,8 @@ Small quality items surfaced during self-maintenance / #T9 reviews (2026-07-17).
   <!-- maint-fp: stale:docs/knowledge/design-principles.md,docs/knowledge/kv.md,docs/knowledge/metrics.md,docs/knowledge/roadmap-format.md -->
 - [x] Investigate recurring Bash failures (14 since start) — VERDICT: noise, all 15 correlate with active dev commits (scanner friction); actionable signal defined for future runs (bugs.md 2026-07-17) #T62
   <!-- maint-fp: failures:Bash:14 -->
-- [x] Run /tools:dream — staged 2026-07-17-1605 (13 memory + 14 session files → 4 topic files, 0 unresolved contradictions, 2 pattern promotions proposed); accept via /tools:dream-accept 2026-07-17-1605 #T63
+- [x] Run /tools:dream — staged 2026-07-17-1605 (13 memory + 14 session files → 4 topic files, 0 unresolved contradictions, 2 pattern promotions proposed); ACCEPTED 2026-07-18 (orchestrator removed the 13 consumed sources by hand — see #T77) #T63
+- [?] dream-accept.sh is additive, not a swap: it copies staged files into docs/memory/ but never removes the consumed sources (docs say "swaps in") — leaves originals + consolidation duplicated in canonical memory and the index until hand-cleaned. Fix: consume the staging manifest.yaml's source list and remove those files after archiving (archive already preserves them verbatim); regression-test in the dream smoke scenario #T77
   <!-- maint-fp: dream:12:14 -->
 
 ### Todo
