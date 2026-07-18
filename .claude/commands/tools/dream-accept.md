@@ -34,7 +34,10 @@ bash scripts/dream-accept.sh <timestamp>
 This one command does everything: recovers any interrupted prior swap, validates the
 timestamp format, backs up the current `docs/memory/*.md` to
 `docs/memory/.archive/<timestamp>/`, copies the staged files into `docs/memory/`,
-rebuilds the knowledge index, and removes the staging directory.
+removes the consumed source files per the staging directory's `manifest.yaml`
+(a true swap — if `manifest.yaml` is missing or unparseable it degrades to an
+additive-only apply and warns instead of removing), rebuilds the knowledge index,
+and removes the staging directory.
 
 ## Step 3: Report
 

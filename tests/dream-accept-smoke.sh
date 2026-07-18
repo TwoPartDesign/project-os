@@ -225,6 +225,116 @@ fi
 rm -rf "$FIXTURE_D"
 echo ""
 
+# --- Scenario (e): manifest-driven source removal (true swap) ----------------
+echo "Scenario (e): manifest-driven source removal"
+
+FIXTURE_E="$(mktemp -d)"
+mkdir -p "$FIXTURE_E/.claude"
+mkdir -p "$FIXTURE_E/docs/memory"
+echo "source a" > "$FIXTURE_E/docs/memory/a.md"
+echo "source b" > "$FIXTURE_E/docs/memory/b.md"
+echo "unlisted c" > "$FIXTURE_E/docs/memory/c.md"
+TS_E="2026-04-04-0000"
+mkdir -p "$FIXTURE_E/docs/memory/.dream-output/$TS_E/memory"
+echo "consolidated a+b" > "$FIXTURE_E/docs/memory/.dream-output/$TS_E/memory/consolidated.md"
+MANIFEST_E="$FIXTURE_E/docs/memory/.dream-output/$TS_E/manifest.yaml"
+echo 'timestamp: "2026-04-04-0000"' > "$MANIFEST_E"
+echo 'model: sonnet' >> "$MANIFEST_E"
+echo 'session_count: 2' >> "$MANIFEST_E"
+echo 'memory_files:' >> "$MANIFEST_E"
+echo '  - docs/memory/a.md' >> "$MANIFEST_E"
+echo '  - docs/memory/b.md' >> "$MANIFEST_E"
+echo 'session_files:' >> "$MANIFEST_E"
+echo '  - .claude/sessions/handoff-x.yaml' >> "$MANIFEST_E"
+
+set +e
+OUTPUT_E="$(PROJECT_OS_ROOT="$FIXTURE_E" bash "$DREAM_ACCEPT" "$TS_E" 2>&1)"
+EXIT_E=$?
+set -e
+
+assert_eq "dreamAccept_manifestRemoval_exitsZero" "0" "$EXIT_E" "$OUTPUT_E"
+
+if [ -f "$FIXTURE_E/docs/memory/consolidated.md" ]; then
+    pass "dreamAccept_manifestRemoval_consolidatedFileLands"
+else
+    fail "dreamAccept_manifestRemoval_consolidatedFileLands" "consolidated.md not found\n$OUTPUT_E"
+fi
+
+if [ ! -f "$FIXTURE_E/docs/memory/a.md" ] && [ ! -f "$FIXTURE_E/docs/memory/b.md" ]; then
+    pass "dreamAccept_manifestRemoval_consumedSourcesRemovedFromMemory"
+else
+    fail "dreamAccept_manifestRemoval_consumedSourcesRemovedFromMemory" "a.md or b.md still present in docs/memory\n$OUTPUT_E"
+fi
+
+if [ -f "$FIXTURE_E/docs/memory/.archive/$TS_E/a.md" ] && [ -f "$FIXTURE_E/docs/memory/.archive/$TS_E/b.md" ]; then
+    ARCHIVED_A="$(cat "$FIXTURE_E/docs/memory/.archive/$TS_E/a.md")"
+    ARCHIVED_B="$(cat "$FIXTURE_E/docs/memory/.archive/$TS_E/b.md")"
+    if [ "$ARCHIVED_A" = "source a" ] && [ "$ARCHIVED_B" = "source b" ]; then
+        pass "dreamAccept_manifestRemoval_removedSourcesSurviveInArchive"
+    else
+        fail "dreamAccept_manifestRemoval_removedSourcesSurviveInArchive" "archive content mismatch\n$OUTPUT_E"
+    fi
+else
+    fail "dreamAccept_manifestRemoval_removedSourcesSurviveInArchive" "archive missing a.md/b.md\n$OUTPUT_E"
+fi
+
+if [ -f "$FIXTURE_E/docs/memory/c.md" ] && [ "$(cat "$FIXTURE_E/docs/memory/c.md")" = "unlisted c" ]; then
+    pass "dreamAccept_manifestRemoval_unlistedFileSurvives"
+else
+    fail "dreamAccept_manifestRemoval_unlistedFileSurvives" "c.md missing or modified\n$OUTPUT_E"
+fi
+
+if echo "$OUTPUT_E" | grep -q "removed 2 consumed source file(s) per manifest.yaml"; then
+    pass "dreamAccept_manifestRemoval_reportsRemovedCount"
+else
+    fail "dreamAccept_manifestRemoval_reportsRemovedCount" "$OUTPUT_E"
+fi
+
+rm -rf "$FIXTURE_E"
+echo ""
+
+# --- Scenario (f): missing manifest degrades gracefully ----------------------
+echo "Scenario (f): missing manifest.yaml degrades gracefully (no removals)"
+
+FIXTURE_F="$(mktemp -d)"
+mkdir -p "$FIXTURE_F/.claude"
+mkdir -p "$FIXTURE_F/docs/memory"
+echo "source a" > "$FIXTURE_F/docs/memory/a.md"
+echo "source b" > "$FIXTURE_F/docs/memory/b.md"
+TS_F="2026-05-05-0000"
+mkdir -p "$FIXTURE_F/docs/memory/.dream-output/$TS_F/memory"
+echo "consolidated a+b" > "$FIXTURE_F/docs/memory/.dream-output/$TS_F/memory/consolidated.md"
+# Deliberately: no manifest.yaml written in the staging dir.
+
+set +e
+OUTPUT_F="$(PROJECT_OS_ROOT="$FIXTURE_F" bash "$DREAM_ACCEPT" "$TS_F" 2>&1)"
+EXIT_F=$?
+set -e
+
+assert_eq "dreamAccept_missingManifest_exitsZero" "0" "$EXIT_F" "$OUTPUT_F"
+
+if echo "$OUTPUT_F" | grep -q "warning: manifest.yaml missing or unparseable — additive apply only; sources not removed; clean up manually"; then
+    pass "dreamAccept_missingManifest_printsExactWarning"
+else
+    fail "dreamAccept_missingManifest_printsExactWarning" "$OUTPUT_F"
+fi
+
+if [ -f "$FIXTURE_F/docs/memory/a.md" ] && [ "$(cat "$FIXTURE_F/docs/memory/a.md")" = "source a" ] \
+   && [ -f "$FIXTURE_F/docs/memory/b.md" ] && [ "$(cat "$FIXTURE_F/docs/memory/b.md")" = "source b" ]; then
+    pass "dreamAccept_missingManifest_noSourcesRemoved"
+else
+    fail "dreamAccept_missingManifest_noSourcesRemoved" "a.md or b.md missing/modified\n$OUTPUT_F"
+fi
+
+if [ -f "$FIXTURE_F/docs/memory/consolidated.md" ]; then
+    pass "dreamAccept_missingManifest_stagedFileStillApplied"
+else
+    fail "dreamAccept_missingManifest_stagedFileStillApplied" "consolidated.md not found (additive apply should still happen)\n$OUTPUT_F"
+fi
+
+rm -rf "$FIXTURE_F"
+echo ""
+
 # --- Summary ------------------------------------------------------------------
 echo "=== Results ==="
 TOTAL=$((PASS + FAIL))

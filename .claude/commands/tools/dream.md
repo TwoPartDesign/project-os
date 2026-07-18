@@ -91,7 +91,19 @@ containing:
 - `diff.md` — human-readable summary: counts and lists of added / merged / dropped
   entries, plus a contradictions count
 - `manifest.yaml` — inputs used (memory file list, session file list with count),
-  timestamp, model used, session count
+  timestamp, model used, session count. The memory-file list MUST use this exact
+  schema — `dream-accept.sh` parses it to remove the consumed sources (true swap;
+  a missing/unparseable list degrades the accept to additive-only with a warning):
+
+  ```yaml
+  memory_files:
+    - docs/memory/some-file.md
+    - docs/memory/another-file.md
+  ```
+
+  List every `docs/memory/*.md` file whose content was consumed into the staged
+  output (i.e. files the swap should remove). Do NOT list memory files that were
+  left out of the consolidation — they survive the swap untouched.
 - `contradictions.md` — per contract item 3 above (may be empty / "none found")
 - `promotions.md` — per contract item 4 above (may be empty / "none proposed")
 
