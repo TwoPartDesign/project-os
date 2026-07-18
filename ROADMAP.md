@@ -174,7 +174,7 @@ Small quality items surfaced during self-maintenance / #T9 reviews (2026-07-17).
 - [x] Investigate recurring Bash failures (14 since start) — VERDICT: noise, all 15 correlate with active dev commits (scanner friction); actionable signal defined for future runs (bugs.md 2026-07-17) #T62
   <!-- maint-fp: failures:Bash:14 -->
 - [x] Run /tools:dream — staged 2026-07-17-1605 (13 memory + 14 session files → 4 topic files, 0 unresolved contradictions, 2 pattern promotions proposed); ACCEPTED 2026-07-18 (orchestrator removed the 13 consumed sources by hand — see #T77) #T63
-- [?] dream-accept.sh is additive, not a swap: it copies staged files into docs/memory/ but never removes the consumed sources (docs say "swaps in") — leaves originals + consolidation duplicated in canonical memory and the index until hand-cleaned. Fix: consume the staging manifest.yaml's source list and remove those files after archiving (archive already preserves them verbatim); regression-test in the dream smoke scenario #T77
+- [x] dream-accept.sh true swap: manifest.yaml memory_files consumed post-archive (cmp-guarded removals under the recovery marker; missing manifest → additive-only warning); dream.md pins the schema; smoke 17→25 assertions (9694193) #T77
   <!-- maint-fp: dream:12:14 -->
 
 ### Todo
@@ -191,7 +191,7 @@ Spec: `docs/specs/adopt-existing-project/` (brief DRAFT 2026-07-17). In-place `-
 
 ### Draft
 - [x] adopt-existing-project umbrella — SHIPPED 2026-07-17: design 3 adversarial rounds, build 11/11 in 4 batches, review r1 FAILED (2 CRITICAL + 2 HIGH hook-quarantine/symlink bypasses) → rebuild → r2 PASSED; 143-assertion smoke suite #T64
-- [?] Narrow template settings.json blanket allows (Bash(bash scripts/*), node scripts/*) to enumerated template script names — accepted residual risk from the adopt ADR: scripts/ orphans in adopted repos are pre-approved for execution; tradeoff is allowlist maintenance on every template-script addition #T76
+- [x] Narrow template settings.json blanket allows to enumerated template script names — 3 blanket entries → 37 per-script (call-site audit, no sanctioned form dropped); adopt ADR residual risk closed; sync duty recorded in ADR (7199f15) #T76
 - [x] detect-stack.ts: deterministic stack detection (manifest+lockfile tiers, JSON out, never executes repo code) + 6 unit tests #T65
 - [x] Hook-quarantine chain: security-scanner install-hooks --no-chain (.pre-adopt rename, no chaining) + install-hooks.sh arg passthrough + setup.sh --adopt (rebuilt r1: marker gate, --git-path hooks, 20-name quarantine) #T66
 - [x] update-project.sh --local-upstream <dir>: offline upstream source, short-circuits gh entirely, classifier untouched; + detect-stack sync-list entry #T67
