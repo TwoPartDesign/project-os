@@ -209,6 +209,17 @@ Spec: `docs/specs/adopt-existing-project/` (brief DRAFT 2026-07-17). In-place `-
 ### Review
 ### Done
 
+## Feature: skill-optimization-loop
+
+Spec: `docs/specs/skill-optimization-loop/` (brief DRAFT 2026-07-22). Human-gated lift of microsoft/SkillOpt's optimization loop shape: post-ship reflection in `/workflows:ship` files ≤3 bounded `[?]` edit drafts against skills/rules/commands via `maintain-draft.ts`; rejection ledger in `docs/knowledge/` feeds future reflections; edits land only via `/pm:approve` + human application. No SkillOpt dependency.
+
+### Draft
+- [?] skill-optimization-loop — Brief created, awaiting design #T78
+### Todo
+### In Progress
+### Review
+### Done
+
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->
 - [x] SOTA adoption — workflow ergonomics (RE-SCOPED 2026-07-17, SHIPPED same day): shipped `/goal` wave/MVP exit predicates + wave-handoff artifact + `tools:update --diff-upstream`. `tools:audit-knowledge` dropped (subsumed by self-maintenance maintain.sh/system-map); `tools:sota-scan` deferred as machine-local. Needs a short re-scoping design pass first. Revised plan: `.claude/plans/sota-adoption-2026-05.md` (see REVISED SCOPE block) #T34
