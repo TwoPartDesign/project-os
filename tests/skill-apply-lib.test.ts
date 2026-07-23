@@ -232,14 +232,30 @@ describe("estimateTokens", () => {
 
 describe("checkAutoCorrespondence", () => {
   it("checkAutoCorrespondence_deadRefInAnchor_true", () => {
-    const anchor = "bash scripts/dead-ref.sh";
+    // ADAPTED (round-3 inversion): the original fixture was "bash
+    // scripts/dead-ref.sh" — under the inverted, closed-residue predicate,
+    // the leading "bash " word survives excision of the dead ref as
+    // non-empty alphanumeric residue, which now makes the line entangled
+    // (never removable) regardless of op. A pure-syntax line — just the
+    // dead ref itself, so the residue is empty once it's excised — is the
+    // faithful "this line is nothing but the dead reference" case the test
+    // means to exercise.
+    const anchor = "scripts/dead-ref.sh";
     const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
     strictEqual(result, true);
   });
 
   it("checkAutoCorrespondence_replaceRetainsDeadRef_false", () => {
-    const anchor = "See bash scripts/dead-ref.sh for details.";
-    const proposedText = "See bash scripts/dead-ref.sh (still referenced) for details.";
+    // ADAPTED (round-3 inversion): the original fixture surrounded the dead
+    // ref with prose ("See ... for details."), which under the inverted
+    // predicate now makes the line entangled all by itself — the test would
+    // still assert `false`, but for the wrong reason (entanglement) rather
+    // than the mismatch this test means to exercise (a replace that keeps
+    // the dead ref around instead of removing it). A pure-syntax dead-ref
+    // line (just the ref, backticked) clears the entanglement check so the
+    // assertion below genuinely exercises the exact-removal comparison.
+    const anchor = "`scripts/dead-ref.sh`";
+    const proposedText = "`scripts/dead-ref.sh` (kept)";
     const result = checkAutoCorrespondence(anchor, proposedText, "replace", "scripts/dead-ref.sh");
     strictEqual(result, false);
   });
@@ -257,7 +273,13 @@ describe("checkAutoCorrespondence", () => {
     // line). This replacement instead rewrites the sibling line too — a
     // wide anchor smuggling an unrelated change through under cover of a
     // real dead reference — and must be refused.
-    const anchor = "bash scripts/dead-ref.sh\nSome unrelated context line.\nAnother line.";
+    //
+    // ADAPTED (round-3 inversion): the dead-ref line itself is now pure
+    // syntax ("scripts/dead-ref.sh" alone, no "bash " prefix) so it clears
+    // the entanglement check and the test genuinely exercises the
+    // wide-anchor mismatch below, rather than being short-circuited by
+    // entanglement on the "bash " word that used to precede it.
+    const anchor = "scripts/dead-ref.sh\nSome unrelated context line.\nAnother line.";
     const proposedText = "Some unrelated context line CHANGED.\nAnother line.";
     const result = checkAutoCorrespondence(anchor, proposedText, "replace", "scripts/dead-ref.sh");
     strictEqual(result, false);
@@ -267,7 +289,12 @@ describe("checkAutoCorrespondence", () => {
     // The faithful counterpart to the case above: proposedText equals
     // exactly the anchor's lines with the dead-ref-bearing line removed,
     // and nothing else changed.
-    const anchor = "bash scripts/dead-ref.sh\nSome unrelated context line.\nAnother line.";
+    //
+    // ADAPTED (round-3 inversion): same pure-syntax dead-ref line as above —
+    // required here because this is a `true`-expecting case; the original
+    // "bash scripts/dead-ref.sh" line would now be entangled (residue
+    // "bash " has word content) and the check would wrongly return false.
+    const anchor = "scripts/dead-ref.sh\nSome unrelated context line.\nAnother line.";
     const proposedText = "Some unrelated context line.\nAnother line.";
     const result = checkAutoCorrespondence(anchor, proposedText, "replace", "scripts/dead-ref.sh");
     strictEqual(result, true);
@@ -278,7 +305,11 @@ describe("checkAutoCorrespondence", () => {
     // contains the dead ref — an anchor that also carries an unrelated,
     // non-blank context line must be refused, even though the dead ref is
     // genuinely present.
-    const anchor = "bash scripts/dead-ref.sh\nSome unrelated context line.";
+    //
+    // ADAPTED (round-3 inversion): pure-syntax dead-ref line (no "bash "
+    // prefix) so the refusal below is genuinely driven by the "every line
+    // must contain the dead ref" delete rule, not by entanglement.
+    const anchor = "scripts/dead-ref.sh\nSome unrelated context line.";
     const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
     strictEqual(result, false);
   });
@@ -296,9 +327,16 @@ describe("checkAutoCorrespondence", () => {
 
   it("checkAutoCorrespondence_boundaryCleanSingleRefLine_true", () => {
     // Counterpart to the .bak case: the SAME needle, genuinely
-    // boundary-delimited (preceded/followed by whitespace), must still
-    // count as a match and pass a faithful whole-line delete.
-    const anchor = "bash scripts/dead-ref.sh";
+    // boundary-delimited, must still count as a match and pass a faithful
+    // whole-line delete.
+    //
+    // ADAPTED (round-3 inversion): the original fixture was "bash
+    // scripts/dead-ref.sh" — the "bash " word would now survive excision as
+    // alphanumeric residue and make the line entangled, flipping this
+    // `true`-expecting case to false. A markdown-list-item shape (dash,
+    // space, backticked ref) keeps the line boundary-clean AND pure syntax
+    // once the ref is excised (residue is just "- ``"), so it still passes.
+    const anchor = "- `scripts/dead-ref.sh`";
     const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
     strictEqual(result, true);
   });
@@ -324,5 +362,50 @@ describe("checkAutoCorrespondence", () => {
     const proposedText = "Another line.";
     const result = checkAutoCorrespondence(anchor, proposedText, "replace", "scripts/dead-ref.sh");
     strictEqual(result, false);
+  });
+
+  it("checkAutoCorrespondence_entangledBinShapeRef_false", () => {
+    // Round-3: the EXACT line reproduced end-to-end by the adversarial
+    // verifier against the pre-fix `--auto` CLI. Under the round-2 denylist
+    // (`PATH_TOKEN_RE` enumerating only scripts/.claude/docs/tests/src
+    // prefixes), "bin/critical-tool.sh" was an invisible shape — the check
+    // saw no "second path-like token" and let the whole line (including
+    // that live reference) through as auto-removable. The inverted,
+    // closed-residue predicate has no such blind spot: ANY word content
+    // left behind after excising the dead ref — "Run", "bash", "and",
+    // "also", "see", "bin/critical-tool.sh", "for", "details" — makes the
+    // line entangled, regardless of what shape it takes.
+    const anchor = "Run bash scripts/dead-ref.sh and also see bin/critical-tool.sh for details";
+    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    strictEqual(result, false);
+  });
+
+  it("checkAutoCorrespondence_entangledUrlResidue_false", () => {
+    // A live reference doesn't have to be a repo path at all — a bare URL
+    // left behind in the residue is still word content the closed-residue
+    // rule correctly refuses to discard.
+    const anchor = "scripts/dead-ref.sh see https://example.com/docs for the replacement";
+    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    strictEqual(result, false);
+  });
+
+  it("checkAutoCorrespondence_entangledPlainWordResidue_false", () => {
+    // Minimal case: a single bare word riding alongside the dead ref, no
+    // path shape at all, no punctuation dressing — still entangled, because
+    // the rule is "no alphanumeric residue survives", not "no recognized
+    // path residue survives".
+    const anchor = "scripts/dead-ref.sh bash";
+    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    strictEqual(result, false);
+  });
+
+  it("checkAutoCorrespondence_pureSyntaxResidue_true", () => {
+    // Counterpart to the three entangled cases above: a dead-ref line whose
+    // only non-ref content is markdown syntax (a list marker and backticks)
+    // leaves an alphanumeric-free residue once the ref is excised, so it
+    // remains auto-removable.
+    const anchor = "- `scripts/dead-ref.sh`";
+    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    strictEqual(result, true);
   });
 });

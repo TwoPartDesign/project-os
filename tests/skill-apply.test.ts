@@ -977,11 +977,24 @@ describe("skill-apply.ts apply", () => {
   });
 
   /**
-   * Shared fixture content for the two tests below: a command doc with two
+   * Shared fixture content for the tests below: a command doc with two
    * unrelated blocks — one plain paragraph, and one fenced code block that
-   * references a script that doesn't exist (`scripts/dead-ref.sh`), which a
-   * REAL `system-map.ts report` run will flag as a live dangling-ref finding
-   * whose subject is this doc's own node id.
+   * references a script that doesn't exist (`scripts/lib/dead-ref.sh`),
+   * which a REAL `system-map.ts report` run will flag as a live dangling-ref
+   * finding whose subject is this doc's own node id.
+   *
+   * ADAPTED (round-3 inversion): the referenced line is the bare path
+   * `scripts/lib/dead-ref.sh` with no `bash `/`node ` invocation prefix —
+   * `extractScriptRefs`'s `scripts/lib/` pattern recognizes it with a
+   * zero-length offset (the captured target IS the whole matched prefix),
+   * so this line still registers as a dangling reference without needing
+   * any word content in front of it. That matters because this exact line
+   * also serves as the auto-eligible proposal's anchor in the happy-path
+   * test below: under the round-3 closed-residue predicate, a dead-ref line
+   * is only auto-removable when NOTHING alphanumeric survives excising the
+   * ref — so a prefix like "bash " (which the pre-fix fixture used) would
+   * now make the line entangled and wrongly refuse a legitimately
+   * removable line. The bare path has zero residue once excised.
    */
   const CMD_DOC_WITH_DEAD_REF = [
     "# Test Command",
@@ -993,7 +1006,7 @@ describe("skill-apply.ts apply", () => {
     "## Section B",
     "",
     "```bash",
-    "bash scripts/dead-ref.sh",
+    "scripts/lib/dead-ref.sh",
     "```",
     "",
     "## Section C",
@@ -1172,9 +1185,9 @@ describe("skill-apply.ts apply", () => {
           tier: "auto-eligible",
           draftTask: "#T90",
           evidence: "test",
-          anchor: "bash scripts/dead-ref.sh",
+          anchor: "scripts/lib/dead-ref.sh",
           proposedText: "",
-          rationale: "scripts/dead-ref.sh no longer exists; removing the dead reference.",
+          rationale: "scripts/lib/dead-ref.sh no longer exists; removing the dead reference.",
         }),
         "utf-8",
       );
@@ -1190,14 +1203,145 @@ describe("skill-apply.ts apply", () => {
       ok(subject.startsWith("chore(skills): auto-apply"), `unexpected commit subject: ${subject}`);
 
       const body = gitOutput(dir, ["log", "-1", "--format=%B"]);
-      ok(body.includes("bash scripts/dead-ref.sh"), `commit body missing Anchor text: ${body}`);
+      ok(body.includes("scripts/lib/dead-ref.sh"), `commit body missing Anchor text: ${body}`);
       ok(
-        body.includes("scripts/dead-ref.sh no longer exists; removing the dead reference."),
+        body.includes("scripts/lib/dead-ref.sh no longer exists; removing the dead reference."),
         `commit body missing Rationale text: ${body}`,
       );
 
       const updated = readFileSync(targetAbs, "utf-8");
-      ok(!updated.includes("bash scripts/dead-ref.sh"), "dead reference was not removed from target");
+      ok(!updated.includes("scripts/lib/dead-ref.sh"), "dead reference was not removed from target");
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  /**
+   * Fixture for the round-3 regression test below: the EXACT line shape the
+   * adversarial verifier reproduced end-to-end against the pre-fix `--auto`
+   * CLI. `bash scripts/dead-ref.sh` inside it is a real, live dangling
+   * reference a REAL `system-map.ts report` run flags — same detection
+   * mechanism as `CMD_DOC_WITH_DEAD_REF` above — but the line ALSO carries
+   * `bin/critical-tool.sh`, a live reference of a shape the pre-fix
+   * five-prefix denylist (`scripts/`, `.claude/`, `docs/`, `tests/`, `src/`)
+   * never recognized, so it fell through as "no second path-like token" and
+   * the whole line — including that live reference — was deleted
+   * unattended. The round-3 closed-residue predicate has no such blind
+   * spot: it refuses on ANY leftover word content, not just a recognized
+   * shape.
+   */
+  const CMD_DOC_ENTANGLED_PROSE = [
+    "# Test Command Entangled Prose",
+    "",
+    "## Section A",
+    "",
+    "```bash",
+    "Run bash scripts/dead-ref.sh and also see bin/critical-tool.sh for details",
+    "```",
+    "",
+    "## Section B",
+    "",
+    "Trailing content unrelated.",
+    "",
+  ].join("\n");
+
+  it("auto_entangledProseLine_exit3", () => {
+    // End-to-end reproduction of the reported HIGH break: --auto against
+    // the real CLI, with a REAL system-map.ts run supplying condition 5's
+    // live dangling-ref evidence, must refuse (condition 6) rather than
+    // delete the whole line — the live bin/critical-tool.sh reference on it
+    // must survive untouched, and no commit may be created.
+    const dir = freshFixture();
+    try {
+      initGitRepo(dir);
+      copyRealSystemMap(dir);
+      writePolicyFile(dir, "skill_auto_apply: on\n");
+      const targetRel = ".claude/commands/tools/test-cmd-entangled-prose.md";
+      const targetAbs = resolve(dir, targetRel);
+      writeFileEnsuringDir(targetAbs, CMD_DOC_ENTANGLED_PROSE);
+      commitAll(dir, "initial commit");
+
+      const proposalPath = resolve(dir, "proposal.md");
+      writeFileSync(
+        proposalPath,
+        buildProposalDoc({
+          n: 1,
+          title: "Remove dead reference (entangled prose line)",
+          fingerprint: "skill-edit:test-cmd-entangled-prose:auto-entangled-prose",
+          target: targetRel,
+          operation: "delete",
+          tier: "auto-eligible",
+          draftTask: "#T90",
+          evidence: "test",
+          anchor: "Run bash scripts/dead-ref.sh and also see bin/critical-tool.sh for details",
+          proposedText: "",
+          rationale: "scripts/dead-ref.sh no longer exists; removing the dead reference.",
+        }),
+        "utf-8",
+      );
+
+      const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1", "--auto"]);
+      strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+      strictEqual(
+        result.stderr.trim(),
+        "auto refused: edit does not correspond to the dead reference",
+        `stderr mismatch: ${result.stderr}`,
+      );
+
+      const updated = readFileSync(targetAbs, "utf-8");
+      strictEqual(updated, CMD_DOC_ENTANGLED_PROSE, "target content changed despite entanglement refusal");
+      ok(
+        updated.includes("bin/critical-tool.sh"),
+        "the live bin/critical-tool.sh reference was deleted alongside the dead one",
+      );
+
+      const afterLog = gitOutput(dir, ["log", "--format=%H"]);
+      strictEqual(afterLog.split("\n").length, 1, "a commit was created despite entanglement refusal");
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  it("apply_directoryTarget_exit3", () => {
+    // Residual robustness fix: a directory-valued target passes the
+    // lexical/identity/hardlink checks unchanged (it isn't a symlink, has an
+    // unremarkable nlink, and its canonical identity matches the proposal's
+    // target exactly) but must be refused explicitly rather than crashing
+    // with a raw, undocumented EISDIR stack trace once the CLI tries to
+    // read it as a file.
+    const dir = freshFixture();
+    try {
+      initGitRepo(dir);
+      const targetRel = ".claude/commands/real-dir";
+      const placeholderAbs = resolve(dir, targetRel, "placeholder.md");
+      writeFileEnsuringDir(placeholderAbs, "# Placeholder\n");
+      commitAll(dir, "initial commit");
+
+      const proposalPath = resolve(dir, "proposal.md");
+      writeFileSync(
+        proposalPath,
+        buildProposalDoc({
+          n: 1,
+          title: "Directory target",
+          fingerprint: "skill-edit:real-dir:dir-target",
+          target: targetRel,
+          operation: "replace",
+          tier: "standard",
+          draftTask: "#T90",
+          evidence: "test",
+          anchor: "irrelevant anchor text",
+          proposedText: "irrelevant replacement",
+          rationale: "test",
+        }),
+        "utf-8",
+      );
+
+      const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1"]);
+      strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+      strictEqual(result.stderr.trim(), "error: target is a directory", `stderr mismatch: ${result.stderr}`);
+
+      const afterLog = gitOutput(dir, ["log", "--format=%H"]);
+      strictEqual(afterLog.split("\n").length, 1, "a commit was created despite directory-target refusal");
     } finally {
       rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
     }

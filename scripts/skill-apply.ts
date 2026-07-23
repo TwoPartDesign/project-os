@@ -58,7 +58,8 @@
 //      uniform message, checked with zero filesystem access, before target
 //      is a symlink (leaf or a non-leaf indirect/junction component —
 //      "canonical location differs" message), target has multiple hard
-//      links, repo mid-operation (detached HEAD, merge/rebase/cherry-pick in
+//      links, target is a directory ("target is a directory" message),
+//      repo mid-operation (detached HEAD, merge/rebase/cherry-pick in
 //      progress), dirty target or dirty docs/maps (git status not clean),
 //      AnchorError (anchor not found / ambiguous), or an `--auto`
 //      eligibility condition failing (see above)
@@ -635,6 +636,18 @@ function resolveAndContainTarget(
       : canonicalRel === target;
   if (!identityMatches) {
     console.error("error: target path is indirect — canonical location differs from proposal target");
+    process.exit(3);
+  }
+
+  // Directory-target guard (round-3 residual fix): a directory-valued
+  // target passes every check above unchanged — it isn't a symlink, its
+  // nlink is unremarkable, and its canonical identity matches `target`
+  // exactly — but `readFileSync(canonicalTarget, ...)` further down would
+  // then crash with a raw, undocumented EISDIR stack trace instead of a
+  // clean refusal. Reuses `canonicalStat` (already computed for the R3
+  // hardlink check above) rather than stat-ing again.
+  if (canonicalStat.isDirectory()) {
+    console.error("error: target is a directory");
     process.exit(3);
   }
 
