@@ -21,3 +21,5 @@ description: "Rules applied when working with test files"
 - Mock external dependencies only, not internal modules.
 - Assert specific values; do not assert truthiness alone.
 - Test error message content, not just error type existence.
+- Test error message content, not just error type existence.
+- For security guards (containment, allowlists, escapes), test the in-bounds indirection cases — symlink to an in-scope sibling, prefix-collision paths — not only the obvious escape case.
