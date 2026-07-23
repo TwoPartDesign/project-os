@@ -104,6 +104,8 @@ flowchart LR
     sk_tdd_workflow_skill[".claude/skills/tdd-workflow/SKILL.md"]
   end
   c_pm_approve -->|references| s_validate_roadmap
+  c_pm_approve -->|references| scripts_skill_apply_ts
+  c_pm_approve -->|references| scripts_skill_ledger_ts
   c_tools_catchup -->|references| s_knowledge_index
   c_tools_dashboard -->|references| s_dashboard
   c_tools_dashboard -->|references| s_dashboard_server

@@ -111,6 +111,8 @@
 ## Edges
 
 - `c_pm_approve` --references--> `s_validate_roadmap`
+- `c_pm_approve` --references--> `scripts/skill-apply.ts`
+- `c_pm_approve` --references--> `scripts/skill-ledger.ts`
 - `c_tools_catchup` --references--> `s_knowledge_index`
 - `c_tools_dashboard` --references--> `s_dashboard`
 - `c_tools_dashboard` --references--> `s_dashboard_server`
@@ -179,6 +181,8 @@
 - LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 5192 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 2909 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/windows-bash-scanner.md — docs/knowledge/windows-bash-scanner.md is approximately 2678 tokens, exceeding the 2500-token warn threshold.
+- HIGH dangling-ref c_pm_approve — Edge references from c_pm_approve points to missing node scripts/skill-apply.ts.
+- HIGH dangling-ref c_pm_approve — Edge references from c_pm_approve points to missing node scripts/skill-ledger.ts.
 - MEDIUM manifest-gap l_policy — scripts/lib/policy.ts is missing from the manifest's files map.
 - MEDIUM orphan-script s_audit_context — Script scripts/audit-context.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_context_filter — Script scripts/context-filter.sh has no incoming references and is not in the orphan allowlist.

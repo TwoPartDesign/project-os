@@ -1,7 +1,7 @@
 {
   "generator_version": 1,
   "inputs": {
-    ".claude/commands/pm/approve.md": "0fc08d6e5d569cd01db6f4251b0fe8e8ef172152e20fcf0f8e68468fb58b533c",
+    ".claude/commands/pm/approve.md": "d4790087e8bbdc06cb73547106b4f5d9137ecc94cb6771b07fe5bead43da2f41",
     ".claude/commands/pm/epic.md": "bc5d17666fffc645dde4e7eb66deb758cf366498e6271f2e7820011b11acf08d",
     ".claude/commands/pm/prd.md": "e24197ef9f3b891d7173303cba15226c063f1b0645a1a7701ea6c93f4a7d5386",
     ".claude/commands/pm/status.md": "99ca7e98d9f2f5d6547ccbc03153aeec92250c183539b094164657b42a2d68ff",
