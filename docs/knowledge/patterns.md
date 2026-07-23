@@ -106,3 +106,15 @@ Each entry: Pattern Name, When to Use, Example, Anti-pattern to Avoid
 **Example**: adopt-existing-project review round 1: three independent quarantine bypasses — a spoofable substring gate (`grep "scan-staged"` matched a hostile hook's comment), `core.hooksPath` redirecting git away from the quarantined directory, and unquarantined `commit-msg`/`post-commit` hooks firing on the adopt commit. All three passed the original tests, which only exercised a naive `echo` hook at the default path. Fixed with marker-exact gating, `--git-path` resolution, the full 20-name quarantine, and canary-file regression tests (hook writes a file if executed; assert absent).
 
 **Anti-pattern**: Testing a security control only with a naive payload at the default location; gating "already installed" on any string that user-controlled content can also contain; letting the report/dry-run classifier enumerate a different scope than the enforcement code.
+
+---
+
+### Invert Open-Ended Recognition Predicates to Closed Allowlists
+
+**When to Use**: Any automated safety predicate that must decide "does this content contain something meaningful/live/dangerous?" — e.g. "does this line carry another live reference?", "is this output free of secrets?".
+
+**Pattern**: A denylist of *recognized meaningful shapes* is an open-ended recognition problem — every enumeration has a shape it missed, and an adversarial pass will find it. Invert: define the **closed set of trivially-safe residue** (whitespace, punctuation, markdown syntax) and refuse anything outside it. The predicate becomes strictly narrower but sound; borderline cases fall back to the human-gated path, which is the correct failure direction for an unattended tier.
+
+**Example**: skill-apply's auto-tier entanglement check went through two broken denylist generations (5 path prefixes → broken by `bin/critical-tool.sh`, reproduced end-to-end) before being inverted in round 3: a dead-ref-bearing line is auto-removable only if excising the ref leaves residue with no `[A-Za-z0-9]` at all. The adversarial verifier then held it under Unicode, boundary, and syntax-smuggling attack (one LOW ASCII-scope residual, filed as #T95).
+
+**Anti-pattern**: Patching a broken recognition denylist by adding the newly-found shape — it converges never; the class of misses survives every instance fix. Also: claiming "any word content" in docs when the implementation matches a narrower character class — keep predicate claims verbatim-accurate to the code.

@@ -182,6 +182,9 @@ Small quality items surfaced during self-maintenance / #T9 reviews (2026-07-17).
 - [?] skill-edit: tests.md — security guards need in-bounds indirection fixtures #T94
   <!-- maint-fp: skill-edit:.claude/rules/tests.md:indirection-security-fixtures -->
   <!-- proposal: docs/specs/skill-optimization-loop/skill-edits.md Proposal 2 -->
+- [?] Harden skill-apply entanglement residue check for non-ASCII word content + align lib doc-comment #T95
+  <!-- maint-fp: review-residual:skill-apply-lib:unicode-residue -->
+  <!-- review.md r4 NOTES: [A-Za-z0-9] residue regex misses CJK/Cyrillic/fullwidth homoglyphs (LOW, needs prior compromise); doc-comment overclaims ASCII-only reality -->
 
 ### Todo
 
@@ -221,23 +224,23 @@ Spec: `docs/specs/skill-optimization-loop/` (design APPROVED rev 4, 2026-07-22, 
 
 ### Draft
 ### Todo
-- [~] Shared policy reader scripts/lib/policy.ts + tests #T79
-- [~] skill-ledger.ts sanitizing rejection-ledger writer + tests #T80
-- [~] skill-apply-lib.ts proposal parser + anchored ops + tests #T81
-- [~] Seed docs/knowledge/skill-edit-rejections.md ledger #T82
-- [~] /tools:reflect shared reflection command doc #T83
-- [~] ship.md reflection call site + Post-Ship numbering heal #T84
-- [~] review.md + rebuild.md call sites + rebuild-triggered instrumentation #T85
-- [~] approve.md skill-edit gate: display, staged apply, ack, reject-to-ledger #T86
-- [~] maintain-draft.test.ts skill-edit formats + retired-line and cross-trigger dedup #T87
-- [~] system-map-lib pathToId export + rules bloat + policy refactor (depends: #T79) #T88
-- [!] skill-apply.ts CLI standard tier (depends: #T81) #T89
-- [!] skill-apply --auto six-condition class (depends: #T79, #T88, #T89) #T90
-- [~] Policy key, permissions entries, template sync lists (depends: #T79, #T80, #T89) #T91
-- [~] architecture.md + tiered draft-only-autonomy ADR (depends: #T90, #T91) #T92
 ### In Progress
 ### Review
 ### Done
+- [x] Shared policy reader scripts/lib/policy.ts + tests #T79
+- [x] skill-ledger.ts sanitizing rejection-ledger writer + tests #T80
+- [x] skill-apply-lib.ts proposal parser + anchored ops + tests #T81
+- [x] Seed docs/knowledge/skill-edit-rejections.md ledger #T82
+- [x] /tools:reflect shared reflection command doc #T83
+- [x] ship.md reflection call site + Post-Ship numbering heal #T84
+- [x] review.md + rebuild.md call sites + rebuild-triggered instrumentation #T85
+- [x] approve.md skill-edit gate: display, staged apply, ack, reject-to-ledger #T86
+- [x] maintain-draft.test.ts skill-edit formats + retired-line and cross-trigger dedup #T87
+- [x] system-map-lib pathToId export + rules bloat + policy refactor (depends: #T79) #T88
+- [x] skill-apply.ts CLI standard tier (depends: #T81) #T89
+- [x] skill-apply --auto six-condition class (3 hardening rounds, r4 verify PASS) (depends: #T79, #T88, #T89) #T90
+- [x] Policy key, permissions entries, template sync lists (depends: #T79, #T80, #T89) #T91
+- [x] architecture.md + tiered draft-only-autonomy ADR (depends: #T90, #T91) #T92
 - [x] skill-optimization-loop — Brief created, awaiting design (retired: superseded by #T79-#T92 after design APPROVED) #T78
 
 ## Backlog
