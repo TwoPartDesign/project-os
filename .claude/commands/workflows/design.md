@@ -90,6 +90,8 @@ Before presenting to the user, spawn a reviewer sub-agent with this prompt:
 3. Are there security gaps in the Security Considerations section?
 4. Is the testing strategy sufficient to catch regressions?
 5. Are there simpler alternatives the designer missed?
+5. Are there simpler alternatives the designer missed?
+6. For every finding from a PRIOR review round that was closed by adding a condition, check, or guard: attack the fixed condition itself. A fix is a fresh attack surface, not a settled matter — ask what inputs satisfy the new check while still violating the property it exists to protect.
 Output a list of findings ranked by severity (CRITICAL > HIGH > MEDIUM > LOW). For each finding, include a specific recommendation.
 
 CRITICAL — BASH COMMAND RULES:
