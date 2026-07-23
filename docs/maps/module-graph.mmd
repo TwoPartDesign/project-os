@@ -15,6 +15,7 @@ flowchart LR
     c_tools_maintain[".claude/commands/tools/maintain.md"]
     c_tools_metrics[".claude/commands/tools/metrics.md"]
     c_tools_new_project[".claude/commands/tools/new-project.md"]
+    c_tools_reflect[".claude/commands/tools/reflect.md"]
     c_tools_research[".claude/commands/tools/research.md"]
     c_tools_set_models[".claude/commands/tools/set-models.md"]
     c_tools_update[".claude/commands/tools/update.md"]
@@ -123,6 +124,8 @@ flowchart LR
   c_tools_maintain -->|references| s_maintain
   c_tools_maintain -->|references| s_system_map
   c_tools_new_project -->|references| s_detect_stack
+  c_tools_reflect -->|references| s_maintain_draft
+  c_tools_reflect -->|references| scripts_skill_apply_ts
   c_tools_update -->|references| s_generate_manifest
   c_tools_update -->|references| s_sync_hooks
   c_tools_update -->|references| s_update_project

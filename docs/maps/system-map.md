@@ -20,6 +20,7 @@
 - `c_tools_maintain` — `.claude/commands/tools/maintain.md` (0 dependents)
 - `c_tools_metrics` — `.claude/commands/tools/metrics.md` (0 dependents)
 - `c_tools_new_project` — `.claude/commands/tools/new-project.md` (0 dependents)
+- `c_tools_reflect` — `.claude/commands/tools/reflect.md` (0 dependents)
 - `c_tools_research` — `.claude/commands/tools/research.md` (0 dependents)
 - `c_tools_set_models` — `.claude/commands/tools/set-models.md` (0 dependents)
 - `c_tools_update` — `.claude/commands/tools/update.md` (0 dependents)
@@ -54,10 +55,10 @@
 
 ### lib
 - `l_common` — `.claude/hooks/_common.sh` (12 dependents)
-- `l_dashboard_render` — `scripts/lib/dashboard-render.ts` (4 dependents)
+- `l_dashboard_render` — `scripts/lib/dashboard-render.ts` (5 dependents)
 - `l_json` — `scripts/lib/json.sh` (2 dependents)
 - `l_policy` — `scripts/lib/policy.ts` (1 dependent)
-- `l_project_root` — `scripts/lib/project-root.ts` (14 dependents)
+- `l_project_root` — `scripts/lib/project-root.ts` (15 dependents)
 - `l_scan_rules` — `scripts/lib/scan-rules.js` (0 dependents)
 - `l_skill_apply_lib` — `scripts/lib/skill-apply-lib.ts` (1 dependent)
 - `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (6 dependents)
@@ -75,7 +76,7 @@
 - `s_install_global_commands` — `scripts/install-global-commands.sh` (1 dependent)
 - `s_install_hooks` — `scripts/install-hooks.sh` (0 dependents)
 - `s_knowledge_index` — `scripts/knowledge-index.ts` (5 dependents)
-- `s_maintain_draft` — `scripts/maintain-draft.ts` (0 dependents)
+- `s_maintain_draft` — `scripts/maintain-draft.ts` (1 dependent)
 - `s_maintain` — `scripts/maintain.sh` (1 dependent)
 - `s_memory_search` — `scripts/memory-search.sh` (0 dependents)
 - `s_new_project` — `scripts/new-project.sh` (0 dependents)
@@ -130,6 +131,8 @@
 - `c_tools_maintain` --references--> `s_maintain`
 - `c_tools_maintain` --references--> `s_system_map`
 - `c_tools_new_project` --references--> `s_detect_stack`
+- `c_tools_reflect` --references--> `s_maintain_draft`
+- `c_tools_reflect` --references--> `scripts/skill-apply.ts`
 - `c_tools_update` --references--> `s_generate_manifest`
 - `c_tools_update` --references--> `s_sync_hooks`
 - `c_tools_update` --references--> `s_update_project`
@@ -189,13 +192,14 @@
 - LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 2909 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/windows-bash-scanner.md — docs/knowledge/windows-bash-scanner.md is approximately 2678 tokens, exceeding the 2500-token warn threshold.
 - HIGH dangling-ref c_pm_approve — Edge references from c_pm_approve points to missing node scripts/skill-apply.ts.
+- HIGH dangling-ref c_tools_reflect — Edge references from c_tools_reflect points to missing node scripts/skill-apply.ts.
+- MEDIUM manifest-gap c_tools_reflect — .claude/commands/tools/reflect.md is missing from the manifest's files map.
 - MEDIUM manifest-gap l_policy — scripts/lib/policy.ts is missing from the manifest's files map.
 - MEDIUM manifest-gap l_skill_apply_lib — scripts/lib/skill-apply-lib.ts is missing from the manifest's files map.
 - MEDIUM manifest-gap s_skill_ledger — scripts/skill-ledger.ts is missing from the manifest's files map.
 - MEDIUM orphan-script s_audit_context — Script scripts/audit-context.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_context_filter — Script scripts/context-filter.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_install_hooks — Script scripts/install-hooks.sh has no incoming references and is not in the orphan allowlist.
-- MEDIUM orphan-script s_maintain_draft — Script scripts/maintain-draft.ts has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_memory_search — Script scripts/memory-search.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_observation_parser — Script scripts/observation-parser.ts has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_scrub_secrets — Script scripts/scrub-secrets.sh has no incoming references and is not in the orphan allowlist.

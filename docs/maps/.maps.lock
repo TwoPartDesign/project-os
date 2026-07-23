@@ -16,6 +16,7 @@
     ".claude/commands/tools/maintain.md": "ab3561d10897bd7a89fbd978b829c24176b3f6e024692d31e4151343fc74576a",
     ".claude/commands/tools/metrics.md": "8d13bef403e28643f4e94b99e6f7060928bc9e7654ed6f45f4f6bda6af1e42c4",
     ".claude/commands/tools/new-project.md": "af8b4928ec5ac6047817eb466f30fc8004f4f1482c93fb4cb3be6860b12a67f3",
+    ".claude/commands/tools/reflect.md": "a38ab4630a07bd8c5a7b3985dfcfa7e35f562fe85cfc89a6e65bdc12394800f5",
     ".claude/commands/tools/research.md": "f127ff876a5884edaaf78928693d73b6e2e017e38f013bb8736adc556add87a9",
     ".claude/commands/tools/set-models.md": "08b892a89c14f66d1c02a7d97a50acc91f414a2a09aa6b8c95c56de2105e1568",
     ".claude/commands/tools/update.md": "2965cc272eb5b90466619f863c02cacd9ead09095bd482a8e3c518317daa2136",
