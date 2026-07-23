@@ -94,18 +94,19 @@ Log: `bash .claude/hooks/log-activity.sh pr-created feature=$ARGUMENTS`
 
 1. **Verify worktree cleanup**: Worktree lifecycle is native — agent worktrees are removed automatically (kept as branches when changes were made). Run `git worktree list` and `git worktree prune` only if strays remain.
 2. **Archive specs**: The spec lifecycle is complete. Leave files in place for reference.
-4. **Update ROADMAP.md**: Move all tasks for this feature to the "Done" section.
+3. **Update ROADMAP.md**: Move all tasks for this feature to the "Done" section.
    - Check if any tasks are still `[~]` (not yet `[x]`)
    - If found, list them and ask the user: "These tasks passed review with notes but haven't been marked done. Mark them `[x]` now, or address the outstanding notes first?"
    - Only proceed after all feature tasks are confirmed `[x]`
-5. **Update decisions log**: Add any architectural decisions made during this feature to `docs/knowledge/decisions.md`.
-6. **Metrics snapshot**: Append a metrics entry to `docs/knowledge/metrics.md`:
+4. **Update decisions log**: Add any architectural decisions made during this feature to `docs/knowledge/decisions.md`.
+5. **Metrics snapshot**: Append a metrics entry to `docs/knowledge/metrics.md`:
    - Duration (from first task-spawned to feature-shipped in activity log)
    - Task count (total, completed, blocked)
    - Wave count (from build)
    - Revision count (review cycles)
    - First-pass review rate
    - Lines changed (`git diff --shortstat ${BASE}...HEAD` — where BASE is auto-detected above)
+6. **Skill reflection**: Run /tools:reflect $ARGUMENTS --trigger ship — reads this ship's review findings, metrics, and diff; proposes at most 3 bounded skill/rule/command edits as [?] drafts (see the reflect command for the full contract). Include its summary line in the ship output below.
 7. **Memory save**: Record what was shipped, any lessons learned, any patterns to remember.
 
 Log: `bash .claude/hooks/log-activity.sh feature-shipped feature=$ARGUMENTS`
@@ -117,5 +118,6 @@ Log: `bash .claude/hooks/log-activity.sh feature-shipped feature=$ARGUMENTS`
 - [M] tests passing
 - [Review findings addressed]
 - Metrics snapshot saved to docs/knowledge/metrics.md
+- Skill reflection: [N filed / M deduped / K auto-applied / none warranted]
 - Knowledge base updated
 - ROADMAP.md updated"

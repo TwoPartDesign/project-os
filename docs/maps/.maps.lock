@@ -28,7 +28,7 @@
     ".claude/commands/workflows/plan.md": "9c8b51d8148dea8854849d0e84d134022961f7f986510c32ffbc0cb8597121e3",
     ".claude/commands/workflows/rebuild.md": "5572b61ac84177830688f783e8202bd914c1e75a636a7f9b73af8bb8e6a2aa73",
     ".claude/commands/workflows/review.md": "9d6b8eb42c3bc61ef169ccf1af3edd4c90bfc3db7f9662f9a219905f32db1153",
-    ".claude/commands/workflows/ship.md": "31048f3a93fdb2ca98337e2b6f494d4377416ec8add90891edf09dacb5fb6f80",
+    ".claude/commands/workflows/ship.md": "658976616170269f2523ffbdd3817c136ac11e898c7c929837668f4c7bc98d4a",
     ".claude/hooks/_common.sh": "ae8e46c9a17ba6c5bd26df2310643809b312d76800dd1e8d3a7af5119d6ccf36",
     ".claude/hooks/compact-suggest.sh": "2cb5cd011ce27904cdbfed085f6a266528fea8718873c3f8fefd7211185432c1",
     ".claude/hooks/log-activity.sh": "fe2df53296497364a57540bd329a5bef1c874515b4739d2ac6ebdfbe2827b47e",
