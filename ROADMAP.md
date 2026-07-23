@@ -215,20 +215,20 @@ Spec: `docs/specs/skill-optimization-loop/` (design APPROVED rev 4, 2026-07-22, 
 
 ### Draft
 ### Todo
-- [ ] Shared policy reader scripts/lib/policy.ts + tests #T79
-- [ ] skill-ledger.ts sanitizing rejection-ledger writer + tests #T80
-- [ ] skill-apply-lib.ts proposal parser + anchored ops + tests #T81
-- [ ] Seed docs/knowledge/skill-edit-rejections.md ledger #T82
-- [ ] /tools:reflect shared reflection command doc #T83
-- [ ] ship.md reflection call site + Post-Ship numbering heal #T84
-- [ ] review.md + rebuild.md call sites + rebuild-triggered instrumentation #T85
-- [ ] approve.md skill-edit gate: display, staged apply, ack, reject-to-ledger #T86
-- [ ] maintain-draft.test.ts skill-edit formats + retired-line and cross-trigger dedup #T87
-- [ ] system-map-lib pathToId export + rules bloat + policy refactor (depends: #T79) #T88
-- [ ] skill-apply.ts CLI standard tier (depends: #T81) #T89
-- [ ] skill-apply --auto six-condition class (depends: #T79, #T88, #T89) #T90
-- [ ] Policy key, permissions entries, template sync lists (depends: #T79, #T80, #T89) #T91
-- [ ] architecture.md + tiered draft-only-autonomy ADR (depends: #T90, #T91) #T92
+- [~] Shared policy reader scripts/lib/policy.ts + tests #T79
+- [~] skill-ledger.ts sanitizing rejection-ledger writer + tests #T80
+- [~] skill-apply-lib.ts proposal parser + anchored ops + tests #T81
+- [~] Seed docs/knowledge/skill-edit-rejections.md ledger #T82
+- [~] /tools:reflect shared reflection command doc #T83
+- [~] ship.md reflection call site + Post-Ship numbering heal #T84
+- [~] review.md + rebuild.md call sites + rebuild-triggered instrumentation #T85
+- [~] approve.md skill-edit gate: display, staged apply, ack, reject-to-ledger #T86
+- [~] maintain-draft.test.ts skill-edit formats + retired-line and cross-trigger dedup #T87
+- [~] system-map-lib pathToId export + rules bloat + policy refactor (depends: #T79) #T88
+- [~] skill-apply.ts CLI standard tier (depends: #T81) #T89
+- [~] skill-apply --auto six-condition class (depends: #T79, #T88, #T89) #T90
+- [~] Policy key, permissions entries, template sync lists (depends: #T79, #T80, #T89) #T91
+- [~] architecture.md + tiered draft-only-autonomy ADR (depends: #T90, #T91) #T92
 ### In Progress
 ### Review
 ### Done
