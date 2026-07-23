@@ -28,15 +28,20 @@
 //      pathToId(target) (scripts/lib/system-map-lib.ts)
 //   6. edit-content correspondence: scripts/lib/skill-apply-lib.ts's
 //      checkAutoCorrespondence confirms the missing-target string named by
-//      that finding genuinely occurs in the proposal's anchor, using
-//      deterministic line-wise semantics: a `delete` is only eligible when
-//      EVERY non-blank anchor line contains the dead ref, and a `replace` is
-//      only eligible when proposedText equals EXACTLY the anchor's lines
-//      with the dead-ref-bearing lines removed (zero other changes
-//      tolerated) — this is what prevents an anchor elsewhere in the same
-//      file (or a wide anchor that merely *contains* the dead ref alongside
-//      unrelated content) from "smuggling" an unrelated edit through under
-//      cover of a real finding.
+//      that finding genuinely occurs in the proposal's anchor as a
+//      boundary-delimited match (so `scripts/dead-ref.sh` inside
+//      `scripts/dead-ref.sh.bak` never counts), then checks each
+//      dead-ref-bearing line for entanglement with a second, unrelated
+//      live path-like reference on the same line (refused if found — see
+//      the lib's docstring); a `delete` is only eligible when EVERY
+//      non-blank anchor line contains the dead ref, and a `replace` is only
+//      eligible when proposedText equals EXACTLY the anchor's lines with
+//      the dead-ref-bearing lines removed (zero other changes tolerated) —
+//      this is what prevents an anchor elsewhere in the same file, a wide
+//      anchor that merely *contains* the dead ref alongside unrelated
+//      content, or a single degenerate line entangling the dead ref with a
+//      second live reference, from "smuggling" an unrelated edit through
+//      (or destroying a live reference) under cover of a real finding.
 // The first failing condition exits 3 with a `auto refused: <condition>`
 // stderr message, before anything is written to disk — a clean signal the
 // caller uses to fall back to filing a normal (human-approved) draft. All
@@ -47,24 +52,31 @@
 //   0  applied and committed — prints "applied: <40-hex commit hash>"
 //   1  usage error (bad/missing subcommand, --proposal, or --n) or a
 //      parseProposal error (message passed through to stderr)
-//   3  refusal — target outside the allowed instruction directories
-//      (traversal/symlink escape), target is a symlink, target is an
-//      absolute or UNC path, repo mid-operation (detached HEAD,
-//      merge/rebase/cherry-pick in progress), dirty target (git status
-//      not clean), AnchorError (anchor not found / ambiguous), or an
-//      `--auto` eligibility condition failing (see above)
+//   3  refusal — target lexically invalid or outside the allowed
+//      instruction directories (drive-prefixed, absolute, UNC, `..`
+//      traversal, or backslash-bearing — ALL of these collapse to one
+//      uniform message, checked with zero filesystem access, before target
+//      is a symlink (leaf or a non-leaf indirect/junction component —
+//      "canonical location differs" message), target has multiple hard
+//      links, repo mid-operation (detached HEAD, merge/rebase/cherry-pick in
+//      progress), dirty target or dirty docs/maps (git status not clean),
+//      AnchorError (anchor not found / ambiguous), or an `--auto`
+//      eligibility condition failing (see above)
 //   4  rolled back — post-edit validation (system-map check --heal crash,
 //      or a security-scanner finding) failed, or the apply commit itself
-//      failed (e.g. a pre-commit hook rejection); the target file (and, for
-//      a commit failure, the git index) has been restored to its pre-apply
-//      state
+//      failed (e.g. a pre-commit hook rejection); the target file, the git
+//      index, and docs/maps (worktree + index) have all been restored to
+//      their pre-apply state
 //
 // Every fs/git operation past target resolution acts on the SAME canonical
 // path (`canonicalTarget` / `relTarget`, derived once via `realpathSync` in
 // `resolveAndContainTarget`) — never the pre-resolution `targetAbs` — so
 // containment, the anchor read, the write, and the commit's pathspec can
 // never diverge from one another (see the M1 fix note on
-// `resolveAndContainTarget` below).
+// `resolveAndContainTarget` below). `relTarget` is additionally guaranteed
+// (round-2 R2) to equal the proposal's own `target` string exactly — the
+// canonical-identity check refuses any indirect resolution before this
+// point is ever reached.
 //
 // NOTE on scripts/system-map.ts's actual `check --heal` contract: the
 // committed implementation exits 0 for BOTH "fresh" and "healed" outcomes
@@ -87,6 +99,7 @@ import {
   unlinkSync,
   realpathSync,
   lstatSync,
+  statSync,
 } from "node:fs";
 import { resolve, relative, isAbsolute } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -220,14 +233,21 @@ function extractProposalBlock(docContent: string, n: number): string {
   return block.replace(/\s+$/, "");
 }
 
-/** Restores `targetAbs` to `originalContent` (byte-for-byte), prints `message`, and exits with `code`. */
+/**
+ * Restores `targetAbs` to `originalContent` (byte-for-byte), best-effort
+ * restores `docs/maps` to its pre-apply state (R5 — see
+ * {@link restoreDocsMapsBestEffort}; a crashed/failed validation step may
+ * have left a partial heal behind), prints `message`, and exits with `code`.
+ */
 function rollbackAndExit(
+  projectRoot: string,
   targetAbs: string,
   originalContent: string,
   code: number,
   message: string,
 ): never {
   writeFileSync(targetAbs, originalContent, "utf-8");
+  restoreDocsMapsBestEffort(projectRoot);
   console.error(message);
   process.exit(code);
 }
@@ -265,6 +285,7 @@ function runSystemMapCheck(
 
   if (code === null || code === 1) {
     rollbackAndExit(
+      projectRoot,
       targetAbs,
       originalContent,
       4,
@@ -286,6 +307,7 @@ function runSystemMapCheck(
   }
 
   rollbackAndExit(
+    projectRoot,
     targetAbs,
     originalContent,
     4,
@@ -313,6 +335,7 @@ function runSecurityScan(projectRoot: string, targetAbs: string, originalContent
   const code = result.status;
   if (code !== 0) {
     rollbackAndExit(
+      projectRoot,
       targetAbs,
       originalContent,
       4,
@@ -430,50 +453,136 @@ function runAutoGate(
 }
 
 /**
- * M3c: true iff `target` (a proposal's raw, pre-resolution `Target` field)
- * is an absolute or UNC path rather than a repo-relative one. MUST be
- * checked before any `resolve(projectRoot, target)` call — `resolve()`
- * silently discards `projectRoot` when its second argument is already
- * absolute, which would let an absolute-path or UNC probe reach the
- * filesystem (an existence-oracle leak) before containment ever gets a
- * chance to reject it. Checks three ways so the guard holds regardless of
- * which platform's `path.isAbsolute` semantics are in effect: the platform
- * check itself, an explicit drive-letter regex (`C:\` / `C:/`), and a literal
- * `//` or `\\` prefix (UNC/forward-slash-UNC).
+ * Round-2 R1 hardening: the single uniform rejection message for EVERY
+ * lexically-invalid or lexically-out-of-bounds `target`. Deliberately
+ * identical regardless of which specific defect triggered it, and regardless
+ * of anything on disk — a per-defect or existence-dependent message is
+ * exactly the oracle a traversal probe (e.g. a drive-relative
+ * `C:..\..\...` target) can use to learn whether an out-of-repo file exists,
+ * by diffing stderr across two otherwise-identical runs. Every path that
+ * reaches this message must produce it byte-for-byte identically.
  */
-function isAbsoluteOrUncTarget(target: string): boolean {
+const UNIFORM_TARGET_REJECTION =
+  "error: target must be a repo-relative path inside the instruction directories";
+
+/**
+ * True iff `target` contains a literal `..` path segment. Callers must
+ * reject any backslash first — this only ever splits on `/`, so a
+ * backslash-separated `..` (e.g. `foo\..\bar`) is caught by the separate
+ * backslash check, not by this one.
+ */
+function hasDotDotSegment(target: string): boolean {
+  return target.split("/").some((seg) => seg === "..");
+}
+
+/**
+ * Round-2 R1 hardening: lexical shape validation for a proposal's raw,
+ * pre-resolution `target` string — evaluated on the string alone, with zero
+ * filesystem access, so it can run before ANY `existsSync`/`realpathSync`/
+ * `lstatSync` call touches the target. Proposal targets are canonical,
+ * repo-relative, forward-slash paths; `target` is rejected if it:
+ *
+ * - matches `/^[a-zA-Z]:/` — ANY drive prefix, with or without a following
+ *   separator (a bare regex requiring `C:\` or `C:/` misses Windows
+ *   drive-relative paths like `C:foo\bar`, which `path.resolve` treats
+ *   specially and which the previous round's `isAbsoluteOrUncTarget` check
+ *   let through);
+ * - starts with `/` or `\` (absolute POSIX path, or a UNC/backslash-rooted
+ *   path — `//host/share` and `\\host\share` both start with one of these);
+ * - contains a `..` path segment anywhere (traversal);
+ * - contains any `\` at all — targets are canonical forward-slash
+ *   repo-relative paths; a backslash anywhere (not just as a path
+ *   separator) is out of shape.
+ */
+function hasInvalidTargetShape(target: string): boolean {
   return (
-    isAbsolute(target) ||
-    /^[a-zA-Z]:[\\/]/.test(target) ||
-    target.startsWith("//") ||
-    target.startsWith("\\\\")
+    /^[a-zA-Z]:/.test(target) ||
+    target.startsWith("/") ||
+    target.startsWith("\\") ||
+    target.includes("\\") ||
+    hasDotDotSegment(target)
   );
 }
 
 /**
- * Resolves a proposal's repo-relative `target` against `projectRoot`,
- * confirms it exists, refuses it outright if it is a symlink (M1: an
- * in-bounds symlink pointing at a different in-bounds file passes a naive
- * containment check because `realpathSync` resolves it before that check
- * runs — refusing any symlink target closes this regardless of where it
- * points), then canonicalizes via `realpathSync` and confirms containment
- * under {@link ALLOWED_TARGET_DIRS} (tighter still, under
- * {@link AUTO_TARGET_DIRS}, when `auto` is set).
+ * Round-2 R1 hardening: validates a proposal's `target` entirely lexically —
+ * shape (see {@link hasInvalidTargetShape}) plus containment, checked by
+ * joining `target` onto `projectRoot` as a plain string (no `path.resolve`/
+ * `path.normalize`, which could silently absorb something the shape check
+ * didn't already reject) and comparing string prefixes — BEFORE any
+ * `existsSync`/`realpathSync`/`lstatSync` call. Any shape or broad-containment
+ * failure exits 3 with the single {@link UNIFORM_TARGET_REJECTION} message,
+ * with zero variation based on what exists on disk. The auto-tier's tighter
+ * containment (condition 3/6 — `.claude/rules/` excluded from auto) is
+ * checked separately, after the broad check passes, with its own distinct
+ * `auto refused:` message (that condition is deterministic regardless of
+ * disk state, so it doesn't need to fold into the uniform message).
+ */
+function validateTargetLexicalOrExit(projectRoot: string, target: string, auto: boolean): void {
+  if (hasInvalidTargetShape(target)) {
+    console.error(UNIFORM_TARGET_REJECTION);
+    process.exit(3);
+  }
+
+  const normRoot = toSlashes(projectRoot).replace(/\/$/, "");
+  const lexicalTarget = `${normRoot}/${target}`;
+
+  const contained = ALLOWED_TARGET_DIRS.some((dir) => lexicalTarget.startsWith(`${normRoot}/${dir}`));
+  if (!contained) {
+    console.error(UNIFORM_TARGET_REJECTION);
+    process.exit(3);
+  }
+
+  // Auto-tier condition 3/6: tighter containment than the standard tier —
+  // .claude/rules/ is excluded from auto even though it's allowed for a
+  // human-approved standard apply. Distinct message: this is a deterministic
+  // tier rule, not part of the oracle-closure surface above.
+  if (auto) {
+    const autoContained = AUTO_TARGET_DIRS.some((dir) => lexicalTarget.startsWith(`${normRoot}/${dir}`));
+    if (!autoContained) {
+      console.error(
+        "auto refused: target must be under .claude/commands/ or .claude/skills/ (rules excluded from auto)",
+      );
+      process.exit(3);
+    }
+  }
+}
+
+/**
+ * Resolves a proposal's `target` (already validated lexically-safe and
+ * lexically-contained by {@link validateTargetLexicalOrExit}) against
+ * `projectRoot`, confirms it exists, refuses it outright if the leaf itself
+ * is a symlink (M1: an in-bounds symlink pointing at a different in-bounds
+ * file passes a naive containment check because `realpathSync` resolves it
+ * before that check runs — refusing any symlink target closes this
+ * regardless of where it points), then canonicalizes via `realpathSync` and
+ * runs two further checks against the canonical path:
  *
- * Returns `canonicalTarget` and `relTarget` derived from the SAME
- * `realpathSync` call used for the containment check — every later fs/git
- * operation in `main()` must use these, never the pre-resolution
- * `targetAbs`, so containment, the read, the write, and the commit's
- * pathspec can never diverge from one another (the second half of the M1
- * fix: a passing containment check and the operations that follow it must
- * act on one canonical path, not two).
+ * - R3 (hardlink refusal): `statSync(canonicalTarget).nlink > 1` means the
+ *   leaf shares an inode with some other file on disk — refused outright,
+ *   because a write through this path would silently mutate whatever else
+ *   is hardlinked to it, wherever that file is reached from.
+ * - R2 (canonical-identity check): a NON-LEAF path component being a
+ *   symlink or junction (e.g. a `.claude/commands/foo` directory symlink or
+ *   Windows junction pointing at `.claude/commands/real`) resolves the leaf
+ *   to a DIFFERENT canonical file than the one named by `target` — which
+ *   the leaf-only `lstatSync` check above cannot see, since the leaf entry
+ *   itself is a perfectly ordinary file. Requires
+ *   `relative(canonicalRoot, canonicalTarget)` (forward-slashed,
+ *   case-insensitive compared on win32) to equal `target` exactly; any
+ *   mismatch means every later fs/git operation would silently act on a
+ *   different file than the one this apply run is evidenced against, so it
+ *   is refused rather than trusted.
  *
- * Exits 3 on any failure.
+ * Returns `canonicalTarget` (the real path every later fs/git operation in
+ * `main()` must use) and `relTarget` (`=== target`, guaranteed by the R2
+ * check just performed — so containment, the read, the write, and the
+ * commit's pathspec can never diverge from one another). Exits 3 on any
+ * failure.
  */
 function resolveAndContainTarget(
   projectRoot: string,
   target: string,
-  auto: boolean,
 ): { canonicalTarget: string; relTarget: string } {
   const targetAbs = resolve(projectRoot, target);
   if (!existsSync(targetAbs)) {
@@ -503,31 +612,33 @@ function resolveAndContainTarget(
     process.exit(3);
   }
 
-  const normTarget = toSlashes(canonicalTarget);
-  const normRoot = toSlashes(canonicalRoot).replace(/\/$/, "");
-  const contained = ALLOWED_TARGET_DIRS.some((dir) => normTarget.startsWith(`${normRoot}/${dir}`));
-  if (!contained) {
-    console.error(
-      `error: containment check failed — target resolves outside the allowed instruction directories (.claude/commands, .claude/skills, .claude/rules): ${canonicalTarget}`,
-    );
+  // R3: hardlink refusal — a shared inode means a write here silently
+  // mutates another file entirely, however that file is reached.
+  let canonicalStat;
+  try {
+    canonicalStat = statSync(canonicalTarget);
+  } catch (err) {
+    console.error(`error: cannot stat canonical target: ${(err as Error).message}`);
+    process.exit(3);
+  }
+  if (typeof canonicalStat.nlink === "number" && canonicalStat.nlink > 1) {
+    console.error("error: target has multiple hard links");
     process.exit(3);
   }
 
-  // Auto-tier condition 3/6: tighter containment than the standard tier —
-  // .claude/rules/ is excluded from auto even though it's allowed for a
-  // human-approved standard apply.
-  if (auto) {
-    const autoContained = AUTO_TARGET_DIRS.some((dir) => normTarget.startsWith(`${normRoot}/${dir}`));
-    if (!autoContained) {
-      console.error(
-        "auto refused: target must be under .claude/commands/ or .claude/skills/ (rules excluded from auto)",
-      );
-      process.exit(3);
-    }
+  // R2: canonical-identity check — a non-leaf symlink/junction component
+  // resolves the leaf to a different file than `target` names.
+  const canonicalRel = toSlashes(relative(canonicalRoot, canonicalTarget));
+  const identityMatches =
+    process.platform === "win32"
+      ? canonicalRel.toLowerCase() === target.toLowerCase()
+      : canonicalRel === target;
+  if (!identityMatches) {
+    console.error("error: target path is indirect — canonical location differs from proposal target");
+    process.exit(3);
   }
 
-  const relTarget = relative(canonicalRoot, canonicalTarget).replace(/\\/g, "/");
-  return { canonicalTarget, relTarget };
+  return { canonicalTarget, relTarget: target };
 }
 
 /**
@@ -588,6 +699,47 @@ function guardCleanTarget(projectRoot: string, relTarget: string): void {
 }
 
 /**
+ * Round-2 R4 hardening: refuses to apply if `docs/maps` has any uncommitted
+ * changes (`git status --porcelain -- docs/maps` is non-empty) BEFORE this
+ * run touches anything. `runSystemMapCheck`'s heal step stages the WHOLE
+ * `docs/maps` directory via `git add docs/maps` — without this guard, a
+ * pre-existing, unrelated dirty file under `docs/maps` would be silently
+ * swept into this run's apply commit. A nonexistent `docs/maps` directory
+ * (a fixture that has never run the heal step) reports empty status, same
+ * as a clean one — nothing to reject. Exits 3 on a dirty docs/maps.
+ */
+function guardCleanDocsMaps(projectRoot: string): void {
+  const statusOut = execFileSync("git", ["status", "--porcelain", "--", "docs/maps"], {
+    cwd: projectRoot,
+    encoding: "utf-8",
+  });
+  if (statusOut.trim().length > 0) {
+    console.error("error: docs/maps has uncommitted changes — commit or stash them first");
+    process.exit(3);
+  }
+}
+
+/**
+ * Round-2 R5 hardening: best-effort restores `docs/maps` to its pre-apply
+ * (HEAD) state in both the index and the working tree — unconditionally
+ * safe to call on every rollback path, because {@link guardCleanDocsMaps}
+ * (R4) already confirmed `docs/maps` was clean before this run began, so
+ * there is nothing under it this could clobber. Wrapped in try/catch: a
+ * restore failure (e.g. no `docs/maps` ever existed to restore) only warns
+ * — the caller has already decided to exit nonzero regardless.
+ */
+function restoreDocsMapsBestEffort(projectRoot: string): void {
+  try {
+    execFileSync("git", ["restore", "--worktree", "--staged", "--", "docs/maps"], {
+      cwd: projectRoot,
+      stdio: "pipe",
+    });
+  } catch (err) {
+    console.error(`warning: failed to restore docs/maps during rollback: ${(err as Error).message}`);
+  }
+}
+
+/**
  * Stages and commits the applied edit, restricted to an explicit pathspec —
  * `relTarget` plus `docs/maps` iff `mapsStaged` (M3a: never the bare `git
  * commit -F <msg>` this replaces, which would sweep in ANY other change
@@ -597,10 +749,13 @@ function guardCleanTarget(projectRoot: string, relTarget: string): void {
  * If `git add` or `git commit` throws (e.g. a pre-commit hook rejection, or
  * a missing commit identity), rolls back rather than letting the exception
  * propagate uncaught (M3b): restores `targetAbs` to `originalContent`
- * byte-for-byte, best-effort unstages the same pathspec via `git restore
- * --staged`, prints `error: commit failed — target restored`, and exits 4 —
- * never leaving the target modified-and-staged with an undocumented exit
- * code.
+ * byte-for-byte, best-effort unstages `relTarget` via `git restore --staged`,
+ * best-effort fully restores `docs/maps` (R5 — see
+ * {@link restoreDocsMapsBestEffort}; needed because the heal step may have
+ * left `docs/maps` healed-and-staged, or healed-and-unstaged, ahead of the
+ * commit failure), prints `error: commit failed — target restored`, and
+ * exits 4 — never leaving the repo modified-and-staged with an undocumented
+ * exit code.
  *
  * Returns the new commit's full hash on success.
  */
@@ -626,7 +781,7 @@ function commitApply(
   } catch {
     writeFileSync(targetAbs, originalContent, "utf-8");
     try {
-      execFileSync("git", ["restore", "--staged", "--", ...pathspec], {
+      execFileSync("git", ["restore", "--staged", "--", relTarget], {
         cwd: projectRoot,
         stdio: "pipe",
       });
@@ -635,6 +790,7 @@ function commitApply(
       // working-tree content is already back to originalContent, which is
       // the byte-identical guarantee the caller relies on.
     }
+    restoreDocsMapsBestEffort(projectRoot);
     if (existsSync(msgPath)) unlinkSync(msgPath);
     console.error("error: commit failed — target restored");
     process.exit(4);
@@ -701,25 +857,24 @@ function main(): void {
     process.exit(3);
   }
 
-  // M3c: reject an absolute/UNC target before any resolve() call touches it.
-  if (isAbsoluteOrUncTarget(proposal.target)) {
-    console.error("error: target must be a repo-relative path");
-    process.exit(3);
-  }
-
-  // Step: resolve + contain the target (M1-hardened — see docstring).
+  // R1: validate the target's lexical shape + containment before ANY
+  // filesystem call touches it — closes the existence-oracle a
+  // fs-call-first check would otherwise leak (see docstring).
   const projectRoot = getProjectRoot();
-  const { canonicalTarget, relTarget } = resolveAndContainTarget(
-    projectRoot,
-    proposal.target,
-    args.auto,
-  );
+  validateTargetLexicalOrExit(projectRoot, proposal.target, args.auto);
+
+  // Step: resolve + canonicalize the target (R2/R3-hardened — see docstring).
+  const { canonicalTarget, relTarget } = resolveAndContainTarget(projectRoot, proposal.target);
 
   // Step: repo-state guard (worktree-safe git-dir resolution).
   const gitDir = guardRepoState(projectRoot);
 
   // Step: clean-target guard.
   guardCleanTarget(projectRoot, relTarget);
+
+  // R4: docs/maps must be clean before this run touches anything — the
+  // heal step below stages the whole directory.
+  guardCleanDocsMaps(projectRoot);
 
   // Step: apply the anchored operation. Reads/writes use canonicalTarget
   // throughout, never the pre-resolution targetAbs (M1).

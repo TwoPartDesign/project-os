@@ -342,6 +342,92 @@ export function estimateTokens(s: string): number {
 }
 
 /**
+ * Characters that disqualify an occurrence of a dead-ref needle from
+ * counting as a genuine, boundary-delimited match (round-2 R6 hardening):
+ * a raw substring match — e.g. `scripts/dead-ref.sh` occurring inside
+ * `scripts/dead-ref.sh.bak` — must NOT count, because the `.bak` file is a
+ * different, live artifact, not the dead reference itself.
+ */
+const REF_BOUNDARY_CHARS = /[A-Za-z0-9._$-]/;
+
+/**
+ * Finds every boundary-delimited, non-overlapping occurrence of `needle` in
+ * `haystack`: the character immediately before the match (if any) and the
+ * character immediately after it (if any) must each NOT be in
+ * {@link REF_BOUNDARY_CHARS}. A candidate occurrence whose neighboring
+ * character fails this test is skipped entirely (not counted, not
+ * re-attempted at a shifted offset that would still overlap it) and the scan
+ * resumes strictly past it. Returns `[start, end)` index pairs in ascending
+ * order.
+ */
+function findBoundaryMatches(haystack: string, needle: string): Array<[number, number]> {
+  if (needle.length === 0) return [];
+  const matches: Array<[number, number]> = [];
+  let idx = 0;
+  while (true) {
+    const found = haystack.indexOf(needle, idx);
+    if (found === -1) return matches;
+    const end = found + needle.length;
+    const before = found > 0 ? haystack[found - 1] : null;
+    const after = end < haystack.length ? haystack[end] : null;
+    const beforeOk = before === null || !REF_BOUNDARY_CHARS.test(before);
+    const afterOk = after === null || !REF_BOUNDARY_CHARS.test(after);
+    if (beforeOk && afterOk) matches.push([found, end]);
+    idx = found + needle.length;
+  }
+}
+
+/** True iff `line` contains at least one boundary-delimited occurrence of `needle` (R6). */
+function containsBoundaryMatch(line: string, needle: string): boolean {
+  return findBoundaryMatches(line, needle).length > 0;
+}
+
+/**
+ * Removes every boundary-delimited occurrence of `needle` from `line`,
+ * returning the residue. Used by the R7 entanglement check to see what
+ * else, if anything, is left on the line once the dead reference itself is
+ * excised.
+ */
+function removeBoundaryMatches(line: string, needle: string): string {
+  const matches = findBoundaryMatches(line, needle);
+  if (matches.length === 0) return line;
+  let result = "";
+  let last = 0;
+  for (const [start, end] of matches) {
+    result += line.slice(last, start);
+    last = end;
+  }
+  result += line.slice(last);
+  return result;
+}
+
+/**
+ * Matches a path-like token belonging to one of the project's canonical
+ * source roots — used only by the R7 entanglement check below to detect a
+ * SECOND, unrelated live reference riding on the same line as the dead one.
+ * Intentionally coarse (any `[A-Za-z0-9._/-]+` run after the root prefix) —
+ * false positives here just make a line "entangled" and fall back to a
+ * human-reviewed draft, which is the safe direction to fail.
+ */
+const PATH_TOKEN_RE = /(scripts|\.claude|docs|tests|src)\/[A-Za-z0-9._/-]+/;
+
+/**
+ * Round-2 R7 hardening: true iff `line` is "entangled" — after removing
+ * every boundary-delimited occurrence of `deadRef`, the residue still
+ * contains another path-like token (per {@link PATH_TOKEN_RE}). This catches
+ * the single-line-anchor degenerate case: a one-line anchor reading
+ * `...run bash scripts/dead-ref.sh then also run bash
+ * scripts/critical-security-check.sh...` genuinely contains the dead ref
+ * (so it would otherwise satisfy the whole-line dead-ref test), but deleting
+ * it would silently take a second, live reference down with it. An
+ * entangled line is never safely removable — the proposal falls back to a
+ * human-reviewed draft instead of auto-applying.
+ */
+function isEntangledLine(line: string, deadRef: string): boolean {
+  return PATH_TOKEN_RE.test(removeBoundaryMatches(line, deadRef));
+}
+
+/**
  * Auto-tier condition 6/6 (skill-apply.ts's `--auto` eligibility class,
  * #T90): checks whether a proposed edit genuinely corresponds to a specific
  * dead reference, rather than being anchored somewhere unrelated in the same
@@ -350,24 +436,39 @@ export function estimateTokens(s: string): number {
  * through alongside its removal (the "wide-anchor" case — a near-file-sized
  * `replace` anchor that merely *contains* the dead ref, with everything else
  * in the anchor changed too, still passes a naive substring check; both
- * "smuggling" variants are what this condition exists to catch).
+ * "smuggling" variants are what this condition exists to catch), OR
+ * entangling the dead reference with a second, unrelated live reference on
+ * the same line (the "single-line degenerate anchor" case — see
+ * {@link isEntangledLine}).
  *
  * Both strings are EOL-normalized to `\n` first (so CRLF- and
  * LF-authored proposal docs compare identically), then evaluated as line
  * arrays with deterministic, line-wise semantics — never a fuzzy substring
  * check:
  *
- * - At least one line of `anchor` must contain `deadRef` verbatim (as a
- *   substring); otherwise this returns `false` regardless of `op`.
- * - `op === "delete"`: valid iff EVERY non-blank line of `anchor` contains
- *   `deadRef` — a delete is only auto-eligible when the whole anchor is dead
- *   content, never when it carries unrelated context lines along for the
- *   ride.
+ * - Occurrences of `deadRef` only count when boundary-delimited (R6): the
+ *   character immediately before/after a match, when present, must not be
+ *   in `[A-Za-z0-9._$-]` — so `scripts/dead-ref.sh` occurring inside
+ *   `scripts/dead-ref.sh.bak` never counts as a match.
+ * - At least one line of `anchor` must boundary-match `deadRef`; otherwise
+ *   this returns `false` regardless of `op`.
+ * - R7: every dead-ref-bearing line is checked for entanglement — if
+ *   excising its boundary-matched `deadRef` occurrence(s) leaves a residue
+ *   that still matches {@link PATH_TOKEN_RE} (another live path-like token
+ *   on the same line), this returns `false` regardless of `op`; the
+ *   proposal falls back to a human-reviewed draft rather than risk deleting
+ *   a live reference alongside the dead one.
+ * - `op === "delete"`: valid iff EVERY non-blank line of `anchor`
+ *   boundary-matches `deadRef` — a delete is only auto-eligible when the
+ *   whole anchor is dead content, never when it carries unrelated context
+ *   lines along for the ride.
  * - `op === "replace"`: valid iff `proposedText` (after EOL normalization)
- *   equals EXACTLY `anchor`'s lines with every dead-ref-bearing line removed,
- *   in the same relative order, and nothing else changed. In other words,
- *   an auto-replace is definitionally "delete the dead-ref-bearing lines" —
- *   zero other edits are tolerated, however small.
+ *   equals EXACTLY `anchor`'s lines with every dead-ref-bearing line
+ *   removed, in the same relative order, and nothing else changed. In
+ *   other words, an auto-replace is definitionally "delete the
+ *   dead-ref-bearing lines" — zero other edits are tolerated, however
+ *   small. An empty `proposedText` is valid only when every line of
+ *   `anchor` qualified for removal.
  */
 export function checkAutoCorrespondence(
   anchor: string,
@@ -379,11 +480,16 @@ export function checkAutoCorrespondence(
   const normProposed = proposedText.split("\r\n").join("\n");
   const anchorLines = normAnchor.split("\n");
 
-  const hasDeadRefLine = anchorLines.some((line) => line.includes(deadRef));
-  if (!hasDeadRefLine) return false;
+  const deadRefLines = anchorLines.filter((line) => containsBoundaryMatch(line, deadRef));
+  if (deadRefLines.length === 0) return false;
+
+  // R7: an entangled dead-ref-bearing line (one that carries a second,
+  // live path-like token alongside the dead reference) is never removable —
+  // fail closed regardless of op.
+  if (deadRefLines.some((line) => isEntangledLine(line, deadRef))) return false;
 
   if (op === "delete") {
-    return anchorLines.every((line) => line.trim() === "" || line.includes(deadRef));
+    return anchorLines.every((line) => line.trim() === "" || containsBoundaryMatch(line, deadRef));
   }
 
   // op === "replace": the only tolerated change is removing every
@@ -391,6 +497,6 @@ export function checkAutoCorrespondence(
   // index-wise array comparison) so the "anchor reduces to zero remaining
   // lines" edge case (proposedText === "") compares correctly against
   // Array.prototype.join's own empty-array-to-"" behavior.
-  const expected = anchorLines.filter((line) => !line.includes(deadRef)).join("\n");
+  const expected = anchorLines.filter((line) => !containsBoundaryMatch(line, deadRef)).join("\n");
   return expected === normProposed;
 }

@@ -282,4 +282,47 @@ describe("checkAutoCorrespondence", () => {
     const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
     strictEqual(result, false);
   });
+
+  it("checkAutoCorrespondence_refSubstringOfLongerPath_false", () => {
+    // Round-2 R6: deadRef must only count as a BOUNDARY-DELIMITED match.
+    // "scripts/dead-ref.sh" occurs as a raw substring inside
+    // "scripts/dead-ref.sh.bak" (a DIFFERENT, live file), but the character
+    // immediately after the match ('.') is in the boundary-char set, so it
+    // must not count — no genuine dead-ref line exists in this anchor.
+    const anchor = "See scripts/dead-ref.sh.bak for the backup.";
+    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    strictEqual(result, false);
+  });
+
+  it("checkAutoCorrespondence_boundaryCleanSingleRefLine_true", () => {
+    // Counterpart to the .bak case: the SAME needle, genuinely
+    // boundary-delimited (preceded/followed by whitespace), must still
+    // count as a match and pass a faithful whole-line delete.
+    const anchor = "bash scripts/dead-ref.sh";
+    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    strictEqual(result, true);
+  });
+
+  it("checkAutoCorrespondence_singleLineEntangledRefs_false", () => {
+    // Round-2 R7: a single-line anchor that degenerates the whole-line
+    // dead-ref test — the line genuinely contains deadRef AND a second,
+    // unrelated, live path-like reference. Removing just the dead ref
+    // would silently take scripts/critical-security-check.sh's live
+    // reference down with it, so this must be refused regardless of op.
+    const anchor =
+      "...run bash scripts/dead-ref.sh then also run bash scripts/critical-security-check.sh...";
+    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    strictEqual(result, false);
+  });
+
+  it("checkAutoCorrespondence_residueSecondPathToken_false", () => {
+    // Same entanglement hazard as above, exercised via `replace`: the
+    // proposedText is a faithful "remove the dead-ref line" edit, but the
+    // anchor's dead-ref-bearing line ALSO carries a second live reference,
+    // so the correspondence check must still fail closed.
+    const anchor = "bash scripts/dead-ref.sh and docs/architecture.md\nAnother line.";
+    const proposedText = "Another line.";
+    const result = checkAutoCorrespondence(anchor, proposedText, "replace", "scripts/dead-ref.sh");
+    strictEqual(result, false);
+  });
 });

@@ -14,6 +14,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -306,7 +307,15 @@ describe("skill-apply.ts apply", () => {
 
       const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1"]);
       strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
-      ok(result.stderr.toLowerCase().includes("containment"), `stderr missing 'containment': ${result.stderr}`);
+      // Round-2 R1 hardening: this is now a lexical, fs-untouched rejection
+      // (target isn't under any of the instruction dirs), so it shares the
+      // single uniform message with every other lexical-shape/containment
+      // rejection rather than a "containment"-specific one.
+      strictEqual(
+        result.stderr.trim(),
+        "error: target must be a repo-relative path inside the instruction directories",
+        `stderr mismatch: ${result.stderr}`,
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
     }
@@ -461,9 +470,13 @@ describe("skill-apply.ts apply", () => {
 
       const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1"]);
       strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+      // Round-2 R1 hardening: absolute/drive-prefixed targets now collapse
+      // into the single uniform lexical-rejection message (see
+      // apply_driveRelativeTraversalTarget_uniformError for the oracle
+      // this specifically closes).
       strictEqual(
         result.stderr.trim(),
-        "error: target must be a repo-relative path",
+        "error: target must be a repo-relative path inside the instruction directories",
         `stderr mismatch: ${result.stderr}`,
       );
     } finally {
@@ -499,9 +512,10 @@ describe("skill-apply.ts apply", () => {
 
       const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1"]);
       strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+      // Round-2 R1 hardening: same uniform message as the drive-prefixed case.
       strictEqual(
         result.stderr.trim(),
-        "error: target must be a repo-relative path",
+        "error: target must be a repo-relative path inside the instruction directories",
         `stderr mismatch: ${result.stderr}`,
       );
     } finally {
@@ -1238,6 +1252,492 @@ describe("skill-apply.ts apply", () => {
 
       const afterLog = gitOutput(dir, ["log", "--format=%H"]);
       strictEqual(afterLog, beforeLog, "a commit was created despite rollback");
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  // ---------------------------------------------------------------------
+  // Round-2 hardening regression tests (R1-R7): every case below was
+  // empirically reproduced against the round-1 fix commit by an adversarial
+  // verifier before this round closed it.
+  // ---------------------------------------------------------------------
+
+  it("apply_hardlinkedTarget_exit3", (t) => {
+    // R3: a target that shares an inode with an out-of-repo file (a
+    // hardlink, not a symlink — lstat reports it as an ordinary regular
+    // file, so the existing symlink refusal cannot see it) must be refused
+    // outright. Pre-fix, apply exited 0 and mutated the outside file
+    // through the shared inode.
+    const dir = freshFixture();
+    try {
+      initGitRepo(dir);
+      const outsidePath = resolve(dir, "outside-hardlink-source.md");
+      const outsideContent = "Anchor for hardlink test.\n\nTail.\n";
+      writeFileSync(outsidePath, outsideContent, "utf-8");
+
+      const targetRel = ".claude/commands/hardlinked.md";
+      const targetAbs = resolve(dir, targetRel);
+      mkdirSync(dirname(targetAbs), { recursive: true });
+      try {
+        linkSync(outsidePath, targetAbs);
+      } catch (err) {
+        t.skip(`hardlink creation not permitted on this system: ${(err as Error).message}`);
+        return;
+      }
+      commitAll(dir, "initial commit");
+      const beforeLog = gitOutput(dir, ["log", "--format=%H"]);
+
+      const proposalPath = resolve(dir, "proposal.md");
+      writeFileSync(
+        proposalPath,
+        buildProposalDoc({
+          n: 1,
+          title: "Hardlinked target",
+          fingerprint: "skill-edit:hardlinked:hardlink",
+          target: targetRel,
+          operation: "add",
+          tier: "standard",
+          draftTask: "#T99",
+          evidence: "test",
+          anchor: "Anchor for hardlink test.",
+          proposedText: "New line.",
+          rationale: "test",
+        }),
+        "utf-8",
+      );
+
+      const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1"]);
+      strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+      ok(result.stderr.toLowerCase().includes("hard link"), `stderr missing 'hard link': ${result.stderr}`);
+
+      strictEqual(
+        readFileSync(outsidePath, "utf-8"),
+        outsideContent,
+        "outside file mutated despite hardlink refusal",
+      );
+      const afterLog = gitOutput(dir, ["log", "--format=%H"]);
+      strictEqual(afterLog, beforeLog, "a commit was created despite hardlink refusal");
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  it("apply_symlinkedParentDir_exit3IdentityMessage", (t) => {
+    // R2: a NON-LEAF path component being a directory symlink/junction
+    // (here, `.claude/commands/foo` -> `.claude/commands/real`) resolves
+    // the leaf to a DIFFERENT canonical file than `target` names, which the
+    // leaf-only lstat symlink check cannot see (the leaf, `bar.md`, is an
+    // ordinary file). Pre-fix, this applied and committed to
+    // `real/bar.md` while the proposal claimed `foo/bar.md` — a target
+    // identity confusion. Tries a junction first (creatable without
+    // elevated Windows privileges); skips if unsupported.
+    const dir = freshFixture();
+    try {
+      initGitRepo(dir);
+      const realDirRel = ".claude/commands/real";
+      const realDirAbs = resolve(dir, realDirRel);
+      mkdirSync(realDirAbs, { recursive: true });
+      const realFileAbs = resolve(realDirAbs, "bar.md");
+      const realContent = "Real bar content.\n\nAnchor here.\n\nTail.\n";
+      writeFileSync(realFileAbs, realContent, "utf-8");
+      commitAll(dir, "initial commit");
+      const beforeLog = gitOutput(dir, ["log", "--format=%H"]);
+
+      const linkDirAbs = resolve(dir, ".claude/commands/foo");
+      try {
+        symlinkSync(realDirAbs, linkDirAbs, "junction");
+      } catch (err) {
+        t.skip(`junction/dir-symlink creation not permitted on this system: ${(err as Error).message}`);
+        return;
+      }
+
+      const targetRel = ".claude/commands/foo/bar.md";
+      const proposalPath = resolve(dir, "proposal.md");
+      writeFileSync(
+        proposalPath,
+        buildProposalDoc({
+          n: 1,
+          title: "Symlinked parent dir",
+          fingerprint: "skill-edit:foo-bar:parent-symlink",
+          target: targetRel,
+          operation: "add",
+          tier: "standard",
+          draftTask: "#T99",
+          evidence: "test",
+          anchor: "Anchor here.",
+          proposedText: "New line.",
+          rationale: "test",
+        }),
+        "utf-8",
+      );
+
+      const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1"]);
+      strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+      strictEqual(
+        result.stderr.trim(),
+        "error: target path is indirect — canonical location differs from proposal target",
+        `stderr mismatch: ${result.stderr}`,
+      );
+
+      strictEqual(
+        readFileSync(realFileAbs, "utf-8"),
+        realContent,
+        "real file modified despite parent-symlink identity refusal",
+      );
+      const afterLog = gitOutput(dir, ["log", "--format=%H"]);
+      strictEqual(afterLog, beforeLog, "a commit was created despite parent-symlink identity refusal");
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  it("apply_driveRelativeTraversalTarget_uniformError", () => {
+    // R1: a drive-relative (no separator after the colon) traversal target
+    // must be rejected purely lexically, with zero filesystem access — the
+    // pre-fix `isAbsoluteOrUncTarget` regex required a separator right
+    // after the drive letter (`C:\` / `C:/`) and so missed `C:..\..\...`,
+    // letting the CLI reach `existsSync` and leak whether the traversal's
+    // destination exists via two different stderr messages. Run the SAME
+    // target string against two fixtures — one where a plausible
+    // traversal-reachable file exists, one where it doesn't — and assert
+    // byte-identical stderr both times.
+    const dirExists = freshFixture();
+    const dirAbsent = freshFixture();
+    try {
+      initGitRepo(dirExists);
+      mkdirSync(resolve(dirExists, ".claude"), { recursive: true });
+      writeFileSync(resolve(dirExists, "decoy.md"), "decoy content\n", "utf-8");
+
+      initGitRepo(dirAbsent);
+      mkdirSync(resolve(dirAbsent, ".claude"), { recursive: true });
+      // Deliberately no decoy.md here.
+
+      const target = "C:..\\..\\decoy.md";
+
+      const proposalExists = resolve(dirExists, "proposal.md");
+      writeFileSync(
+        proposalExists,
+        buildProposalDoc({
+          n: 1,
+          title: "Drive-relative traversal (reachable file exists)",
+          fingerprint: "skill-edit:probe:drive-exists",
+          target,
+          operation: "add",
+          tier: "standard",
+          draftTask: "#T99",
+          evidence: "test",
+          anchor: "anything",
+          proposedText: "anything else",
+          rationale: "test",
+        }),
+        "utf-8",
+      );
+      const resultExists = runSkillApply(dirExists, ["--proposal", toPosix(proposalExists), "--n", "1"]);
+
+      const proposalAbsent = resolve(dirAbsent, "proposal.md");
+      writeFileSync(
+        proposalAbsent,
+        buildProposalDoc({
+          n: 1,
+          title: "Drive-relative traversal (reachable file absent)",
+          fingerprint: "skill-edit:probe:drive-absent",
+          target,
+          operation: "add",
+          tier: "standard",
+          draftTask: "#T99",
+          evidence: "test",
+          anchor: "anything",
+          proposedText: "anything else",
+          rationale: "test",
+        }),
+        "utf-8",
+      );
+      const resultAbsent = runSkillApply(dirAbsent, ["--proposal", toPosix(proposalAbsent), "--n", "1"]);
+
+      strictEqual(resultExists.status, 3, `exists-probe expected exit 3: ${resultExists.stderr}`);
+      strictEqual(resultAbsent.status, 3, `absent-probe expected exit 3: ${resultAbsent.stderr}`);
+      strictEqual(
+        resultExists.stderr,
+        resultAbsent.stderr,
+        "stderr differed depending on whether the traversal-reachable file exists — oracle leak",
+      );
+      strictEqual(
+        resultExists.stderr.trim(),
+        "error: target must be a repo-relative path inside the instruction directories",
+        `unexpected stderr: ${resultExists.stderr}`,
+      );
+    } finally {
+      rmSync(dirExists, { recursive: true, force: true, maxRetries: 3 });
+      rmSync(dirAbsent, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  it("apply_dotDotSegmentTarget_exit3", () => {
+    const dir = freshFixture();
+    try {
+      initGitRepo(dir);
+      mkdirSync(resolve(dir, ".claude"), { recursive: true });
+
+      const proposalPath = resolve(dir, "proposal.md");
+      writeFileSync(
+        proposalPath,
+        buildProposalDoc({
+          n: 1,
+          title: "Dot-dot segment",
+          fingerprint: "skill-edit:probe:dotdot",
+          target: ".claude/commands/../../../etc/passwd",
+          operation: "add",
+          tier: "standard",
+          draftTask: "#T99",
+          evidence: "test",
+          anchor: "anything",
+          proposedText: "anything else",
+          rationale: "test",
+        }),
+        "utf-8",
+      );
+
+      const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1"]);
+      strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+      strictEqual(
+        result.stderr.trim(),
+        "error: target must be a repo-relative path inside the instruction directories",
+        `stderr mismatch: ${result.stderr}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  it("apply_backslashSeparatorTarget_exit3", () => {
+    // R1: a target using backslash separators (not a traversal, not
+    // absolute — just out of the canonical forward-slash shape) must also
+    // be rejected uniformly and lexically.
+    const dir = freshFixture();
+    try {
+      initGitRepo(dir);
+      mkdirSync(resolve(dir, ".claude"), { recursive: true });
+
+      const proposalPath = resolve(dir, "proposal.md");
+      writeFileSync(
+        proposalPath,
+        buildProposalDoc({
+          n: 1,
+          title: "Backslash separators",
+          fingerprint: "skill-edit:probe:backslash",
+          target: ".claude\\commands\\test-doc.md",
+          operation: "add",
+          tier: "standard",
+          draftTask: "#T99",
+          evidence: "test",
+          anchor: "anything",
+          proposedText: "anything else",
+          rationale: "test",
+        }),
+        "utf-8",
+      );
+
+      const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1"]);
+      strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+      strictEqual(
+        result.stderr.trim(),
+        "error: target must be a repo-relative path inside the instruction directories",
+        `stderr mismatch: ${result.stderr}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  it("apply_dirtyDocsMaps_exit3", () => {
+    // R4: a pre-existing, uncommitted file under docs/maps must refuse the
+    // apply before anything is touched — otherwise the heal step's blanket
+    // `git add docs/maps` would sweep it into this run's apply commit.
+    const dir = freshFixture();
+    try {
+      initGitRepo(dir);
+      const targetRel = ".claude/commands/test-doc.md";
+      const targetAbs = resolve(dir, targetRel);
+      const originalContent = "Anchor for docs-maps guard.\n\nTail.\n";
+      writeFileEnsuringDir(targetAbs, originalContent);
+      commitAll(dir, "initial commit");
+
+      // Pre-existing, uncommitted (untracked) file under docs/maps.
+      writeFileEnsuringDir(resolve(dir, "docs/maps/stray.md"), "pre-existing dirty content\n");
+
+      const beforeLog = gitOutput(dir, ["log", "--format=%H"]);
+
+      const proposalPath = resolve(dir, "proposal.md");
+      writeFileSync(
+        proposalPath,
+        buildProposalDoc({
+          n: 1,
+          title: "Dirty docs/maps",
+          fingerprint: "skill-edit:test-doc:dirty-maps",
+          target: targetRel,
+          operation: "add",
+          tier: "standard",
+          draftTask: "#T99",
+          evidence: "test",
+          anchor: "Anchor for docs-maps guard.",
+          proposedText: "New line.",
+          rationale: "test",
+        }),
+        "utf-8",
+      );
+
+      const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1"]);
+      strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+      strictEqual(
+        result.stderr.trim(),
+        "error: docs/maps has uncommitted changes — commit or stash them first",
+        `stderr mismatch: ${result.stderr}`,
+      );
+      strictEqual(
+        readFileSync(targetAbs, "utf-8"),
+        originalContent,
+        "target content changed despite dirty docs/maps guard",
+      );
+      const afterLog = gitOutput(dir, ["log", "--format=%H"]);
+      strictEqual(afterLog, beforeLog, "a commit was created despite dirty docs/maps guard");
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  it("apply_commitHookRejectsAfterHeal_fullCleanStatus", () => {
+    // R5: when the commit itself fails AFTER the heal step has already
+    // modified/staged docs/maps, rollback must restore docs/maps (both
+    // worktree and index) in addition to the target — not just unstage it,
+    // which would leave docs/maps modified-and-unstaged. Full-repo `git
+    // status --porcelain` must be empty afterward.
+    const dir = freshFixture();
+    try {
+      initGitRepo(dir);
+      copyRealSystemMap(dir);
+      const targetRel = ".claude/commands/tools/test-cmd.md";
+      const targetAbs = resolve(dir, targetRel);
+      writeFileEnsuringDir(targetAbs, CMD_DOC_WITH_DEAD_REF);
+      commitAll(dir, "initial commit");
+
+      const hookPath = resolve(dir, ".git", "hooks", "pre-commit");
+      writeFileSync(hookPath, "#!/bin/sh\nexit 1\n", "utf-8");
+      chmodSync(hookPath, 0o755);
+
+      const beforeLog = gitOutput(dir, ["log", "--format=%H"]);
+
+      const proposalPath = resolve(dir, "proposal.md");
+      writeFileSync(
+        proposalPath,
+        buildProposalDoc({
+          n: 1,
+          title: "Hook rejection after heal",
+          fingerprint: "skill-edit:test-cmd:hook-after-heal",
+          target: targetRel,
+          operation: "add",
+          tier: "standard",
+          draftTask: "#T99",
+          evidence: "test",
+          anchor: "Some intro paragraph text here.",
+          proposedText: "Some intro paragraph text here.\nAdded line.",
+          rationale: "test",
+        }),
+        "utf-8",
+      );
+
+      const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1"]);
+      strictEqual(result.status, 4, `expected exit 4, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+      ok(
+        result.stderr.includes("error: commit failed — target restored"),
+        `stderr missing 'commit failed' message: ${result.stderr}`,
+      );
+
+      strictEqual(
+        readFileSync(targetAbs, "utf-8"),
+        CMD_DOC_WITH_DEAD_REF,
+        "target not restored byte-identical after commit-failure rollback",
+      );
+      const afterLog = gitOutput(dir, ["log", "--format=%H"]);
+      strictEqual(afterLog, beforeLog, "a commit was created despite hook rejection");
+
+      // proposal.md is fixture scaffolding (never touched by skill-apply.ts
+      // itself) and is expected to remain untracked — filter it out before
+      // asserting the repo is otherwise fully clean.
+      const fullStatus = gitOutput(dir, ["status", "--porcelain"])
+        .split("\n")
+        .filter((line) => line.length > 0 && !line.endsWith("proposal.md"))
+        .join("\n");
+      strictEqual(fullStatus, "", `expected fully clean repo after rollback, got: ${fullStatus}`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  it("auto_singleLineEntangledRef_exit3", () => {
+    // R7 end-to-end: a real, live dangling-ref finding exists for
+    // scripts/dead-ref.sh, but the anchor's ONE line also carries a second,
+    // unrelated live reference (scripts/critical-security-check.sh). A
+    // naive whole-line dead-ref test (every non-blank line contains the
+    // dead ref) would pass this — the residue entanglement check must
+    // refuse it instead.
+    const dir = freshFixture();
+    try {
+      initGitRepo(dir);
+      copyRealSystemMap(dir);
+      writePolicyFile(dir, "skill_auto_apply: on\n");
+      const targetRel = ".claude/commands/tools/test-cmd-entangled.md";
+      const targetAbs = resolve(dir, targetRel);
+      const docContent = [
+        "# Test Command Entangled",
+        "",
+        "## Section A",
+        "",
+        "```bash",
+        "run bash scripts/dead-ref.sh then also run bash scripts/critical-security-check.sh",
+        "```",
+        "",
+        "## Section B",
+        "",
+        "Trailing content unrelated.",
+        "",
+      ].join("\n");
+      writeFileEnsuringDir(targetAbs, docContent);
+      commitAll(dir, "initial commit");
+
+      const proposalPath = resolve(dir, "proposal.md");
+      writeFileSync(
+        proposalPath,
+        buildProposalDoc({
+          n: 1,
+          title: "Entangled single-line refs",
+          fingerprint: "skill-edit:test-cmd-entangled:auto-entangled",
+          target: targetRel,
+          operation: "delete",
+          tier: "auto-eligible",
+          draftTask: "#T90",
+          evidence: "test",
+          anchor: "run bash scripts/dead-ref.sh then also run bash scripts/critical-security-check.sh",
+          proposedText: "",
+          rationale: "Attempts to remove the dead reference, but the line also carries a live one.",
+        }),
+        "utf-8",
+      );
+
+      const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1", "--auto"]);
+      strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+      strictEqual(
+        result.stderr.trim(),
+        "auto refused: edit does not correspond to the dead reference",
+        `stderr mismatch: ${result.stderr}`,
+      );
+      strictEqual(
+        readFileSync(targetAbs, "utf-8"),
+        docContent,
+        "target content changed despite entanglement refusal",
+      );
+      const afterLog = gitOutput(dir, ["log", "--format=%H"]);
+      strictEqual(afterLog.split("\n").length, 1, "a commit was created despite entanglement refusal");
     } finally {
       rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
     }
