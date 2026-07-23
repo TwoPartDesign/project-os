@@ -42,3 +42,12 @@ checks: map,staleness,failures,consolidation,search-miss
 # (manual runs also reset the clock). 0 disables auto-runs entirely; manual
 # `bash scripts/maintain.sh` is unaffected. Read by the hook, not the loop.
 auto_run_hours: 24
+
+# Gates `scripts/skill-apply.ts --auto` (the automated dead-reference-fix
+# tier). `off` = auto tier disabled; skill-apply.ts still files its
+# proposals as normal [?] drafts for manual review. `on` lets the auto
+# tier apply its safe, automated fixes directly. Safe template default is
+# `off` -- this repo's owner flips it to `on` post-ship. The committed
+# value here IS the template default, since template copies are straight
+# file copies.
+skill_auto_apply: off

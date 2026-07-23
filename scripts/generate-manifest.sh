@@ -52,6 +52,7 @@ TEMPLATE_FILES=(
     "docs/knowledge/architecture.md"
     "docs/knowledge/kv.md"
     "docs/knowledge/metrics.md"
+    "docs/knowledge/skill-edit-rejections.md"
 )
 
 TEMPLATE_SCRIPTS=(
@@ -80,6 +81,8 @@ TEMPLATE_SCRIPTS=(
     "scripts/new-project.sh"
     "scripts/setup.sh"
     "scripts/detect-stack.ts"
+    "scripts/skill-apply.ts"
+    "scripts/skill-ledger.ts"
 )
 
 # Escape a string for JSON (handles \, ", and control chars)

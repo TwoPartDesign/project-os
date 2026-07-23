@@ -351,6 +351,8 @@ FRAMEWORK_FILES_OPTIONAL=(
   "scripts/system-map.ts"
   "scripts/maintain-draft.ts"
   "scripts/detect-stack.ts"
+  "scripts/skill-apply.ts"
+  "scripts/skill-ledger.ts"
 )
 # Content class: never executed by any tool -- the user's file always wins
 # the canonical path in adopt mode. Entries are "SRC_REL|DST_REL"; ROADMAP
@@ -366,6 +368,7 @@ CONTENT_FILES=(
   "docs/knowledge/architecture.md|docs/knowledge/architecture.md"
   "docs/knowledge/kv.md|docs/knowledge/kv.md"
   "docs/knowledge/metrics.md|docs/knowledge/metrics.md"
+  "docs/knowledge/skill-edit-rejections.md|docs/knowledge/skill-edit-rejections.md"
 )
 
 if [ "$MODE" = "adopt" ]; then

@@ -68,6 +68,8 @@
       "Bash(node scripts/system-map.ts*)",
       "Bash(node scripts/maintain-draft.ts*)",
       "Bash(node scripts/detect-stack.ts*)",
+      "Bash(node scripts/skill-apply.ts*)",
+      "Bash(node scripts/skill-ledger.ts*)",
       "Bash((cd * && *))",
       "Bash((cd * ; *))",
       "Read",

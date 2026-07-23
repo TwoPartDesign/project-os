@@ -188,7 +188,7 @@ build_template_checkout() {
     cp -r "$REPO_ROOT/scripts" "$dest/scripts"
     mkdir -p "$dest/docs/knowledge"
     local f
-    for f in decisions.md patterns.md bugs.md architecture.md kv.md metrics.md; do
+    for f in decisions.md patterns.md bugs.md architecture.md kv.md metrics.md skill-edit-rejections.md; do
         cp "$REPO_ROOT/docs/knowledge/$f" "$dest/docs/knowledge/$f"
     done
     cp "$REPO_ROOT/CLAUDE.template.md" "$dest/CLAUDE.template.md"
