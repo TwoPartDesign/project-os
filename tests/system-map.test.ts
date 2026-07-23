@@ -2,7 +2,7 @@
 // Unit tests for scripts/lib/system-map-lib.ts (normalizeContent, sha256,
 // extractHookWiring, extractScriptRefs, extractImports, buildGraph,
 // dependents, findUnwiredHooks, findOrphanScripts, findDanglingRefs,
-// findManifestGaps, findBloat).
+// findManifestGaps, findBloat, pathToId, collectBloatFiles).
 // Pattern follows tests/dashboard-render.test.ts: node:test + node:assert, one
 // describe block per exported function, each test self-contained (no shared
 // state across tests).
@@ -23,8 +23,12 @@ import {
   findDanglingRefs,
   findManifestGaps,
   findBloat,
+  classify,
+  idFor,
+  pathToId,
+  collectBloatFiles,
 } from "../scripts/lib/system-map-lib.ts";
-import type { MapNode, MapEdge } from "../scripts/lib/system-map-lib.ts";
+import type { MapNode, MapEdge, BloatContentSource } from "../scripts/lib/system-map-lib.ts";
 
 // ==========================================================================
 // normalizeContent
@@ -389,5 +393,90 @@ describe("findBloat", () => {
         detail: "a.md is approximately 100 tokens, exceeding the 50-token warn threshold.",
       },
     ]);
+  });
+});
+
+// ==========================================================================
+// pathToId (#T88)
+// ==========================================================================
+
+describe("pathToId", () => {
+  it("pathToId_commandDoc_matchesLegacyIdScheme", () => {
+    const relPath = ".claude/commands/tools/catchup.md";
+    // Independently derived via the moved classify/idFor primitives — this
+    // is the exact node id string the generator's own Nodes table emits for
+    // this file (confirmed against docs/maps/system-map.md's Nodes section:
+    // "- `c_tools_catchup` — `.claude/commands/tools/catchup.md`").
+    const expected = idFor(classify(relPath)!, relPath);
+    strictEqual(expected, "c_tools_catchup");
+    strictEqual(pathToId(relPath), expected);
+    strictEqual(pathToId(relPath), "c_tools_catchup");
+  });
+
+  it("pathToId_outOfScopePath_throws", () => {
+    let threw = false;
+    try {
+      pathToId("docs/random-notes.md");
+    } catch (e) {
+      threw = true;
+      ok(e instanceof Error, "expected an Error to be thrown");
+      ok(
+        (e as Error).message.includes("docs/random-notes.md"),
+        "expected error message to name the offending path"
+      );
+    }
+    ok(threw, "expected pathToId to throw for a path outside classify()'s discovery set");
+  });
+});
+
+// ==========================================================================
+// collectBloatFiles (#T88)
+// ==========================================================================
+
+/** Builds a minimal BloatContentSource backed by an in-memory path->content map, for fixture-driven tests. */
+function fixtureSource(files: Record<string, string>): BloatContentSource {
+  return {
+    readInput(path: string): string | null {
+      return Object.prototype.hasOwnProperty.call(files, path) ? files[path] : null;
+    },
+    listDir(dirPath: string): string[] {
+      const prefix = dirPath + "/";
+      return Object.keys(files)
+        .filter((p) => p.startsWith(prefix) && p.endsWith(".md") && !p.slice(prefix.length).includes("/"))
+        .sort();
+    },
+  };
+}
+
+describe("collectBloatFiles", () => {
+  it("collectBloatFiles_oversizedRulesFile_producesBloatFinding", () => {
+    const warnTokens = 50;
+    const bigContent = "x".repeat(400); // ~100 tokens, exceeds 50
+    const source = fixtureSource({
+      ".claude/rules/big.md": bigContent,
+    });
+    const files = collectBloatFiles(source);
+    deepStrictEqual(files, [{ path: ".claude/rules/big.md", content: bigContent }]);
+    const findings = findBloat(files, warnTokens);
+    deepStrictEqual(findings, [
+      {
+        severity: "LOW",
+        kind: "bloat",
+        subject: ".claude/rules/big.md",
+        detail: ".claude/rules/big.md is approximately 100 tokens, exceeding the 50-token warn threshold.",
+      },
+    ]);
+  });
+
+  it("collectBloatFiles_smallRulesFile_noFinding", () => {
+    const warnTokens = 2500;
+    const smallContent = "x".repeat(40); // ~10 tokens, well under 2500
+    const source = fixtureSource({
+      ".claude/rules/small.md": smallContent,
+    });
+    const files = collectBloatFiles(source);
+    deepStrictEqual(files, [{ path: ".claude/rules/small.md", content: smallContent }]);
+    const findings = findBloat(files, warnTokens);
+    deepStrictEqual(findings, []);
   });
 });

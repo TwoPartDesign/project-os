@@ -33,11 +33,13 @@ import {
   findDanglingRefs,
   findManifestGaps,
   findBloat,
+  classify,
+  idFor,
+  collectBloatFiles,
 } from "./lib/system-map-lib.ts";
-import type { MapNode, MapEdge, SystemMapGraph, Finding } from "./lib/system-map-lib.ts";
+import type { MapNode, MapEdge, SystemMapGraph, Finding, Kind } from "./lib/system-map-lib.ts";
 import { getProjectRoot } from "./lib/project-root.ts";
-
-type Kind = MapNode["kind"];
+import { readPolicyNumber } from "./lib/policy.ts";
 
 /** Scripts a human intentionally left with no incoming references (entry points). */
 const ORPHAN_ALLOWLIST = [
@@ -50,94 +52,15 @@ const ORPHAN_ALLOWLIST = [
 const DEFAULT_BLOAT_WARN_TOKENS = 2500;
 
 const KIND_ORDER: Kind[] = ["command", "config", "hook", "lib", "script", "skill"];
-const KIND_PREFIX: Record<Kind, string> = {
-  hook: "h",
-  command: "c",
-  skill: "sk",
-  script: "s",
-  lib: "l",
-  config: "cfg",
-};
 
 // ==========================================================================
 // Project root
 // ==========================================================================
 
-
-// ==========================================================================
-// Classification (path -> kind, path -> id) — single source of truth used by
-// both node construction and the precommit/git-index discovery filter.
-// ==========================================================================
-
-/**
- * Classifies a repo-relative, forward-slash path into a graph node `kind`,
- * or returns `null` if the path falls outside the discovery set. This is
- * the sole authority for "is this path in scope" — both the working-tree
- * walkers and the git-index `ls-files` filter delegate to it, so the two
- * discovery modes can never disagree about what counts as an input.
- */
-function classify(path: string): Kind | null {
-  if (path === ".claude/settings.json" || path === ".claude/manifest.json") return "config";
-  if (path === ".claude/hooks/_common.sh") return "lib";
-  if (path.startsWith(".claude/hooks/") && path.endsWith(".sh")) {
-    if (!path.slice(".claude/hooks/".length).includes("/")) return "hook";
-    return null;
-  }
-  if (path.startsWith(".claude/commands/") && path.endsWith(".md")) return "command";
-  if (path.startsWith(".claude/skills/") && path.endsWith(".md")) return "skill";
-  if (path.startsWith("scripts/lib/")) {
-    if (!path.slice("scripts/lib/".length).includes("/")) return "lib";
-    return null;
-  }
-  if (path.startsWith("scripts/") && (path.endsWith(".sh") || path.endsWith(".ts"))) {
-    if (!path.slice("scripts/".length).includes("/")) return "script";
-    return null;
-  }
-  if (path.startsWith("tests/")) {
-    if (!path.slice("tests/".length).includes("/")) return "script";
-    return null;
-  }
-  return null;
-}
-
-/** Strips the kind's canonical directory prefix and file extension, then slugifies what remains. */
-function slugify(kind: Kind, path: string): string {
-  let rest: string;
-  switch (kind) {
-    case "hook":
-      rest = path.slice(".claude/hooks/".length);
-      break;
-    case "command":
-      rest = path.slice(".claude/commands/".length);
-      break;
-    case "skill":
-      rest = path.slice(".claude/skills/".length);
-      break;
-    case "config":
-      rest = path.slice(".claude/".length);
-      break;
-    case "lib":
-      rest =
-        path === ".claude/hooks/_common.sh"
-          ? path.slice(".claude/hooks/".length)
-          : path.slice("scripts/lib/".length);
-      break;
-    case "script":
-      rest = path.startsWith("scripts/") ? path.slice("scripts/".length) : path.slice("tests/".length);
-      break;
-  }
-  const noExt = rest.replace(/\.[^./]+$/, "");
-  const slug = noExt
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  return slug.length > 0 ? slug : "root";
-}
-
-/** Assigns the stable, caller-side node id `<kindPrefix>_<path-derived-slug>` (e.g. `h_pre_compact`). */
-function idFor(kind: Kind, path: string): string {
-  return `${KIND_PREFIX[kind]}_${slugify(kind, path)}`;
-}
+// classify/slugify/idFor (path -> kind, path -> id) moved to
+// scripts/lib/system-map-lib.ts (#T88) — imported above, verbatim behavior,
+// so a later task can import the canonical path->node-id mapping without
+// re-deriving it.
 
 /** Replaces every character Mermaid can't use in a bare node id (used only for rendering, never for graph identity). */
 function mermaidSafeId(id: string): string {
@@ -266,54 +189,27 @@ function gitIndexSource(root: string): ContentSource {
 }
 
 // ==========================================================================
-// Bloat inputs (CLAUDE.md + docs/knowledge/*.md) — read separately from the
-// hashed .maps.lock input set; these files aren't graph nodes.
+// Bloat inputs (CLAUDE.md + docs/knowledge/*.md + .claude/rules/*.md) — read
+// separately from the hashed `.maps.lock` input set; these files aren't
+// graph nodes. Collection now lives in system-map-lib.ts's
+// `collectBloatFiles` (#T88, imported above) — see its docstring for the
+// deliberate not-hashed rationale.
 // ==========================================================================
 
 /**
- * Collects CLAUDE.md plus every `docs/knowledge/*.md` file's normalized
- * content for bloat estimation.
- *
- * DELIBERATE: these bloat-input files are read fresh on every `report`/`check`
- * but are intentionally NOT part of the hashed input set in `.maps.lock` (see
- * `discover()` — it lists scripts/hooks/commands/skills/config/tests, not
- * these docs). Consequence: editing CLAUDE.md or a docs/knowledge file does
- * NOT register as map drift, so a bloat finding is only re-evaluated when the
- * map is regenerated for some other reason. This is the accepted trade-off:
- * hashing prose docs would make every decisions.md/patterns.md edit trigger a
- * pre-commit map heal — the exact churn the pre-commit-only design avoids —
- * for a LOW-severity advisory finding. `report` always recomputes bloat live,
- * so on-demand runs and the maintenance loop still see current numbers.
+ * Reads `bloat_warn_tokens` via the shared {@link readPolicyNumber} reader
+ * (scripts/lib/policy.ts), falling back to {@link DEFAULT_BLOAT_WARN_TOKENS}
+ * when `.claude/maintenance-policy.yaml` is absent or the key is missing/
+ * malformed (#T88 — previously a standalone line-by-line parse duplicated
+ * here; now delegates to the one shared implementation also used by
+ * maintain.sh's `policy_raw_value`). Always reads the on-disk file directly
+ * (not through `ContentSource` / the git-index abstraction): bloat is a
+ * LOW-severity advisory finding recomputed live on every report/check, so
+ * this matches the existing bloat-inputs-not-hashed policy rather than
+ * adding git-index plumbing for one config field.
  */
-function collectBloatFiles(source: ContentSource): { path: string; content: string }[] {
-  const files: { path: string; content: string }[] = [];
-  const claude = source.readInput("CLAUDE.md");
-  if (claude !== null) files.push({ path: "CLAUDE.md", content: claude });
-  for (const p of source.listDir("docs/knowledge")) {
-    const c = source.readInput(p);
-    if (c !== null) files.push({ path: p, content: c });
-  }
-  return files;
-}
-
-/**
- * Reads `bloat_warn_tokens` from `.claude/maintenance-policy.yaml` if present
- * and valid (`^[0-9]+$`, trailing `#` comment stripped); otherwise falls back
- * to {@link DEFAULT_BLOAT_WARN_TOKENS}. Line-by-line, bounded parsing — no
- * YAML library, matches the linear-parse mandate.
- */
-function loadBloatThreshold(source: ContentSource): number {
-  const text = source.readInput(".claude/maintenance-policy.yaml");
-  if (text === null) return DEFAULT_BLOAT_WARN_TOKENS;
-  for (const rawLine of text.split("\n")) {
-    const line = rawLine.trim();
-    if (!line.startsWith("bloat_warn_tokens:")) continue;
-    let val = line.slice("bloat_warn_tokens:".length).trim();
-    const hashIdx = val.indexOf("#");
-    if (hashIdx >= 0) val = val.slice(0, hashIdx).trim();
-    return /^[0-9]+$/.test(val) ? parseInt(val, 10) : DEFAULT_BLOAT_WARN_TOKENS;
-  }
-  return DEFAULT_BLOAT_WARN_TOKENS;
+function loadBloatThreshold(): number {
+  return readPolicyNumber("bloat_warn_tokens", DEFAULT_BLOAT_WARN_TOKENS);
 }
 
 // ==========================================================================
@@ -465,7 +361,7 @@ function runFindings(
     }
   }
 
-  findings.push(...findBloat(collectBloatFiles(source), loadBloatThreshold(source)));
+  findings.push(...findBloat(collectBloatFiles(source), loadBloatThreshold()));
   return sortFindings(findings);
 }
 
