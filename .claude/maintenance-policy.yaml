@@ -46,8 +46,10 @@ auto_run_hours: 24
 # Gates `scripts/skill-apply.ts --auto` (the automated dead-reference-fix
 # tier). `off` = auto tier disabled; skill-apply.ts still files its
 # proposals as normal [?] drafts for manual review. `on` lets the auto
-# tier apply its safe, automated fixes directly. Safe template default is
-# `off` -- this repo's owner flips it to `on` post-ship. The committed
-# value here IS the template default, since template copies are straight
-# file copies.
+# tier apply its safe, automated fixes directly. The committed value here
+# IS the template default (template copies are straight file copies), so
+# it stays `off` deliberately -- flipping it here would ship auto-apply
+# enabled to every downstream project. To run `on` in this repo without
+# changing the template default, new-project.sh would first need a
+# copy-time override resetting the scaffolded copy to `off`.
 skill_auto_apply: off

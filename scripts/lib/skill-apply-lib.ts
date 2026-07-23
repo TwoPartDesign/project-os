@@ -418,21 +418,22 @@ function removeBoundaryMatches(line: string, needle: string): string {
  *
  * So this checks the opposite direction: `line` is "entangled" (NOT safely
  * removable) unless, after excising every boundary-delimited occurrence of
- * `deadRef`, the residue contains NO `[A-Za-z0-9]` character at all — only
- * whitespace and prose/markdown syntax (list markers, backticks, quotes,
+ * `deadRef`, the residue contains NO `\p{L}`/`\p{N}` character at all (any
+ * Unicode letter or number, not just ASCII `[A-Za-z0-9]`) — only whitespace
+ * and prose/markdown syntax (list markers, backticks, quotes,
  * parens/brackets, pipes, colons, commas, periods, dashes, `#`, `>`, etc.)
  * may remain. Any word content whatsoever — `bash`, `Run`, `see`, a URL, a
- * bare filename, or a live reference of any other shape — makes the residue
- * non-empty of alphanumerics and the line entangled; the proposal falls
- * back to a human-reviewed draft instead of auto-applying. A closed
- * allowlist of trivial residue can only ever reject MORE lines than an open
- * denylist of shapes, never fewer, which is what makes this direction
- * sound: nothing is auto-removable unless what's left behind is
- * unambiguously not content.
+ * bare filename, CJK/Cyrillic word content, a fullwidth homoglyph, or a
+ * live reference of any other shape — makes the residue non-empty of
+ * letters/numbers and the line entangled; the proposal falls back to a
+ * human-reviewed draft instead of auto-applying. A closed allowlist of
+ * trivial residue can only ever reject MORE lines than an open denylist of
+ * shapes, never fewer, which is what makes this direction sound: nothing is
+ * auto-removable unless what's left behind is unambiguously not content.
  */
 function isEntangledLine(line: string, deadRef: string): boolean {
   const residue = removeBoundaryMatches(line, deadRef);
-  return /[A-Za-z0-9]/.test(residue);
+  return /[\p{L}\p{N}]/u.test(residue);
 }
 
 /**
@@ -463,11 +464,12 @@ function isEntangledLine(line: string, deadRef: string): boolean {
  * - R7 (round-3 inverted allowlist): every dead-ref-bearing line is checked
  *   for entanglement via {@link isEntangledLine} — if excising its
  *   boundary-matched `deadRef` occurrence(s) leaves a residue containing ANY
- *   `[A-Za-z0-9]` character (word content of any kind, not merely a
- *   recognized path shape), this returns `false` regardless of `op`; only a
- *   residue of pure whitespace/syntax is tolerated. The proposal falls back
- *   to a human-reviewed draft rather than risk deleting a live reference —
- *   of ANY shape — alongside the dead one.
+ *   `\p{L}`/`\p{N}` character (any Unicode letter or number — word content
+ *   of any kind, including non-ASCII scripts and fullwidth homoglyphs, not
+ *   merely a recognized path shape), this returns `false` regardless of
+ *   `op`; only a residue of pure whitespace/syntax is tolerated. The
+ *   proposal falls back to a human-reviewed draft rather than risk deleting
+ *   a live reference — of ANY shape — alongside the dead one.
  * - `op === "delete"`: valid iff EVERY non-blank line of `anchor`
  *   boundary-matches `deadRef` — a delete is only auto-eligible when the
  *   whole anchor is dead content, never when it carries unrelated context

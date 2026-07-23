@@ -403,9 +403,37 @@ describe("checkAutoCorrespondence", () => {
     // Counterpart to the three entangled cases above: a dead-ref line whose
     // only non-ref content is markdown syntax (a list marker and backticks)
     // leaves an alphanumeric-free residue once the ref is excised, so it
-    // remains auto-removable.
+    // remains auto-removable. Also confirms #T95's Unicode-aware class
+    // doesn't regress the ASCII-syntax-only case: none of `-`, backticks
+    // are in `\p{L}`/`\p{N}`.
     const anchor = "- `scripts/dead-ref.sh`";
     const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
     strictEqual(result, true);
+  });
+
+  it("checkAutoCorrespondence_cjkResidue_false", () => {
+    // #T95: the residue test must be Unicode-aware, not ASCII-only — a CJK
+    // word left behind alongside the dead ref is word content just as much
+    // as an ASCII one, and must entangle the line.
+    const anchor = "scripts/dead-ref.sh 关键工具";
+    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    strictEqual(result, false);
+  });
+
+  it("checkAutoCorrespondence_cyrillicResidue_false", () => {
+    // #T95: same class of gap, Cyrillic script.
+    const anchor = "scripts/dead-ref.sh важный";
+    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    strictEqual(result, false);
+  });
+
+  it("checkAutoCorrespondence_fullwidthHomoglyphResidue_false", () => {
+    // #T95: fullwidth homoglyphs (e.g. fullwidth "bin") are still `\p{L}`
+    // characters under Unicode category rules even though they render as
+    // ASCII-lookalike glyphs — the old `[A-Za-z0-9]` test missed them
+    // entirely because their code points fall outside the ASCII range.
+    const anchor = "scripts/dead-ref.sh ｂｉｎ";
+    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    strictEqual(result, false);
   });
 });
