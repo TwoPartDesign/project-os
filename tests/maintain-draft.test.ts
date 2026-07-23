@@ -495,3 +495,215 @@ describe("maintain-draft CRLF handling", () => {
     }
   });
 });
+
+// ==========================================================================
+// Skill-edit proposal loop format + dedup regressions (#T87)
+//
+// The skill-edit proposal loop files drafts through this same CLI with a new
+// title/fingerprint convention (`skill-edit: <path> — <summary>` and
+// `skill-edit:<path>:<slug>` fingerprints, plus a companion "ack" draft
+// format for auto-applied edits). These tests pin that convention exactly as
+// written by the CLI's existing sanitization/dedup logic — no CLI changes.
+// ==========================================================================
+
+describe("maintain-draft skill-edit format regressions (#T87)", () => {
+  it("fileDraft_skillEditTitle_survivesSanitizationVerbatim", () => {
+    const dir = freshTempDir();
+    try {
+      const roadmap = writeRoadmapFixture(
+        dir,
+        buildFixture(
+          ["## Feature: sample", "", "### Draft", "", "### Todo", "", "### In Progress", "", "### Review", "", "### Done", ""].join("\n"),
+        ),
+      );
+
+      const title = "skill-edit: bash.md — add heredoc ban to Agent Rules";
+      const stdout = runCli([
+        "--title",
+        title,
+        "--fingerprint",
+        "fp-skill-edit-title-1",
+        "--roadmap",
+        roadmap,
+        ...realValidateCmd(roadmap),
+      ]);
+
+      ok(/^filed: #T\d+$/.test(stdout), `expected "filed: #T<N>", got: ${stdout}`);
+
+      const content = readFileSync(roadmap, "utf-8");
+      ok(
+        content.includes(`- [?] ${title} `),
+        `expected the draft line to contain the title verbatim (em-dash and colon intact); content was: ${content}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fileDraft_skillEditFingerprint_roundTrips", () => {
+    const dir = freshTempDir();
+    try {
+      const roadmap = writeRoadmapFixture(
+        dir,
+        buildFixture(
+          ["## Feature: sample", "", "### Draft", "", "### Todo", "", "### In Progress", "", "### Review", "", "### Done", ""].join("\n"),
+        ),
+      );
+
+      const fingerprint = "skill-edit:.claude/rules/bash.md:heredoc-ban";
+      const stdout = runCli([
+        "--title",
+        "skill-edit proposal: bash.md heredoc ban",
+        "--fingerprint",
+        fingerprint,
+        "--roadmap",
+        roadmap,
+        ...realValidateCmd(roadmap),
+      ]);
+
+      strictEqual(stdout.startsWith("filed: #T"), true, `expected stdout to start with "filed: #T", got: ${stdout}`);
+
+      const content = readFileSync(roadmap, "utf-8");
+      ok(
+        content.includes(`<!-- maint-fp: ${fingerprint} -->`),
+        `expected the maint-fp comment to contain the fingerprint exactly (dots, colons, slashes unaltered); content was: ${content}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("dedup_fingerprintOnRetiredDoneLine_stillExits2", () => {
+    const dir = freshTempDir();
+    try {
+      const fingerprint = "skill-edit:.claude/rules/bash.md:heredoc-ban";
+      const existing = buildFixture(
+        [
+          "## Feature: maintenance-inbox",
+          "<!-- Drafts filed autonomously by scripts/maintain.sh — promote via /pm:approve -->",
+          "",
+          "### Draft",
+          "",
+          "### Todo",
+          "",
+          "### In Progress",
+          "",
+          "### Review",
+          "",
+          "### Done",
+          "- [x] skill-edit: bash.md — add heredoc ban to Agent Rules (rejected 2026-07-22) #T50",
+          `  <!-- maint-fp: ${fingerprint} -->`,
+          "",
+        ].join("\n"),
+      );
+      const roadmap = writeRoadmapFixture(dir, existing);
+      const before = readFileSync(roadmap, "utf-8");
+
+      const result = runCliExpectFailure([
+        "--title",
+        "skill-edit: bash.md — add heredoc ban to Agent Rules",
+        "--fingerprint",
+        fingerprint,
+        "--roadmap",
+        roadmap,
+        ...realValidateCmd(roadmap),
+      ]);
+
+      strictEqual(result.status, 2);
+      ok(result.stdout.includes("duplicate:"), `stdout was: ${result.stdout}`);
+
+      const after = readFileSync(roadmap, "utf-8");
+      strictEqual(
+        after,
+        before,
+        "file must be byte-identical: dedup must fire even when the fingerprint's owning line has been retired to ### Done",
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("dedup_crossTriggerRefile_secondRunExits2DraftCountUnchanged", () => {
+    const dir = freshTempDir();
+    try {
+      const roadmap = writeRoadmapFixture(
+        dir,
+        buildFixture(
+          ["## Feature: sample", "", "### Draft", "", "### Todo", "", "### In Progress", "", "### Review", "", "### Done", ""].join("\n"),
+        ),
+      );
+
+      const fingerprint = "skill-edit:.claude/rules/catchup.md:dead-ref";
+
+      const first = runCli([
+        "--title",
+        "skill-edit: catchup.md — remove dead ref (review-fail run)",
+        "--fingerprint",
+        fingerprint,
+        "--roadmap",
+        roadmap,
+        ...realValidateCmd(roadmap),
+      ]);
+      ok(/^filed: #T\d+$/.test(first), `expected success on first filing, got: ${first}`);
+
+      const afterFirst = readFileSync(roadmap, "utf-8");
+      const draftCountAfterFirst = afterFirst.split("- [?] ").length - 1;
+
+      const second = runCliExpectFailure([
+        "--title",
+        "skill-edit: catchup.md — remove dead ref (ship run, different title)",
+        "--fingerprint",
+        fingerprint,
+        "--roadmap",
+        roadmap,
+        ...realValidateCmd(roadmap),
+      ]);
+      strictEqual(second.status, 2, `expected exit 2 on cross-trigger refile, got status ${second.status}`);
+      ok(second.stdout.includes("duplicate:"), `stdout was: ${second.stdout}`);
+
+      const afterSecond = readFileSync(roadmap, "utf-8");
+      const fpOccurrences = afterSecond.split(`maint-fp: ${fingerprint}`).length - 1;
+      strictEqual(fpOccurrences, 1, "fingerprint must appear exactly once after the second (rejected) filing attempt");
+
+      const draftCountAfterSecond = afterSecond.split("- [?] ").length - 1;
+      strictEqual(draftCountAfterSecond, draftCountAfterFirst, "draft count must be unchanged by the rejected second filing");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fileDraft_ackDraftFormat_filesCleanly", () => {
+    const dir = freshTempDir();
+    try {
+      const roadmap = writeRoadmapFixture(
+        dir,
+        buildFixture(
+          ["## Feature: sample", "", "### Draft", "", "### Todo", "", "### In Progress", "", "### Review", "", "### Done", ""].join("\n"),
+        ),
+      );
+
+      const title = "skill-edit ack: catchup.md — removed dead ref (auto-applied, commit a1b2c3d)";
+      const stdout = runCli([
+        "--title",
+        title,
+        "--fingerprint",
+        "fp-ack-format-1",
+        "--roadmap",
+        roadmap,
+        ...realValidateCmd(roadmap),
+      ]);
+
+      const idMatch = /^filed: (#T\d+)$/.exec(stdout);
+      ok(idMatch, `expected "filed: #T<N>", got: ${stdout}`);
+      const taskId = idMatch![1];
+
+      const content = readFileSync(roadmap, "utf-8");
+      ok(
+        content.includes(`- [?] ${title} ${taskId}`),
+        `expected parentheses and commit hash to survive sanitization verbatim; content was: ${content}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

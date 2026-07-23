@@ -87,7 +87,7 @@
     "tests/dream-accept-smoke.sh": "02a64fd73ff8335679437f10f7541c1ac7c47ccf3b2712285f3be7b086e9b0d3",
     "tests/hook-smoke.sh": "bcbc580a1b5ca53bd21f6fbf35365be1c7c566cdc429016bc3f83b9efe37368d",
     "tests/knowledge-index.test.ts": "cf9c82f083da35decfe18ca00a4d0a73677cc38a7bc3b6f3f37b410f7adfc476",
-    "tests/maintain-draft.test.ts": "c20e8a87d79c5a074aadc235a1ac311b5512579f6e2e199051793c3218589c27",
+    "tests/maintain-draft.test.ts": "74b0cb62f26903773bc6a44a8f1f2552cc9ba3d601512bb63d9129c8bd209731",
     "tests/maintain-smoke.sh": "034367b896211010bc376138b5f05226719f68aace5c1ed9adf97a9edecfd2d9",
     "tests/new-project-smoke.sh": "830072ae759b6d40ec508812be58a4d522ae2b8fa127edafc3e66e49188f7d5b",
     "tests/observation-parser.test.ts": "231883f297af5d54c9410cc035a7e4b0bcaad239239b9f3e8b0b73928317447a",
