@@ -58,9 +58,9 @@
 - `l_dashboard_render` — `scripts/lib/dashboard-render.ts` (5 dependents)
 - `l_json` — `scripts/lib/json.sh` (2 dependents)
 - `l_policy` — `scripts/lib/policy.ts` (6 dependents)
-- `l_project_root` — `scripts/lib/project-root.ts` (15 dependents)
+- `l_project_root` — `scripts/lib/project-root.ts` (16 dependents)
 - `l_scan_rules` — `scripts/lib/scan-rules.js` (0 dependents)
-- `l_skill_apply_lib` — `scripts/lib/skill-apply-lib.ts` (1 dependent)
+- `l_skill_apply_lib` — `scripts/lib/skill-apply-lib.ts` (4 dependents)
 - `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (6 dependents)
 
 ### script
@@ -84,6 +84,7 @@
 - `s_scrub_secrets` — `scripts/scrub-secrets.sh` (0 dependents)
 - `s_security_scanner` — `scripts/security-scanner.ts` (1 dependent)
 - `s_setup` — `scripts/setup.sh` (0 dependents)
+- `s_skill_apply` — `scripts/skill-apply.ts` (2 dependents)
 - `s_skill_ledger` — `scripts/skill-ledger.ts` (1 dependent)
 - `s_sync_hooks` — `scripts/sync-hooks.sh` (1 dependent)
 - `s_system_map` — `scripts/system-map.ts` (4 dependents)
@@ -103,6 +104,7 @@
 - `s_policy_test` — `tests/policy.test.ts` (0 dependents)
 - `s_scanner_smoke` — `tests/scanner-smoke.sh` (0 dependents)
 - `s_skill_apply_lib_test` — `tests/skill-apply-lib.test.ts` (0 dependents)
+- `s_skill_apply_test` — `tests/skill-apply.test.ts` (0 dependents)
 - `s_skill_ledger_test` — `tests/skill-ledger.test.ts` (0 dependents)
 - `s_system_map_smoke` — `tests/system-map-smoke.sh` (0 dependents)
 - `s_system_map_test` — `tests/system-map.test.ts` (0 dependents)
@@ -115,9 +117,9 @@
 
 ## Edges
 
+- `c_pm_approve` --references--> `s_skill_apply`
 - `c_pm_approve` --references--> `s_skill_ledger`
 - `c_pm_approve` --references--> `s_validate_roadmap`
-- `c_pm_approve` --references--> `scripts/skill-apply.ts`
 - `c_tools_catchup` --references--> `s_knowledge_index`
 - `c_tools_dashboard` --references--> `s_dashboard`
 - `c_tools_dashboard` --references--> `s_dashboard_server`
@@ -132,7 +134,7 @@
 - `c_tools_maintain` --references--> `s_system_map`
 - `c_tools_new_project` --references--> `s_detect_stack`
 - `c_tools_reflect` --references--> `s_maintain_draft`
-- `c_tools_reflect` --references--> `scripts/skill-apply.ts`
+- `c_tools_reflect` --references--> `s_skill_apply`
 - `c_tools_update` --references--> `s_generate_manifest`
 - `c_tools_update` --references--> `s_sync_hooks`
 - `c_tools_update` --references--> `s_update_project`
@@ -178,6 +180,8 @@
 - `s_maintain_draft` --imports--> `l_dashboard_render`
 - `s_maintain_draft` --imports--> `l_project_root`
 - `s_policy_test` --imports--> `l_policy`
+- `s_skill_apply` --imports--> `l_project_root`
+- `s_skill_apply` --imports--> `l_skill_apply_lib`
 - `s_skill_apply_lib_test` --imports--> `l_skill_apply_lib`
 - `s_skill_ledger` --imports--> `l_project_root`
 - `s_system_map` --imports--> `l_policy`
@@ -192,11 +196,10 @@
 - LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 5192 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 2909 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/windows-bash-scanner.md — docs/knowledge/windows-bash-scanner.md is approximately 2678 tokens, exceeding the 2500-token warn threshold.
-- HIGH dangling-ref c_pm_approve — Edge references from c_pm_approve points to missing node scripts/skill-apply.ts.
-- HIGH dangling-ref c_tools_reflect — Edge references from c_tools_reflect points to missing node scripts/skill-apply.ts.
 - MEDIUM manifest-gap c_tools_reflect — .claude/commands/tools/reflect.md is missing from the manifest's files map.
 - MEDIUM manifest-gap l_policy — scripts/lib/policy.ts is missing from the manifest's files map.
 - MEDIUM manifest-gap l_skill_apply_lib — scripts/lib/skill-apply-lib.ts is missing from the manifest's files map.
+- MEDIUM manifest-gap s_skill_apply — scripts/skill-apply.ts is missing from the manifest's files map.
 - MEDIUM manifest-gap s_skill_ledger — scripts/skill-ledger.ts is missing from the manifest's files map.
 - MEDIUM orphan-script s_audit_context — Script scripts/audit-context.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_context_filter — Script scripts/context-filter.sh has no incoming references and is not in the orphan allowlist.

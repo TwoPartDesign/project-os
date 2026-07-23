@@ -79,6 +79,7 @@ flowchart LR
     s_scrub_secrets["scripts/scrub-secrets.sh"]
     s_security_scanner["scripts/security-scanner.ts"]
     s_setup["scripts/setup.sh"]
+    s_skill_apply["scripts/skill-apply.ts"]
     s_skill_ledger["scripts/skill-ledger.ts"]
     s_sync_hooks["scripts/sync-hooks.sh"]
     s_system_map["scripts/system-map.ts"]
@@ -98,6 +99,7 @@ flowchart LR
     s_policy_test["tests/policy.test.ts"]
     s_scanner_smoke["tests/scanner-smoke.sh"]
     s_skill_apply_lib_test["tests/skill-apply-lib.test.ts"]
+    s_skill_apply_test["tests/skill-apply.test.ts"]
     s_skill_ledger_test["tests/skill-ledger.test.ts"]
     s_system_map_smoke["tests/system-map-smoke.sh"]
     s_system_map_test["tests/system-map.test.ts"]
@@ -108,9 +110,9 @@ flowchart LR
     sk_spec_driven_dev_skill[".claude/skills/spec-driven-dev/SKILL.md"]
     sk_tdd_workflow_skill[".claude/skills/tdd-workflow/SKILL.md"]
   end
+  c_pm_approve -->|references| s_skill_apply
   c_pm_approve -->|references| s_skill_ledger
   c_pm_approve -->|references| s_validate_roadmap
-  c_pm_approve -->|references| scripts_skill_apply_ts
   c_tools_catchup -->|references| s_knowledge_index
   c_tools_dashboard -->|references| s_dashboard
   c_tools_dashboard -->|references| s_dashboard_server
@@ -125,7 +127,7 @@ flowchart LR
   c_tools_maintain -->|references| s_system_map
   c_tools_new_project -->|references| s_detect_stack
   c_tools_reflect -->|references| s_maintain_draft
-  c_tools_reflect -->|references| scripts_skill_apply_ts
+  c_tools_reflect -->|references| s_skill_apply
   c_tools_update -->|references| s_generate_manifest
   c_tools_update -->|references| s_sync_hooks
   c_tools_update -->|references| s_update_project
@@ -171,6 +173,8 @@ flowchart LR
   s_maintain_draft -->|imports| l_dashboard_render
   s_maintain_draft -->|imports| l_project_root
   s_policy_test -->|imports| l_policy
+  s_skill_apply -->|imports| l_project_root
+  s_skill_apply -->|imports| l_skill_apply_lib
   s_skill_apply_lib_test -->|imports| l_skill_apply_lib
   s_skill_ledger -->|imports| l_project_root
   s_system_map -->|imports| l_policy

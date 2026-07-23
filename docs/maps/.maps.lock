@@ -76,6 +76,7 @@
     "scripts/scrub-secrets.sh": "9878c06084c956008b978023c7efc6571d989efe94715fe4ddd9641277f4896a",
     "scripts/security-scanner.ts": "3fa78d198f113772557b9c0395e26e83e86d7c8a003d9eade943bcfc58bdbb67",
     "scripts/setup.sh": "e5496f8bac7799c87f18ea0480ee3d9131e31ab15e1cf0f1d5205935bd82c502",
+    "scripts/skill-apply.ts": "75c5e1aff53aca34789195772554041c70fb6dc8810fd258ceac6c52ddf35323",
     "scripts/skill-ledger.ts": "23b4ce2890215ac0025422e9eea357ce73d467b1014b5bcfb2520aa5d52bdd22",
     "scripts/sync-hooks.sh": "019f37e2def4e22755112aaf327408f332ff04a5ca43cc9262c2ae6d2750404d",
     "scripts/system-map.ts": "9e54790c56f98d0c5d8ebcc9c3aa98fdc10bf5276889b07cc14c500bbee9955d",
@@ -95,6 +96,7 @@
     "tests/policy.test.ts": "ce0cc331e82a10a154915148ca42388afdb67420c80f311169890ab900b23eb1",
     "tests/scanner-smoke.sh": "c5f49d4398bd56bd3736db5fb6b13435b4585e7d0f13f31cf4e5284113a7f3a8",
     "tests/skill-apply-lib.test.ts": "892371dde223ea3ff9782fc9b1c93616aa27ae9e119d6bdd7842b3a06faae0f1",
+    "tests/skill-apply.test.ts": "b2d572c658e72f38a48dbc686fc7bc102305046a96e307bcee4c1cea67d4c348",
     "tests/skill-ledger.test.ts": "d5534858538ff812bec7d29609768466fc60cd365994c4a56035534f8aec9431",
     "tests/system-map-smoke.sh": "c9d83f43eb1bd3ad806c47a18c1628dff41e1ca57599345816bf6b084f32e991",
     "tests/system-map.test.ts": "59951846b2162689867a13764681ac390cbf893fb98b7f984aeec2241f2a015e"
