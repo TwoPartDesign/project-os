@@ -211,14 +211,28 @@ Spec: `docs/specs/adopt-existing-project/` (brief DRAFT 2026-07-17). In-place `-
 
 ## Feature: skill-optimization-loop
 
-Spec: `docs/specs/skill-optimization-loop/` (brief DRAFT 2026-07-22). Human-gated lift of microsoft/SkillOpt's optimization loop shape: post-ship reflection in `/workflows:ship` files ≤3 bounded `[?]` edit drafts against skills/rules/commands via `maintain-draft.ts`; rejection ledger in `docs/knowledge/` feeds future reflections; edits land only via `/pm:approve` + human application. No SkillOpt dependency.
+Spec: `docs/specs/skill-optimization-loop/` (design APPROVED rev 4, 2026-07-22, after 2 adversarial rounds). Lift of microsoft/SkillOpt's loop shape, owner-expanded: `/tools:reflect` fired from ship + review-FAIL + rebuild files ≤3 bounded `[?]` skill-edit drafts via `maintain-draft.ts`; tiered apply — staged apply on `/pm:approve` via `skill-apply.ts`, plus a six-condition deterministic auto-apply class (map-verified dead-ref fixes; policy-gated, ack-drafted, revertible); rejection ledger (`skill-ledger.ts`, `docs/knowledge/`) feeds future reflections. No SkillOpt dependency.
 
 ### Draft
-- [?] skill-optimization-loop — Brief created, awaiting design #T78
 ### Todo
+- [ ] Shared policy reader scripts/lib/policy.ts + tests #T79
+- [ ] skill-ledger.ts sanitizing rejection-ledger writer + tests #T80
+- [ ] skill-apply-lib.ts proposal parser + anchored ops + tests #T81
+- [ ] Seed docs/knowledge/skill-edit-rejections.md ledger #T82
+- [ ] /tools:reflect shared reflection command doc #T83
+- [ ] ship.md reflection call site + Post-Ship numbering heal #T84
+- [ ] review.md + rebuild.md call sites + rebuild-triggered instrumentation #T85
+- [ ] approve.md skill-edit gate: display, staged apply, ack, reject-to-ledger #T86
+- [ ] maintain-draft.test.ts skill-edit formats + retired-line and cross-trigger dedup #T87
+- [ ] system-map-lib pathToId export + rules bloat + policy refactor (depends: #T79) #T88
+- [ ] skill-apply.ts CLI standard tier (depends: #T81) #T89
+- [ ] skill-apply --auto six-condition class (depends: #T79, #T88, #T89) #T90
+- [ ] Policy key, permissions entries, template sync lists (depends: #T79, #T80, #T89) #T91
+- [ ] architecture.md + tiered draft-only-autonomy ADR (depends: #T90, #T91) #T92
 ### In Progress
 ### Review
 ### Done
+- [x] skill-optimization-loop — Brief created, awaiting design (retired: superseded by #T79-#T92 after design APPROVED) #T78
 
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->
