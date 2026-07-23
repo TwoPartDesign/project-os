@@ -176,15 +176,18 @@ Small quality items surfaced during self-maintenance / #T9 reviews (2026-07-17).
 - [x] Run /tools:dream — staged 2026-07-17-1605 (13 memory + 14 session files → 4 topic files, 0 unresolved contradictions, 2 pattern promotions proposed); ACCEPTED 2026-07-18 (orchestrator removed the 13 consumed sources by hand — see #T77) #T63
 - [x] dream-accept.sh true swap: manifest.yaml memory_files consumed post-archive (cmp-guarded removals under the recovery marker; missing manifest → additive-only warning); dream.md pins the schema; smoke 17→25 assertions (9694193) #T77
   <!-- maint-fp: dream:12:14 -->
-- [?] skill-edit: design.md — reviewer must re-attack fixed conditions #T93
+- [x] skill-edit: design.md — reviewer must re-attack fixed conditions (applied c8f3d07 + dedupe 110092b) #T93
   <!-- maint-fp: skill-edit:.claude/commands/workflows/design.md:reattack-fixed-conditions -->
   <!-- proposal: docs/specs/skill-optimization-loop/skill-edits.md Proposal 1 -->
-- [?] skill-edit: tests.md — security guards need in-bounds indirection fixtures #T94
+- [x] skill-edit: tests.md — security guards need in-bounds indirection fixtures (applied 97df368 + dedupe/mirror 110092b) #T94
   <!-- maint-fp: skill-edit:.claude/rules/tests.md:indirection-security-fixtures -->
   <!-- proposal: docs/specs/skill-optimization-loop/skill-edits.md Proposal 2 -->
-- [?] Harden skill-apply entanglement residue check for non-ASCII word content + align lib doc-comment #T95
+- [x] Harden skill-apply entanglement residue check for non-ASCII word content + align lib doc-comment (applied e5b8a86-integration) #T95
   <!-- maint-fp: review-residual:skill-apply-lib:unicode-residue -->
   <!-- review.md r4 NOTES: [A-Za-z0-9] residue regex misses CJK/Cyrillic/fullwidth homoglyphs (LOW, needs prior compromise); doc-comment overclaims ASCII-only reality -->
+- [?] skill-edit: reflect.md — add-op proposed text must not repeat the anchor #T96
+  <!-- maint-fp: skill-edit:.claude/commands/tools/reflect.md:add-op-anchor-duplication -->
+  <!-- proposal: docs/specs/skill-optimization-loop/skill-edits.md Proposal 3 -->
 
 ### Todo
 

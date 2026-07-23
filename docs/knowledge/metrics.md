@@ -21,6 +21,20 @@ Track per-feature implementation metrics. Updated by `/workflows:ship` and query
 
 <!-- Entries added by /workflows:ship -->
 
+### Feature: skill-optimization-loop
+
+- **Duration**: 2026-07-22 → 2026-07-23 (2 days: remote idea capture → local design/plan/build/review/ship; interrupted once by monthly spend limit, resumed clean)
+- **Tasks**: 14 planned (#T79-#T92) + 3 in-flight loop outputs (#T93-#T95), all completed, 0 blocked at ship
+- **Waves**: 4 dispatch batches (9+2+2+1), 4 concurrent sonnet worktree agents; + 3 rebuild rounds (opus)
+- **Revisions**: design 2 adversarial rounds (13 findings, incl. the C1 smuggling CRITICAL); implementation 1 full 3-reviewer round + 3 fix rounds + 4 fix-attacking verification passes (r1 FAIL 2 HIGH → r2 FAIL 6 reproduced HIGH → r3 FAIL 1 reproduced HIGH → r4 PASS)
+- **First-pass review rate**: 12/14 tasks untouched by rebuilds; the entire fix burden concentrated in skill-apply.ts/skill-apply-lib.ts (#T89/#T90) — the highest-authority new surface, as expected
+- **Compete usage**: 0
+- **Model split**: orchestration Fable 5; implementation sonnet; rebuild fixes + all reviewers/verifiers opus; #T95 sonnet
+- **Lines changed**: +5565 / -208 (34 files, 25 commits vs pre-feature master)
+- **Tests**: node suite 153 → 205 (52 new incl. 31-case skill-apply CLI suite with hardlink/junction/oracle-closure/porcelain-empty shapes); smoke 143/0
+- **Notable**: verification-by-execution was the story — every post-r1 finding was empirically reproduced, and every fix round was then attacked as a fresh surface (the loop's own #T93 lesson, practiced before it was approved). Denylist→allowlist predicate inversion became a patterns.md entry after two broken denylist generations. The loop dogfooded itself end-to-end in its own ship cycle: review-fail reflection filed #T93/#T94, staged-apply applied them (surfacing an add-op anchor-duplication authoring trap, fixed + ship-reflected), retire-in-place dedup held across triggers.
+- **PR**: none (committed to master; framework repo)
+
 ### Feature: adopt-existing-project
 
 - **Duration**: 2026-07-17 (single day, single session, fully autonomous idea→ship; ship gate + task approval human-confirmed)
