@@ -140,7 +140,8 @@ Create `docs/specs/$ARGUMENTS/review.md` with the full synthesized report.
   - Mark only the **specific tasks cited in the findings** as `[!]` in ROADMAP.md — do NOT mark unrelated tasks
   - Create `docs/specs/$ARGUMENTS/revision-request.md` listing required changes with task IDs
   - Notify: `bash .claude/hooks/notify-phase-change.sh review-failed "$ARGUMENTS"`
-  - List required fixes and tell the user.
+  - Run `/tools:reflect $ARGUMENTS --trigger review-fail` — reflects on the fresh failure evidence; files at most 3 bounded skill-edit drafts
+  - List required fixes and tell the user, including the reflection's summary line (`Skill reflection: ...`) in the FAIL output message.
 
   **Next Steps:** Run `/workflows:rebuild $ARGUMENTS` to unblock failed tasks and re-implement fixes. The rebuild command reads `revision-request.md` to understand what needs fixing and guides agents accordingly.
 
@@ -158,3 +159,4 @@ Create `docs/specs/$ARGUMENTS/review.md` with the full synthesized report.
 Add any new patterns or anti-patterns discovered to `docs/knowledge/patterns.md`.
 Add any new bug patterns to `docs/knowledge/bugs.md`.
 Save a memory entry with the review findings summary.
+Instruction-file (skills/rules/commands) changes are NOT made here — note the observation in review.md; the ship/review-fail/rebuild reflection step proposes them as governed drafts.

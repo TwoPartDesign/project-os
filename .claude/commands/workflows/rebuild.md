@@ -54,14 +54,20 @@ If user chooses re-implement:
    - A summary: "The following tasks were blocked for these reasons: [list per-task findings]"
    - Instructions: "Fix these issues in re-implementation. Reference the task IDs cited in the findings."
 
-3. **Re-run build phase**
+3. **Reflection instrumentation**
+   ```bash
+   bash .claude/hooks/log-activity.sh rebuild-triggered feature=$ARGUMENTS mode=1
+   ```
+   Run `/tools:reflect $ARGUMENTS --trigger rebuild`
+
+4. **Re-run build phase**
    Run `/workflows:build $ARGUMENTS`
 
    The build phase will automatically pick up the unblocked tasks and dispatch them.
 
    **Important:** Agents will have access to `rebuild-context.md` so they understand what the previous reviewers flagged. This guides their fixes.
 
-4. **After rebuild completes**
+5. **After rebuild completes**
    Mark unblocked tasks `[~]` (review-ready) — this happens automatically in the build phase.
    Tell the user: "Re-implementation complete. Run `/workflows:review $ARGUMENTS` to re-review fixes."
 
@@ -72,10 +78,16 @@ If user chooses re-plan:
 1. **Revert tasks to draft**
    Update ROADMAP.md: mark all `[!]` tasks for this feature as `[?]` (draft).
 
-2. **Preserve revision findings**
+2. **Reflection instrumentation**
+   ```bash
+   bash .claude/hooks/log-activity.sh rebuild-triggered feature=$ARGUMENTS mode=2
+   ```
+   Run `/tools:reflect $ARGUMENTS --trigger rebuild`
+
+3. **Preserve revision findings**
    Leave `docs/specs/$ARGUMENTS/revision-request.md` in place for reference during re-planning.
 
-3. **Tell the user**
+4. **Tell the user**
    "Tasks reverted to draft. Run `/workflows:design $ARGUMENTS` to address reviewer findings at the design level, then `/workflows:plan` to re-decompose tasks."
 
 ## Next Steps (User-facing)
@@ -110,3 +122,4 @@ After rebuild succeeds:
 - Add any new patterns discovered to `docs/knowledge/patterns.md`
 - Add any anti-patterns discovered to `docs/knowledge/bugs.md`
 - Save a memory entry: which tasks were blocked, what the fixes were, and whether Mode 1 or Mode 2 was needed
+- Instruction-file (skills/rules/commands) changes are NOT made here — note the observation in review.md; the ship/review-fail/rebuild reflection step proposes them as governed drafts.

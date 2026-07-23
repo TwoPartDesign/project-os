@@ -40,7 +40,7 @@
 
 ### hook
 - `h_compact_suggest` — `.claude/hooks/compact-suggest.sh` (1 dependent)
-- `h_log_activity` — `.claude/hooks/log-activity.sh` (3 dependents)
+- `h_log_activity` — `.claude/hooks/log-activity.sh` (4 dependents)
 - `h_notify_phase_change` — `.claude/hooks/notify-phase-change.sh` (3 dependents)
 - `h_output_index` — `.claude/hooks/output-index.sh` (1 dependent)
 - `h_post_mcp_validate` — `.claude/hooks/post-mcp-validate.sh` (1 dependent)
@@ -53,7 +53,7 @@
 - `h_tool_failure_log` — `.claude/hooks/tool-failure-log.sh` (1 dependent)
 
 ### lib
-- `l_common` — `.claude/hooks/_common.sh` (11 dependents)
+- `l_common` — `.claude/hooks/_common.sh` (12 dependents)
 - `l_dashboard_render` — `scripts/lib/dashboard-render.ts` (4 dependents)
 - `l_json` — `scripts/lib/json.sh` (2 dependents)
 - `l_policy` — `scripts/lib/policy.ts` (1 dependent)
@@ -141,6 +141,7 @@
 - `c_workflows_compete` --references--> `h_notify_phase_change`
 - `c_workflows_mvp` --references--> `s_validate_roadmap`
 - `c_workflows_plan` --references--> `s_validate_roadmap`
+- `c_workflows_rebuild` --references--> `h_log_activity`
 - `c_workflows_review` --references--> `h_log_activity`
 - `c_workflows_review` --references--> `h_notify_phase_change`
 - `c_workflows_review` --references--> `s_system_map`
