@@ -176,6 +176,12 @@ Small quality items surfaced during self-maintenance / #T9 reviews (2026-07-17).
 - [x] Run /tools:dream — staged 2026-07-17-1605 (13 memory + 14 session files → 4 topic files, 0 unresolved contradictions, 2 pattern promotions proposed); ACCEPTED 2026-07-18 (orchestrator removed the 13 consumed sources by hand — see #T77) #T63
 - [x] dream-accept.sh true swap: manifest.yaml memory_files consumed post-archive (cmp-guarded removals under the recovery marker; missing manifest → additive-only warning); dream.md pins the schema; smoke 17→25 assertions (9694193) #T77
   <!-- maint-fp: dream:12:14 -->
+- [?] skill-edit: design.md — reviewer must re-attack fixed conditions #T93
+  <!-- maint-fp: skill-edit:.claude/commands/workflows/design.md:reattack-fixed-conditions -->
+  <!-- proposal: docs/specs/skill-optimization-loop/skill-edits.md Proposal 1 -->
+- [?] skill-edit: tests.md — security guards need in-bounds indirection fixtures #T94
+  <!-- maint-fp: skill-edit:.claude/rules/tests.md:indirection-security-fixtures -->
+  <!-- proposal: docs/specs/skill-optimization-loop/skill-edits.md Proposal 2 -->
 
 ### Todo
 
@@ -225,8 +231,8 @@ Spec: `docs/specs/skill-optimization-loop/` (design APPROVED rev 4, 2026-07-22, 
 - [~] approve.md skill-edit gate: display, staged apply, ack, reject-to-ledger #T86
 - [~] maintain-draft.test.ts skill-edit formats + retired-line and cross-trigger dedup #T87
 - [~] system-map-lib pathToId export + rules bloat + policy refactor (depends: #T79) #T88
-- [~] skill-apply.ts CLI standard tier (depends: #T81) #T89
-- [~] skill-apply --auto six-condition class (depends: #T79, #T88, #T89) #T90
+- [!] skill-apply.ts CLI standard tier (depends: #T81) #T89
+- [!] skill-apply --auto six-condition class (depends: #T79, #T88, #T89) #T90
 - [~] Policy key, permissions entries, template sync lists (depends: #T79, #T80, #T89) #T91
 - [~] architecture.md + tiered draft-only-autonomy ADR (depends: #T90, #T91) #T92
 ### In Progress
