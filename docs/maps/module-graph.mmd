@@ -51,6 +51,7 @@ flowchart LR
     l_common[".claude/hooks/_common.sh"]
     l_dashboard_render["scripts/lib/dashboard-render.ts"]
     l_json["scripts/lib/json.sh"]
+    l_policy["scripts/lib/policy.ts"]
     l_project_root["scripts/lib/project-root.ts"]
     l_scan_rules["scripts/lib/scan-rules.js"]
     l_system_map_lib["scripts/lib/system-map-lib.ts"]
@@ -91,6 +92,7 @@ flowchart LR
     s_maintain_smoke["tests/maintain-smoke.sh"]
     s_new_project_smoke["tests/new-project-smoke.sh"]
     s_observation_parser_test["tests/observation-parser.test.ts"]
+    s_policy_test["tests/policy.test.ts"]
     s_scanner_smoke["tests/scanner-smoke.sh"]
     s_system_map_smoke["tests/system-map-smoke.sh"]
     s_system_map_test["tests/system-map.test.ts"]
@@ -150,6 +152,7 @@ flowchart LR
   h_pre_compact -->|sources| l_common
   h_session_end_cleanup -->|sources| l_common
   h_tool_failure_log -->|sources| l_common
+  l_policy -->|imports| l_project_root
   s_dashboard -->|sources| l_json
   s_dashboard_render_test -->|imports| l_dashboard_render
   s_dashboard_server -->|imports| l_dashboard_render
@@ -157,6 +160,7 @@ flowchart LR
   s_knowledge_index -->|imports| l_project_root
   s_maintain_draft -->|imports| l_dashboard_render
   s_maintain_draft -->|imports| l_project_root
+  s_policy_test -->|imports| l_policy
   s_system_map -->|imports| l_project_root
   s_system_map -->|imports| l_system_map_lib
   s_system_map_test -->|imports| l_system_map_lib

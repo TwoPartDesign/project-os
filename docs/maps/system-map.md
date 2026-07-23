@@ -56,7 +56,8 @@
 - `l_common` — `.claude/hooks/_common.sh` (11 dependents)
 - `l_dashboard_render` — `scripts/lib/dashboard-render.ts` (4 dependents)
 - `l_json` — `scripts/lib/json.sh` (2 dependents)
-- `l_project_root` — `scripts/lib/project-root.ts` (10 dependents)
+- `l_policy` — `scripts/lib/policy.ts` (1 dependent)
+- `l_project_root` — `scripts/lib/project-root.ts` (12 dependents)
 - `l_scan_rules` — `scripts/lib/scan-rules.js` (0 dependents)
 - `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (6 dependents)
 
@@ -96,6 +97,7 @@
 - `s_maintain_smoke` — `tests/maintain-smoke.sh` (0 dependents)
 - `s_new_project_smoke` — `tests/new-project-smoke.sh` (0 dependents)
 - `s_observation_parser_test` — `tests/observation-parser.test.ts` (0 dependents)
+- `s_policy_test` — `tests/policy.test.ts` (0 dependents)
 - `s_scanner_smoke` — `tests/scanner-smoke.sh` (0 dependents)
 - `s_system_map_smoke` — `tests/system-map-smoke.sh` (0 dependents)
 - `s_system_map_test` — `tests/system-map.test.ts` (0 dependents)
@@ -157,6 +159,7 @@
 - `h_pre_compact` --sources--> `l_common`
 - `h_session_end_cleanup` --sources--> `l_common`
 - `h_tool_failure_log` --sources--> `l_common`
+- `l_policy` --imports--> `l_project_root`
 - `s_dashboard` --sources--> `l_json`
 - `s_dashboard_render_test` --imports--> `l_dashboard_render`
 - `s_dashboard_server` --imports--> `l_dashboard_render`
@@ -164,6 +167,7 @@
 - `s_knowledge_index` --imports--> `l_project_root`
 - `s_maintain_draft` --imports--> `l_dashboard_render`
 - `s_maintain_draft` --imports--> `l_project_root`
+- `s_policy_test` --imports--> `l_policy`
 - `s_system_map` --imports--> `l_project_root`
 - `s_system_map` --imports--> `l_system_map_lib`
 - `s_system_map_test` --imports--> `l_system_map_lib`
@@ -175,6 +179,7 @@
 - LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 5192 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 2909 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/windows-bash-scanner.md — docs/knowledge/windows-bash-scanner.md is approximately 2678 tokens, exceeding the 2500-token warn threshold.
+- MEDIUM manifest-gap l_policy — scripts/lib/policy.ts is missing from the manifest's files map.
 - MEDIUM orphan-script s_audit_context — Script scripts/audit-context.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_context_filter — Script scripts/context-filter.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_install_hooks — Script scripts/install-hooks.sh has no incoming references and is not in the orphan allowlist.

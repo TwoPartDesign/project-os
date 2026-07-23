@@ -62,6 +62,7 @@
     "scripts/knowledge-index.ts": "d7c68c389774278caec3554a77cde7601df6e70ef16aff3f6a550d032789dd6c",
     "scripts/lib/dashboard-render.ts": "5bff04ec5ca293699041d5d3a744ab9ff6c42ae51abced8fc0a078c238bbb0a6",
     "scripts/lib/json.sh": "db6cc9dc80a3d8f58c722934974dac808c1028eb88a32fd1537fdc198bd72bbb",
+    "scripts/lib/policy.ts": "0eda97c7267814fd1cf85b831ff5c43d3242e923548185f9a6e37c525ddc3e97",
     "scripts/lib/project-root.ts": "5afd74f2af4d65ab8c491e1bf85ad9642c32035c9a53b20447ee4547c7a2e122",
     "scripts/lib/scan-rules.js": "fa7fb6646c3d6decdd0ef2254541715c9285a68d7b0bc6afebdfddb208133629",
     "scripts/lib/system-map-lib.ts": "e1662667a751b9aa64ff0312fa9be728b0f79d9872c53705d9ac0f707ec6dc7a",
@@ -88,6 +89,7 @@
     "tests/maintain-smoke.sh": "034367b896211010bc376138b5f05226719f68aace5c1ed9adf97a9edecfd2d9",
     "tests/new-project-smoke.sh": "830072ae759b6d40ec508812be58a4d522ae2b8fa127edafc3e66e49188f7d5b",
     "tests/observation-parser.test.ts": "231883f297af5d54c9410cc035a7e4b0bcaad239239b9f3e8b0b73928317447a",
+    "tests/policy.test.ts": "ce0cc331e82a10a154915148ca42388afdb67420c80f311169890ab900b23eb1",
     "tests/scanner-smoke.sh": "c5f49d4398bd56bd3736db5fb6b13435b4585e7d0f13f31cf4e5284113a7f3a8",
     "tests/system-map-smoke.sh": "c9d83f43eb1bd3ad806c47a18c1628dff41e1ca57599345816bf6b084f32e991",
     "tests/system-map.test.ts": "a30c8f6feff6fcfb2377e26e0b8ae102fe153ef84177162862ffd5412facbc8c"
