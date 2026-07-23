@@ -340,3 +340,27 @@ export function applyAnchoredOp(fileContent: string, p: SkillEditProposal): stri
 export function estimateTokens(s: string): number {
   return Math.ceil(s.length / 4);
 }
+
+/**
+ * Auto-tier condition 6/6 (skill-apply.ts's `--auto` eligibility class,
+ * #T90): checks whether a proposed edit genuinely corresponds to a specific
+ * dead reference, rather than being anchored somewhere unrelated in the same
+ * file and merely riding along on an unrelated live dangling-ref finding
+ * (the "smuggling" case this condition exists to catch). Returns `true` iff
+ * `deadRef` occurs verbatim as a substring of `anchor` AND — for a
+ * `replace` operation only — `deadRef` does NOT occur as a substring of
+ * `proposedText` (a replace that echoes the same dead reference straight
+ * back into the file wouldn't actually fix anything). `delete` has no
+ * proposed text to check: removing the anchor removes the reference by
+ * construction, so only the anchor-contains-deadRef half applies.
+ */
+export function checkAutoCorrespondence(
+  anchor: string,
+  proposedText: string,
+  op: "delete" | "replace",
+  deadRef: string,
+): boolean {
+  if (!anchor.includes(deadRef)) return false;
+  if (op === "replace" && proposedText.includes(deadRef)) return false;
+  return true;
+}

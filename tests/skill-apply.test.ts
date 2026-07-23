@@ -78,6 +78,33 @@ function commitAll(dir: string, message: string): void {
   git(dir, ["commit", "-m", message]);
 }
 
+/** Writes `.claude/maintenance-policy.yaml` with `body` as its raw contents. */
+function writePolicyFile(dir: string, body: string): void {
+  writeFileEnsuringDir(resolve(dir, ".claude/maintenance-policy.yaml"), body);
+}
+
+/**
+ * Copies the real scripts/system-map.ts + its lib dependencies
+ * (system-map-lib.ts, policy.ts, project-root.ts) from the actual project
+ * into the fixture's own scripts tree, preserving the same relative layout
+ * so system-map.ts's own `./lib/...` imports resolve unchanged. Needed by
+ * the auto-tier tests that require a REAL `system-map.ts report` run
+ * (condition 5/6 evidence) rather than the "missing script" warn-and-skip
+ * path most other fixtures rely on.
+ */
+function copyRealSystemMap(dir: string): void {
+  const files = [
+    "scripts/system-map.ts",
+    "scripts/lib/system-map-lib.ts",
+    "scripts/lib/policy.ts",
+    "scripts/lib/project-root.ts",
+  ];
+  for (const rel of files) {
+    const content = readFileSync(resolve(PROJECT_ROOT, rel), "utf-8");
+    writeFileEnsuringDir(resolve(dir, rel), content);
+  }
+}
+
 interface ProposalOpts {
   n: number;
   title: string;
@@ -452,12 +479,330 @@ describe("skill-apply.ts apply", () => {
     }
   });
 
-  it("apply_autoFlag_exit3Stub", () => {
+  it("auto_policyOff_exit3", () => {
     const dir = freshFixture();
     try {
+      // No .claude/maintenance-policy.yaml at all — the policy gate's
+      // default is false. Create .claude/ explicitly so getProjectRoot()
+      // resolves the fixture root, not the host machine's global ~/.claude.
+      mkdirSync(resolve(dir, ".claude"), { recursive: true });
+
       const result = runSkillApply(dir, ["--auto"]);
       strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
-      ok(result.stderr.includes("auto tier not yet enabled"), `stderr mismatch: ${result.stderr}`);
+      strictEqual(result.stderr.trim(), "auto refused: policy off", `stderr mismatch: ${result.stderr}`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  it("auto_addOp_exit3", () => {
+    const dir = freshFixture();
+    try {
+      initGitRepo(dir);
+      writePolicyFile(dir, "skill_auto_apply: on\n");
+      const targetRel = ".claude/commands/test-doc.md";
+      const targetAbs = resolve(dir, targetRel);
+      writeFileEnsuringDir(targetAbs, "Anchor for add op.\n\nTail.\n");
+      commitAll(dir, "initial commit");
+
+      const proposalPath = resolve(dir, "proposal.md");
+      writeFileSync(
+        proposalPath,
+        buildProposalDoc({
+          n: 1,
+          title: "Add not allowed in auto",
+          fingerprint: "skill-edit:test-doc:auto-add",
+          target: targetRel,
+          operation: "add", // violates condition 2 — the only condition this fixture violates
+          tier: "auto-eligible",
+          draftTask: "#T90",
+          evidence: "test",
+          anchor: "Anchor for add op.",
+          proposedText: "New line.",
+          rationale: "test",
+        }),
+        "utf-8",
+      );
+
+      const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1", "--auto"]);
+      strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+      strictEqual(
+        result.stderr.trim(),
+        "auto refused: op must be delete|replace",
+        `stderr mismatch: ${result.stderr}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  it("auto_rulesTarget_exit3", () => {
+    const dir = freshFixture();
+    try {
+      initGitRepo(dir);
+      writePolicyFile(dir, "skill_auto_apply: on\n");
+      // Valid delete op (condition 2 satisfied) — only condition 3 (target
+      // containment) is violated: .claude/rules/ is excluded from auto even
+      // though the standard tier allows it.
+      const targetRel = ".claude/rules/test-rule.md";
+      const targetAbs = resolve(dir, targetRel);
+      writeFileEnsuringDir(targetAbs, "Anchor in a rule file.\n\nTail.\n");
+      commitAll(dir, "initial commit");
+
+      const proposalPath = resolve(dir, "proposal.md");
+      writeFileSync(
+        proposalPath,
+        buildProposalDoc({
+          n: 1,
+          title: "Rules excluded from auto",
+          fingerprint: "skill-edit:test-rule:auto-rules",
+          target: targetRel,
+          operation: "delete",
+          tier: "auto-eligible",
+          draftTask: "#T90",
+          evidence: "test",
+          anchor: "Anchor in a rule file.",
+          proposedText: "",
+          rationale: "test",
+        }),
+        "utf-8",
+      );
+
+      const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1", "--auto"]);
+      strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+      strictEqual(
+        result.stderr.trim(),
+        "auto refused: target must be under .claude/commands/ or .claude/skills/ (rules excluded from auto)",
+        `stderr mismatch: ${result.stderr}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  it("auto_sizeIncrease_exit3", () => {
+    const dir = freshFixture();
+    try {
+      initGitRepo(dir);
+      writePolicyFile(dir, "skill_auto_apply: on\n");
+      // Valid op/target (conditions 1-3 satisfied) — only condition 4 (size
+      // must not increase) is violated: replace substitutes a 1-char anchor
+      // with a much longer proposed text.
+      const targetRel = ".claude/commands/test-doc.md";
+      const targetAbs = resolve(dir, targetRel);
+      writeFileEnsuringDir(targetAbs, "Line before.\n\nX\n\nLine after.\n");
+      commitAll(dir, "initial commit");
+
+      const proposalPath = resolve(dir, "proposal.md");
+      writeFileSync(
+        proposalPath,
+        buildProposalDoc({
+          n: 1,
+          title: "Grows the file",
+          fingerprint: "skill-edit:test-doc:auto-size",
+          target: targetRel,
+          operation: "replace",
+          tier: "auto-eligible",
+          draftTask: "#T90",
+          evidence: "test",
+          anchor: "X",
+          proposedText: "Y".repeat(200),
+          rationale: "test",
+        }),
+        "utf-8",
+      );
+
+      const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1", "--auto"]);
+      strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+      strictEqual(result.stderr.trim(), "auto refused: size increased", `stderr mismatch: ${result.stderr}`);
+      strictEqual(
+        readFileSync(targetAbs, "utf-8"),
+        "Line before.\n\nX\n\nLine after.\n",
+        "target content changed despite auto size refusal",
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  it("auto_noLiveFindingForTarget_exit3", () => {
+    // Conditions 1-4 all satisfied (policy on, delete op, commands target,
+    // delete always shrinks). This fixture has no scripts/system-map.ts at
+    // all — same as most fixtures in this file — so condition 5 refuses via
+    // its "missing script" branch, which is condition 5's uniform "no live
+    // evidence" refusal (see runSystemMapReportJson's docstring).
+    const dir = freshFixture();
+    try {
+      initGitRepo(dir);
+      writePolicyFile(dir, "skill_auto_apply: on\n");
+      const targetRel = ".claude/commands/test-doc.md";
+      const targetAbs = resolve(dir, targetRel);
+      writeFileEnsuringDir(targetAbs, "Anchor with no map script.\n\nTail.\n");
+      commitAll(dir, "initial commit");
+
+      const proposalPath = resolve(dir, "proposal.md");
+      writeFileSync(
+        proposalPath,
+        buildProposalDoc({
+          n: 1,
+          title: "No map script present",
+          fingerprint: "skill-edit:test-doc:auto-no-map",
+          target: targetRel,
+          operation: "delete",
+          tier: "auto-eligible",
+          draftTask: "#T90",
+          evidence: "test",
+          anchor: "Anchor with no map script.",
+          proposedText: "",
+          rationale: "test",
+        }),
+        "utf-8",
+      );
+
+      const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1", "--auto"]);
+      strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+      strictEqual(
+        result.stderr.trim(),
+        "auto refused: no live dangling-ref finding for target",
+        `stderr mismatch: ${result.stderr}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  /**
+   * Shared fixture content for the two tests below: a command doc with two
+   * unrelated blocks — one plain paragraph, and one fenced code block that
+   * references a script that doesn't exist (`scripts/dead-ref.sh`), which a
+   * REAL `system-map.ts report` run will flag as a live dangling-ref finding
+   * whose subject is this doc's own node id.
+   */
+  const CMD_DOC_WITH_DEAD_REF = [
+    "# Test Command",
+    "",
+    "## Section A",
+    "",
+    "Some intro paragraph text here.",
+    "",
+    "## Section B",
+    "",
+    "```bash",
+    "bash scripts/dead-ref.sh",
+    "```",
+    "",
+    "## Section C",
+    "",
+    "Trailing content unrelated.",
+    "",
+  ].join("\n");
+
+  it("auto_unrelatedAnchorDespiteLiveFinding_exit3", () => {
+    // THE SMUGGLING CASE: a real, live dangling-ref finding exists for this
+    // target (scripts/dead-ref.sh, referenced in Section B), but the
+    // proposal's anchor is Section A's unrelated paragraph — it never
+    // mentions the dead reference. Condition 6 must refuse this even though
+    // condition 5 (live evidence) is satisfied, or a proposal could ride an
+    // unrelated file's real finding to auto-apply an arbitrary edit anywhere
+    // else in that same file.
+    const dir = freshFixture();
+    try {
+      initGitRepo(dir);
+      copyRealSystemMap(dir);
+      writePolicyFile(dir, "skill_auto_apply: on\n");
+      const targetRel = ".claude/commands/tools/test-cmd.md";
+      const targetAbs = resolve(dir, targetRel);
+      writeFileEnsuringDir(targetAbs, CMD_DOC_WITH_DEAD_REF);
+      commitAll(dir, "initial commit");
+
+      const proposalPath = resolve(dir, "proposal.md");
+      writeFileSync(
+        proposalPath,
+        buildProposalDoc({
+          n: 1,
+          title: "Unrelated anchor",
+          fingerprint: "skill-edit:test-cmd:auto-smuggle",
+          target: targetRel,
+          operation: "delete",
+          tier: "auto-eligible",
+          draftTask: "#T90",
+          evidence: "test",
+          anchor: "Some intro paragraph text here.",
+          proposedText: "",
+          rationale: "Unrelated edit riding a real finding elsewhere in the file.",
+        }),
+        "utf-8",
+      );
+
+      const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1", "--auto"]);
+      strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+      strictEqual(
+        result.stderr.trim(),
+        "auto refused: edit does not correspond to the dead reference",
+        `stderr mismatch: ${result.stderr}`,
+      );
+      strictEqual(
+        readFileSync(targetAbs, "utf-8"),
+        CMD_DOC_WITH_DEAD_REF,
+        "target content changed despite correspondence refusal",
+      );
+
+      const afterLog = gitOutput(dir, ["log", "--format=%H"]);
+      strictEqual(afterLog.split("\n").length, 1, "a commit was created despite correspondence refusal");
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  it("auto_allConditionsMet_commitsWithProposalInBody", () => {
+    const dir = freshFixture();
+    try {
+      initGitRepo(dir);
+      copyRealSystemMap(dir);
+      writePolicyFile(dir, "skill_auto_apply: on\n");
+      const targetRel = ".claude/commands/tools/test-cmd.md";
+      const targetAbs = resolve(dir, targetRel);
+      writeFileEnsuringDir(targetAbs, CMD_DOC_WITH_DEAD_REF);
+      commitAll(dir, "initial commit");
+
+      const proposalPath = resolve(dir, "proposal.md");
+      writeFileSync(
+        proposalPath,
+        buildProposalDoc({
+          n: 1,
+          title: "Remove dead reference",
+          fingerprint: "skill-edit:test-cmd:auto-happy",
+          target: targetRel,
+          operation: "delete",
+          tier: "auto-eligible",
+          draftTask: "#T90",
+          evidence: "test",
+          anchor: "bash scripts/dead-ref.sh",
+          proposedText: "",
+          rationale: "scripts/dead-ref.sh no longer exists; removing the dead reference.",
+        }),
+        "utf-8",
+      );
+
+      const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1", "--auto"]);
+      strictEqual(result.status, 0, `expected exit 0, stderr: ${result.stderr}`);
+      ok(
+        /^applied: [0-9a-f]{40}$/.test(result.stdout.trim()),
+        `stdout did not match "applied: <hash>": ${result.stdout}`,
+      );
+
+      const subject = gitOutput(dir, ["log", "-1", "--format=%s"]);
+      ok(subject.startsWith("chore(skills): auto-apply"), `unexpected commit subject: ${subject}`);
+
+      const body = gitOutput(dir, ["log", "-1", "--format=%B"]);
+      ok(body.includes("bash scripts/dead-ref.sh"), `commit body missing Anchor text: ${body}`);
+      ok(
+        body.includes("scripts/dead-ref.sh no longer exists; removing the dead reference."),
+        `commit body missing Rationale text: ${body}`,
+      );
+
+      const updated = readFileSync(targetAbs, "utf-8");
+      ok(!updated.includes("bash scripts/dead-ref.sh"), "dead reference was not removed from target");
     } finally {
       rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
     }

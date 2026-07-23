@@ -173,8 +173,10 @@ flowchart LR
   s_maintain_draft -->|imports| l_dashboard_render
   s_maintain_draft -->|imports| l_project_root
   s_policy_test -->|imports| l_policy
+  s_skill_apply -->|imports| l_policy
   s_skill_apply -->|imports| l_project_root
   s_skill_apply -->|imports| l_skill_apply_lib
+  s_skill_apply -->|imports| l_system_map_lib
   s_skill_apply_lib_test -->|imports| l_skill_apply_lib
   s_skill_ledger -->|imports| l_project_root
   s_system_map -->|imports| l_policy

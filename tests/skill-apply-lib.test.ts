@@ -9,6 +9,7 @@ import {
   parseProposal,
   applyAnchoredOp,
   estimateTokens,
+  checkAutoCorrespondence,
   AnchorError,
 } from "../scripts/lib/skill-apply-lib.ts";
 import type { SkillEditProposal } from "../scripts/lib/skill-apply-lib.ts";
@@ -226,5 +227,26 @@ describe("estimateTokens", () => {
     strictEqual(estimateTokens("abcd"), 1);
     strictEqual(estimateTokens("abcde"), 2);
     strictEqual(estimateTokens("a".repeat(100)), 25);
+  });
+});
+
+describe("checkAutoCorrespondence", () => {
+  it("checkAutoCorrespondence_deadRefInAnchor_true", () => {
+    const anchor = "bash scripts/dead-ref.sh";
+    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    strictEqual(result, true);
+  });
+
+  it("checkAutoCorrespondence_replaceRetainsDeadRef_false", () => {
+    const anchor = "See bash scripts/dead-ref.sh for details.";
+    const proposedText = "See bash scripts/dead-ref.sh (still referenced) for details.";
+    const result = checkAutoCorrespondence(anchor, proposedText, "replace", "scripts/dead-ref.sh");
+    strictEqual(result, false);
+  });
+
+  it("checkAutoCorrespondence_deadRefAbsentFromAnchor_false", () => {
+    const anchor = "This anchor is about something unrelated entirely.";
+    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    strictEqual(result, false);
   });
 });

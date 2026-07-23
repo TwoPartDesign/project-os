@@ -12,6 +12,32 @@
 // Usage:
 //   node scripts/skill-apply.ts apply --proposal "<path>" --n <N> [--auto]
 //
+// `--auto` (#T90): a narrow, machine-checked eligibility class that lets a
+// dead-reference fix apply WITHOUT prior human approval. Gated by six
+// conditions, checked in order, every one of which is verified against the
+// platform's real state (never trusted from the proposal's own claims):
+//   1. policy: readPolicyFlag("skill_auto_apply", false) from
+//      scripts/lib/policy.ts must be true
+//   2. operation: proposal.operation is delete or replace (never add)
+//   3. target: canonical target path is under .claude/commands/ or
+//      .claude/skills/ ONLY — .claude/rules/ is excluded from auto, tighter
+//      than the standard tier's containment
+//   4. size: estimateTokens(newContent) <= estimateTokens(oldContent)
+//   5. live map evidence: `node scripts/system-map.ts report --json` must
+//      report at least one dangling-ref finding whose subject id equals
+//      pathToId(target) (scripts/lib/system-map-lib.ts)
+//   6. edit-content correspondence: scripts/lib/skill-apply-lib.ts's
+//      checkAutoCorrespondence confirms the missing-target string named by
+//      that finding genuinely occurs in the proposal's anchor (and, for
+//      replace, is actually removed by proposedText) — this is what
+//      prevents an anchor elsewhere in the same file from "smuggling" an
+//      unrelated edit through under cover of a real finding.
+// The first failing condition exits 3 with a `auto refused: <condition>`
+// stderr message, before anything is written to disk — a clean signal the
+// caller uses to fall back to filing a normal (human-approved) draft. All
+// six passing falls through into the exact same apply/validate/commit path
+// below, just with an `auto-apply` commit subject.
+//
 // Exit codes:
 //   0  applied and committed — prints "applied: <40-hex commit hash>"
 //   1  usage error (bad/missing subcommand, --proposal, or --n) or a
@@ -19,8 +45,8 @@
 //   3  refusal — target outside the allowed instruction directories
 //      (traversal/symlink escape), repo mid-operation (detached HEAD,
 //      merge/rebase/cherry-pick in progress), dirty target (git status
-//      not clean), AnchorError (anchor not found / ambiguous), or the
-//      `--auto` stub (auto-tier eligibility is a later task)
+//      not clean), AnchorError (anchor not found / ambiguous), or an
+//      `--auto` eligibility condition failing (see above)
 //   4  rolled back — post-edit validation (system-map check --heal crash,
 //      or a security-scanner finding) failed; the target file has been
 //      restored to its pre-apply content
@@ -51,13 +77,26 @@ import { execFileSync, spawnSync } from "node:child_process";
 import {
   parseProposal,
   applyAnchoredOp,
+  estimateTokens,
+  checkAutoCorrespondence,
   AnchorError,
 } from "./lib/skill-apply-lib.ts";
 import type { SkillEditProposal } from "./lib/skill-apply-lib.ts";
 import { getProjectRoot } from "./lib/project-root.ts";
+import { readPolicyFlag } from "./lib/policy.ts";
+import { pathToId } from "./lib/system-map-lib.ts";
+import type { Finding } from "./lib/system-map-lib.ts";
 
 /** Repo-relative directories a proposal's `target` is allowed to resolve into. */
 const ALLOWED_TARGET_DIRS = [".claude/commands/", ".claude/skills/", ".claude/rules/"];
+
+/**
+ * Repo-relative directories the `--auto` tier's target may resolve into —
+ * strictly narrower than {@link ALLOWED_TARGET_DIRS}: `.claude/rules/` is
+ * excluded from auto (condition 3/6) even though a human-approved standard
+ * apply may target it.
+ */
+const AUTO_TARGET_DIRS = [".claude/commands/", ".claude/skills/"];
 
 /** Parsed `apply` subcommand flags. `--auto` is a bare boolean switch. */
 interface ApplyArgs {
@@ -261,6 +300,114 @@ function runSecurityScan(projectRoot: string, targetAbs: string, originalContent
 }
 
 /**
+ * Anchored, single-quantifier match for the missing-target string named at
+ * the end of a `dangling-ref` finding's `detail` message — see
+ * scripts/lib/system-map-lib.ts's `findDanglingRefs`, which always produces
+ * `Edge ${kind} from ${from} points to missing node ${to}.` (a trailing
+ * literal period after the path). Greedy-but-anchored: `.+` backtracks only
+ * as far as the final literal `.`, which is always the template's own
+ * terminator, never a `.` inside the path itself (e.g. `scripts/x.sh`).
+ */
+const DANGLING_REF_TARGET_RE = /points to missing node (.+)\.$/;
+
+/** Extracts the missing-target path from a dangling-ref finding's `detail` string, or `null` if it doesn't match the expected shape. */
+function extractDanglingRefTarget(detail: string): string | null {
+  const m = DANGLING_REF_TARGET_RE.exec(detail);
+  return m ? m[1] : null;
+}
+
+/**
+ * Runs `node scripts/system-map.ts report --json` in `projectRoot` and
+ * parses its stdout as a `Finding[]` array (scripts/system-map.ts's
+ * `cmdReport` prints exactly `JSON.stringify(result.findings, null, 2)` for
+ * `--json` and always exits 0 on success). Returns `null` — never throws —
+ * for every failure mode: a missing script, a nonzero/signal-killed exit, or
+ * stdout that doesn't parse as an array. The auto-tier gate (condition 5/6)
+ * treats all of these as "no live evidence" uniformly.
+ */
+function runSystemMapReportJson(projectRoot: string): Finding[] | null {
+  const systemMapPath = resolve(projectRoot, "scripts/system-map.ts");
+  if (!existsSync(systemMapPath)) return null;
+
+  const result = spawnSync(process.execPath, [systemMapPath, "report", "--json"], {
+    cwd: projectRoot,
+    encoding: "utf-8",
+  });
+  if (result.status !== 0) return null;
+
+  try {
+    const parsed: unknown = JSON.parse(result.stdout ?? "");
+    if (!Array.isArray(parsed)) return null;
+    return parsed as Finding[];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Runs the auto-tier's remaining eligibility conditions (4: size must not
+ * increase, 5: live system-map dangling-ref evidence, 6: edit-content
+ * correspondence) once the anchored operation has been computed in memory
+ * but strictly before anything is written to disk. Exits 3 with a
+ * `auto refused: <condition>` message on the first failing condition;
+ * returns normally when all three pass. Conditions 1-3 (policy, operation,
+ * target containment) are checked earlier in `main()`.
+ */
+function runAutoGate(
+  projectRoot: string,
+  relTarget: string,
+  proposal: SkillEditProposal,
+  originalContent: string,
+  newContent: string,
+): void {
+  // Condition 4/6: size must not increase.
+  if (estimateTokens(newContent) > estimateTokens(originalContent)) {
+    console.error("auto refused: size increased");
+    process.exit(3);
+  }
+
+  // Condition 5/6: live system-map evidence. Re-derive the target's node id
+  // exactly the way the generator does. pathToId throws on an out-of-scope
+  // path; that should be unreachable this far in (condition 3 already
+  // confirmed containment under .claude/commands or .claude/skills), but is
+  // still guarded rather than assumed.
+  let targetId: string;
+  try {
+    targetId = pathToId(relTarget);
+  } catch {
+    console.error("auto refused: no live dangling-ref finding for target");
+    process.exit(3);
+  }
+
+  const findings = runSystemMapReportJson(projectRoot);
+  const matches = (findings ?? []).filter(
+    (f) => f.kind === "dangling-ref" && f.subject === targetId,
+  );
+  if (matches.length === 0) {
+    console.error("auto refused: no live dangling-ref finding for target");
+    process.exit(3);
+  }
+
+  // Condition 6/6: edit-content correspondence. At least one matching
+  // finding's missing-target string must genuinely be what the proposal's
+  // anchor/proposedText addresses — guards against a proposal anchored
+  // somewhere unrelated in the same file, smuggled in under cover of a real
+  // dangling-ref finding elsewhere in that file.
+  const op = proposal.operation as "delete" | "replace"; // condition 2 already excluded "add"
+  const corresponds = matches.some((f) => {
+    const deadRef = extractDanglingRefTarget(f.detail);
+    return (
+      deadRef !== null &&
+      checkAutoCorrespondence(proposal.anchor, proposal.proposedText, op, deadRef)
+    );
+  });
+  if (!corresponds) {
+    console.error("auto refused: edit does not correspond to the dead reference");
+    process.exit(3);
+  }
+}
+
+/**
  * Entry point for the `apply` subcommand. See the module header for the
  * full step sequence and exit-code contract.
  */
@@ -274,11 +421,12 @@ function main(): void {
 
   const args = parseApplyArgs(argv.slice(1));
 
-  // --auto stub: a later task replaces this with the six-condition
-  // eligibility class (#T90). Checked before other flag validation so
-  // `--auto` alone is sufficient to observe the stub behavior.
-  if (args.auto) {
-    console.error("auto tier not yet enabled");
+  // Auto-tier condition 1/6: policy gate. Checked before other flag
+  // validation (mirrors the pre-#T90 stub's behavior) so `--auto` alone,
+  // even without a valid --proposal, is enough to observe a policy-off
+  // refusal — the caller falls back to filing a normal draft either way.
+  if (args.auto && !readPolicyFlag("skill_auto_apply", false)) {
+    console.error("auto refused: policy off");
     process.exit(3);
   }
 
@@ -303,6 +451,14 @@ function main(): void {
   } catch (err) {
     console.error(`error: ${(err as Error).message}`);
     process.exit(1);
+  }
+
+  // Auto-tier condition 2/6: operation must be delete or replace — add is
+  // never eligible (auto only ever removes or shrinks known-dead content,
+  // never introduces new content unsupervised).
+  if (args.auto && proposal.operation !== "delete" && proposal.operation !== "replace") {
+    console.error("auto refused: op must be delete|replace");
+    process.exit(3);
   }
 
   // Step 3: resolve + contain the target.
@@ -331,6 +487,19 @@ function main(): void {
       `error: containment check failed — target resolves outside the allowed instruction directories (.claude/commands, .claude/skills, .claude/rules): ${canonicalTarget}`,
     );
     process.exit(3);
+  }
+
+  // Auto-tier condition 3/6: tighter containment than the standard tier —
+  // .claude/rules/ is excluded from auto even though it's allowed for a
+  // human-approved standard apply.
+  if (args.auto) {
+    const autoContained = AUTO_TARGET_DIRS.some((dir) => normTarget.startsWith(`${normRoot}/${dir}`));
+    if (!autoContained) {
+      console.error(
+        "auto refused: target must be under .claude/commands/ or .claude/skills/ (rules excluded from auto)",
+      );
+      process.exit(3);
+    }
   }
 
   // Step 4: repo-state guard (worktree-safe git-dir resolution).
@@ -383,11 +552,17 @@ function main(): void {
     newContent = applyAnchoredOp(originalContent, proposal);
   } catch (err) {
     if (err instanceof AnchorError) {
-      console.error(`error: ${err.message}`);
+      console.error(args.auto ? `auto refused: ${err.message}` : `error: ${err.message}`);
       process.exit(3);
     }
     throw err;
   }
+
+  // Auto-tier conditions 4-6/6 — must complete before any write.
+  if (args.auto) {
+    runAutoGate(projectRoot, relTarget, proposal, originalContent, newContent);
+  }
+
   writeFileSync(targetAbs, newContent, "utf-8");
 
   // Step 7: post-edit validation (rolls back + exits 4 on failure).
@@ -396,7 +571,9 @@ function main(): void {
 
   // Step 8: commit.
   const proposalBlock = extractProposalBlock(proposalContent, n);
-  const subject = `chore(skills): apply ${proposal.draftTask} ${proposal.title}`;
+  const subject = args.auto
+    ? `chore(skills): auto-apply ${proposal.draftTask} ${proposal.title}`
+    : `chore(skills): apply ${proposal.draftTask} ${proposal.title}`;
   const commitMsg = `${subject}\n\n${proposalBlock}\n`;
 
   const msgPath = resolve(gitDir, "SKILL_APPLY_MSG");

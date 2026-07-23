@@ -57,11 +57,11 @@
 - `l_common` — `.claude/hooks/_common.sh` (12 dependents)
 - `l_dashboard_render` — `scripts/lib/dashboard-render.ts` (5 dependents)
 - `l_json` — `scripts/lib/json.sh` (2 dependents)
-- `l_policy` — `scripts/lib/policy.ts` (6 dependents)
+- `l_policy` — `scripts/lib/policy.ts` (9 dependents)
 - `l_project_root` — `scripts/lib/project-root.ts` (16 dependents)
 - `l_scan_rules` — `scripts/lib/scan-rules.js` (0 dependents)
 - `l_skill_apply_lib` — `scripts/lib/skill-apply-lib.ts` (4 dependents)
-- `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (6 dependents)
+- `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (9 dependents)
 
 ### script
 - `s_audit_context` — `scripts/audit-context.sh` (0 dependents)
@@ -180,8 +180,10 @@
 - `s_maintain_draft` --imports--> `l_dashboard_render`
 - `s_maintain_draft` --imports--> `l_project_root`
 - `s_policy_test` --imports--> `l_policy`
+- `s_skill_apply` --imports--> `l_policy`
 - `s_skill_apply` --imports--> `l_project_root`
 - `s_skill_apply` --imports--> `l_skill_apply_lib`
+- `s_skill_apply` --imports--> `l_system_map_lib`
 - `s_skill_apply_lib_test` --imports--> `l_skill_apply_lib`
 - `s_skill_ledger` --imports--> `l_project_root`
 - `s_system_map` --imports--> `l_policy`
