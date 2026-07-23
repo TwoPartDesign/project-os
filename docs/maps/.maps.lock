@@ -65,6 +65,7 @@
     "scripts/lib/policy.ts": "0eda97c7267814fd1cf85b831ff5c43d3242e923548185f9a6e37c525ddc3e97",
     "scripts/lib/project-root.ts": "5afd74f2af4d65ab8c491e1bf85ad9642c32035c9a53b20447ee4547c7a2e122",
     "scripts/lib/scan-rules.js": "fa7fb6646c3d6decdd0ef2254541715c9285a68d7b0bc6afebdfddb208133629",
+    "scripts/lib/skill-apply-lib.ts": "07955b27e61f0974b1b7cff4020306244153cb49b16fa63662845fbed568a807",
     "scripts/lib/system-map-lib.ts": "e1662667a751b9aa64ff0312fa9be728b0f79d9872c53705d9ac0f707ec6dc7a",
     "scripts/maintain-draft.ts": "ceb0092afa2f720e9fc0b7910fe4dd68a04931b5dc8cd8d6ac95cee71f6dd379",
     "scripts/maintain.sh": "0b0feee68a391281a1083092dea44120ab543461ee0be1765fc1d69cb5745fee",
@@ -92,6 +93,7 @@
     "tests/observation-parser.test.ts": "231883f297af5d54c9410cc035a7e4b0bcaad239239b9f3e8b0b73928317447a",
     "tests/policy.test.ts": "ce0cc331e82a10a154915148ca42388afdb67420c80f311169890ab900b23eb1",
     "tests/scanner-smoke.sh": "c5f49d4398bd56bd3736db5fb6b13435b4585e7d0f13f31cf4e5284113a7f3a8",
+    "tests/skill-apply-lib.test.ts": "892371dde223ea3ff9782fc9b1c93616aa27ae9e119d6bdd7842b3a06faae0f1",
     "tests/skill-ledger.test.ts": "d5534858538ff812bec7d29609768466fc60cd365994c4a56035534f8aec9431",
     "tests/system-map-smoke.sh": "c9d83f43eb1bd3ad806c47a18c1628dff41e1ca57599345816bf6b084f32e991",
     "tests/system-map.test.ts": "a30c8f6feff6fcfb2377e26e0b8ae102fe153ef84177162862ffd5412facbc8c"
