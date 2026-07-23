@@ -185,7 +185,7 @@ Small quality items surfaced during self-maintenance / #T9 reviews (2026-07-17).
 - [x] Harden skill-apply entanglement residue check for non-ASCII word content + align lib doc-comment (applied e5b8a86-integration) #T95
   <!-- maint-fp: review-residual:skill-apply-lib:unicode-residue -->
   <!-- review.md r4 NOTES: [A-Za-z0-9] residue regex misses CJK/Cyrillic/fullwidth homoglyphs (LOW, needs prior compromise); doc-comment overclaims ASCII-only reality -->
-- [?] skill-edit: reflect.md — add-op proposed text must not repeat the anchor #T96
+- [x] skill-edit: reflect.md — add-op proposed text must not repeat the anchor (applied 1ec83b7) #T96
   <!-- maint-fp: skill-edit:.claude/commands/tools/reflect.md:add-op-anchor-duplication -->
   <!-- proposal: docs/specs/skill-optimization-loop/skill-edits.md Proposal 3 -->
 
