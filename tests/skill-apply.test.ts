@@ -12,6 +12,7 @@ import { describe, it } from "node:test";
 import { strictEqual, ok } from "node:assert";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -20,6 +21,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -52,6 +54,11 @@ function freshFixture(): string {
 /** Runs a git subcommand in `cwd`, discarding output. Throws on nonzero exit. */
 function git(cwd: string, args: string[]): void {
   execFileSync("git", args, { cwd, stdio: "pipe" });
+}
+
+/** Returns the sha256 hex digest of `path`'s current contents, for byte-identical rollback assertions. */
+function sha256File(path: string): string {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
 /** Runs a git subcommand in `cwd` and returns trimmed stdout. Throws on nonzero exit. */
@@ -344,7 +351,159 @@ describe("skill-apply.ts apply", () => {
 
       const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1"]);
       strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
-      ok(result.stderr.toLowerCase().includes("containment"), `stderr missing 'containment': ${result.stderr}`);
+      // M1 hardening: symlink targets are refused outright, immediately
+      // after the existence check — before containment even runs — so an
+      // outside-escaping symlink is now rejected via the "target is a
+      // symlink" message rather than reaching (and failing) the
+      // containment check. Exit code stays 3; only the reason changes.
+      ok(result.stderr.toLowerCase().includes("symlink"), `stderr missing 'symlink': ${result.stderr}`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  it("apply_inBoundsSymlinkTarget_exit3", (t) => {
+    // M1: an in-bounds symlink pointing at a DIFFERENT in-bounds file passes
+    // a naive containment check (realpathSync resolves it to another path
+    // that is itself under .claude/commands/), but must still be refused —
+    // the fs ops would otherwise mutate the link's target while git records
+    // only the link path, an effective edit with no matching commit.
+    const dir = freshFixture();
+    try {
+      initGitRepo(dir);
+      const realRel = ".claude/commands/real-doc.md";
+      const realAbs = resolve(dir, realRel);
+      const realContent = "Real content.\n\nAnchor here.\n\nTail.\n";
+      writeFileEnsuringDir(realAbs, realContent);
+
+      const linkRel = ".claude/commands/linked-doc.md";
+      const linkAbs = resolve(dir, linkRel);
+      mkdirSync(dirname(linkAbs), { recursive: true });
+      try {
+        symlinkSync(realAbs, linkAbs, "file");
+      } catch (err) {
+        t.skip(`symlink creation not permitted on this system: ${(err as Error).message}`);
+        return;
+      }
+      commitAll(dir, "initial commit");
+      const beforeLog = gitOutput(dir, ["log", "--format=%H"]);
+
+      const proposalPath = resolve(dir, "proposal.md");
+      writeFileSync(
+        proposalPath,
+        buildProposalDoc({
+          n: 1,
+          title: "In-bounds symlink indirection",
+          fingerprint: "skill-edit:linked-doc:inbounds-symlink",
+          target: linkRel,
+          operation: "add",
+          tier: "standard",
+          draftTask: "#T99",
+          evidence: "test",
+          anchor: "Anchor here.",
+          proposedText: "New line.",
+          rationale: "test",
+        }),
+        "utf-8",
+      );
+
+      const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1"]);
+      strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+      ok(result.stderr.toLowerCase().includes("symlink"), `stderr missing 'symlink': ${result.stderr}`);
+
+      strictEqual(
+        readFileSync(realAbs, "utf-8"),
+        realContent,
+        "real target modified despite in-bounds symlink refusal",
+      );
+      strictEqual(
+        readFileSync(linkAbs, "utf-8"),
+        realContent,
+        "link-resolved content modified despite in-bounds symlink refusal",
+      );
+
+      const afterLog = gitOutput(dir, ["log", "--format=%H"]);
+      strictEqual(afterLog, beforeLog, "a commit was created despite in-bounds symlink refusal");
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  it("apply_absoluteTarget_exit3", () => {
+    // M3c: an absolute (drive-letter) or UNC target must be rejected BEFORE
+    // any resolve()/existsSync() touches it — resolve(projectRoot, target)
+    // silently discards projectRoot for an absolute target, which would let
+    // an existence-oracle or UNC probe run before containment ever gets a
+    // chance to reject it.
+    const dir = freshFixture();
+    try {
+      initGitRepo(dir);
+      mkdirSync(resolve(dir, ".claude"), { recursive: true });
+
+      const proposalPath = resolve(dir, "proposal.md");
+      writeFileSync(
+        proposalPath,
+        buildProposalDoc({
+          n: 1,
+          title: "Absolute target",
+          fingerprint: "skill-edit:abs:absolute-target",
+          target: "C:\\Windows\\System32\\drivers\\etc\\hosts",
+          operation: "add",
+          tier: "standard",
+          draftTask: "#T99",
+          evidence: "test",
+          anchor: "anything",
+          proposedText: "anything else",
+          rationale: "test",
+        }),
+        "utf-8",
+      );
+
+      const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1"]);
+      strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+      strictEqual(
+        result.stderr.trim(),
+        "error: target must be a repo-relative path",
+        `stderr mismatch: ${result.stderr}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  it("apply_uncTarget_exit3", () => {
+    // M3c, UNC-share variant of the same guard.
+    const dir = freshFixture();
+    try {
+      initGitRepo(dir);
+      mkdirSync(resolve(dir, ".claude"), { recursive: true });
+
+      const proposalPath = resolve(dir, "proposal.md");
+      writeFileSync(
+        proposalPath,
+        buildProposalDoc({
+          n: 1,
+          title: "UNC target",
+          fingerprint: "skill-edit:unc:unc-target",
+          target: "//unc/share/secret.md",
+          operation: "add",
+          tier: "standard",
+          draftTask: "#T99",
+          evidence: "test",
+          anchor: "anything",
+          proposedText: "anything else",
+          rationale: "test",
+        }),
+        "utf-8",
+      );
+
+      const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1"]);
+      strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+      strictEqual(
+        result.stderr.trim(),
+        "error: target must be a repo-relative path",
+        `stderr mismatch: ${result.stderr}`,
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
     }
@@ -474,6 +633,138 @@ describe("skill-apply.ts apply", () => {
         result.stderr.includes("scripts/security-scanner.ts not found"),
         `missing security-scanner warning: ${result.stderr}`,
       );
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  it("apply_prestagedUnrelatedFile_notSweptIntoCommit", () => {
+    // M3a: `git commit -F <msg>` with no pathspec sweeps in ANY other change
+    // already staged in the index, not just the target this run applied.
+    // Pre-stage an unrelated file's change before invoking apply, then
+    // assert the apply commit contains ONLY the target (this fixture has no
+    // scripts/system-map.ts, so nothing is healed into docs/maps either),
+    // and that the pre-staged unrelated file remains staged afterward —
+    // untouched, not committed, not unstaged.
+    const dir = freshFixture();
+    try {
+      initGitRepo(dir);
+      const targetRel = ".claude/commands/test-doc.md";
+      const targetAbs = resolve(dir, targetRel);
+      writeFileEnsuringDir(targetAbs, "Anchor for sweep test.\n\nTail.\n");
+      const unrelatedRel = "unrelated.txt";
+      const unrelatedAbs = resolve(dir, unrelatedRel);
+      writeFileSync(unrelatedAbs, "unrelated original\n", "utf-8");
+      commitAll(dir, "initial commit");
+
+      // Pre-stage an unrelated change before invoking apply.
+      writeFileSync(unrelatedAbs, "unrelated modified\n", "utf-8");
+      git(dir, ["add", unrelatedRel]);
+
+      const proposalPath = resolve(dir, "proposal.md");
+      writeFileSync(
+        proposalPath,
+        buildProposalDoc({
+          n: 1,
+          title: "Sweep test",
+          fingerprint: "skill-edit:test-doc:sweep",
+          target: targetRel,
+          operation: "add",
+          tier: "standard",
+          draftTask: "#T99",
+          evidence: "test",
+          anchor: "Anchor for sweep test.",
+          proposedText: "New line.",
+          rationale: "test",
+        }),
+        "utf-8",
+      );
+
+      const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1"]);
+      strictEqual(result.status, 0, `expected exit 0, stderr: ${result.stderr}`);
+
+      const committedFiles = gitOutput(dir, [
+        "diff-tree",
+        "--no-commit-id",
+        "--name-only",
+        "-r",
+        "HEAD",
+      ])
+        .split("\n")
+        .filter(Boolean);
+      ok(committedFiles.includes(targetRel), `expected commit to include target: ${committedFiles}`);
+      ok(
+        !committedFiles.includes(unrelatedRel),
+        `unrelated file was swept into the apply commit: ${committedFiles}`,
+      );
+
+      const stagedAfter = gitOutput(dir, ["diff", "--cached", "--name-only"])
+        .split("\n")
+        .filter(Boolean);
+      ok(
+        stagedAfter.includes(unrelatedRel),
+        `unrelated file no longer staged after apply: ${stagedAfter}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  it("apply_commitHookRejects_rolledBackExit4", () => {
+    // M3b: if `git commit` throws (here, a pre-commit hook exiting nonzero),
+    // the CLI must roll back rather than let the exception propagate —
+    // target restored byte-identical, no new commit, exit 4.
+    const dir = freshFixture();
+    try {
+      initGitRepo(dir);
+      const targetRel = ".claude/commands/test-doc.md";
+      const targetAbs = resolve(dir, targetRel);
+      const originalContent = "Anchor for hook rejection.\n\nTail.\n";
+      writeFileEnsuringDir(targetAbs, originalContent);
+      commitAll(dir, "initial commit");
+
+      const hookPath = resolve(dir, ".git", "hooks", "pre-commit");
+      writeFileSync(hookPath, "#!/bin/sh\nexit 1\n", "utf-8");
+      chmodSync(hookPath, 0o755);
+
+      const beforeLog = gitOutput(dir, ["log", "--format=%H"]);
+      const originalHash = sha256File(targetAbs);
+
+      const proposalPath = resolve(dir, "proposal.md");
+      writeFileSync(
+        proposalPath,
+        buildProposalDoc({
+          n: 1,
+          title: "Hook rejection",
+          fingerprint: "skill-edit:test-doc:hook-reject",
+          target: targetRel,
+          operation: "add",
+          tier: "standard",
+          draftTask: "#T99",
+          evidence: "test",
+          anchor: "Anchor for hook rejection.",
+          proposedText: "New line.",
+          rationale: "test",
+        }),
+        "utf-8",
+      );
+
+      const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1"]);
+      strictEqual(result.status, 4, `expected exit 4, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+      // This fixture has no scripts/system-map.ts or scripts/security-scanner.ts,
+      // so the CLI's warn-and-proceed lines for both precede the commit
+      // failure message — assert the specific message is present, not that
+      // it's the only stderr content.
+      ok(
+        result.stderr.includes("error: commit failed — target restored"),
+        `stderr missing 'commit failed' message: ${result.stderr}`,
+      );
+
+      const afterHash = sha256File(targetAbs);
+      strictEqual(afterHash, originalHash, "target not byte-identical after commit-failure rollback");
+
+      const afterLog = gitOutput(dir, ["log", "--format=%H"]);
+      strictEqual(afterLog, beforeLog, "a commit was created despite hook rejection");
     } finally {
       rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
     }
@@ -749,6 +1040,96 @@ describe("skill-apply.ts apply", () => {
 
       const afterLog = gitOutput(dir, ["log", "--format=%H"]);
       strictEqual(afterLog.split("\n").length, 1, "a commit was created despite correspondence refusal");
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
+  /**
+   * Fixture for the wide-anchor smuggling test below: a fenced block with
+   * the dead reference on its own line PLUS an unrelated sibling line
+   * (`echo done`) inside the same anchor. A real `system-map.ts report` run
+   * flags `scripts/dead-ref.sh` as a live dangling-ref finding for this doc,
+   * same as CMD_DOC_WITH_DEAD_REF.
+   */
+  const CMD_DOC_WIDE_ANCHOR = [
+    "# Test Command Wide",
+    "",
+    "## Section A",
+    "",
+    "```bash",
+    "bash scripts/dead-ref.sh",
+    "echo done",
+    "```",
+    "",
+    "## Section B",
+    "",
+    "Trailing content unrelated.",
+    "",
+  ].join("\n");
+
+  it("auto_wideAnchorExcessChange_exit3", () => {
+    // M2: a real, live dangling-ref finding exists for this target
+    // (scripts/dead-ref.sh), and the anchor genuinely contains the dead ref
+    // — but the anchor is "wide": it also carries an unrelated sibling line
+    // (`echo done`), and the replace's proposedText changes THAT line too
+    // instead of leaving it untouched. Under the old substring-only
+    // correspondence check this passed (deadRef was in the anchor, and gone
+    // from the replacement); under the new line-wise semantics, a `replace`
+    // is only valid when it changes NOTHING but removing the dead-ref
+    // line(s) — so this must be refused.
+    const dir = freshFixture();
+    try {
+      initGitRepo(dir);
+      copyRealSystemMap(dir);
+      writePolicyFile(dir, "skill_auto_apply: on\n");
+      const targetRel = ".claude/commands/tools/test-cmd-wide.md";
+      const targetAbs = resolve(dir, targetRel);
+      writeFileEnsuringDir(targetAbs, CMD_DOC_WIDE_ANCHOR);
+      commitAll(dir, "initial commit");
+
+      const proposalPath = resolve(dir, "proposal.md");
+      writeFileSync(
+        proposalPath,
+        buildProposalDoc({
+          n: 1,
+          title: "Wide anchor excess change",
+          fingerprint: "skill-edit:test-cmd-wide:auto-wide-anchor",
+          target: targetRel,
+          operation: "replace",
+          tier: "auto-eligible",
+          draftTask: "#T90",
+          evidence: "test",
+          anchor: "bash scripts/dead-ref.sh\necho done",
+          // A faithful dead-line removal would leave exactly "echo done"
+          // (the anchor's one surviving line, unchanged). This instead
+          // changes that surviving line too — the excess change condition 6
+          // must catch.
+          proposedText: "echo done differently",
+          rationale: "Removes the dead reference but also rewrites an unrelated line.",
+        }),
+        "utf-8",
+      );
+
+      const result = runSkillApply(dir, ["--proposal", toPosix(proposalPath), "--n", "1", "--auto"]);
+      strictEqual(result.status, 3, `expected exit 3, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+      strictEqual(
+        result.stderr.trim(),
+        "auto refused: edit does not correspond to the dead reference",
+        `stderr mismatch: ${result.stderr}`,
+      );
+      strictEqual(
+        readFileSync(targetAbs, "utf-8"),
+        CMD_DOC_WIDE_ANCHOR,
+        "target content changed despite wide-anchor correspondence refusal",
+      );
+
+      const afterLog = gitOutput(dir, ["log", "--format=%H"]);
+      strictEqual(
+        afterLog.split("\n").length,
+        1,
+        "a commit was created despite wide-anchor correspondence refusal",
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
     }

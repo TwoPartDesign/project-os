@@ -345,14 +345,29 @@ export function estimateTokens(s: string): number {
  * Auto-tier condition 6/6 (skill-apply.ts's `--auto` eligibility class,
  * #T90): checks whether a proposed edit genuinely corresponds to a specific
  * dead reference, rather than being anchored somewhere unrelated in the same
- * file and merely riding along on an unrelated live dangling-ref finding
- * (the "smuggling" case this condition exists to catch). Returns `true` iff
- * `deadRef` occurs verbatim as a substring of `anchor` AND — for a
- * `replace` operation only — `deadRef` does NOT occur as a substring of
- * `proposedText` (a replace that echoes the same dead reference straight
- * back into the file wouldn't actually fix anything). `delete` has no
- * proposed text to check: removing the anchor removes the reference by
- * construction, so only the anchor-contains-deadRef half applies.
+ * file and merely riding along on an unrelated live dangling-ref finding, OR
+ * anchoring a real dead-ref line but smuggling arbitrary unrelated content
+ * through alongside its removal (the "wide-anchor" case — a near-file-sized
+ * `replace` anchor that merely *contains* the dead ref, with everything else
+ * in the anchor changed too, still passes a naive substring check; both
+ * "smuggling" variants are what this condition exists to catch).
+ *
+ * Both strings are EOL-normalized to `\n` first (so CRLF- and
+ * LF-authored proposal docs compare identically), then evaluated as line
+ * arrays with deterministic, line-wise semantics — never a fuzzy substring
+ * check:
+ *
+ * - At least one line of `anchor` must contain `deadRef` verbatim (as a
+ *   substring); otherwise this returns `false` regardless of `op`.
+ * - `op === "delete"`: valid iff EVERY non-blank line of `anchor` contains
+ *   `deadRef` — a delete is only auto-eligible when the whole anchor is dead
+ *   content, never when it carries unrelated context lines along for the
+ *   ride.
+ * - `op === "replace"`: valid iff `proposedText` (after EOL normalization)
+ *   equals EXACTLY `anchor`'s lines with every dead-ref-bearing line removed,
+ *   in the same relative order, and nothing else changed. In other words,
+ *   an auto-replace is definitionally "delete the dead-ref-bearing lines" —
+ *   zero other edits are tolerated, however small.
  */
 export function checkAutoCorrespondence(
   anchor: string,
@@ -360,7 +375,22 @@ export function checkAutoCorrespondence(
   op: "delete" | "replace",
   deadRef: string,
 ): boolean {
-  if (!anchor.includes(deadRef)) return false;
-  if (op === "replace" && proposedText.includes(deadRef)) return false;
-  return true;
+  const normAnchor = anchor.split("\r\n").join("\n");
+  const normProposed = proposedText.split("\r\n").join("\n");
+  const anchorLines = normAnchor.split("\n");
+
+  const hasDeadRefLine = anchorLines.some((line) => line.includes(deadRef));
+  if (!hasDeadRefLine) return false;
+
+  if (op === "delete") {
+    return anchorLines.every((line) => line.trim() === "" || line.includes(deadRef));
+  }
+
+  // op === "replace": the only tolerated change is removing every
+  // dead-ref-bearing line — compare via a rejoined string (not an
+  // index-wise array comparison) so the "anchor reduces to zero remaining
+  // lines" edge case (proposedText === "") compares correctly against
+  // Array.prototype.join's own empty-array-to-"" behavior.
+  const expected = anchorLines.filter((line) => !line.includes(deadRef)).join("\n");
+  return expected === normProposed;
 }

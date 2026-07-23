@@ -28,10 +28,15 @@
 //      pathToId(target) (scripts/lib/system-map-lib.ts)
 //   6. edit-content correspondence: scripts/lib/skill-apply-lib.ts's
 //      checkAutoCorrespondence confirms the missing-target string named by
-//      that finding genuinely occurs in the proposal's anchor (and, for
-//      replace, is actually removed by proposedText) — this is what
-//      prevents an anchor elsewhere in the same file from "smuggling" an
-//      unrelated edit through under cover of a real finding.
+//      that finding genuinely occurs in the proposal's anchor, using
+//      deterministic line-wise semantics: a `delete` is only eligible when
+//      EVERY non-blank anchor line contains the dead ref, and a `replace` is
+//      only eligible when proposedText equals EXACTLY the anchor's lines
+//      with the dead-ref-bearing lines removed (zero other changes
+//      tolerated) — this is what prevents an anchor elsewhere in the same
+//      file (or a wide anchor that merely *contains* the dead ref alongside
+//      unrelated content) from "smuggling" an unrelated edit through under
+//      cover of a real finding.
 // The first failing condition exits 3 with a `auto refused: <condition>`
 // stderr message, before anything is written to disk — a clean signal the
 // caller uses to fall back to filing a normal (human-approved) draft. All
@@ -43,13 +48,23 @@
 //   1  usage error (bad/missing subcommand, --proposal, or --n) or a
 //      parseProposal error (message passed through to stderr)
 //   3  refusal — target outside the allowed instruction directories
-//      (traversal/symlink escape), repo mid-operation (detached HEAD,
+//      (traversal/symlink escape), target is a symlink, target is an
+//      absolute or UNC path, repo mid-operation (detached HEAD,
 //      merge/rebase/cherry-pick in progress), dirty target (git status
 //      not clean), AnchorError (anchor not found / ambiguous), or an
 //      `--auto` eligibility condition failing (see above)
 //   4  rolled back — post-edit validation (system-map check --heal crash,
-//      or a security-scanner finding) failed; the target file has been
-//      restored to its pre-apply content
+//      or a security-scanner finding) failed, or the apply commit itself
+//      failed (e.g. a pre-commit hook rejection); the target file (and, for
+//      a commit failure, the git index) has been restored to its pre-apply
+//      state
+//
+// Every fs/git operation past target resolution acts on the SAME canonical
+// path (`canonicalTarget` / `relTarget`, derived once via `realpathSync` in
+// `resolveAndContainTarget`) — never the pre-resolution `targetAbs` — so
+// containment, the anchor read, the write, and the commit's pathspec can
+// never diverge from one another (see the M1 fix note on
+// `resolveAndContainTarget` below).
 //
 // NOTE on scripts/system-map.ts's actual `check --heal` contract: the
 // committed implementation exits 0 for BOTH "fresh" and "healed" outcomes
@@ -71,6 +86,7 @@ import {
   writeFileSync,
   unlinkSync,
   realpathSync,
+  lstatSync,
 } from "node:fs";
 import { resolve, relative, isAbsolute } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -223,16 +239,21 @@ function rollbackAndExit(
  * "map: healed" stdout marker, or exit 3 (the documented-but-unobserved
  * "healed" contract), stages `docs/maps` via `git add` (best-effort — a
  * minimal fixture may have system-map.ts but no docs/maps directory yet).
+ *
+ * Returns `true` iff `docs/maps` was actually staged by THIS run (M3a: the
+ * caller uses this to build the apply commit's pathspec — `docs/maps` is
+ * only ever included in that pathspec when this run is the one that staged
+ * it, never assumed).
  */
 function runSystemMapCheck(
   projectRoot: string,
   targetAbs: string,
   originalContent: string,
-): void {
+): boolean {
   const systemMapPath = resolve(projectRoot, "scripts/system-map.ts");
   if (!existsSync(systemMapPath)) {
     console.error("warning: scripts/system-map.ts not found — skipping map validation");
-    return;
+    return false;
   }
 
   const result = spawnSync(process.execPath, [systemMapPath, "check", "--heal"], {
@@ -255,12 +276,13 @@ function runSystemMapCheck(
     if (code === 3 || stdout.includes("map: healed")) {
       try {
         execFileSync("git", ["add", "docs/maps"], { cwd: projectRoot, stdio: "pipe" });
+        return true;
       } catch {
         // Best-effort: a light fixture may ship system-map.ts without a
         // docs/maps directory to heal. Nothing to stage in that case.
       }
     }
-    return;
+    return false;
   }
 
   rollbackAndExit(
@@ -408,6 +430,224 @@ function runAutoGate(
 }
 
 /**
+ * M3c: true iff `target` (a proposal's raw, pre-resolution `Target` field)
+ * is an absolute or UNC path rather than a repo-relative one. MUST be
+ * checked before any `resolve(projectRoot, target)` call — `resolve()`
+ * silently discards `projectRoot` when its second argument is already
+ * absolute, which would let an absolute-path or UNC probe reach the
+ * filesystem (an existence-oracle leak) before containment ever gets a
+ * chance to reject it. Checks three ways so the guard holds regardless of
+ * which platform's `path.isAbsolute` semantics are in effect: the platform
+ * check itself, an explicit drive-letter regex (`C:\` / `C:/`), and a literal
+ * `//` or `\\` prefix (UNC/forward-slash-UNC).
+ */
+function isAbsoluteOrUncTarget(target: string): boolean {
+  return (
+    isAbsolute(target) ||
+    /^[a-zA-Z]:[\\/]/.test(target) ||
+    target.startsWith("//") ||
+    target.startsWith("\\\\")
+  );
+}
+
+/**
+ * Resolves a proposal's repo-relative `target` against `projectRoot`,
+ * confirms it exists, refuses it outright if it is a symlink (M1: an
+ * in-bounds symlink pointing at a different in-bounds file passes a naive
+ * containment check because `realpathSync` resolves it before that check
+ * runs — refusing any symlink target closes this regardless of where it
+ * points), then canonicalizes via `realpathSync` and confirms containment
+ * under {@link ALLOWED_TARGET_DIRS} (tighter still, under
+ * {@link AUTO_TARGET_DIRS}, when `auto` is set).
+ *
+ * Returns `canonicalTarget` and `relTarget` derived from the SAME
+ * `realpathSync` call used for the containment check — every later fs/git
+ * operation in `main()` must use these, never the pre-resolution
+ * `targetAbs`, so containment, the read, the write, and the commit's
+ * pathspec can never diverge from one another (the second half of the M1
+ * fix: a passing containment check and the operations that follow it must
+ * act on one canonical path, not two).
+ *
+ * Exits 3 on any failure.
+ */
+function resolveAndContainTarget(
+  projectRoot: string,
+  target: string,
+  auto: boolean,
+): { canonicalTarget: string; relTarget: string } {
+  const targetAbs = resolve(projectRoot, target);
+  if (!existsSync(targetAbs)) {
+    console.error(`error: target file does not exist: ${targetAbs}`);
+    process.exit(3);
+  }
+
+  let lst;
+  try {
+    lst = lstatSync(targetAbs);
+  } catch (err) {
+    console.error(`error: cannot stat target: ${(err as Error).message}`);
+    process.exit(3);
+  }
+  if (lst.isSymbolicLink()) {
+    console.error("error: target is a symlink — instruction files must be regular files");
+    process.exit(3);
+  }
+
+  let canonicalTarget: string;
+  let canonicalRoot: string;
+  try {
+    canonicalTarget = realpathSync(targetAbs);
+    canonicalRoot = realpathSync(projectRoot);
+  } catch (err) {
+    console.error(`error: cannot resolve target path: ${(err as Error).message}`);
+    process.exit(3);
+  }
+
+  const normTarget = toSlashes(canonicalTarget);
+  const normRoot = toSlashes(canonicalRoot).replace(/\/$/, "");
+  const contained = ALLOWED_TARGET_DIRS.some((dir) => normTarget.startsWith(`${normRoot}/${dir}`));
+  if (!contained) {
+    console.error(
+      `error: containment check failed — target resolves outside the allowed instruction directories (.claude/commands, .claude/skills, .claude/rules): ${canonicalTarget}`,
+    );
+    process.exit(3);
+  }
+
+  // Auto-tier condition 3/6: tighter containment than the standard tier —
+  // .claude/rules/ is excluded from auto even though it's allowed for a
+  // human-approved standard apply.
+  if (auto) {
+    const autoContained = AUTO_TARGET_DIRS.some((dir) => normTarget.startsWith(`${normRoot}/${dir}`));
+    if (!autoContained) {
+      console.error(
+        "auto refused: target must be under .claude/commands/ or .claude/skills/ (rules excluded from auto)",
+      );
+      process.exit(3);
+    }
+  }
+
+  const relTarget = relative(canonicalRoot, canonicalTarget).replace(/\\/g, "/");
+  return { canonicalTarget, relTarget };
+}
+
+/**
+ * Resolves the repo's git-dir (worktree-safe — uses `git rev-parse
+ * --git-dir` rather than assuming `<root>/.git`) and refuses to apply if
+ * HEAD is detached or a merge/rebase/cherry-pick is mid-flight. Returns the
+ * absolute git-dir path (needed later for the commit-message scratch file).
+ * Exits 3 on any failure.
+ */
+function guardRepoState(projectRoot: string): string {
+  let gitDirRaw: string;
+  try {
+    gitDirRaw = execFileSync("git", ["rev-parse", "--git-dir"], {
+      cwd: projectRoot,
+      encoding: "utf-8",
+    }).trim();
+  } catch (err) {
+    console.error(`error: not a git repository: ${(err as Error).message}`);
+    process.exit(3);
+  }
+  const gitDir = isAbsolute(gitDirRaw) ? gitDirRaw : resolve(projectRoot, gitDirRaw);
+
+  let detached = false;
+  try {
+    execFileSync("git", ["symbolic-ref", "-q", "HEAD"], { cwd: projectRoot, stdio: "pipe" });
+  } catch {
+    detached = true;
+  }
+  if (detached) {
+    console.error("error: refusing to apply — HEAD is detached");
+    process.exit(3);
+  }
+
+  const inProgressMarkers = ["MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY_PICK_HEAD"];
+  for (const marker of inProgressMarkers) {
+    if (existsSync(resolve(gitDir, marker))) {
+      console.error(`error: refusing to apply — repo mid-operation (${marker} present)`);
+      process.exit(3);
+    }
+  }
+
+  return gitDir;
+}
+
+/**
+ * Refuses to apply if `relTarget` has uncommitted changes (`git status
+ * --porcelain -- relTarget` is non-empty). Exits 3 on a dirty target.
+ */
+function guardCleanTarget(projectRoot: string, relTarget: string): void {
+  const statusOut = execFileSync("git", ["status", "--porcelain", "--", relTarget], {
+    cwd: projectRoot,
+    encoding: "utf-8",
+  });
+  if (statusOut.trim().length > 0) {
+    console.error(`error: target has uncommitted changes (git status not clean): ${relTarget}`);
+    process.exit(3);
+  }
+}
+
+/**
+ * Stages and commits the applied edit, restricted to an explicit pathspec —
+ * `relTarget` plus `docs/maps` iff `mapsStaged` (M3a: never the bare `git
+ * commit -F <msg>` this replaces, which would sweep in ANY other change
+ * already staged in the index by something else entirely, unrelated to this
+ * apply run).
+ *
+ * If `git add` or `git commit` throws (e.g. a pre-commit hook rejection, or
+ * a missing commit identity), rolls back rather than letting the exception
+ * propagate uncaught (M3b): restores `targetAbs` to `originalContent`
+ * byte-for-byte, best-effort unstages the same pathspec via `git restore
+ * --staged`, prints `error: commit failed — target restored`, and exits 4 —
+ * never leaving the target modified-and-staged with an undocumented exit
+ * code.
+ *
+ * Returns the new commit's full hash on success.
+ */
+function commitApply(
+  projectRoot: string,
+  gitDir: string,
+  relTarget: string,
+  mapsStaged: boolean,
+  commitMsg: string,
+  targetAbs: string,
+  originalContent: string,
+): string {
+  const pathspec = mapsStaged ? [relTarget, "docs/maps"] : [relTarget];
+  const msgPath = resolve(gitDir, "SKILL_APPLY_MSG");
+  writeFileSync(msgPath, commitMsg, "utf-8");
+
+  try {
+    execFileSync("git", ["add", relTarget], { cwd: projectRoot, stdio: "pipe" });
+    execFileSync("git", ["commit", "-F", msgPath, "--", ...pathspec], {
+      cwd: projectRoot,
+      stdio: "pipe",
+    });
+  } catch {
+    writeFileSync(targetAbs, originalContent, "utf-8");
+    try {
+      execFileSync("git", ["restore", "--staged", "--", ...pathspec], {
+        cwd: projectRoot,
+        stdio: "pipe",
+      });
+    } catch {
+      // Best-effort: nothing more to do if the restore itself fails — the
+      // working-tree content is already back to originalContent, which is
+      // the byte-identical guarantee the caller relies on.
+    }
+    if (existsSync(msgPath)) unlinkSync(msgPath);
+    console.error("error: commit failed — target restored");
+    process.exit(4);
+  }
+
+  if (existsSync(msgPath)) unlinkSync(msgPath);
+  return execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: projectRoot,
+    encoding: "utf-8",
+  }).trim();
+}
+
+/**
  * Entry point for the `apply` subcommand. See the module header for the
  * full step sequence and exit-code contract.
  */
@@ -461,92 +701,29 @@ function main(): void {
     process.exit(3);
   }
 
-  // Step 3: resolve + contain the target.
+  // M3c: reject an absolute/UNC target before any resolve() call touches it.
+  if (isAbsoluteOrUncTarget(proposal.target)) {
+    console.error("error: target must be a repo-relative path");
+    process.exit(3);
+  }
+
+  // Step: resolve + contain the target (M1-hardened — see docstring).
   const projectRoot = getProjectRoot();
-  const targetAbs = resolve(projectRoot, proposal.target);
-  if (!existsSync(targetAbs)) {
-    console.error(`error: target file does not exist: ${targetAbs}`);
-    process.exit(3);
-  }
+  const { canonicalTarget, relTarget } = resolveAndContainTarget(
+    projectRoot,
+    proposal.target,
+    args.auto,
+  );
 
-  let canonicalTarget: string;
-  let canonicalRoot: string;
-  try {
-    canonicalTarget = realpathSync(targetAbs);
-    canonicalRoot = realpathSync(projectRoot);
-  } catch (err) {
-    console.error(`error: cannot resolve target path: ${(err as Error).message}`);
-    process.exit(3);
-  }
+  // Step: repo-state guard (worktree-safe git-dir resolution).
+  const gitDir = guardRepoState(projectRoot);
 
-  const normTarget = toSlashes(canonicalTarget);
-  const normRoot = toSlashes(canonicalRoot).replace(/\/$/, "");
-  const contained = ALLOWED_TARGET_DIRS.some((dir) => normTarget.startsWith(`${normRoot}/${dir}`));
-  if (!contained) {
-    console.error(
-      `error: containment check failed — target resolves outside the allowed instruction directories (.claude/commands, .claude/skills, .claude/rules): ${canonicalTarget}`,
-    );
-    process.exit(3);
-  }
+  // Step: clean-target guard.
+  guardCleanTarget(projectRoot, relTarget);
 
-  // Auto-tier condition 3/6: tighter containment than the standard tier —
-  // .claude/rules/ is excluded from auto even though it's allowed for a
-  // human-approved standard apply.
-  if (args.auto) {
-    const autoContained = AUTO_TARGET_DIRS.some((dir) => normTarget.startsWith(`${normRoot}/${dir}`));
-    if (!autoContained) {
-      console.error(
-        "auto refused: target must be under .claude/commands/ or .claude/skills/ (rules excluded from auto)",
-      );
-      process.exit(3);
-    }
-  }
-
-  // Step 4: repo-state guard (worktree-safe git-dir resolution).
-  let gitDirRaw: string;
-  try {
-    gitDirRaw = execFileSync("git", ["rev-parse", "--git-dir"], {
-      cwd: projectRoot,
-      encoding: "utf-8",
-    }).trim();
-  } catch (err) {
-    console.error(`error: not a git repository: ${(err as Error).message}`);
-    process.exit(3);
-  }
-  const gitDir = isAbsolute(gitDirRaw) ? gitDirRaw : resolve(projectRoot, gitDirRaw);
-
-  let detached = false;
-  try {
-    execFileSync("git", ["symbolic-ref", "-q", "HEAD"], { cwd: projectRoot, stdio: "pipe" });
-  } catch {
-    detached = true;
-  }
-  if (detached) {
-    console.error("error: refusing to apply — HEAD is detached");
-    process.exit(3);
-  }
-
-  const inProgressMarkers = ["MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY_PICK_HEAD"];
-  for (const marker of inProgressMarkers) {
-    if (existsSync(resolve(gitDir, marker))) {
-      console.error(`error: refusing to apply — repo mid-operation (${marker} present)`);
-      process.exit(3);
-    }
-  }
-
-  // Step 5: clean-target guard.
-  const relTarget = relative(projectRoot, targetAbs).replace(/\\/g, "/");
-  const statusOut = execFileSync("git", ["status", "--porcelain", "--", relTarget], {
-    cwd: projectRoot,
-    encoding: "utf-8",
-  });
-  if (statusOut.trim().length > 0) {
-    console.error(`error: target has uncommitted changes (git status not clean): ${relTarget}`);
-    process.exit(3);
-  }
-
-  // Step 6: apply the anchored operation.
-  const originalContent = readFileSync(targetAbs, "utf-8");
+  // Step: apply the anchored operation. Reads/writes use canonicalTarget
+  // throughout, never the pre-resolution targetAbs (M1).
+  const originalContent = readFileSync(canonicalTarget, "utf-8");
   let newContent: string;
   try {
     newContent = applyAnchoredOp(originalContent, proposal);
@@ -563,32 +740,28 @@ function main(): void {
     runAutoGate(projectRoot, relTarget, proposal, originalContent, newContent);
   }
 
-  writeFileSync(targetAbs, newContent, "utf-8");
+  writeFileSync(canonicalTarget, newContent, "utf-8");
 
-  // Step 7: post-edit validation (rolls back + exits 4 on failure).
-  runSystemMapCheck(projectRoot, targetAbs, originalContent);
-  runSecurityScan(projectRoot, targetAbs, originalContent);
+  // Step: post-edit validation (rolls back + exits 4 on failure).
+  const mapsStaged = runSystemMapCheck(projectRoot, canonicalTarget, originalContent);
+  runSecurityScan(projectRoot, canonicalTarget, originalContent);
 
-  // Step 8: commit.
+  // Step: commit — pathspec-scoped (M3a) with rollback on failure (M3b).
   const proposalBlock = extractProposalBlock(proposalContent, n);
   const subject = args.auto
     ? `chore(skills): auto-apply ${proposal.draftTask} ${proposal.title}`
     : `chore(skills): apply ${proposal.draftTask} ${proposal.title}`;
   const commitMsg = `${subject}\n\n${proposalBlock}\n`;
 
-  const msgPath = resolve(gitDir, "SKILL_APPLY_MSG");
-  writeFileSync(msgPath, commitMsg, "utf-8");
-  try {
-    execFileSync("git", ["add", relTarget], { cwd: projectRoot, stdio: "pipe" });
-    execFileSync("git", ["commit", "-F", msgPath], { cwd: projectRoot, stdio: "pipe" });
-  } finally {
-    if (existsSync(msgPath)) unlinkSync(msgPath);
-  }
-
-  const hash = execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: projectRoot,
-    encoding: "utf-8",
-  }).trim();
+  const hash = commitApply(
+    projectRoot,
+    gitDir,
+    relTarget,
+    mapsStaged,
+    commitMsg,
+    canonicalTarget,
+    originalContent,
+  );
   console.log(`applied: ${hash}`);
   process.exit(0);
 }

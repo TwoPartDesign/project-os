@@ -249,4 +249,37 @@ describe("checkAutoCorrespondence", () => {
     const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
     strictEqual(result, false);
   });
+
+  it("checkAutoCorrespondence_wideAnchorExcessChange_false", () => {
+    // M2: the anchor genuinely carries the dead ref on one line, but also an
+    // unrelated sibling line. A faithful auto-replace would leave that
+    // sibling line byte-for-byte untouched (deleting only the dead-ref
+    // line). This replacement instead rewrites the sibling line too — a
+    // wide anchor smuggling an unrelated change through under cover of a
+    // real dead reference — and must be refused.
+    const anchor = "bash scripts/dead-ref.sh\nSome unrelated context line.\nAnother line.";
+    const proposedText = "Some unrelated context line CHANGED.\nAnother line.";
+    const result = checkAutoCorrespondence(anchor, proposedText, "replace", "scripts/dead-ref.sh");
+    strictEqual(result, false);
+  });
+
+  it("checkAutoCorrespondence_exactDeadLineRemoval_true", () => {
+    // The faithful counterpart to the case above: proposedText equals
+    // exactly the anchor's lines with the dead-ref-bearing line removed,
+    // and nothing else changed.
+    const anchor = "bash scripts/dead-ref.sh\nSome unrelated context line.\nAnother line.";
+    const proposedText = "Some unrelated context line.\nAnother line.";
+    const result = checkAutoCorrespondence(anchor, proposedText, "replace", "scripts/dead-ref.sh");
+    strictEqual(result, true);
+  });
+
+  it("checkAutoCorrespondence_deleteWithUnrelatedContextLine_false", () => {
+    // A `delete` is only auto-eligible when EVERY non-blank anchor line
+    // contains the dead ref — an anchor that also carries an unrelated,
+    // non-blank context line must be refused, even though the dead ref is
+    // genuinely present.
+    const anchor = "bash scripts/dead-ref.sh\nSome unrelated context line.";
+    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    strictEqual(result, false);
+  });
 });
