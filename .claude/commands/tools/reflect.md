@@ -106,6 +106,9 @@ Constraints, all mandatory:
   exactly once in the target file (verify this before writing the
   proposal; if the candidate text isn't unique, either widen it until it is
   or drop the proposal).
+- For `add` operations, the Proposed text must contain ONLY the new
+  content — never repeat the anchor line. Repeating it is the `replace`
+  idiom and duplicates the anchor on apply.
 - Each proposal needs an **evidence pointer** to a concrete artifact from
   Step 2 — a specific review finding, a metrics anomaly, or a specific
   activity event. No evidence pointer, no proposal.
