@@ -64,3 +64,13 @@ Each entry: Date, Symptom, Root Cause, Fix, Prevention Rule
 **Fix**: None required — classified as expected friction, not a defect. Draft `#T62` should be closed/dismissed rather than converted into a fix task.
 
 **Prevention Rule**: This is noise the failure log is designed to surface for eyeballing, not a bug queue. No code or process change needed; existing mitigations (`.claude/rules/bash.md`, `docs/knowledge/windows-bash-scanner.md`) already cover the causal patterns. If a future maintenance run flags a large single-timestamp burst (many failures in seconds, not minutes) or a cluster with no adjacent commit/activity correlation, treat that as the actionable signal — it would indicate a stuck retry loop or a command outside normal dev flow, unlike anything seen here. Ledger rotation is out of scope for this investigation — `maintain.sh` owns it.
+
+### 2026-07-22 — getProjectRoot() fixture footgun
+
+**Symptom**: Containment/path assertions in a test either pass or fail against the wrong "project root" — silently, with no error surfaced.
+
+**Root Cause**: `getProjectRoot()` walks up from `cwd` looking for a `.claude` marker directory. A test fixture repo built without its own `.claude/` dir lets that walk keep climbing past the temp dir and false-match the machine's global `~/.claude` — so "project root" silently resolves to the user's home directory instead of the fixture.
+
+**Fix**: None needed in `getProjectRoot()` itself — it's working as designed (walk-up marker resolution). The fix is in fixture construction: every fixture repo must create a `.claude/` dir so the walk terminates inside the fixture, not at the real machine's home directory.
+
+**Prevention Rule**: Any test that builds a throwaway repo/fixture and then calls (directly or transitively) `getProjectRoot()` must create a `.claude/` dir in that fixture as part of setup, before any containment/path assertion. Found during #T89's test authoring.

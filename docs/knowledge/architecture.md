@@ -75,6 +75,8 @@ User ──→ Workflow Commands ──→ Orchestrator ──→ Sub-agents (is
 | `install-hooks.sh` | Install git pre-commit/pre-push security-scanner hooks |
 | `knowledge-index.ts` | FTS5 knowledge indexing and search (`node:sqlite`) |
 | `lib/json.sh` / `lib/scan-rules.js` | Shared JSON helpers / scanner rule database (233 rules) |
+| `lib/policy.ts` | Shared reader for `.claude/maintenance-policy.yaml` — flat `key: value` parsing kept in lockstep with `maintain.sh`'s `policy_raw_value` and `system-map.ts`'s `loadBloatThreshold` (no YAML library, linear-parse mandate) |
+| `lib/skill-apply-lib.ts` | Pure proposal parser + anchored-op core for the skill-optimization loop — parses `## Run:`/`### Proposal N:` sections out of a skill-edit proposal doc and applies an anchored add/delete/replace to target-file content; no fs/git access |
 | `lib/system-map-lib.ts` | Extractors + graph builder + readiness scoring for the system map |
 | `maintain-draft.ts` | File a fingerprinted `[?]` draft into ROADMAP.md's maintenance-inbox section |
 | `maintain.sh` | Deterministic maintenance loop — checks, drafts, ledger; never mutates canonical state |
@@ -85,6 +87,8 @@ User ──→ Workflow Commands ──→ Orchestrator ──→ Sub-agents (is
 | `observation-parser.ts` | Extract 5 typed observations from tool output (sensitive-key denylist) |
 | `scrub-secrets.sh` | Scrub secret patterns from a file (delegates to scanner) |
 | `security-scanner.ts` | Zero-dep secrets/PII scanner (8 subcommands) |
+| `skill-apply.ts` | Anchored apply engine for skill-edit proposals — standard tier via `/pm:approve`, plus a narrow `--auto` tier gated by six deterministic conditions (policy flag, delete/replace only, `.claude/commands/`/`.claude/skills/` containment, non-increasing size, live `system-map.ts` dangling-ref evidence, edit-content correspondence) |
+| `skill-ledger.ts` | Sole sanitizing writer for `docs/knowledge/skill-edit-rejections.md` — one entry per rejected skill-edit proposal (fingerprint, summary, reason), fixed-string dedup, atomic write |
 | `sync-hooks.sh` | Sync hooks from the template to a target project |
 | `system-map.ts` | Generate/check/report the framework wiring map (`docs/maps/`) |
 | `update-project.sh` | Check for and apply Project OS updates from upstream; `--local-upstream <dir>` sources the template from a local directory instead of a `gh` release, for offline updates and offline testing of the classification loop |
@@ -168,14 +172,15 @@ Shell safety: all git operations use `execFileSync("git", [args])` (no string te
 
 ## Self-Maintenance
 
-Four zero-npm-dep components, strict authority split: deterministic code heals generated artifacts; only `/pm:approve` and `/tools:dream-accept` mutate canonical state.
+Five zero-npm-dep components, strict authority split: deterministic code heals generated artifacts; only `/pm:approve` and `/tools:dream-accept` mutate canonical state.
 
 - **System map** (`system-map.ts` + `lib/system-map-lib.ts`) — wiring graph (hooks/commands/skills/scripts/libs) → `docs/maps/`, with readiness findings (orphans, unwired hooks, dangling refs, manifest gaps, bloat).
 - **Pre-commit auto-heal** — hook runs `system-map.ts precommit` after `scan-staged`; on drift, regenerates from the git index (not the working tree), stages `docs/maps/`, re-scans it. Fails only on generator/scan error.
 - **Dream pass** (`/tools:dream`, `/tools:dream-accept`) — stages consolidation under `docs/memory/.dream-output/`; accept backs up to `docs/memory/.archive/`, swaps in, rebuilds the index.
 - **Maintenance loop** (`maintain.sh` + `maintain-draft.ts`) — LLM-free; runs map / staleness / failures / consolidation / search-miss checks (the last driven by `knowledge-index.ts` search-log instrumentation at `.claude/logs/search-log.jsonl`), files fingerprinted `[?]` drafts + a ledger line. Reads `.claude/maintenance-policy.yaml`, never writes it.
+- **Reflection loop** (`/tools:reflect` + `skill-apply.ts` + `skill-ledger.ts`) — three triggers fire it: `/workflows:ship`'s Post-Ship step 6, a `/workflows:review` gate-FAIL, and both `/workflows:rebuild` modes (logging a `rebuild-triggered` activity event). `/tools:reflect` scopes to the feature's in-play instruction files, reads trigger-specific evidence, loads negative feedback from `docs/knowledge/skill-edit-rejections.md` (in-scope entries + the 10 most recent, capped to bound injection) plus `maint-fp: skill-edit:` lines in ROADMAP.md, and emits at most 3 bounded, anchored, evidence-backed proposals to `docs/specs/<feature>/skill-edits.md` — "0 proposals" is a legitimate outcome, never padded to fill the budget. Every proposal files as a `[?]` draft through `maintain-draft.ts`, gated by `/pm:approve` (which displays the proposal text and, on approval, runs a staged apply via `skill-apply.ts`; on rejection, records the reason via `skill-ledger.ts` and retires the draft in place). The only autonomy exception is a narrow `--auto` tier in `skill-apply.ts`, restricted to the dead-reference-fix class and gated by the `skill_auto_apply` policy flag (default off): each of its six conditions is checked against live platform state, never the proposal's own claims, and a successful auto-apply still lands as a separate, individually revertible commit carrying the full proposal block in the commit body, plus a retroactive `[?]` acknowledgement draft through the normal `/pm:approve` gate. Everything outside that class stays draft-only.
 
-Locations: `docs/maps/`, `.claude/maintenance-policy.yaml`, `.claude/logs/maintenance-ledger.jsonl` (rotated, gitignored).
+Locations: `docs/maps/`, `.claude/maintenance-policy.yaml`, `.claude/logs/maintenance-ledger.jsonl` (rotated, gitignored), `docs/knowledge/skill-edit-rejections.md`.
 
 ---
 

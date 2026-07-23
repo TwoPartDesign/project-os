@@ -147,3 +147,28 @@ Each entry: Date, Decision, Context, Alternatives Considered, Rationale
 - **Escaping in renderers** — rejected: parse-time `esc()` already established; double-escaping forbidden and pinned by test
 
 **Rationale**: A drop-in fourth instance of the established panel pattern costs zero new dependencies. The review cycles turned a UI feature into a hardening pass on the parser every panel shares — worth more than the board itself.
+
+---
+
+## 2026-07-22 — Skill-Optimization Loop: Tiered Amendment to Draft-Only Autonomy
+
+**Decision**: The 2026-07-16 draft-only-autonomy ADR is amended. Automated instruction-file mutation is sanctioned **only** via `scripts/skill-apply.ts --auto`, and only when all six of its deterministic conditions hold — checked in order, each verified against live platform state rather than trusted from the proposal's own claims. Any single failing condition causes the exact refusal message quoted below and falls back to standard human-approved filing:
+
+1. `auto refused: policy off` — the `skill_auto_apply` policy flag (`.claude/maintenance-policy.yaml`, read via `scripts/lib/policy.ts`) must be on; it defaults **off**.
+2. `auto refused: op must be delete|replace` — the proposal's operation must be `delete` or `replace`; `add` is never auto-eligible.
+3. `auto refused: target must be under .claude/commands/ or .claude/skills/ (rules excluded from auto)` — the canonical target path must resolve under `.claude/commands/` or `.claude/skills/` only; `.claude/rules/` is excluded from auto even though a human-approved standard apply may target it.
+4. `auto refused: size increased` — `estimateTokens(newContent)` must not exceed `estimateTokens(originalContent)`.
+5. `auto refused: no live dangling-ref finding for target` — a live `node scripts/system-map.ts report --json` run must report at least one `dangling-ref` finding whose `subject` equals `pathToId(target)`.
+6. `auto refused: edit does not correspond to the dead reference` — `checkAutoCorrespondence` (`scripts/lib/skill-apply-lib.ts`) must confirm the finding's missing-target string genuinely occurs in the proposal's anchor, and (for `replace`) is actually absent from the replacement text — this is what stops an anchor elsewhere in the same file from smuggling an unrelated edit through under cover of a real finding.
+
+Beyond the eligibility test itself: every successful auto-apply lands as a **separate, individually revertible commit** carrying the full proposal block in the commit body as the durable evidence record; every auto-apply also files a **retroactive `[?]` acknowledgement draft** through the normal `/pm:approve` gate, so the governance record is never silently bypassed. Everything outside this six-condition class — every other proposal from `/tools:reflect`, regardless of tier label — remains draft-only, exactly as the 2026-07-16 ADR specified.
+
+**Context**: Owner decision, 2026-07-22, expanding the feature brief's original scope (ship-only trigger, manual apply after approval) to add the review-FAIL and rebuild triggers and the narrow auto tier. The cautionary evidence for keeping the auto class deterministic rather than LLM-judged: SkillOpt's own ungated-ablation run collapsed from a 0.554 baseline score to 0.026 over six unattended nights — a concrete demonstration of what unsupervised instruction-file drift looks like when nothing scores the outcome.
+
+**Alternatives Considered**:
+- **Full auto-apply, or auto-apply with a post-hoc veto window** — rejected: there is no scorer in this system able to catch a degrading edit before or shortly after it lands; the SkillOpt ablation is exactly the failure mode this would reproduce.
+- **LLM-judged eligibility** (let the reflecting model decide when a proposal is safe to auto-apply) — rejected: steerable by prompt injection in the very artifacts being reflected on, and it would be a judge ruling on the safety of its own claims — no independent check.
+- **Ship-only reflection** (keep the trigger scope as originally briefed) — rejected: review-FAIL and rebuild are the strongest failure signals available and the brief's ship-only scope missed both entirely.
+- **Manual apply after every approval, no auto tier at all** — rejected: friction on a mechanical, narrowly-scoped fix class decays into approved-but-never-applied drafts; the six conditions make the mechanical case machine-checkable, so gating it behind a human click adds no safety, only decay.
+
+**Rationale**: Mechanics are automated; judgment stays human. The six conditions were hardened over two adversarial design-review rounds (13 findings total, all resolved) — round 2's lone CRITICAL was exactly a correspondence bypass: a `replace` could smuggle unrelated content into a file that merely *had* a dangling reference somewhere else in it. That finding became condition 6 (`checkAutoCorrespondence`), backed by a pinned fixture regression test so the bypass can't silently regress.
