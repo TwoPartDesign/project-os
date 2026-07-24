@@ -246,6 +246,26 @@ Spec: `docs/specs/skill-optimization-loop/` (design APPROVED rev 4, 2026-07-22, 
 - [x] architecture.md + tiered draft-only-autonomy ADR (depends: #T90, #T91) #T92
 - [x] skill-optimization-loop — Brief created, awaiting design (retired: superseded by #T79-#T92 after design APPROVED) #T78
 
+## Feature: template-content-leakage
+
+Spec: `docs/specs/template-content-leakage/` (brief + design DRAFT, 2026-07-24). `new-project.sh` seeds new projects by copying Project OS's own live knowledge vault, so every clone ships `docs/knowledge/{architecture,patterns,decisions,bugs,metrics}.md` and `.claude/rules/preferences.md` full of framework prose — and `CLAUDE.template.md` `@import`s two of them. Init cannot see it (no `[PLACEHOLDERS]` to match). Fix: a `templates/` seed tier (destination paths unchanged, so `generate-manifest.sh`/`update-project.sh` path lists hold), a write-once `seed_hashes` manifest block that survives `update-project.sh:599` regeneration, and a `template-residue` system-map finding that rides the existing `maintain.sh` map check for draft-only detection in already-cloned projects.
+
+### Draft
+- [?] Author `templates/knowledge/*.md` + `templates/rules/preferences.md` seeds — derived by deleting entries from the live files, never rewritten; frontmatter and `## Format` blocks preserved #T97
+- [?] `new-project.sh`: repoint `CONTENT_FILES` sources to `templates/`, add the five referenced-but-never-copied docs (`roadmap-format.md`, `windows-bash-scanner.md`, `design-principles.md`, `docs/product.md`, `docs/tech.md`), move `.claude/rules/preferences.md` to content class with a `copy_tree_safe` exclusion (depends: #T97) #T98
+- [?] `generate-manifest.sh`: emit write-once `seed_hashes` per the four-rule resolution table; validate every carried-forward pair (`^[a-f0-9]{64}$`, key ∈ watched set) before emission (depends: #T97) #T99
+- [?] `update-project.sh`: drop the six `docs/knowledge/*.md` entries from `TEMPLATE_FILES` — one-time seeds must never be offered as template updates (depends: #T99) #T100
+- [?] `system-map-lib.ts`: `RESIDUE_WATCHED`, `hasUnfilledPlaceholders`, `findInitIncomplete`, `findTemplateResidue` + `Finding.kind` union extension (depends: #T99) #T101
+- [?] `system-map.ts`: `sha256OfWorkingTreeFile` (raw bytes — must NOT use `normalizeContent`) + wire both finders, mutually exclusive on init state (depends: #T101) #T102
+- [?] Test suite: residue/placeholder unit cases incl. path-traversal, in-scope-symlink, and prefix-collision guards; `generate-manifest` seed-hash cases; new-project smoke assertions; framework-repo no-residue canary (depends: #T101, #T102) #T103
+- [?] `init.md`: Step 5b project-scoped architecture stub from collected answers (facts only, no speculation) + Step 11 residue verification + bold anti-requirement that init never regenerates the manifest (depends: #T102) #T104
+- [?] ADR in `decisions.md` reclassifying `.claude/rules/preferences.md` from framework-authority to content class, + `patterns.md` entry "Ship Seeds, Not Live Content" (depends: #T98) #T105
+
+### Todo
+### In Progress
+### Review
+### Done
+
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->
 - [x] SOTA adoption — workflow ergonomics (RE-SCOPED 2026-07-17, SHIPPED same day): shipped `/goal` wave/MVP exit predicates + wave-handoff artifact + `tools:update --diff-upstream`. `tools:audit-knowledge` dropped (subsumed by self-maintenance maintain.sh/system-map); `tools:sota-scan` deferred as machine-local. Needs a short re-scoping design pass first. Revised plan: `.claude/plans/sota-adoption-2026-05.md` (see REVISED SCOPE block) #T34
