@@ -101,21 +101,33 @@ async function loadRules(): Promise<void> {
     // "Could not install git hooks", so a project ends up with NO pre-commit
     // secret scan and NO system-map heal while looking merely noisy.
     //
-    // Known cause: 11 rules use inline regex modifiers `(?i:...)`, which
-    // require V8 12.5+ (Node >= 23). package.json declares `node >= 22.18`,
-    // so on the documented minimum the scanner is inert. Diagnose it here
-    // instead of letting the raw V8 error surface.
+    // The historical instance: 11 rules used inline modifier groups
+    // `(?i:...)` plus one using `(?s:.)`, which need V8 12.5+ (Node >= 23)
+    // while package.json declares `node >= 22.18`. Those are rewritten and
+    // `tests/scan-rules-node22.test.ts` guards against reintroduction — so
+    // this message must describe the CLASS, not that specific (fixed) cause.
+    // Telling a user to "run Node >= 23" when the rules no longer need it
+    // would send them chasing a fix that is already in the tree.
     const message = (err as Error).message ?? String(err);
     process.stderr.write(
       `Fatal: could not load scan rules from ${rulesPath}\n`,
     );
     process.stderr.write(`  ${message}\n`);
+    process.stderr.write(
+      `\n  Every rule lives in this one module as a regex literal, so a single\n` +
+        `  unsupported construct disables the ENTIRE scanner -- no pre-commit\n` +
+        `  secret scan and no system-map heal -- rather than skipping one rule.\n`,
+    );
     if (/[Ii]nvalid group|[Ii]nvalid regular expression/.test(message)) {
       process.stderr.write(
-        `\n  Likely cause: scan-rules.js uses inline regex modifiers "(?i:...)", which\n` +
-          `  require Node >= 23 (V8 12.5+). This Node is ${process.version}.\n` +
-          `  Until the rules are rewritten to avoid that syntax, run Project OS on\n` +
-          `  Node >= 23, or the secret scanner and its git hooks will not install.\n`,
+        `\n  This is a regex the running engine cannot compile (Node ${process.version}).\n` +
+          `  Most likely a pattern using syntax newer than the engines floor in\n` +
+          `  package.json -- inline modifier groups such as "(?i:...)" or "(?s:...)"\n` +
+          `  need Node >= 23 and are the known offenders. The regex source is quoted\n` +
+          `  above: rewrite it in syntax the floor supports (e.g. "(?i:[a-z])" becomes\n` +
+          `  "[a-zA-Z]", "(?s:.)" becomes "[\\s\\S]"), then run:\n` +
+          `      node --test tests/scan-rules-node22.test.ts\n` +
+          `  which proves the rewrite matches exactly what the original did.\n`,
       );
     }
     process.exit(2);

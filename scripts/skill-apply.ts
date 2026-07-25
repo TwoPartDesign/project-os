@@ -57,8 +57,11 @@
 //      traversal, or backslash-bearing — ALL of these collapse to one
 //      uniform message, checked with zero filesystem access, before target
 //      is a symlink (leaf or a non-leaf indirect/junction component —
-//      "canonical location differs" message), target has multiple hard
-//      links, target is a directory ("target is a directory" message),
+//      "canonical location differs" message), target is a directory
+//      ("target is a directory" message — checked BEFORE the hardlink
+//      guard, since a POSIX directory always has nlink >= 2 and would
+//      otherwise be misreported as hardlinked), target has multiple hard
+//      links,
 //      repo mid-operation (detached HEAD, merge/rebase/cherry-pick in
 //      progress), dirty target or dirty docs/maps (git status not clean),
 //      AnchorError (anchor not found / ambiguous), or an `--auto`
@@ -118,7 +121,11 @@ import { pathToId } from "./lib/system-map-lib.ts";
 import type { Finding } from "./lib/system-map-lib.ts";
 
 /** Repo-relative directories a proposal's `target` is allowed to resolve into. */
-const ALLOWED_TARGET_DIRS = [".claude/commands/", ".claude/skills/", ".claude/rules/"];
+const ALLOWED_TARGET_DIRS = [
+  ".claude/commands/",
+  ".claude/skills/",
+  ".claude/rules/",
+];
 
 /**
  * Repo-relative directories the `--auto` tier's target may resolve into —
@@ -219,14 +226,21 @@ function extractProposalBlock(docContent: string, n: number): string {
     throw new Error("no '## Run:' section found in proposal document");
   }
   const runEnd = findLineStart(docContent, "## ", runStart + "## Run:".length);
-  const runSection = docContent.slice(runStart, runEnd === -1 ? docContent.length : runEnd);
+  const runSection = docContent.slice(
+    runStart,
+    runEnd === -1 ? docContent.length : runEnd,
+  );
 
   const marker = `### Proposal ${n}:`;
   const proposalIdx = findLineStart(runSection, marker);
   if (proposalIdx === -1) {
     throw new Error(`Proposal ${n} not found in the last '## Run:' section`);
   }
-  const nextProposalIdx = findLineStart(runSection, "### Proposal ", proposalIdx + marker.length);
+  const nextProposalIdx = findLineStart(
+    runSection,
+    "### Proposal ",
+    proposalIdx + marker.length,
+  );
   const block = runSection.slice(
     proposalIdx,
     nextProposalIdx === -1 ? runSection.length : nextProposalIdx,
@@ -273,14 +287,20 @@ function runSystemMapCheck(
 ): boolean {
   const systemMapPath = resolve(projectRoot, "scripts/system-map.ts");
   if (!existsSync(systemMapPath)) {
-    console.error("warning: scripts/system-map.ts not found — skipping map validation");
+    console.error(
+      "warning: scripts/system-map.ts not found — skipping map validation",
+    );
     return false;
   }
 
-  const result = spawnSync(process.execPath, [systemMapPath, "check", "--heal"], {
-    cwd: projectRoot,
-    encoding: "utf-8",
-  });
+  const result = spawnSync(
+    process.execPath,
+    [systemMapPath, "check", "--heal"],
+    {
+      cwd: projectRoot,
+      encoding: "utf-8",
+    },
+  );
   const code = result.status;
   const stdout = result.stdout ?? "";
 
@@ -297,7 +317,10 @@ function runSystemMapCheck(
   if (code === 0 || code === 3) {
     if (code === 3 || stdout.includes("map: healed")) {
       try {
-        execFileSync("git", ["add", "docs/maps"], { cwd: projectRoot, stdio: "pipe" });
+        execFileSync("git", ["add", "docs/maps"], {
+          cwd: projectRoot,
+          stdio: "pipe",
+        });
         return true;
       } catch {
         // Best-effort: a light fixture may ship system-map.ts without a
@@ -322,17 +345,27 @@ function runSystemMapCheck(
  * null, i.e. killed by signal) exit status is treated as a finding and
  * rolls back.
  */
-function runSecurityScan(projectRoot: string, targetAbs: string, originalContent: string): void {
+function runSecurityScan(
+  projectRoot: string,
+  targetAbs: string,
+  originalContent: string,
+): void {
   const scannerPath = resolve(projectRoot, "scripts/security-scanner.ts");
   if (!existsSync(scannerPath)) {
-    console.error("warning: scripts/security-scanner.ts not found — skipping security scan");
+    console.error(
+      "warning: scripts/security-scanner.ts not found — skipping security scan",
+    );
     return;
   }
 
-  const result = spawnSync(process.execPath, [scannerPath, "scan-files", targetAbs], {
-    cwd: projectRoot,
-    encoding: "utf-8",
-  });
+  const result = spawnSync(
+    process.execPath,
+    [scannerPath, "scan-files", targetAbs],
+    {
+      cwd: projectRoot,
+      encoding: "utf-8",
+    },
+  );
   const code = result.status;
   if (code !== 0) {
     rollbackAndExit(
@@ -375,10 +408,14 @@ function runSystemMapReportJson(projectRoot: string): Finding[] | null {
   const systemMapPath = resolve(projectRoot, "scripts/system-map.ts");
   if (!existsSync(systemMapPath)) return null;
 
-  const result = spawnSync(process.execPath, [systemMapPath, "report", "--json"], {
-    cwd: projectRoot,
-    encoding: "utf-8",
-  });
+  const result = spawnSync(
+    process.execPath,
+    [systemMapPath, "report", "--json"],
+    {
+      cwd: projectRoot,
+      encoding: "utf-8",
+    },
+  );
   if (result.status !== 0) return null;
 
   try {
@@ -444,11 +481,18 @@ function runAutoGate(
     const deadRef = extractDanglingRefTarget(f.detail);
     return (
       deadRef !== null &&
-      checkAutoCorrespondence(proposal.anchor, proposal.proposedText, op, deadRef)
+      checkAutoCorrespondence(
+        proposal.anchor,
+        proposal.proposedText,
+        op,
+        deadRef,
+      )
     );
   });
   if (!corresponds) {
-    console.error("auto refused: edit does not correspond to the dead reference");
+    console.error(
+      "auto refused: edit does not correspond to the dead reference",
+    );
     process.exit(3);
   }
 }
@@ -519,7 +563,11 @@ function hasInvalidTargetShape(target: string): boolean {
  * `auto refused:` message (that condition is deterministic regardless of
  * disk state, so it doesn't need to fold into the uniform message).
  */
-function validateTargetLexicalOrExit(projectRoot: string, target: string, auto: boolean): void {
+function validateTargetLexicalOrExit(
+  projectRoot: string,
+  target: string,
+  auto: boolean,
+): void {
   if (hasInvalidTargetShape(target)) {
     console.error(UNIFORM_TARGET_REJECTION);
     process.exit(3);
@@ -528,7 +576,9 @@ function validateTargetLexicalOrExit(projectRoot: string, target: string, auto: 
   const normRoot = toSlashes(projectRoot).replace(/\/$/, "");
   const lexicalTarget = `${normRoot}/${target}`;
 
-  const contained = ALLOWED_TARGET_DIRS.some((dir) => lexicalTarget.startsWith(`${normRoot}/${dir}`));
+  const contained = ALLOWED_TARGET_DIRS.some((dir) =>
+    lexicalTarget.startsWith(`${normRoot}/${dir}`),
+  );
   if (!contained) {
     console.error(UNIFORM_TARGET_REJECTION);
     process.exit(3);
@@ -539,7 +589,9 @@ function validateTargetLexicalOrExit(projectRoot: string, target: string, auto: 
   // human-approved standard apply. Distinct message: this is a deterministic
   // tier rule, not part of the oracle-closure surface above.
   if (auto) {
-    const autoContained = AUTO_TARGET_DIRS.some((dir) => lexicalTarget.startsWith(`${normRoot}/${dir}`));
+    const autoContained = AUTO_TARGET_DIRS.some((dir) =>
+      lexicalTarget.startsWith(`${normRoot}/${dir}`),
+    );
     if (!autoContained) {
       console.error(
         "auto refused: target must be under .claude/commands/ or .claude/skills/ (rules excluded from auto)",
@@ -599,7 +651,9 @@ function resolveAndContainTarget(
     process.exit(3);
   }
   if (lst.isSymbolicLink()) {
-    console.error("error: target is a symlink — instruction files must be regular files");
+    console.error(
+      "error: target is a symlink — instruction files must be regular files",
+    );
     process.exit(3);
   }
 
@@ -609,7 +663,9 @@ function resolveAndContainTarget(
     canonicalTarget = realpathSync(targetAbs);
     canonicalRoot = realpathSync(projectRoot);
   } catch (err) {
-    console.error(`error: cannot resolve target path: ${(err as Error).message}`);
+    console.error(
+      `error: cannot resolve target path: ${(err as Error).message}`,
+    );
     process.exit(3);
   }
 
@@ -619,9 +675,34 @@ function resolveAndContainTarget(
   try {
     canonicalStat = statSync(canonicalTarget);
   } catch (err) {
-    console.error(`error: cannot stat canonical target: ${(err as Error).message}`);
+    console.error(
+      `error: cannot stat canonical target: ${(err as Error).message}`,
+    );
     process.exit(3);
   }
+  // Directory-target guard. MUST run before the hardlink check below.
+  //
+  // This guard originally sat after the hardlink check, on the stated
+  // assumption that a directory's "nlink is unremarkable". That is false on
+  // POSIX: a directory's link count is at least 2 (its own `.` entry plus its
+  // entry in the parent) and grows by one per subdirectory. So `nlink > 1` is
+  // ALWAYS true for a directory on Linux/macOS, and the hardlink branch always
+  // won the race — a directory target was refused with "target has multiple
+  // hard links", sending anyone reading that message to investigate an inode
+  // problem that does not exist. (Windows reports nlink 1 for directories,
+  // which is why the original ordering looked correct where it was written.)
+  //
+  // Ordering rule: most specific diagnosis first. Being a directory is a
+  // property of the target itself; sharing an inode is a property of its
+  // relationship to other paths. Reuses `canonicalStat` rather than re-stat-ing.
+  if (canonicalStat.isDirectory()) {
+    console.error("error: target is a directory");
+    process.exit(3);
+  }
+
+  // R3: hardlink refusal — a shared inode means a write here silently
+  // mutates another file entirely, however that file is reached. Now
+  // unambiguous: anything reaching this line is a regular file.
   if (typeof canonicalStat.nlink === "number" && canonicalStat.nlink > 1) {
     console.error("error: target has multiple hard links");
     process.exit(3);
@@ -635,19 +716,9 @@ function resolveAndContainTarget(
       ? canonicalRel.toLowerCase() === target.toLowerCase()
       : canonicalRel === target;
   if (!identityMatches) {
-    console.error("error: target path is indirect — canonical location differs from proposal target");
-    process.exit(3);
-  }
-
-  // Directory-target guard (round-3 residual fix): a directory-valued
-  // target passes every check above unchanged — it isn't a symlink, its
-  // nlink is unremarkable, and its canonical identity matches `target`
-  // exactly — but `readFileSync(canonicalTarget, ...)` further down would
-  // then crash with a raw, undocumented EISDIR stack trace instead of a
-  // clean refusal. Reuses `canonicalStat` (already computed for the R3
-  // hardlink check above) rather than stat-ing again.
-  if (canonicalStat.isDirectory()) {
-    console.error("error: target is a directory");
+    console.error(
+      "error: target path is indirect — canonical location differs from proposal target",
+    );
     process.exit(3);
   }
 
@@ -672,11 +743,16 @@ function guardRepoState(projectRoot: string): string {
     console.error(`error: not a git repository: ${(err as Error).message}`);
     process.exit(3);
   }
-  const gitDir = isAbsolute(gitDirRaw) ? gitDirRaw : resolve(projectRoot, gitDirRaw);
+  const gitDir = isAbsolute(gitDirRaw)
+    ? gitDirRaw
+    : resolve(projectRoot, gitDirRaw);
 
   let detached = false;
   try {
-    execFileSync("git", ["symbolic-ref", "-q", "HEAD"], { cwd: projectRoot, stdio: "pipe" });
+    execFileSync("git", ["symbolic-ref", "-q", "HEAD"], {
+      cwd: projectRoot,
+      stdio: "pipe",
+    });
   } catch {
     detached = true;
   }
@@ -685,10 +761,17 @@ function guardRepoState(projectRoot: string): string {
     process.exit(3);
   }
 
-  const inProgressMarkers = ["MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY_PICK_HEAD"];
+  const inProgressMarkers = [
+    "MERGE_HEAD",
+    "rebase-merge",
+    "rebase-apply",
+    "CHERRY_PICK_HEAD",
+  ];
   for (const marker of inProgressMarkers) {
     if (existsSync(resolve(gitDir, marker))) {
-      console.error(`error: refusing to apply — repo mid-operation (${marker} present)`);
+      console.error(
+        `error: refusing to apply — repo mid-operation (${marker} present)`,
+      );
       process.exit(3);
     }
   }
@@ -701,12 +784,18 @@ function guardRepoState(projectRoot: string): string {
  * --porcelain -- relTarget` is non-empty). Exits 3 on a dirty target.
  */
 function guardCleanTarget(projectRoot: string, relTarget: string): void {
-  const statusOut = execFileSync("git", ["status", "--porcelain", "--", relTarget], {
-    cwd: projectRoot,
-    encoding: "utf-8",
-  });
+  const statusOut = execFileSync(
+    "git",
+    ["status", "--porcelain", "--", relTarget],
+    {
+      cwd: projectRoot,
+      encoding: "utf-8",
+    },
+  );
   if (statusOut.trim().length > 0) {
-    console.error(`error: target has uncommitted changes (git status not clean): ${relTarget}`);
+    console.error(
+      `error: target has uncommitted changes (git status not clean): ${relTarget}`,
+    );
     process.exit(3);
   }
 }
@@ -722,12 +811,18 @@ function guardCleanTarget(projectRoot: string, relTarget: string): void {
  * as a clean one — nothing to reject. Exits 3 on a dirty docs/maps.
  */
 function guardCleanDocsMaps(projectRoot: string): void {
-  const statusOut = execFileSync("git", ["status", "--porcelain", "--", "docs/maps"], {
-    cwd: projectRoot,
-    encoding: "utf-8",
-  });
+  const statusOut = execFileSync(
+    "git",
+    ["status", "--porcelain", "--", "docs/maps"],
+    {
+      cwd: projectRoot,
+      encoding: "utf-8",
+    },
+  );
   if (statusOut.trim().length > 0) {
-    console.error("error: docs/maps has uncommitted changes — commit or stash them first");
+    console.error(
+      "error: docs/maps has uncommitted changes — commit or stash them first",
+    );
     process.exit(3);
   }
 }
@@ -743,12 +838,18 @@ function guardCleanDocsMaps(projectRoot: string): void {
  */
 function restoreDocsMapsBestEffort(projectRoot: string): void {
   try {
-    execFileSync("git", ["restore", "--worktree", "--staged", "--", "docs/maps"], {
-      cwd: projectRoot,
-      stdio: "pipe",
-    });
+    execFileSync(
+      "git",
+      ["restore", "--worktree", "--staged", "--", "docs/maps"],
+      {
+        cwd: projectRoot,
+        stdio: "pipe",
+      },
+    );
   } catch (err) {
-    console.error(`warning: failed to restore docs/maps during rollback: ${(err as Error).message}`);
+    console.error(
+      `warning: failed to restore docs/maps during rollback: ${(err as Error).message}`,
+    );
   }
 }
 
@@ -786,7 +887,10 @@ function commitApply(
   writeFileSync(msgPath, commitMsg, "utf-8");
 
   try {
-    execFileSync("git", ["add", relTarget], { cwd: projectRoot, stdio: "pipe" });
+    execFileSync("git", ["add", relTarget], {
+      cwd: projectRoot,
+      stdio: "pipe",
+    });
     execFileSync("git", ["commit", "-F", msgPath, "--", ...pathspec], {
       cwd: projectRoot,
       stdio: "pipe",
@@ -865,7 +969,11 @@ function main(): void {
   // Auto-tier condition 2/6: operation must be delete or replace — add is
   // never eligible (auto only ever removes or shrinks known-dead content,
   // never introduces new content unsupervised).
-  if (args.auto && proposal.operation !== "delete" && proposal.operation !== "replace") {
+  if (
+    args.auto &&
+    proposal.operation !== "delete" &&
+    proposal.operation !== "replace"
+  ) {
     console.error("auto refused: op must be delete|replace");
     process.exit(3);
   }
@@ -877,7 +985,10 @@ function main(): void {
   validateTargetLexicalOrExit(projectRoot, proposal.target, args.auto);
 
   // Step: resolve + canonicalize the target (R2/R3-hardened — see docstring).
-  const { canonicalTarget, relTarget } = resolveAndContainTarget(projectRoot, proposal.target);
+  const { canonicalTarget, relTarget } = resolveAndContainTarget(
+    projectRoot,
+    proposal.target,
+  );
 
   // Step: repo-state guard (worktree-safe git-dir resolution).
   const gitDir = guardRepoState(projectRoot);
@@ -897,7 +1008,9 @@ function main(): void {
     newContent = applyAnchoredOp(originalContent, proposal);
   } catch (err) {
     if (err instanceof AnchorError) {
-      console.error(args.auto ? `auto refused: ${err.message}` : `error: ${err.message}`);
+      console.error(
+        args.auto ? `auto refused: ${err.message}` : `error: ${err.message}`,
+      );
       process.exit(3);
     }
     throw err;
@@ -911,7 +1024,11 @@ function main(): void {
   writeFileSync(canonicalTarget, newContent, "utf-8");
 
   // Step: post-edit validation (rolls back + exits 4 on failure).
-  const mapsStaged = runSystemMapCheck(projectRoot, canonicalTarget, originalContent);
+  const mapsStaged = runSystemMapCheck(
+    projectRoot,
+    canonicalTarget,
+    originalContent,
+  );
   runSecurityScan(projectRoot, canonicalTarget, originalContent);
 
   // Step: commit — pathspec-scoped (M3a) with rollback on failure (M3b).
