@@ -93,7 +93,7 @@
     "tests/knowledge-index.test.ts": "cf9c82f083da35decfe18ca00a4d0a73677cc38a7bc3b6f3f37b410f7adfc476",
     "tests/maintain-draft.test.ts": "74b0cb62f26903773bc6a44a8f1f2552cc9ba3d601512bb63d9129c8bd209731",
     "tests/maintain-smoke.sh": "034367b896211010bc376138b5f05226719f68aace5c1ed9adf97a9edecfd2d9",
-    "tests/new-project-smoke.sh": "2bdf098a49881d1bdfedcbabeb95ab64bea37cbc040fde84665ee467d01c55b6",
+    "tests/new-project-smoke.sh": "599975b209baef7b35eb283a60e70d2bcd912b90c9640c9020766ee23fcd464a",
     "tests/observation-parser.test.ts": "231883f297af5d54c9410cc035a7e4b0bcaad239239b9f3e8b0b73928317447a",
     "tests/policy.test.ts": "ce0cc331e82a10a154915148ca42388afdb67420c80f311169890ab900b23eb1",
     "tests/scan-rules-node22.test.ts": "0864a10c6a996bfe0b5d088fd61e4223bc15dd18d7eb0270e78aa7fae9756a90",

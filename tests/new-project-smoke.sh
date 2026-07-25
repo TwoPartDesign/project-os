@@ -291,7 +291,7 @@ if [ -f "$PROJ/.git/hooks/pre-push" ]; then
     # 20-char token is below the 4.5-bit entropy gate regardless. Use a
     # high-entropy generic secret, which exercises the same scan path without
     # depending on either.
-    printf 'SECRET_KEY = "aB3xQ9mZ7pL2vK8nR4tY6wE1sD5fG0hJcU%%iO+/zX"\n' > "$PROJ/leak-probe.js"
+    printf 'SECRET_KEY = "aB3xQ9mZ7pL2vK8nR4tY6wE1sD5fG0hJcU%%iO+/zX"\n' > "$PROJ/leak-probe.js"  # scan:allow — deliberate fixture; it being detected IS the assertion
     git -C "$PROJ" add leak-probe.js
     set +e
     LEAK_OUT="$( (cd "$PROJ" && bash .git/hooks/pre-push </dev/null 2>&1) )"
