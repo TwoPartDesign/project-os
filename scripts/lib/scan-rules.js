@@ -47,7 +47,7 @@ const rules = [
     regex: /[\w.-]{0,50}?(?:adobe)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{32})(?:[\x60'"\s;]|\\[nr]|$)/i,
     keywords: ["adobe"],
     severity: "HIGH",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
@@ -309,7 +309,7 @@ const rules = [
     regex: /[\w.-]{0,50}?(?:[\w.-]{0,50}?(?:[Mm]eraki|MERAKI)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([0-9a-f]{40})(?:[\x60'"\s;]|\\[nr]|$)/,
     keywords: ["meraki"],
     severity: "HIGH",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
@@ -353,7 +353,7 @@ const rules = [
     regex: /[\w.-]{0,50}?(?:cloudflare)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{37})(?:[\x60'"\s;]|\\[nr]|$)/i,
     keywords: ["cloudflare"],
     severity: "HIGH",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
@@ -364,7 +364,7 @@ const rules = [
     regex: /\b(v1\.0-[a-f0-9]{24}-[a-f0-9]{146})(?:[\x60'"\s;]|\\[nr]|$)/,
     keywords: ["cloudflare","v1.0-"],
     severity: "HIGH",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
@@ -458,7 +458,7 @@ const rules = [
     regex: /\b(dapi[a-f0-9]{32}(?:-\d)?)(?:[\x60'"\s;]|\\[nr]|$)/,
     keywords: ["dapi"],
     severity: "CRITICAL",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
@@ -489,7 +489,7 @@ const rules = [
     regex: /\b(doo_v1_[a-f0-9]{64})(?:[\x60'"\s;]|\\[nr]|$)/,
     keywords: ["doo_v1_"],
     severity: "HIGH",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
@@ -500,7 +500,7 @@ const rules = [
     regex: /\b(dop_v1_[a-f0-9]{64})(?:[\x60'"\s;]|\\[nr]|$)/,
     keywords: ["dop_v1_"],
     severity: "HIGH",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
@@ -531,7 +531,7 @@ const rules = [
     regex: /[\w.-]{0,50}?(?:discord)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([0-9]{18})(?:[\x60'"\s;]|\\[nr]|$)/i,
     keywords: ["discord"],
     severity: "HIGH",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
@@ -681,7 +681,7 @@ const rules = [
     regex: /[\w.-]{0,50}?(?:facebook)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{32})(?:[\x60'"\s;]|\\[nr]|$)/i,
     keywords: ["facebook"],
     severity: "HIGH",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
@@ -992,7 +992,7 @@ const rules = [
     regex: /glptt-[0-9a-f]{40}/,
     keywords: ["glptt-"],
     severity: "HIGH",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
@@ -1331,7 +1331,7 @@ const rules = [
     regex: /[\w.-]{0,50}?(?:linear)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{32})(?:[\x60'"\s;]|\\[nr]|$)/i,
     keywords: ["linear"],
     severity: "HIGH",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
@@ -1771,7 +1771,7 @@ const rules = [
     regex: /\b(pul-[a-f0-9]{40})(?:[\x60'"\s;]|\\[nr]|$)/,
     keywords: ["pul-"],
     severity: "HIGH",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
@@ -1814,7 +1814,7 @@ const rules = [
     regex: /\b(rubygems_[a-f0-9]{48})(?:[\x60'"\s;]|\\[nr]|$)/,
     keywords: ["rubygems_"],
     severity: "HIGH",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
@@ -1878,7 +1878,7 @@ const rules = [
     regex: /[\w.-]{0,50}?(?:sentry)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{64})(?:[\x60'"\s;]|\\[nr]|$)/i,
     keywords: ["sentry"],
     severity: "HIGH",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
@@ -1900,7 +1900,7 @@ const rules = [
     regex: /\b(sntryu_[a-f0-9]{64})(?:[\x60'"\s;]|\\[nr]|$)/,
     keywords: ["sntryu_"],
     severity: "HIGH",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
@@ -1944,7 +1944,7 @@ const rules = [
     regex: /\b(shippo_(?:live|test)_[a-fA-F0-9]{40})(?:[\x60'"\s;]|\\[nr]|$)/,
     keywords: ["shippo_"],
     severity: "HIGH",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
@@ -1955,7 +1955,7 @@ const rules = [
     regex: /shpat_[a-fA-F0-9]{32}/,
     keywords: ["shpat_"],
     severity: "HIGH",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
@@ -1966,7 +1966,7 @@ const rules = [
     regex: /shpca_[a-fA-F0-9]{32}/,
     keywords: ["shpca_"],
     severity: "HIGH",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
@@ -1977,7 +1977,7 @@ const rules = [
     regex: /shppa_[a-fA-F0-9]{32}/,
     keywords: ["shppa_"],
     severity: "HIGH",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
@@ -1988,7 +1988,7 @@ const rules = [
     regex: /shpss_[a-fA-F0-9]{32}/,
     keywords: ["shpss_"],
     severity: "HIGH",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
@@ -2137,7 +2137,7 @@ const rules = [
     regex: /\b(\b(sgp_(?:[a-fA-F0-9]{16}|local)_[a-fA-F0-9]{40}|sgp_[a-fA-F0-9]{40}|[a-fA-F0-9]{40})\b)(?:[\x60'"\s;]|\\[nr]|$)/i,
     keywords: ["sgp_","sourcegraph"],
     severity: "HIGH",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
@@ -2222,7 +2222,7 @@ const rules = [
     regex: /SK[0-9a-fA-F]{32}/,
     keywords: ["sk"],
     severity: "HIGH",
-    entropy: true,
+    entropy: false,
     allowlist: { regexes: [], paths: [], stopwords: [] },
     testCases: []
   },
