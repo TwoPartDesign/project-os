@@ -271,6 +271,73 @@ function shannonEntropy(str: string): number {
   }, 0);
 }
 
+/**
+ * Fraction of a token's *achievable* entropy that must be present for it to
+ * count as random-looking. See {@link effectiveEntropyThreshold}.
+ */
+const ENTROPY_LENGTH_RATIO = 0.9;
+
+/**
+ * Rules that keep the strict, absolute entropy bar rather than the
+ * length-aware one.
+ *
+ * These two match on keyword *proximity* (`key`/`secret`/`token` near a
+ * quoted value) with no structural anchor on the value itself, so their
+ * capture is frequently ordinary prose. The high absolute bar is what keeps
+ * them quiet, and measurement confirms it is load-bearing: at a 0.9 ratio the
+ * capture "git-versioned" (13 chars, 3.39 bits, bar 3.33) fires as a secret
+ * in two committed markdown files. Raising the ratio to silence that would
+ * push the bar above a real 20-char AWS key (4.02 bits, bar 4.11) and
+ * reintroduce the very defect this fixes — no single global ratio separates
+ * the two cases.
+ *
+ * The other 108 entropy-gated rules all carry a structural anchor (a fixed
+ * prefix like `AKIA`/`hf_`/`ghp_`, or a service keyword plus a fixed-length
+ * token shape), so their capture is a token by construction and the
+ * length-aware bar is safe there.
+ */
+const STRICT_ENTROPY_RULE_IDS = new Set([
+  "generic-api-key",
+  "generic-api-key-custom",
+]);
+
+/**
+ * The entropy bar a captured token of length `len` must clear.
+ *
+ * WHY THIS IS NOT JUST `_entropyThreshold`: Shannon entropy of an N-character
+ * string is mathematically capped at log2(N) — the maximum is reached only when
+ * every character is distinct. With the configured threshold at 4.5 bits, any
+ * token of 22 characters or fewer has a ceiling of log2(22) = 4.46 and so can
+ * NEVER clear the bar, no matter how random it is. Every `entropy: true` rule
+ * matching a short token was therefore dead code that silently detected
+ * nothing while reporting "No findings".
+ *
+ * That was not theoretical: `aws-access-token` is CRITICAL and matches a
+ * 20-character key. A real key (`AKIA` + 16 random base32 chars) scores ~4.0 bits and
+ * was silently dropped on every scan.
+ *
+ * The fix caps the bar at what the length can actually deliver:
+ *
+ *     min(configured, log2(len) * ENTROPY_LENGTH_RATIO)
+ *
+ * This is monotonically *more permissive* than the old behaviour — it can only
+ * add detections, never remove one — which is the safe direction for a change
+ * to 131 rules at once. For len >= 32 the length term is >= 4.5, so the
+ * configured threshold still governs and behaviour is bit-for-bit unchanged
+ * for every long token. Only short tokens, which previously could not fire at
+ * all, are affected.
+ *
+ * The ratio (not the raw ceiling) is what keeps the check meaningful at short
+ * lengths: demanding 90% of achievable entropy still rejects a padded or
+ * repetitive token. `AKIAAAAAAAAAAAAAAAAA` scores 0.47 against a 3.89 bar and
+ * is correctly ignored; the real key at 4.02 clears it.
+ */
+function effectiveEntropyThreshold(len: number, ruleId: string): number {
+  if (STRICT_ENTROPY_RULE_IDS.has(ruleId)) return _entropyThreshold;
+  if (len < 2) return _entropyThreshold;
+  return Math.min(_entropyThreshold, Math.log2(len) * ENTROPY_LENGTH_RATIO);
+}
+
 // ============================================================================
 // Core scanner
 // ============================================================================
@@ -367,10 +434,11 @@ function scanContent(
       if (allowlist.stopwords.includes(matchedText)) continue;
       if (allowlist.stopwords.includes(capturedGroup)) continue;
 
-      // Entropy check
+      // Entropy check — bar is length-aware; see effectiveEntropyThreshold.
       if (rule.entropy && !options.noEntropy) {
         const entropy = shannonEntropy(capturedGroup);
-        if (entropy < _entropyThreshold) continue;
+        if (entropy < effectiveEntropyThreshold(capturedGroup.length, rule.id))
+          continue;
       }
 
       findings.push({
