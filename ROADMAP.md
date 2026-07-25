@@ -266,6 +266,24 @@ Spec: `docs/specs/template-content-leakage/` (brief + design DRAFT, 2026-07-24).
 ### Review
 ### Done
 
+## Feature: clone-run-defects
+
+Spec: `docs/specs/template-content-leakage/` (defects C-G + one found while fixing C). Source: full clone → `/tools:init` → `/workflows:idea` → `/workflows:design` (2 adversarial rounds) → `/workflows:plan` (19 tasks) run on Power-Hour-Rhythm-Game, 2026-07-24. All framework-first — they affect every clone and every existing clone. Implementation is on branch `claude/template-content-leakage-4sxcm0` pending this gate.
+
+### Draft
+- [?] C: pre-push hook generator guards `scan-diff` on `origin/$BRANCH` existing; falls back to a full tracked-file scan on first push (`security-scanner.ts`) #T106
+- [?] D: `/workflows:idea` Step 1a derives + confirms a ≤40-char `FEATURE_SLUG`; design/plan/approve inherit it verbatim instead of re-deriving from prose #T107
+- [?] E: `/tools:init` Step 5c writes per-subcommand toolchain `permissions.allow` entries from the detected stack — never bare interpreters, never publish/deploy verbs (depends: #T104) #T108
+- [?] F: `/tools:init` Step 5d asks the `docs/specs` tracking question with "track specs" recommended, and states the policy in the report (depends: #T104) #T109
+- [?] G: `/tools:init` Step 9 uses the Write tool + scratchpad instead of a `/tmp` heredoc; `.claude/rules/bash.md` drops `/tmp/` from its guidance and says why #T110
+- [?] Ship `templates/knowledge/framework-patterns.md` as reference so the five transferable patterns survive the seed split without being asserted as a new project's conventions (depends: #T97) #T111
+- [?] Rewrite the 11 `(?i:...)` inline-modifier regexes in `scripts/lib/scan-rules.js` to syntax valid on Node 22.18 — the declared `engines` minimum. Until then the whole rules module is a syntax error on Node 22, `install-hooks.sh` dies, and a project gets NO pre-commit secret scan and NO system-map heal while reporting only "Could not install git hooks". Loud diagnosis landed in `security-scanner.ts`; the rewrite needs its own `test-rules` validation pass (model: opus) #T112
+
+### Todo
+### In Progress
+### Review
+### Done
+
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->
 - [x] SOTA adoption — workflow ergonomics (RE-SCOPED 2026-07-17, SHIPPED same day): shipped `/goal` wave/MVP exit predicates + wave-handoff artifact + `tools:update --diff-upstream`. `tools:audit-knowledge` dropped (subsumed by self-maintenance maintain.sh/system-map); `tools:sota-scan` deferred as machine-local. Needs a short re-scoping design pass first. Revised plan: `.claude/plans/sota-adoption-2026-05.md` (see REVISED SCOPE block) #T34

@@ -16,8 +16,15 @@
 // ES module, native TS (Node >=22.18 type-stripping): type-only syntax, no
 // enums/namespaces. Zero npm deps: node:fs/path/child_process/url only.
 
-import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+  mkdirSync,
+} from "node:fs";
 import { resolve } from "node:path";
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
@@ -33,11 +40,20 @@ import {
   findDanglingRefs,
   findManifestGaps,
   findBloat,
+  findTemplateResidue,
+  findInitIncomplete,
+  hasUnfilledPlaceholders,
   classify,
   idFor,
   collectBloatFiles,
 } from "./lib/system-map-lib.ts";
-import type { MapNode, MapEdge, SystemMapGraph, Finding, Kind } from "./lib/system-map-lib.ts";
+import type {
+  MapNode,
+  MapEdge,
+  SystemMapGraph,
+  Finding,
+  Kind,
+} from "./lib/system-map-lib.ts";
 import { getProjectRoot } from "./lib/project-root.ts";
 import { readPolicyNumber } from "./lib/policy.ts";
 
@@ -51,7 +67,14 @@ const ORPHAN_ALLOWLIST = [
 /** Fallback bloat-warning threshold (tokens) when `.claude/maintenance-policy.yaml` is absent or malformed. */
 const DEFAULT_BLOAT_WARN_TOKENS = 2500;
 
-const KIND_ORDER: Kind[] = ["command", "config", "hook", "lib", "script", "skill"];
+const KIND_ORDER: Kind[] = [
+  "command",
+  "config",
+  "hook",
+  "lib",
+  "script",
+  "skill",
+];
 
 // ==========================================================================
 // Project root
@@ -85,7 +108,11 @@ interface ContentSource {
 function workingTreeSource(root: string): ContentSource {
   const abs = (p: string) => resolve(root, p);
 
-  function addFlat(dir: string, exts: string[] | null, results: Set<string>): void {
+  function addFlat(
+    dir: string,
+    exts: string[] | null,
+    results: Set<string>,
+  ): void {
     const full = abs(dir);
     if (!existsSync(full)) return;
     for (const ent of readdirSync(full, { withFileTypes: true })) {
@@ -95,7 +122,11 @@ function workingTreeSource(root: string): ContentSource {
     }
   }
 
-  function addRecursive(dir: string, exts: string[], results: Set<string>): void {
+  function addRecursive(
+    dir: string,
+    exts: string[],
+    results: Set<string>,
+  ): void {
     const full = abs(dir);
     if (!existsSync(full)) return;
     const stack: string[] = [dir];
@@ -107,7 +138,8 @@ function workingTreeSource(root: string): ContentSource {
           stack.push(rel);
           continue;
         }
-        if (ent.isFile() && exts.some((e) => ent.name.endsWith(e))) results.add(rel);
+        if (ent.isFile() && exts.some((e) => ent.name.endsWith(e)))
+          results.add(rel);
       }
     }
   }
@@ -157,7 +189,10 @@ function gitIndexSource(root: string): ContentSource {
 
   function lsFiles(): string[] {
     if (cachedPaths) return cachedPaths;
-    const out = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf-8" });
+    const out = execFileSync("git", ["ls-files", "-z"], {
+      cwd: root,
+      encoding: "utf-8",
+    });
     cachedPaths = out
       .split("\0")
       .filter((p) => p.length > 0)
@@ -173,7 +208,10 @@ function gitIndexSource(root: string): ContentSource {
     },
     readInput(path: string): string | null {
       try {
-        const out = execFileSync("git", ["show", ":" + path], { cwd: root, encoding: "utf-8" });
+        const out = execFileSync("git", ["show", ":" + path], {
+          cwd: root,
+          encoding: "utf-8",
+        });
         return normalizeContent(out);
       } catch {
         return null;
@@ -182,7 +220,12 @@ function gitIndexSource(root: string): ContentSource {
     listDir(dirPath: string): string[] {
       const prefix = dirPath + "/";
       return lsFiles()
-        .filter((p) => p.startsWith(prefix) && p.endsWith(".md") && !p.slice(prefix.length).includes("/"))
+        .filter(
+          (p) =>
+            p.startsWith(prefix) &&
+            p.endsWith(".md") &&
+            !p.slice(prefix.length).includes("/"),
+        )
         .sort();
     },
   };
@@ -297,7 +340,10 @@ function buildNodes(contents: Map<string, string>): MapNode[] {
  * resolve to a known node use its id; unknown targets keep the raw path so
  * `findDanglingRefs` can flag them.
  */
-function buildEdges(nodes: MapNode[], contents: Map<string, string>): MapEdge[] {
+function buildEdges(
+  nodes: MapNode[],
+  contents: Map<string, string>,
+): MapEdge[] {
   const pathToId = new Map(nodes.map((n) => [n.path, n.id]));
   const edges: MapEdge[] = [];
 
@@ -305,22 +351,36 @@ function buildEdges(nodes: MapNode[], contents: Map<string, string>): MapEdge[] 
   const settingsId = pathToId.get(".claude/settings.json");
   if (settingsContent !== undefined && settingsId) {
     for (const hookPath of extractHookWiring(settingsContent)) {
-      edges.push({ from: settingsId, to: pathToId.get(hookPath) ?? hookPath, kind: "wires" });
+      edges.push({
+        from: settingsId,
+        to: pathToId.get(hookPath) ?? hookPath,
+        kind: "wires",
+      });
     }
   }
 
   for (const n of nodes) {
     if (n.kind !== "command" && n.kind !== "skill") continue;
     for (const ref of extractScriptRefs(contents.get(n.path)!, n.path)) {
-      edges.push({ from: n.id, to: pathToId.get(ref.target) ?? ref.target, kind: "references" });
+      edges.push({
+        from: n.id,
+        to: pathToId.get(ref.target) ?? ref.target,
+        kind: "references",
+      });
     }
   }
 
   for (const n of nodes) {
     if (n.kind !== "script" && n.kind !== "lib" && n.kind !== "hook") continue;
-    const importKind: MapEdge["kind"] = n.path.endsWith(".sh") ? "sources" : "imports";
+    const importKind: MapEdge["kind"] = n.path.endsWith(".sh")
+      ? "sources"
+      : "imports";
     for (const im of extractImports(contents.get(n.path)!, n.path)) {
-      edges.push({ from: n.id, to: pathToId.get(im.target) ?? im.target, kind: importKind });
+      edges.push({
+        from: n.id,
+        to: pathToId.get(im.target) ?? im.target,
+        kind: importKind,
+      });
     }
   }
 
@@ -347,8 +407,8 @@ function runFindings(
   const pathById = new Map(nodes.map((n) => [n.id, n.path]));
   findings.push(
     ...findOrphanScripts(graph, ORPHAN_ALLOWLIST).filter(
-      (f) => !(pathById.get(f.subject) || "").startsWith("tests/")
-    )
+      (f) => !(pathById.get(f.subject) || "").startsWith("tests/"),
+    ),
   );
   findings.push(...findDanglingRefs(nodes, edges));
 
@@ -394,7 +454,9 @@ function renderMarkdown(result: BuildResult): string {
     lines.push(`### ${kind}`);
     for (const n of kindNodes) {
       const dep = dependents(result.graph, n.id);
-      lines.push(`- \`${n.id}\` — \`${n.path}\` (${dep} dependent${dep === 1 ? "" : "s"})`);
+      lines.push(
+        `- \`${n.id}\` — \`${n.path}\` (${dep} dependent${dep === 1 ? "" : "s"})`,
+      );
     }
   }
   lines.push("");
@@ -433,7 +495,9 @@ function renderMermaid(result: BuildResult): string {
     lines.push("  end");
   }
   for (const e of result.edges) {
-    lines.push(`  ${mermaidSafeId(e.from)} -->|${e.kind}| ${mermaidSafeId(e.to)}`);
+    lines.push(
+      `  ${mermaidSafeId(e.from)} -->|${e.kind}| ${mermaidSafeId(e.to)}`,
+    );
   }
   return normalizeContent(lines.join("\n"));
 }
@@ -442,7 +506,9 @@ function renderMermaid(result: BuildResult): string {
 function renderLock(inputs: Record<string, string>): string {
   const sorted: Record<string, string> = {};
   for (const k of Object.keys(inputs).sort()) sorted[k] = inputs[k];
-  return normalizeContent(JSON.stringify({ generator_version: 1, inputs: sorted }, null, 2));
+  return normalizeContent(
+    JSON.stringify({ generator_version: 1, inputs: sorted }, null, 2),
+  );
 }
 
 /** Writes all three generated artifacts under `docs/maps/`, creating the directory if needed. */
@@ -450,7 +516,11 @@ function writeArtifacts(root: string, result: BuildResult): void {
   const dir = resolve(root, "docs/maps");
   mkdirSync(dir, { recursive: true });
   writeFileSync(resolve(dir, "system-map.md"), renderMarkdown(result), "utf-8");
-  writeFileSync(resolve(dir, "module-graph.mmd"), renderMermaid(result), "utf-8");
+  writeFileSync(
+    resolve(dir, "module-graph.mmd"),
+    renderMermaid(result),
+    "utf-8",
+  );
   writeFileSync(resolve(dir, ".maps.lock"), renderLock(result.inputs), "utf-8");
 }
 
@@ -463,7 +533,10 @@ function readLockInputs(lockPath: string): Record<string, string> {
   if (!existsSync(lockPath)) return {};
   try {
     const parsed = JSON.parse(readFileSync(lockPath, "utf-8"));
-    return parsed && typeof parsed === "object" && parsed.inputs && typeof parsed.inputs === "object"
+    return parsed &&
+      typeof parsed === "object" &&
+      parsed.inputs &&
+      typeof parsed.inputs === "object"
       ? (parsed.inputs as Record<string, string>)
       : {};
   } catch {
@@ -472,7 +545,10 @@ function readLockInputs(lockPath: string): Record<string, string> {
 }
 
 /** Returns sorted `"added: <path>" | "removed: <path>" | "changed: <path>"` lines describing input drift. */
-function diffInputs(current: Record<string, string>, lock: Record<string, string>): string[] {
+function diffInputs(
+  current: Record<string, string>,
+  lock: Record<string, string>,
+): string[] {
   const results: string[] = [];
   const allPaths = new Set([...Object.keys(current), ...Object.keys(lock)]);
   for (const p of Array.from(allPaths).sort()) {
@@ -523,16 +599,87 @@ function cmdCheck(root: string, heal: boolean): void {
 /** `report [--json]`: prints readiness findings (human lines or a JSON array). Always exits 0 on success. */
 function cmdReport(root: string, json: boolean): void {
   const result = build(workingTreeSource(root));
+  const findings = sortFindings([
+    ...result.findings,
+    ...projectReadinessFindings(root),
+  ]);
   if (json) {
-    console.log(JSON.stringify(result.findings, null, 2));
-  } else if (result.findings.length === 0) {
+    console.log(JSON.stringify(findings, null, 2));
+  } else if (findings.length === 0) {
     console.log("map: no findings");
   } else {
-    for (const f of result.findings) {
+    for (const f of findings) {
       console.log(`${f.severity} ${f.kind} ${f.subject} — ${f.detail}`);
     }
   }
   process.exit(0);
+}
+
+// ==========================================================================
+// Project-readiness findings (report-only)
+//
+// "Has this project been localized, or is it still wearing the template's
+// clothes?" — deliberately NOT part of build()/writeArtifacts():
+//
+//   1. docs/maps/system-map.md would then change whenever a knowledge file is
+//      edited, and `precommit` builds artifacts from the git INDEX while
+//      `generate` builds from the working tree — the two would disagree and
+//      churn the committed map on every knowledge edit.
+//   2. The only consumer that needs these is `maintain.sh`, which calls
+//      `report --json` (maintain.sh:363).
+//
+// Same rationale as bloat's exclusion from the .maps.lock hashed input set,
+// taken one step further: these never touch the artifacts at all.
+// ==========================================================================
+
+/** Raw file contents, or `null` if the path does not exist / cannot be read. */
+function readRawIfExists(absPath: string): string | null {
+  if (!existsSync(absPath)) return null;
+  try {
+    return readFileSync(absPath, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Lowercase hex sha256 of a file's RAW BYTES, or `null` if absent/unreadable.
+ *
+ * Deliberately NOT the lib's `sha256()` helper and NOT `ContentSource.readInput`:
+ * both apply `normalizeContent()` first, which would rewrite CRLF and trailing
+ * newlines and therefore NEVER match the `sha256sum` values that
+ * generate-manifest.sh wrote. A normalizing digest here would make the residue
+ * detector silently, permanently vacuous — the worst failure mode available,
+ * since it looks exactly like "no problems found".
+ */
+function sha256OfFileRaw(absPath: string): string | null {
+  if (!existsSync(absPath)) return null;
+  try {
+    return createHash("sha256").update(readFileSync(absPath)).digest("hex");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Residue findings, or an init-incomplete finding when `/tools:init` has not
+ * run yet. Mutually exclusive: an un-initialized project has one thing to fix.
+ */
+function projectReadinessFindings(root: string): Finding[] {
+  const claudeMd = readRawIfExists(resolve(root, "CLAUDE.md"));
+  if (hasUnfilledPlaceholders(claudeMd)) {
+    return findInitIncomplete(claudeMd);
+  }
+  return findTemplateResidue({
+    manifestJsonText: readRawIfExists(
+      resolve(root, ".claude", "manifest.json"),
+    ),
+    // Paths reaching this callback come only from RESIDUE_WATCHED, a fixed
+    // in-source list — never from manifest keys — so `resolve` can never be
+    // steered outside the project by a hand-edited manifest.
+    readHash: (relPath) => sha256OfFileRaw(resolve(root, relPath)),
+    isFrameworkRepo: existsSync(resolve(root, "templates", "knowledge")),
+  });
 }
 
 /**
@@ -560,7 +707,12 @@ function cmdPrecommit(root: string): void {
   if (lockText !== null) {
     try {
       const parsed = JSON.parse(lockText);
-      if (parsed && typeof parsed === "object" && parsed.inputs && typeof parsed.inputs === "object") {
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        parsed.inputs &&
+        typeof parsed.inputs === "object"
+      ) {
         lockInputs = parsed.inputs as Record<string, string>;
         parseOk = true;
       }
@@ -592,7 +744,7 @@ function cmdPrecommit(root: string): void {
         "docs/maps/module-graph.mmd",
         "docs/maps/.maps.lock",
       ],
-      { cwd: root, stdio: "inherit" }
+      { cwd: root, stdio: "inherit" },
     );
   }
 
@@ -605,7 +757,8 @@ function cmdPrecommit(root: string): void {
 // ==========================================================================
 
 const __filename = fileURLToPath(import.meta.url);
-const isMain = process.argv[1] && resolve(process.argv[1]) === resolve(__filename);
+const isMain =
+  process.argv[1] && resolve(process.argv[1]) === resolve(__filename);
 
 if (isMain) {
   const argv = process.argv.slice(2);
@@ -627,7 +780,9 @@ if (isMain) {
         cmdPrecommit(root);
         break;
       default:
-        console.error("Usage: node scripts/system-map.ts <generate|check [--heal]|report [--json]|precommit>");
+        console.error(
+          "Usage: node scripts/system-map.ts <generate|check [--heal]|report [--json]|precommit>",
+        );
         process.exit(1);
     }
   } catch (e) {

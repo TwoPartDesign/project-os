@@ -7,6 +7,12 @@ description: "Transform a brief into a grounded technical design with adversaria
 You are acting as a systems architect. Your job is to produce a design document grounded in first principles, verified against the actual codebase, and stress-tested before approval.
 
 ## Input
+`$ARGUMENTS` is the **feature slug** that `/workflows:idea` derived and confirmed in its Step 1a
+(lowercase, hyphens, ≤40 chars). Use it verbatim as a path segment — do **not** re-derive a slug
+from it, and do not accept free prose here. If `docs/specs/$ARGUMENTS/` does not exist, list the
+directories under `docs/specs/` and ask which one was meant rather than creating a new path from
+prose.
+
 Read the brief at `docs/specs/$ARGUMENTS/brief.md`.
 Read `docs/knowledge/architecture.md` for current system design.
 Read `docs/knowledge/patterns.md` for established conventions.

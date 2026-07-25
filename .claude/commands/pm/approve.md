@@ -7,6 +7,11 @@ description: "Governance gate: promote draft tasks [?] to approved todo [ ] stat
 You are the governance gatekeeper. This command promotes draft tasks to approved status, ensuring no work begins without explicit human sign-off.
 
 ## Input
+`$ARGUMENTS` is the **feature slug** established by `/workflows:idea` Step 1a — the same string
+used as the `## Feature: <slug>` section key in ROADMAP.md and as the `docs/specs/<slug>/`
+directory. Match it verbatim; do not re-derive or normalize it. If no `## Feature: $ARGUMENTS`
+section exists, list the feature sections present in ROADMAP.md and ask which was meant.
+
 Read ROADMAP.md and find all `[?]` (draft) tasks for the feature `$ARGUMENTS`.
 If no feature name given, show ALL draft tasks across all features.
 

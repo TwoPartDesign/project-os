@@ -15,6 +15,20 @@ Each entry: Pattern Name, When to Use, Example, Anti-pattern to Avoid
 
 <!-- Entries get appended here as patterns are discovered during build and review -->
 
+### Ship Seeds, Not Live Content
+
+**When to Use**: Any repo that is *also* a template for other repos — scaffolding CLIs, starter kits, `create-*` generators, cookiecutters, and this project.
+
+**Pattern**: A template must seed new instances from a **dedicated seed tier** that carries format contracts only, never from its own live working files. The two look identical at copy time and diverge permanently afterwards: the template's file keeps accumulating that project's real content, and every clone inherits it as if it were its own. Keep the seed's frontmatter and `## Format` blocks byte-aligned with the live file (derive seeds *by deleting entries*, never by rewriting), and add a test asserting they have not drifted.
+
+Corollary — **placeholder-scanning cannot find this class**. A setup command that discovers work by matching `[ALL_CAPS]` tokens sees two kinds of shipped file: ones with placeholders (handled) and ones seeded with real prose (invisible, because there is nothing to match). A missing value produces a question; a confident wrong value produces a wrong design. So the detector for the second class has to be structural — hash equality against a recorded bootstrap baseline — not pattern-based.
+
+**Example**: `templates/knowledge/*.md` + `templates/rules/preferences.md`, with destination paths unchanged so `generate-manifest.sh`/`update-project.sh` path lists stay valid; `.claude/manifest.json`'s write-once `seed_hashes` block as the baseline; `unlocalized-template-content` as a system-map readiness finding. `templates/knowledge/` existing is also what tells the detector it is running in the framework repo, where framework content in `docs/knowledge/` is correct.
+
+**Anti-pattern**: `cp docs/knowledge/architecture.md "$NEW_PROJECT/docs/knowledge/"` — copying a live vault into a scaffold. Also: recording the detector's baseline in a field that some other tool regenerates (here, the manifest's `files` map, rewritten by `update-project.sh` at the end of every update) — the check silently becomes vacuous rather than failing, which is indistinguishable from "no problems found".
+
+---
+
 ### ROADMAP↔Tasks Dual-Track
 
 **When to Use**: During `/workflows:build` when orchestrating parallel sub-agents.

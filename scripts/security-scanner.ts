@@ -4,7 +4,13 @@
 // Subcommands: scan-files, scan-staged, scan-diff, scrub, list-rules, test-rules, test-pattern, install-hooks
 // Requires Node 18+ (no npm dependencies)
 
-import { readFileSync, writeFileSync, existsSync, renameSync, chmodSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  renameSync,
+  chmodSync,
+} from "node:fs";
 import { resolve, join, relative, dirname } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -76,11 +82,44 @@ async function loadRules(): Promise<void> {
   const rulesPath = resolve(__dirname, "lib/scan-rules.js");
   // On Windows, dynamic import() requires file:// URLs for absolute paths
   const rulesUrl = pathToFileURL(rulesPath).href;
-  const mod = await import(rulesUrl) as {
+  let mod: {
     rules: Rule[];
     categories: string[];
     ENTROPY_THRESHOLD: number;
   };
+  try {
+    mod = (await import(rulesUrl)) as {
+      rules: Rule[];
+      categories: string[];
+      ENTROPY_THRESHOLD: number;
+    };
+  } catch (err) {
+    // scan-rules.js is one module of regex LITERALS, so an unsupported regex
+    // feature is a module-level SYNTAX error — every rule fails at once, and
+    // the raw message ("Invalid regular expression: ... Invalid group") names
+    // no file, no rule, and no remedy. install-hooks.sh then reports only
+    // "Could not install git hooks", so a project ends up with NO pre-commit
+    // secret scan and NO system-map heal while looking merely noisy.
+    //
+    // Known cause: 11 rules use inline regex modifiers `(?i:...)`, which
+    // require V8 12.5+ (Node >= 23). package.json declares `node >= 22.18`,
+    // so on the documented minimum the scanner is inert. Diagnose it here
+    // instead of letting the raw V8 error surface.
+    const message = (err as Error).message ?? String(err);
+    process.stderr.write(
+      `Fatal: could not load scan rules from ${rulesPath}\n`,
+    );
+    process.stderr.write(`  ${message}\n`);
+    if (/[Ii]nvalid group|[Ii]nvalid regular expression/.test(message)) {
+      process.stderr.write(
+        `\n  Likely cause: scan-rules.js uses inline regex modifiers "(?i:...)", which\n` +
+          `  require Node >= 23 (V8 12.5+). This Node is ${process.version}.\n` +
+          `  Until the rules are rewritten to avoid that syntax, run Project OS on\n` +
+          `  Node >= 23, or the secret scanner and its git hooks will not install.\n`,
+      );
+    }
+    process.exit(2);
+  }
   _rules = mod.rules;
   _categories = mod.categories;
   _entropyThreshold = mod.ENTROPY_THRESHOLD ?? 4.5;
@@ -106,7 +145,10 @@ function getProjectRoot(): string {
 // Allowlist loading
 // ============================================================================
 
-function loadAllowlist(projectRoot: string, extraPath: string | null): Allowlist {
+function loadAllowlist(
+  projectRoot: string,
+  extraPath: string | null,
+): Allowlist {
   const defaultAllowlist: Allowlist = {
     paths: { ignore: [] },
     rules: { disable: [] },
@@ -119,7 +161,9 @@ function loadAllowlist(projectRoot: string, extraPath: string | null): Allowlist
 
   if (existsSync(mainPath)) {
     try {
-      const raw = JSON.parse(readFileSync(mainPath, "utf-8")) as Partial<Allowlist>;
+      const raw = JSON.parse(
+        readFileSync(mainPath, "utf-8"),
+      ) as Partial<Allowlist>;
       merged = mergeAllowlists(merged, raw);
     } catch {
       // Malformed JSON — warn but continue
@@ -131,7 +175,9 @@ function loadAllowlist(projectRoot: string, extraPath: string | null): Allowlist
     const absExtra = resolve(extraPath);
     if (existsSync(absExtra)) {
       try {
-        const raw = JSON.parse(readFileSync(absExtra, "utf-8")) as Partial<Allowlist>;
+        const raw = JSON.parse(
+          readFileSync(absExtra, "utf-8"),
+        ) as Partial<Allowlist>;
         merged = mergeAllowlists(merged, raw);
       } catch {
         process.stderr.write(`Warning: could not parse ${absExtra}\n`);
@@ -144,27 +190,21 @@ function loadAllowlist(projectRoot: string, extraPath: string | null): Allowlist
   return merged;
 }
 
-function mergeAllowlists(base: Allowlist, extra: Partial<Allowlist>): Allowlist {
+function mergeAllowlists(
+  base: Allowlist,
+  extra: Partial<Allowlist>,
+): Allowlist {
   return {
     paths: {
-      ignore: [
-        ...base.paths.ignore,
-        ...(extra.paths?.ignore ?? []),
-      ],
+      ignore: [...base.paths.ignore, ...(extra.paths?.ignore ?? [])],
     },
     rules: {
-      disable: [
-        ...base.rules.disable,
-        ...(extra.rules?.disable ?? []),
-      ],
+      disable: [...base.rules.disable, ...(extra.rules?.disable ?? [])],
     },
     inline: {
       marker: extra.inline?.marker ?? base.inline.marker,
     },
-    stopwords: [
-      ...base.stopwords,
-      ...(extra.stopwords ?? []),
-    ],
+    stopwords: [...base.stopwords, ...(extra.stopwords ?? [])],
   };
 }
 
@@ -265,7 +305,8 @@ function scanContent(
       if (disabledRules.has(rule.id)) continue;
 
       // Severity filter
-      if (SEVERITY_ORDER[rule.severity] > SEVERITY_ORDER[options.severity]) continue;
+      if (SEVERITY_ORDER[rule.severity] > SEVERITY_ORDER[options.severity])
+        continue;
 
       // Category filter
       if (options.category && rule.category !== options.category) continue;
@@ -273,13 +314,17 @@ function scanContent(
       // 3b. Keyword pre-filter (optimization)
       if (rule.keywords.length > 0) {
         const lineLower = line.toLowerCase();
-        const hasKeyword = rule.keywords.some((kw) => lineLower.includes(kw.toLowerCase()));
+        const hasKeyword = rule.keywords.some((kw) =>
+          lineLower.includes(kw.toLowerCase()),
+        );
         if (!hasKeyword) continue;
       }
 
       // Path scope filter
       if (rule.pathScope === "non-code" && rule.pathScopeSkip) {
-        const skip = rule.pathScopeSkip.some((pattern) => matchGlob(pattern, filePath));
+        const skip = rule.pathScopeSkip.some((pattern) =>
+          matchGlob(pattern, filePath),
+        );
         if (skip) continue;
       }
 
@@ -332,7 +377,9 @@ function scanContent(
   }
 
   // Sort by severity
-  findings.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+  findings.sort(
+    (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity],
+  );
   return findings;
 }
 
@@ -369,11 +416,16 @@ const ANSI = {
 function severityColor(severity: string): string {
   if (!process.stdout.isTTY) return "";
   switch (severity) {
-    case "CRITICAL": return ANSI.bold + ANSI.red;
-    case "HIGH": return ANSI.red;
-    case "MEDIUM": return ANSI.yellow;
-    case "LOW": return ANSI.cyan;
-    default: return "";
+    case "CRITICAL":
+      return ANSI.bold + ANSI.red;
+    case "HIGH":
+      return ANSI.red;
+    case "MEDIUM":
+      return ANSI.yellow;
+    case "LOW":
+      return ANSI.cyan;
+    default:
+      return "";
   }
 }
 
@@ -453,7 +505,9 @@ function cmdScanFiles(
   options: ScanOptions,
 ): void {
   if (filePaths.length === 0) {
-    process.stderr.write("Error: scan-files requires at least one path argument\n");
+    process.stderr.write(
+      "Error: scan-files requires at least one path argument\n",
+    );
     process.exit(2);
   }
 
@@ -465,7 +519,9 @@ function cmdScanFiles(
     try {
       content = readFileSync(absPath, "utf-8");
     } catch (err) {
-      process.stderr.write(`Warning: could not read ${absPath}: ${(err as Error).message}\n`);
+      process.stderr.write(
+        `Warning: could not read ${absPath}: ${(err as Error).message}\n`,
+      );
       continue;
     }
     const relPath = relative(projectRoot, absPath).replace(/\\/g, "/");
@@ -603,12 +659,20 @@ function cmdScrub(
     try {
       content = readFileSync(absPath, "utf-8");
     } catch (err) {
-      process.stderr.write(`Warning: could not read ${absPath}: ${(err as Error).message}\n`);
+      process.stderr.write(
+        `Warning: could not read ${absPath}: ${(err as Error).message}\n`,
+      );
       continue;
     }
 
     const relPath = relative(projectRoot, absPath).replace(/\\/g, "/");
-    const findings = scanContent(content, relPath, _rules, allowlist, scrubOptions);
+    const findings = scanContent(
+      content,
+      relPath,
+      _rules,
+      allowlist,
+      scrubOptions,
+    );
 
     if (findings.length === 0) continue;
 
@@ -629,9 +693,15 @@ function cmdScrub(
       writeFileSync(tmpPath, scrubbed, "utf-8");
       renameSync(tmpPath, absPath);
     } catch (err) {
-      process.stderr.write(`Error: could not write ${absPath}: ${(err as Error).message}\n`);
+      process.stderr.write(
+        `Error: could not write ${absPath}: ${(err as Error).message}\n`,
+      );
       // Clean up tmp if possible
-      try { renameSync(tmpPath, tmpPath + ".bak"); } catch { /* ignore */ }
+      try {
+        renameSync(tmpPath, tmpPath + ".bak");
+      } catch {
+        /* ignore */
+      }
     }
   }
 
@@ -669,7 +739,9 @@ function cmdListRules(): void {
     process.stdout.write(line + "\n");
   }
 
-  process.stdout.write(`\n${_rules.length} rules loaded across ${_categories.length} categories.\n`);
+  process.stdout.write(
+    `\n${_rules.length} rules loaded across ${_categories.length} categories.\n`,
+  );
 }
 
 // ============================================================================
@@ -690,7 +762,9 @@ function cmdTestRules(allowlist: Allowlist, options: ScanOptions): void {
 
   for (const rule of _rules) {
     if (!rule.regex) {
-      process.stdout.write(`SKIP  ${rule.id}  (null regex — compile error in scan-rules.js)\n`);
+      process.stdout.write(
+        `SKIP  ${rule.id}  (null regex — compile error in scan-rules.js)\n`,
+      );
       warned++;
       continue;
     }
@@ -719,14 +793,16 @@ function cmdTestRules(allowlist: Allowlist, options: ScanOptions): void {
       if (!ok) {
         process.stdout.write(
           `FAIL  ${rule.id}  expected shouldMatch=${tc.shouldMatch} but got ${didMatch}\n` +
-          `      input: ${truncate(tc.input, 80)}\n`,
+            `      input: ${truncate(tc.input, 80)}\n`,
         );
         rulePassed = false;
       }
     }
 
     if (rulePassed) {
-      process.stdout.write(`PASS  ${rule.id}  (${rule.testCases.length} case(s))\n`);
+      process.stdout.write(
+        `PASS  ${rule.id}  (${rule.testCases.length} case(s))\n`,
+      );
       passed++;
     } else {
       failed++;
@@ -747,11 +823,15 @@ async function cmdTestPattern(ruleId: string): Promise<void> {
   const rule = _rules.find((r) => r.id === ruleId);
   if (!rule) {
     process.stderr.write(`Error: rule not found: ${ruleId}\n`);
-    process.stderr.write(`Available rules: ${_rules.map((r) => r.id).join(", ")}\n`);
+    process.stderr.write(
+      `Available rules: ${_rules.map((r) => r.id).join(", ")}\n`,
+    );
     process.exit(2);
   }
   if (!rule.regex) {
-    process.stderr.write(`Error: rule ${ruleId} has a null regex (compile error)\n`);
+    process.stderr.write(
+      `Error: rule ${ruleId} has a null regex (compile error)\n`,
+    );
     process.exit(2);
   }
 
@@ -808,7 +888,10 @@ const ALL_GIT_HOOK_NAMES = [
   "fsmonitor-watchman",
 ];
 
-function cmdInstallHooks(projectRoot: string, opts: { noChain?: boolean } = {}): void {
+function cmdInstallHooks(
+  projectRoot: string,
+  opts: { noChain?: boolean } = {},
+): void {
   const noChain = opts.noChain ?? false;
   const ourMarker = "Auto-installed by Project OS security scanner";
 
@@ -819,9 +902,13 @@ function cmdInstallHooks(projectRoot: string, opts: { noChain?: boolean } = {}):
   // install land somewhere git never looks.
   let hooksDir: string;
   try {
-    const gitPathOutput = execFileSync("git", ["rev-parse", "--git-path", "hooks"], {
-      cwd: projectRoot,
-    })
+    const gitPathOutput = execFileSync(
+      "git",
+      ["rev-parse", "--git-path", "hooks"],
+      {
+        cwd: projectRoot,
+      },
+    )
       .toString()
       .trim();
     // --git-path may print a path relative to cwd (projectRoot here) or an
@@ -830,7 +917,9 @@ function cmdInstallHooks(projectRoot: string, opts: { noChain?: boolean } = {}):
     // projectRoot, so this is correct either way.
     hooksDir = resolve(projectRoot, gitPathOutput);
   } catch (err) {
-    process.stderr.write(`Error: could not resolve git hooks directory: ${(err as Error).message}\n`);
+    process.stderr.write(
+      `Error: could not resolve git hooks directory: ${(err as Error).message}\n`,
+    );
     process.exit(2);
   }
 
@@ -853,9 +942,13 @@ function cmdInstallHooks(projectRoot: string, opts: { noChain?: boolean } = {}):
       const quarantinePath = hookPath + ".pre-adopt";
       try {
         renameSync(hookPath, quarantinePath);
-        process.stderr.write(`Renamed existing ${name} to ${name}.pre-adopt (adopt quarantine)\n`);
+        process.stderr.write(
+          `Renamed existing ${name} to ${name}.pre-adopt (adopt quarantine)\n`,
+        );
       } catch (err) {
-        process.stderr.write(`Warning: could not rename ${hookPath}: ${(err as Error).message}\n`);
+        process.stderr.write(
+          `Warning: could not rename ${hookPath}: ${(err as Error).message}\n`,
+        );
       }
     }
   }
@@ -885,11 +978,38 @@ if [ -f "scripts/system-map.ts" ]; then
 fi
 ${chainBlock}`;
 
+  // FIRST-PUSH CORRECTNESS: `scan-diff "origin/$BRANCH"` cannot run before an
+  // upstream ref exists — git aborts with "fatal: ambiguous argument
+  // 'origin/master...HEAD'". Unconditionally invoking it made the hook fail on
+  // a GIT ERROR rather than a finding, and the failure message steered the user
+  // to `--no-verify` — disabling secret scanning at the exact moment a repo
+  // first becomes remote and its entire history is published. That is the worst
+  // possible time to turn the scanner off.
+  //
+  // When there is no upstream, every commit being pushed is new, so scanning
+  // all tracked files is the correct equivalent of the diff (a superset, and
+  // cheap on a first push). `git ls-files -z | xargs -0` keeps paths with
+  // spaces intact.
+  //
+  // PORTABILITY DEVIATION from the reported fix: that version used
+  // `xargs -0 --no-run-if-empty`, a GNU long option. BSD/macOS xargs rejects it
+  // outright ("illegal option"), which would trade "broken on first push" for
+  // "broken on every macOS push". The explicit empty-check below is equivalent
+  // and portable across GNU, BSD, and Git Bash.
   const prePushContent = `#!/usr/bin/env bash
 # Auto-installed by Project OS security scanner
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
-node scripts/security-scanner.ts scan-diff "origin/$BRANCH"
-RESULT=$?
+if git rev-parse --verify --quiet "origin/$BRANCH" >/dev/null 2>&1; then
+  node scripts/security-scanner.ts scan-diff "origin/$BRANCH"
+  RESULT=$?
+elif [ -z "$(git ls-files)" ]; then
+  echo "pre-push: no origin/$BRANCH and no tracked files — nothing to scan."
+  RESULT=0
+else
+  echo "pre-push: no origin/$BRANCH yet — scanning all tracked files instead of a diff."
+  git ls-files -z | xargs -0 node scripts/security-scanner.ts scan-files
+  RESULT=$?
+fi
 if [ $RESULT -ne 0 ]; then
   echo "Security scan failed. Push blocked."
   echo "Use --no-verify to bypass (NOT recommended)."
@@ -915,7 +1035,9 @@ ${chainBlock}`;
         const localPath = hookPath + suffix;
         try {
           renameSync(hookPath, localPath);
-          process.stderr.write(`Renamed existing ${hook.name} to ${hook.name}${suffix}\n`);
+          process.stderr.write(
+            `Renamed existing ${hook.name} to ${hook.name}${suffix}\n`,
+          );
         } catch (err) {
           process.stderr.write(
             `Warning: could not rename ${hookPath}: ${(err as Error).message}\n`,
@@ -929,7 +1051,9 @@ ${chainBlock}`;
       chmodSync(hookPath, 0o755);
       process.stdout.write(`Installed ${hookPath}\n`);
     } catch (err) {
-      process.stderr.write(`Error: could not write ${hookPath}: ${(err as Error).message}\n`);
+      process.stderr.write(
+        `Error: could not write ${hookPath}: ${(err as Error).message}\n`,
+      );
       process.exit(2);
     }
   }
@@ -980,7 +1104,9 @@ function parseArgs(argv: string[]): ParsedArgs {
         if (["CRITICAL", "HIGH", "MEDIUM", "LOW"].includes(args[i])) {
           options.severity = args[i] as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
         } else {
-          process.stderr.write(`Error: --severity must be CRITICAL, HIGH, MEDIUM, or LOW\n`);
+          process.stderr.write(
+            `Error: --severity must be CRITICAL, HIGH, MEDIUM, or LOW\n`,
+          );
           process.exit(2);
         }
         break;
@@ -1019,7 +1145,8 @@ function parseArgs(argv: string[]): ParsedArgs {
 }
 
 function printUsage(): void {
-  process.stdout.write(`
+  process.stdout.write(
+    `
 Usage: node scripts/security-scanner.ts <subcommand> [options]
 
 Subcommands:
@@ -1042,7 +1169,8 @@ Options:
   --no-chain                 install-hooks only: quarantine a pre-existing
                               hook as <hook>.pre-adopt instead of <hook>.local
                               and never invoke it (used by adopt mode)
-`.trimStart());
+`.trimStart(),
+  );
 }
 
 // ============================================================================
@@ -1068,7 +1196,9 @@ async function main(): Promise<void> {
     case "scan-diff": {
       const baseBranch = positional[0];
       if (!baseBranch) {
-        process.stderr.write("Error: scan-diff requires a base-branch argument\n");
+        process.stderr.write(
+          "Error: scan-diff requires a base-branch argument\n",
+        );
         process.exit(2);
       }
       cmdScanDiff(baseBranch, projectRoot, allowlist, options);
@@ -1090,7 +1220,9 @@ async function main(): Promise<void> {
     case "test-pattern": {
       const ruleId = positional[0];
       if (!ruleId) {
-        process.stderr.write("Error: test-pattern requires a rule-id argument\n");
+        process.stderr.write(
+          "Error: test-pattern requires a rule-id argument\n",
+        );
         process.exit(2);
       }
       await cmdTestPattern(ruleId);

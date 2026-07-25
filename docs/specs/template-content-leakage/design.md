@@ -1,7 +1,36 @@
 # Design: Template Content Leakage
 Created: 2026-07-24
-Status: DRAFT
+Updated: 2026-07-24 — implemented on `claude/template-content-leakage-4sxcm0`; extended to cover companion defects C-H
+Status: DRAFT (implementation complete, awaiting `/pm:approve`)
 Brief: ./brief.md
+
+## Implementation status
+
+| Item | ROADMAP | State |
+|---|---|---|
+| A — seed tier (`templates/`) | #T97, #T98 | Implemented, verified end-to-end |
+| A — manifest `seed_hashes` | #T99, #T100 | Implemented, verified |
+| A — init Step 5b stub + Step 10 verification | #T104 | Implemented |
+| B — `unlocalized-template-content` finding | #T101, #T102 | Implemented, fires correctly, silent in framework repo |
+| Tests (+48) | #T103 | 50 unit + 23 smoke, all green |
+| ADR + patterns entry | #T105 | Written |
+| C — pre-push first-push guard | #T106 | Implemented, verified |
+| D — feature slug | #T107 | Implemented |
+| E — toolchain permissions | #T108 | Implemented |
+| F — specs tracking policy | #T109 | Implemented |
+| G — scratchpad, not `/tmp` heredoc | #T110 | Implemented |
+| framework-patterns reference doc | #T111 | Implemented |
+| H — `scan-rules.js` on Node 22 | #T112 | Diagnosed loudly; regex rewrite deferred with reasons |
+
+Two naming notes against the original report:
+- The finding `kind` is **`unlocalized-template-content`**, the name the report suggested. Internal
+  function and file names keep `templateResidue` / `template-residue.test.ts`.
+- The report proposed `docs/knowledge/project-os/` for relocated framework content. This design does
+  not relocate anything: downstream projects never *receive* the framework's vault, so there is
+  nothing in them to move, and this repo's own vault is correctly placed where it is. The
+  "do not delete, relocate" instruction is honored by `templates/knowledge/framework-patterns.md`,
+  which ships the five transferable patterns as **reference** rather than as a new project's
+  asserted conventions.
 
 ## Architecture Decision
 

@@ -286,6 +286,86 @@ else
     fail "setup.sh --check not idempotent: exit=$SU out='$SETUP_OUT'"
 fi
 
+# --- Template-content leakage (docs/specs/template-content-leakage) -----------
+# The bootstrapped project must contain NO prose about Project OS in the
+# content-class files, must receive every doc that a shipped file references,
+# and must report unlocalized-template-content once init has filled CLAUDE.md's
+# placeholders. Asserted end-to-end here (not just in the TS unit tests)
+# because the failure mode -- a normalizing hash that never matches
+# generate-manifest.sh's sha256sum -- is silent and looks exactly like
+# "no problems found".
+echo ""
+echo "=== Fresh bootstrap: template-content leakage ==="
+
+for kf in architecture patterns decisions bugs metrics; do
+    if grep -q "Project OS" "$PROJ/docs/knowledge/$kf.md" 2>/dev/null; then
+        fail "docs/knowledge/$kf.md leaks framework prose into the new project"
+    else
+        pass "docs/knowledge/$kf.md carries no framework prose"
+    fi
+done
+if grep -qE "Bash \+ TypeScript|node --test" "$PROJ/.claude/rules/preferences.md" 2>/dev/null; then
+    fail ".claude/rules/preferences.md leaks this project's stack into the new project"
+else
+    pass ".claude/rules/preferences.md carries no framework stack"
+fi
+
+# Every docs/ path referenced by a shipped file must exist in the clone.
+for ref in docs/knowledge/roadmap-format.md docs/knowledge/windows-bash-scanner.md \
+           docs/knowledge/design-principles.md docs/proposals/pre-tool-approve-hook.md \
+           docs/product.md docs/tech.md; do
+    assert_file "$PROJ/$ref" "referenced doc shipped to the new project: $ref"
+done
+
+# templates/ must NOT travel -- its presence is the framework-repo
+# discriminator, so a copy would permanently exempt the clone from detection.
+if [ -e "$PROJ/templates" ]; then
+    fail "templates/ was copied into the new project (would exempt it from residue detection)"
+else
+    pass "templates/ not copied into the new project (residue detection stays armed)"
+fi
+
+# seed_hashes recorded at bootstrap, one per watched path.
+SEED_COUNT="$(grep -c '"[a-f0-9]\{64\}"' <(sed -n '/"seed_hashes"/,/}/p' "$PROJ/.claude/manifest.json") 2>/dev/null || echo 0)"
+assert_eq "6" "$SEED_COUNT" "manifest records 6 seed_hashes at bootstrap"
+
+# Pre-init: CLAUDE.md still has placeholders -> init-incomplete, NOT residue.
+set +e
+REPORT_PRE="$(cd "$PROJ" && node scripts/system-map.ts report 2>&1)"
+set -e
+assert_contains "$REPORT_PRE" "init-incomplete" "pre-init report flags init-incomplete"
+assert_not_contains "$REPORT_PRE" "unlocalized-template-content" "pre-init report suppresses unlocalized-template-content"
+
+# Simulate /tools:init's placeholder fill, then re-report.
+sed -i.bak 's/\[YOUR_ROLE\]/Solo developer/; s/\[YOUR_NAME\]/Test Owner/; s/\[PRIMARY_STACK\]/TypeScript/' "$PROJ/CLAUDE.md"
+rm -f "$PROJ/CLAUDE.md.bak"
+set +e
+REPORT_POST="$(cd "$PROJ" && node scripts/system-map.ts report 2>&1)"
+set -e
+assert_not_contains "$REPORT_POST" "init-incomplete" "post-init report clears init-incomplete"
+RESIDUE_COUNT="$(printf '%s\n' "$REPORT_POST" | grep -c "unlocalized-template-content" || true)"
+assert_eq "6" "$RESIDUE_COUNT" "post-init report flags all 6 un-localized watched files"
+HIGH_RESIDUE="$(printf '%s\n' "$REPORT_POST" | grep -c "^HIGH unlocalized-template-content" || true)"
+assert_eq "3" "$HIGH_RESIDUE" "3 residue findings are HIGH (so maintain.sh files a draft)"
+
+# Localizing a watched file must clear exactly that finding.
+printf '# System Architecture\n\nA canvas render loop.\n' > "$PROJ/docs/knowledge/architecture.md"
+set +e
+REPORT_FIXED="$(cd "$PROJ" && node scripts/system-map.ts report 2>&1)"
+set -e
+RESIDUE_AFTER="$(printf '%s\n' "$REPORT_FIXED" | grep -c "unlocalized-template-content" || true)"
+assert_eq "5" "$RESIDUE_AFTER" "localizing architecture.md clears exactly its own residue finding"
+assert_not_contains "$REPORT_FIXED" "unlocalized-template-content docs/knowledge/architecture.md" \
+    "localized architecture.md no longer reported as residue"
+
+# maintain.sh must turn the remaining HIGH findings into a single [?] draft,
+# with no changes to maintain.sh itself.
+set +e
+MAINT_OUT="$(cd "$PROJ" && bash scripts/maintain.sh --dry-run 2>&1)"
+set -e
+assert_contains "$MAINT_OUT" "would file: readiness:" "maintain.sh --dry-run would file a readiness draft from residue"
+assert_contains "$MAINT_OUT" "docs/knowledge/patterns.md" "the readiness draft names the un-localized imported file"
+
 # ================================================================================
 # Adopt-mode scenarios (#T74) -- design.md §Testing Strategy scenarios 1-11.
 # Each scenario builds its own seeded fixture via seed_fixture() (isolation:
@@ -526,11 +606,11 @@ fi
 MANIFEST_LINE="$(grep '"docs/knowledge/decisions.md":' "$S9/.claude/manifest.json" 2>/dev/null || true)"
 MANIFEST_HASH="$(printf '%s' "$MANIFEST_LINE" | sed -E 's/.*: *"([a-f0-9]{64})".*/\1/')"
 assert_eq "$UPSTREAM_HASH_AT_ADOPT" "$MANIFEST_HASH" "scenario9: manifest hash for conflicted path equals sha256 of .upstream sibling"
+DECISIONS_BEFORE_UPDATE="$(safe_cat "$S9/docs/knowledge/decisions.md")"
 
 # Simulate upstream drift: mutate the checkout's decisions.md so a LATER
-# update-project.sh run sees a real upstream change beyond what the manifest
-# recorded at adopt time (otherwise upstream_hash==manifest_hash trivially
-# classifies UNCHANGED rather than exercising the CONFLICT branch).
+# update-project.sh run WOULD see a real upstream change beyond what the
+# manifest recorded at adopt time.
 printf '# My Decisions\n\nWe decided X.\nUpstream added a new decision Y.\n' > "$TEMPLATE_CHECKOUT/docs/knowledge/decisions.md"
 
 set +e
@@ -538,8 +618,18 @@ UPDATE_OUT="$(bash "$S9/scripts/update-project.sh" --local-upstream "$TEMPLATE_C
 UPDATE_EC=$?
 set -e
 if [ "$UPDATE_EC" -eq 0 ]; then pass "scenario9: update-project.sh --local-upstream exits 0"; else fail "scenario9: update-project.sh exited $UPDATE_EC: $UPDATE_OUT"; fi
-assert_contains "$UPDATE_OUT" "! docs/knowledge/decisions.md" "scenario9: decisions.md classified CONFLICT (! marker)"
+
+# docs/knowledge/*.md are ONE-TIME CONTENT SEEDS, so update-project.sh's
+# SEED_EXCLUDE now drops them from the update set entirely
+# (docs/specs/template-content-leakage). This supersedes the old assertion that
+# decisions.md be classified CONFLICT: the property scenario9 exists to protect
+# -- "an upstream change to a content path must never silently overwrite the
+# user's file" -- now holds a priori rather than via correct classification,
+# which is strictly stronger. Assert absence from BOTH lists.
 assert_not_contains "$UPDATE_OUT" "✓ docs/knowledge/decisions.md" "scenario9: decisions.md NOT classified SAFE_UPDATE (no ✓ marker)"
+assert_not_contains "$UPDATE_OUT" "! docs/knowledge/decisions.md" "scenario9: decisions.md excluded from the update set entirely (no ! marker either)"
+DECISIONS_AFTER_UPDATE="$(safe_cat "$S9/docs/knowledge/decisions.md")"
+assert_eq "$DECISIONS_BEFORE_UPDATE" "$DECISIONS_AFTER_UPDATE" "scenario9: user's decisions.md byte-identical after an update carrying upstream drift"
 
 # --- Scenario 10: three refusals, each before any write ----------------------
 echo ""

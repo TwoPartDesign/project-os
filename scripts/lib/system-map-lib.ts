@@ -77,7 +77,14 @@ export interface MapEdge {
 /** A single audit finding produced by one of the `find*` functions below. */
 export interface Finding {
   severity: "HIGH" | "MEDIUM" | "LOW";
-  kind: "unwired-hook" | "orphan-script" | "dangling-ref" | "manifest-gap" | "bloat";
+  kind:
+    | "unwired-hook"
+    | "orphan-script"
+    | "dangling-ref"
+    | "manifest-gap"
+    | "bloat"
+    | "unlocalized-template-content"
+    | "init-incomplete";
   subject: string;
   detail: string;
 }
@@ -110,19 +117,25 @@ const KIND_PREFIX: Record<Kind, string> = {
  * discovery modes can never disagree about what counts as an input.
  */
 export function classify(path: string): Kind | null {
-  if (path === ".claude/settings.json" || path === ".claude/manifest.json") return "config";
+  if (path === ".claude/settings.json" || path === ".claude/manifest.json")
+    return "config";
   if (path === ".claude/hooks/_common.sh") return "lib";
   if (path.startsWith(".claude/hooks/") && path.endsWith(".sh")) {
     if (!path.slice(".claude/hooks/".length).includes("/")) return "hook";
     return null;
   }
-  if (path.startsWith(".claude/commands/") && path.endsWith(".md")) return "command";
-  if (path.startsWith(".claude/skills/") && path.endsWith(".md")) return "skill";
+  if (path.startsWith(".claude/commands/") && path.endsWith(".md"))
+    return "command";
+  if (path.startsWith(".claude/skills/") && path.endsWith(".md"))
+    return "skill";
   if (path.startsWith("scripts/lib/")) {
     if (!path.slice("scripts/lib/".length).includes("/")) return "lib";
     return null;
   }
-  if (path.startsWith("scripts/") && (path.endsWith(".sh") || path.endsWith(".ts"))) {
+  if (
+    path.startsWith("scripts/") &&
+    (path.endsWith(".sh") || path.endsWith(".ts"))
+  ) {
     if (!path.slice("scripts/".length).includes("/")) return "script";
     return null;
   }
@@ -156,7 +169,9 @@ export function slugify(kind: Kind, path: string): string {
           : path.slice("scripts/lib/".length);
       break;
     case "script":
-      rest = path.startsWith("scripts/") ? path.slice("scripts/".length) : path.slice("tests/".length);
+      rest = path.startsWith("scripts/")
+        ? path.slice("scripts/".length)
+        : path.slice("tests/".length);
       break;
   }
   const noExt = rest.replace(/\.[^./]+$/, "");
@@ -184,7 +199,9 @@ export function idFor(kind: Kind, path: string): string {
 export function pathToId(relPath: string): string {
   const kind = classify(relPath);
   if (kind === null) {
-    throw new Error(`pathToId: "${relPath}" does not classify into any known node kind`);
+    throw new Error(
+      `pathToId: "${relPath}" does not classify into any known node kind`,
+    );
   }
   return idFor(kind, relPath);
 }
@@ -208,7 +225,9 @@ export function extractHookWiring(settingsJsonText: string): string[] {
   const data: unknown = JSON.parse(settingsJsonText);
   const found = new Set<string>();
   const hooksObj =
-    data && typeof data === "object" ? (data as Record<string, unknown>).hooks : undefined;
+    data && typeof data === "object"
+      ? (data as Record<string, unknown>).hooks
+      : undefined;
 
   const walk = (val: unknown): void => {
     if (typeof val === "string") {
@@ -248,7 +267,12 @@ function scanSegmentForRefs(segment: string, targets: Set<string>): void {
 }
 
 /** Finds every occurrence of `needle` in `segment` and captures the path token starting `pathOffset` chars after each match start. */
-function scanPrefix(segment: string, needle: string, pathOffset: number, targets: Set<string>): void {
+function scanPrefix(
+  segment: string,
+  needle: string,
+  pathOffset: number,
+  targets: Set<string>,
+): void {
   let from = 0;
   for (;;) {
     const idx = segment.indexOf(needle, from);
@@ -271,7 +295,10 @@ function scanPrefix(segment: string, needle: string, pathOffset: number, targets
  * unique targets sorted ascending. `sourcePath` is accepted for interface
  * symmetry with {@link extractImports} but is not currently used.
  */
-export function extractScriptRefs(mdText: string, sourcePath: string): { target: string }[] {
+export function extractScriptRefs(
+  mdText: string,
+  sourcePath: string,
+): { target: string }[] {
   void sourcePath;
   const targets = new Set<string>();
   let inFence = false;
@@ -295,13 +322,18 @@ export function extractScriptRefs(mdText: string, sourcePath: string): { target:
       pos = close + 1;
     }
   }
-  return Array.from(targets).sort().map((target) => ({ target }));
+  return Array.from(targets)
+    .sort()
+    .map((target) => ({ target }));
 }
 
 const TS_IMPORT_RE = /^import\s[^'"]*\sfrom\s+['"](\.\.?\/[^'"]+)['"]\s*;?\s*$/;
 
 /** Extracts relative TS imports (resolved to repo-relative paths) from a `.ts` source's text. */
-function extractTsImports(text: string, sourcePath: string): { target: string }[] {
+function extractTsImports(
+  text: string,
+  sourcePath: string,
+): { target: string }[] {
   const dir = posix.dirname(sourcePath);
   const targets = new Set<string>();
   for (const rawLine of normalizeContent(text).split("\n")) {
@@ -311,7 +343,9 @@ function extractTsImports(text: string, sourcePath: string): { target: string }[
     const resolved = posix.normalize(posix.join(dir, m[1]));
     targets.add(resolved);
   }
-  return Array.from(targets).sort().map((target) => ({ target }));
+  return Array.from(targets)
+    .sort()
+    .map((target) => ({ target }));
 }
 
 /** Extracts `source`/`. `-sourced `lib/json.sh` and `_common.sh` references from a `.sh` source's text. */
@@ -323,7 +357,9 @@ function extractShImports(text: string): { target: string }[] {
     if (line.includes("lib/json.sh")) targets.add("scripts/lib/json.sh");
     if (line.includes("_common.sh")) targets.add(".claude/hooks/_common.sh");
   }
-  return Array.from(targets).sort().map((target) => ({ target }));
+  return Array.from(targets)
+    .sort()
+    .map((target) => ({ target }));
 }
 
 /**
@@ -340,7 +376,10 @@ function extractShImports(text: string): { target: string }[] {
  * resolvable in general, e.g. `$(dirname "$0")/...`, so this is a
  * name-based match, not a path computation). Any other extension returns `[]`.
  */
-export function extractImports(text: string, sourcePath: string): { target: string }[] {
+export function extractImports(
+  text: string,
+  sourcePath: string,
+): { target: string }[] {
   if (sourcePath.endsWith(".ts")) return extractTsImports(text, sourcePath);
   if (sourcePath.endsWith(".sh")) return extractShImports(text);
   return [];
@@ -441,7 +480,10 @@ export function findUnwiredHooks(graph: SystemMapGraph): Finding[] {
  * (nothing on disk references it) as a MEDIUM finding, unless its id or path
  * appears in `allowlist` (for intentionally standalone/entry-point scripts).
  */
-export function findOrphanScripts(graph: SystemMapGraph, allowlist: string[]): Finding[] {
+export function findOrphanScripts(
+  graph: SystemMapGraph,
+  allowlist: string[],
+): Finding[] {
   const allow = new Set(allowlist);
   const findings: Finding[] = [];
   for (const n of graph.nodes) {
@@ -465,7 +507,10 @@ export function findOrphanScripts(graph: SystemMapGraph, allowlist: string[]): F
  * HIGH finding — a reference/import/wire that points at a file the graph
  * doesn't know about (deleted, renamed, or never existed).
  */
-export function findDanglingRefs(nodes: MapNode[], edges: MapEdge[]): Finding[] {
+export function findDanglingRefs(
+  nodes: MapNode[],
+  edges: MapEdge[],
+): Finding[] {
   const ids = new Set(nodes.map((n) => n.id));
   const findings: Finding[] = [];
   for (const e of edges) {
@@ -487,16 +532,26 @@ export function findDanglingRefs(nodes: MapNode[], edges: MapEdge[]): Finding[] 
  * `.claude/commands/`, or `.claude/skills/` but is missing from the
  * manifest's `files` keys, as a MEDIUM finding.
  */
-export function findManifestGaps(manifestJsonText: string, nodes: MapNode[]): Finding[] {
+export function findManifestGaps(
+  manifestJsonText: string,
+  nodes: MapNode[],
+): Finding[] {
   const manifest: unknown = JSON.parse(manifestJsonText);
   const files =
     manifest && typeof manifest === "object"
       ? (manifest as Record<string, unknown>).files
       : undefined;
   const fileKeys = new Set(
-    files && typeof files === "object" ? Object.keys(files as Record<string, unknown>) : [],
+    files && typeof files === "object"
+      ? Object.keys(files as Record<string, unknown>)
+      : [],
   );
-  const trackedPrefixes = ["scripts/", ".claude/hooks/", ".claude/commands/", ".claude/skills/"];
+  const trackedPrefixes = [
+    "scripts/",
+    ".claude/hooks/",
+    ".claude/commands/",
+    ".claude/skills/",
+  ];
   const findings: Finding[] = [];
   for (const n of nodes) {
     if (!trackedPrefixes.some((p) => n.path.startsWith(p))) continue;
@@ -537,7 +592,9 @@ export interface BloatContentSource {
  * for a LOW-severity advisory finding. `report` always recomputes bloat live,
  * so on-demand runs and the maintenance loop still see current numbers.
  */
-export function collectBloatFiles(source: BloatContentSource): { path: string; content: string }[] {
+export function collectBloatFiles(
+  source: BloatContentSource,
+): { path: string; content: string }[] {
   const files: { path: string; content: string }[] = [];
   const claude = source.readInput("CLAUDE.md");
   if (claude !== null) files.push({ path: "CLAUDE.md", content: claude });
@@ -556,7 +613,10 @@ export function collectBloatFiles(source: BloatContentSource): { path: string; c
  * Flags every file whose content length, divided by 4 and rounded up (a
  * coarse chars-per-token estimate), exceeds `warnTokens`, as a LOW finding.
  */
-export function findBloat(files: { path: string; content: string }[], warnTokens: number): Finding[] {
+export function findBloat(
+  files: { path: string; content: string }[],
+  warnTokens: number,
+): Finding[] {
   const findings: Finding[] = [];
   for (const f of files) {
     const estimate = Math.ceil(f.content.length / 4);
@@ -568,6 +628,218 @@ export function findBloat(files: { path: string; content: string }[], warnTokens
         detail: `${f.path} is approximately ${estimate} tokens, exceeding the ${warnTokens}-token warn threshold.`,
       });
     }
+  }
+  return findings;
+}
+
+// ==========================================================================
+// Template residue — is this project's content still the framework's seed?
+//
+// Project OS hands a new project a set of CONTENT files at bootstrap (see
+// templates/README.md). `.claude/manifest.json`'s write-once `seed_hashes`
+// block records what was handed over. If a watched file's live sha256 still
+// equals its seed hash, that file was provably never localized — it is
+// still describing Project OS, not this project.
+//
+// Deterministic, zero-dep, zero-LLM. Like `findBloat`, this is recomputed
+// live on `report` and is deliberately NOT part of the `.maps.lock` hashed
+// input set — editing prose must never trigger a pre-commit map heal.
+// ==========================================================================
+
+/**
+ * Content-class files watched for template residue, with the severity each
+ * carries and why.
+ *
+ * HIGH is reserved for files that reach the model on EVERY turn — `maintain.sh`
+ * only files a `[?]` draft for HIGH map findings (maintain.sh:381), so a
+ * MEDIUM finding is report-only.
+ *
+ * This array is the ONLY set of paths the detector ever reads. Manifest keys
+ * are looked up against it, never iterated — a hand-edited manifest carrying
+ * `seed_hashes["../../.ssh/id_rsa"]` must produce zero filesystem reads
+ * outside these six paths.
+ *
+ * MUST stay in sync with `SEED_WATCHED` in scripts/generate-manifest.sh.
+ */
+export const RESIDUE_WATCHED: ReadonlyArray<{
+  path: string;
+  severity: "HIGH" | "MEDIUM";
+  reason: string;
+}> = [
+  {
+    path: "docs/knowledge/architecture.md",
+    severity: "HIGH",
+    reason:
+      "@import'ed into CLAUDE.md, so it loads as this project's architecture every session",
+  },
+  {
+    path: "docs/knowledge/patterns.md",
+    severity: "HIGH",
+    reason: "@import'ed into CLAUDE.md as this project's active conventions",
+  },
+  {
+    path: ".claude/rules/preferences.md",
+    severity: "HIGH",
+    reason:
+      "an always-loaded rule file, not an import — it applies to every turn",
+  },
+  {
+    path: "docs/knowledge/decisions.md",
+    severity: "MEDIUM",
+    reason:
+      "read by /workflows:design and by /workflows:idea's research agents",
+  },
+  {
+    path: "docs/knowledge/bugs.md",
+    severity: "MEDIUM",
+    reason: "consulted during triage as this project's incident history",
+  },
+  {
+    path: "docs/knowledge/metrics.md",
+    severity: "MEDIUM",
+    reason: "queried by /tools:metrics as this project's delivery history",
+  },
+];
+
+/**
+ * The exact placeholder tokens `CLAUDE.template.md` ships. `new-project.sh`
+ * pre-substitutes `[PROJECT_NAME]`; the rest are filled by `/tools:init`.
+ *
+ * DELIBERATELY a fixed list, not a `/\[[A-Z_]+\]/` regex. A false positive
+ * here is the dangerous direction: it would classify an initialized project as
+ * "init never ran" and permanently SUPPRESS every residue finding. Matching
+ * only tokens we know we shipped cannot be tripped by a user writing
+ * `[TODO]` or `[WIP]` in their own CLAUDE.md prose.
+ */
+export const INIT_PLACEHOLDER_TOKENS: ReadonlyArray<string> = [
+  "[PROJECT_NAME]",
+  "[YOUR_ROLE]",
+  "[YOUR_NAME]",
+  "[PRIMARY_STACK]",
+];
+
+/** The `INIT_PLACEHOLDER_TOKENS` still present in `claudeMdContent`. */
+export function unfilledPlaceholders(claudeMdContent: string | null): string[] {
+  if (claudeMdContent === null) return [];
+  return INIT_PLACEHOLDER_TOKENS.filter((t) => claudeMdContent.includes(t));
+}
+
+/**
+ * True when CLAUDE.md still carries unfilled `/tools:init` placeholders.
+ * A missing CLAUDE.md returns `false` — absence is not evidence that init
+ * was skipped, and guessing would suppress residue findings.
+ */
+export function hasUnfilledPlaceholders(
+  claudeMdContent: string | null,
+): boolean {
+  return unfilledPlaceholders(claudeMdContent).length > 0;
+}
+
+/**
+ * A single MEDIUM finding when `/tools:init` has not run. Emitted INSTEAD of
+ * residue findings: an un-initialized project has one problem to fix, not
+ * seven, and its content files are not yet a broken promise.
+ */
+export function findInitIncomplete(claudeMdContent: string | null): Finding[] {
+  const unfilled = unfilledPlaceholders(claudeMdContent);
+  if (unfilled.length === 0) return [];
+  return [
+    {
+      severity: "MEDIUM",
+      kind: "init-incomplete",
+      subject: "CLAUDE.md",
+      detail:
+        `CLAUDE.md still contains ${unfilled.length} unfilled template placeholder(s) ` +
+        `(${unfilled.join(", ")}) — /tools:init has not run. Run it before starting work; ` +
+        `localization checks are suppressed until it has.`,
+    },
+  ];
+}
+
+/**
+ * Reads one `{"path": "hash"}` block out of a manifest object, tolerating a
+ * missing or non-object value. Returns an empty map rather than throwing.
+ */
+function hashBlock(manifest: unknown, key: string): Record<string, unknown> {
+  if (!manifest || typeof manifest !== "object") return {};
+  const block = (manifest as Record<string, unknown>)[key];
+  if (!block || typeof block !== "object") return {};
+  return block as Record<string, unknown>;
+}
+
+const SHA256_RE = /^[a-f0-9]{64}$/;
+
+/** A manifest value is only a usable baseline if it is a bare sha256. */
+function asSha256(value: unknown): string | null {
+  return typeof value === "string" && SHA256_RE.test(value) ? value : null;
+}
+
+/**
+ * Flags each `RESIDUE_WATCHED` file whose live sha256 still equals the hash
+ * recorded for it at bootstrap.
+ *
+ * Baseline lookup per path, first match wins:
+ *   1. `seed_hashes[path]` — the write-once bootstrap record.
+ *   2. `files[path]` — fallback for projects cloned before `seed_hashes`
+ *      existed. Correct only until their first `/tools:update`, which
+ *      regenerates `files` from local content (update-project.sh:599); after
+ *      that there is no recoverable baseline and the path is skipped.
+ *
+ * Returns `[]` — fail-quiet, never a false positive — when the manifest is
+ * absent or unparseable, when `isFrameworkRepo` is true, or (per path) when no
+ * valid baseline exists or the file is missing. A silenced check is a smaller
+ * failure than a check that cries wolf: a false positive here trains the
+ * reader to ignore the finding.
+ *
+ * @param manifestJsonText raw `.claude/manifest.json` contents, or null
+ * @param readHash sha256 of the live file at a repo-relative path, or null if
+ *   it does not exist. MUST hash raw bytes — a normalizing reader would never
+ *   match the `sha256sum` values in the manifest and the detector would go
+ *   permanently silent.
+ * @param isFrameworkRepo true when `templates/knowledge/` exists — i.e. this
+ *   IS Project OS, where framework content in `docs/knowledge/` is correct.
+ */
+export function findTemplateResidue(args: {
+  manifestJsonText: string | null;
+  readHash: (path: string) => string | null;
+  isFrameworkRepo: boolean;
+}): Finding[] {
+  const { manifestJsonText, readHash, isFrameworkRepo } = args;
+  if (isFrameworkRepo) return [];
+  if (manifestJsonText === null) return [];
+
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(manifestJsonText);
+  } catch {
+    return [];
+  }
+
+  const seedHashes = hashBlock(manifest, "seed_hashes");
+  const fileHashes = hashBlock(manifest, "files");
+
+  const findings: Finding[] = [];
+  for (const watched of RESIDUE_WATCHED) {
+    // Lookup by known path — never iterate manifest keys.
+    const baseline =
+      asSha256(seedHashes[watched.path]) ?? asSha256(fileHashes[watched.path]);
+    if (baseline === null) continue;
+
+    const live = readHash(watched.path);
+    if (live === null) continue;
+    if (live !== baseline) continue;
+
+    findings.push({
+      severity: watched.severity,
+      kind: "unlocalized-template-content",
+      // detail carries only the watched path and fixed prose — never file
+      // content and never a resolved symlink target.
+      subject: watched.path,
+      detail:
+        `${watched.path} is byte-identical to the Project OS template seed — it still ` +
+        `describes the framework, not this project (${watched.reason}). ` +
+        `Replace it with this project's own content.`,
+    });
   }
   return findings;
 }

@@ -15,8 +15,12 @@ even when conceptually allowed.
 2. **Scripts go in files, not in one-liners.** Anything with newlines, `$()`,
    loops, escaped quotes, or embedded programs (`python3 -c`, `node -e`,
    `bash -c`, complex `jq`/`awk`/`sed`) gets written to a file (Write tool,
-   under `scripts/` or `/tmp/`) and run as `bash <file>` / `node <file>` —
-   a simple, matchable command.
+   under `scripts/`, the session scratchpad directory, or the project root)
+   and run as `bash <file>` / `node <file>` — a simple, matchable command.
+   **Not `/tmp/`**: on Windows the Write tool and Git Bash resolve `/tmp/` to
+   different locations, so a file written by one is unreadable by the other —
+   the write succeeds, the read fails, and the cause is invisible. If you
+   write to the project root, delete the file when done.
 3. **One command per Bash call.** Avoid `&&`, `||`, `;`, and pipes — use
    separate calls or a script file.
 4. **Git**: use `git -C "<path>" <subcommand>` instead of `cd && git`;
@@ -57,7 +61,7 @@ prompt.
 - Prefer dedicated tools: Glob (file search), Grep (content search), Read (file content), Write (create files), Edit (modify files). Use Bash only when no dedicated tool fits.
 - Never chain commands with `&&`, `||`, or `;`, and never pipe (`|`) — use separate Bash calls or a script file.
 - Never use bare `cd` — the Bash tool's cwd persists across calls. Use tool path flags (`git -C "path"`, `npm --prefix "path"`), brace expansion with an absolute prefix (`rm -rf "/abs/prefix"/{a,b,c}`), or a subshell `(cd "path" && cmd)` — cwd auto-reverts; the parenthesized form is pre-approved, bare `cd "path" && cmd` stays forbidden.
-- Never embed `$(...)`, loops, or multi-line programs in a command — write a script file with the Write tool, then run `bash <file>` / `node <file>` / `python3 <file>`.
+- Never embed `$(...)`, loops, or multi-line programs in a command — write a script file with the Write tool, then run `bash <file>` / `node <file>` / `python3 <file>`. Put it under `scripts/`, the session scratchpad, or the project root — never `/tmp/` (the Write tool and Git Bash resolve `/tmp/` differently on Windows, so the file is written to one path and read from another).
 - Never embed programs in `-c` / `-e` / `-Command` / `-lc` arguments — same fix: script file.
 - Use `git -C "<path>" <subcommand>` instead of `cd "path" && git`; commit with `git commit -F <msgfile>`.
 - Use forward slashes in paths; double-quote paths with spaces; never backslash-escape spaces; use `--flag "value"`, not `--flag="value"`.

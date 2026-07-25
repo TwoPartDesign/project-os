@@ -55,6 +55,113 @@ TEMPLATE_FILES=(
     "docs/knowledge/skill-edit-rejections.md"
 )
 
+# ==========================================================================
+# seed_hashes -- the write-once record of the CONTENT the framework handed
+# this project at bootstrap, so a detector can tell "still template" from
+# "localized". Deliberately SEPARATE from "files":
+#
+#   files       = framework files we maintain and may update. RECOMPUTED on
+#                 every run, including by update-project.sh:599 at the end of
+#                 every /tools:update.
+#   seed_hashes = one-time bootstrap content. NEVER recomputed once recorded.
+#
+# That distinction is the whole point. A detector reading "files" would be
+# correct exactly until the project's first /tools:update, after which
+# files[path] holds the USER's hash and hash-equality proves nothing.
+#
+# See docs/specs/template-content-leakage/design.md ("Data Model").
+# ==========================================================================
+
+# Watched content paths, in emission order. MUST stay in sync with
+# RESIDUE_WATCHED in scripts/lib/system-map-lib.ts.
+SEED_WATCHED=(
+    "docs/knowledge/architecture.md"
+    "docs/knowledge/patterns.md"
+    "docs/knowledge/decisions.md"
+    "docs/knowledge/bugs.md"
+    "docs/knowledge/metrics.md"
+    ".claude/rules/preferences.md"
+)
+
+# Framework-repo seed sources: destination path -> templates/ source path.
+# Present ONLY in this repo (templates/ is never copied into a project), which
+# is exactly what makes it the framework-repo discriminator -- in Project OS
+# itself the seeds differ from the live files, so the detector stays silent
+# here without any special-casing.
+seed_source_for() {
+    case "$1" in
+        docs/knowledge/*) printf 'templates/knowledge/%s' "${1#docs/knowledge/}" ;;
+        .claude/rules/*) printf 'templates/rules/%s' "${1#.claude/rules/}" ;;
+        *) return 1 ;;
+    esac
+}
+
+# Extract a seed_hashes value from the existing manifest. Prints nothing when
+# absent. Scoped to the seed_hashes block so a same-named key under "files"
+# can never be mistaken for a seed hash.
+existing_seed_hash() {
+    [ -f "$MANIFEST" ] || return 0
+    sed -n '/"seed_hashes"[[:space:]]*:[[:space:]]*{/,/}/p' "$MANIFEST" \
+        | grep -m1 -F "\"$1\":" \
+        | sed -E 's/.*:[[:space:]]*"([^"]*)".*/\1/'
+}
+
+# Extract a files-block value from the existing manifest (the one-time
+# promotion source for projects cloned before seed_hashes existed).
+existing_files_hash() {
+    [ -f "$MANIFEST" ] || return 0
+    sed -n '/"files"[[:space:]]*:[[:space:]]*{/,$p' "$MANIFEST" \
+        | grep -m1 -F "\"$1\":" \
+        | sed -E 's/.*:[[:space:]]*"([^"]*)".*/\1/'
+}
+
+# Resolve the seed hash for one watched path. First match wins:
+#   1. templates/ source exists  -> hash the SEED (framework repo)
+#   2. existing seed_hashes      -> carry forward VERBATIM (/tools:update)
+#   3. existing files entry      -> promote once (pre-seed_hashes clone)
+#   4. no prior manifest         -> hash the local file (fresh bootstrap:
+#                                   what is on disk IS the seed
+#                                   new-project.sh just copied)
+# Prints a bare sha256 or nothing. Every value that did not come from
+# sha256sum on this run is validated as ^[a-f0-9]{64}$ before it is trusted --
+# this manifest is assembled by string concatenation with no jq, so an
+# unvalidated carried-forward value is a JSON-injection vector.
+resolve_seed_hash() {
+    local relpath="$1" src carried
+
+    if src=$(seed_source_for "$relpath") && [ -f "$PROJECT_ROOT/$src" ]; then
+        sha256sum "$PROJECT_ROOT/$src" | cut -d' ' -f1
+        return 0
+    fi
+
+    carried=$(existing_seed_hash "$relpath")
+    if [ -n "$carried" ]; then
+        if [[ "$carried" =~ ^[a-f0-9]{64}$ ]]; then
+            printf '%s' "$carried"
+            return 0
+        fi
+        echo "WARN: dropping malformed seed_hashes value for $relpath (not a sha256)." >&2
+        return 0
+    fi
+
+    carried=$(existing_files_hash "$relpath")
+    if [ -n "$carried" ]; then
+        if [[ "$carried" =~ ^[a-f0-9]{64}$ ]]; then
+            printf '%s' "$carried"
+            return 0
+        fi
+        echo "WARN: dropping malformed files value for $relpath (not a sha256)." >&2
+        return 0
+    fi
+
+    if [ ! -f "$MANIFEST" ] && [ -f "$PROJECT_ROOT/$relpath" ]; then
+        sha256sum "$PROJECT_ROOT/$relpath" | cut -d' ' -f1
+        return 0
+    fi
+
+    return 0
+}
+
 TEMPLATE_SCRIPTS=(
     "scripts/memory-search.sh"
     "scripts/audit-context.sh"
@@ -96,12 +203,42 @@ json_escape() {
     printf '%s' "$s"
 }
 
+# Resolve every seed hash BEFORE the manifest is truncated below -- rules 2
+# and 3 read the CURRENT manifest, so they must run while it still exists.
+declare -A SEED_HASHES=()
+for relpath in "${SEED_WATCHED[@]}"; do
+    resolved=$(resolve_seed_hash "$relpath")
+    if [ -n "$resolved" ]; then
+        SEED_HASHES["$relpath"]="$resolved"
+    fi
+done
+
 # Build JSON manually (no jq dependency)
 ESCAPED_VERSION=$(json_escape "$VERSION")
 echo "{" > "$MANIFEST"
 echo "  \"project_os_version\": \"$ESCAPED_VERSION\"," >> "$MANIFEST"
 echo "  \"generated\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"," >> "$MANIFEST"
 echo "  \"upstream\": \"TwoPartDesign/project-os\"," >> "$MANIFEST"
+
+# seed_hashes emitted before "files" so it survives a truncated/partial read
+# and is visible at the top of a diff. Keys come from SEED_WATCHED (a fixed
+# in-script list), never from the parsed manifest, so a hand-edited key can
+# never reach this output; values are sha256-validated in resolve_seed_hash.
+echo "  \"seed_hashes\": {" >> "$MANIFEST"
+seed_first=true
+for relpath in "${SEED_WATCHED[@]}"; do
+    hash="${SEED_HASHES[$relpath]:-}"
+    [ -n "$hash" ] || continue
+    if [ "$seed_first" = true ]; then
+        seed_first=false
+    else
+        echo "," >> "$MANIFEST"
+    fi
+    printf '    "%s": "%s"' "$(json_escape "$relpath")" "$hash" >> "$MANIFEST"
+done
+echo "" >> "$MANIFEST"
+echo "  }," >> "$MANIFEST"
+
 echo "  \"files\": {" >> "$MANIFEST"
 
 first=true
@@ -169,5 +306,8 @@ echo "" >> "$MANIFEST"
 echo "  }" >> "$MANIFEST"
 echo "}" >> "$MANIFEST"
 
-file_count=$(grep -c '"[a-f0-9]\{64\}"' "$MANIFEST" || echo 0)
-echo "Manifest generated: $MANIFEST ($file_count files, version $VERSION)"
+# Count only the "files" block -- seed_hashes entries are also 64-hex and
+# would otherwise inflate this number by len(SEED_WATCHED).
+file_count=$(sed -n '/"files"[[:space:]]*:[[:space:]]*{/,$p' "$MANIFEST" | grep -c '"[a-f0-9]\{64\}"' || echo 0)
+seed_count="${#SEED_HASHES[@]}"
+echo "Manifest generated: $MANIFEST ($file_count files, $seed_count seed hashes, version $VERSION)"

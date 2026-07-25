@@ -363,6 +363,45 @@ TEMPLATE_DIRS=(
     ".claude/security"
 )
 
+# The docs/knowledge/*.md files and .claude/rules/preferences.md are ONE-TIME
+# CONTENT SEEDS (new-project.sh CONTENT_FILES, sourced from templates/), not
+# maintained framework files. They are deliberately absent from the update set:
+#
+#   - Before the seed split, TEMPLATE_FILES pointed at the upstream clone's OWN
+#     live docs/knowledge/*.md, so every update offered to overwrite a
+#     project's real architecture/decisions/patterns with Project OS's self-
+#     documentation -- the same leak new-project.sh had, arriving on the update
+#     path instead of the bootstrap path.
+#   - After the split, including them would drop a useless
+#     `architecture.md.upstream` seed stub beside the project's real file on
+#     every release.
+#
+# A format-contract change to one of these files therefore needs a CHANGELOG
+# migration note, not a silent overwrite. See
+# docs/specs/template-content-leakage/design.md.
+SEED_EXCLUDE=(
+    "docs/knowledge/architecture.md"
+    "docs/knowledge/patterns.md"
+    "docs/knowledge/decisions.md"
+    "docs/knowledge/bugs.md"
+    "docs/knowledge/kv.md"
+    "docs/knowledge/metrics.md"
+    "docs/knowledge/skill-edit-rejections.md"
+    ".claude/rules/preferences.md"
+)
+
+# is_seed_excluded REL -- true when REL is a one-time content seed. Applied to
+# the TEMPLATE_DIRS walk below, which would otherwise pick up
+# .claude/rules/preferences.md from inside the .claude/rules tree and offer
+# this repo's own "Language: Bash + TypeScript" as an update.
+is_seed_excluded() {
+    local probe="$1" ex
+    for ex in "${SEED_EXCLUDE[@]}"; do
+        [ "$probe" = "$ex" ] && return 0
+    done
+    return 1
+}
+
 declare -A UPSTREAM_HASHES
 declare -A LOCAL_HASHES
 declare -A MANIFEST_HASHES
@@ -373,6 +412,7 @@ for dir in "${TEMPLATE_DIRS[@]}"; do
     if [ ! -d "$full_dir" ]; then continue; fi
     while IFS= read -r file; do
         relpath="${file#$UPSTREAM_ROOT/}"
+        if is_seed_excluded "$relpath"; then continue; fi
         hash=$(sha256sum "$file" | cut -d' ' -f1)
         UPSTREAM_HASHES["$relpath"]="$hash"
     done < <(find "$full_dir" -type f | sort)
@@ -381,12 +421,6 @@ done
 TEMPLATE_FILES=(
     ".claude/settings.json"
     ".claude/maintenance-policy.yaml"
-    "docs/knowledge/decisions.md"
-    "docs/knowledge/patterns.md"
-    "docs/knowledge/bugs.md"
-    "docs/knowledge/architecture.md"
-    "docs/knowledge/kv.md"
-    "docs/knowledge/metrics.md"
 )
 
 TEMPLATE_SCRIPTS=(

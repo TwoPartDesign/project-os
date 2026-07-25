@@ -43,8 +43,10 @@ set -euo pipefail
 #
 # framework (.claude/**, scripts/** incl. scripts/lib) carries execution/
 # prompt authority -- ours always wins the canonical path. content
-# (CLAUDE.md, ROADMAP.md, global-CLAUDE.md, docs/knowledge/*.md) is never
-# executed -- the user's file always wins the canonical path.
+# (CLAUDE.md, ROADMAP.md, global-CLAUDE.md, docs/knowledge/*.md,
+# .claude/rules/preferences.md) is never executed -- the user's file always
+# wins the canonical path. preferences.md is the one content path INSIDE a
+# framework tree; RULES_CONTENT_EXCLUDE keeps the tree walk off it.
 copy_safe() {
   src="$1"
   dst="$2"
@@ -106,7 +108,9 @@ copy_safe() {
 # copy_tree_safe REL_TREE CLASS -- walks every FILE (never directory) under
 # TEMPLATE_DIR/REL_TREE and calls copy_safe per file, mirroring the same
 # relative path under ADOPT_TARGET/REL_TREE. An empty/absent template
-# subtree is a no-op.
+# subtree is a no-op. Paths claimed by CONTENT_FILES (RULES_CONTENT_EXCLUDE,
+# e.g. .claude/rules/preferences.md) are skipped here so the CONTENT_FILES
+# pass can apply user-wins semantics to them -- see is_content_owned.
 copy_tree_safe() {
   rel_tree="$1"
   tree_class="$2"
@@ -114,6 +118,9 @@ copy_tree_safe() {
   [ -d "$src_dir" ] || return 0
   while IFS= read -r walk_file; do
     walk_rel="${walk_file#"$src_dir"/}"
+    if is_content_owned "$rel_tree/$walk_rel"; then
+      continue
+    fi
     copy_safe "$walk_file" "$ADOPT_TARGET/$rel_tree/$walk_rel" "$tree_class"
   done < <(find "$src_dir" -type f | sort)
 }
@@ -355,21 +362,77 @@ FRAMEWORK_FILES_OPTIONAL=(
   "scripts/skill-ledger.ts"
 )
 # Content class: never executed by any tool -- the user's file always wins
-# the canonical path in adopt mode. Entries are "SRC_REL|DST_REL"; ROADMAP
-# is the only rename (template's *.template.md naming vs. the scaffolded
-# name). CLAUDE.md is handled separately below (sed substitution runs
-# first, into a temp file that becomes copy_safe's SRC).
+# the canonical path in adopt mode. Entries are "SRC_REL|DST_REL".
+# CLAUDE.md is handled separately below (sed substitution runs first, into a
+# temp file that becomes copy_safe's SRC).
+#
+# SOURCES ARE templates/, NEVER THIS REPO'S OWN LIVE FILES. Copying the live
+# docs/knowledge/*.md shipped ~190 lines about Project OS's own hook chain
+# into every clone as that project's architecture (CLAUDE.md @imports it), and
+# /tools:init could not see it -- init discovers work by scanning for
+# [ALL_CAPS_IN_BRACKETS], and leaked content is prose, not placeholders.
+# See docs/specs/template-content-leakage/design.md and templates/README.md.
+#
+# Two renames beyond the templates/ prefix: ROADMAP (template's *.template.md
+# naming vs. the scaffolded name) and preferences.md (templates/rules/ ->
+# .claude/rules/). preferences.md is CONTENT despite living under .claude/ --
+# it is prose read by the model, never executed -- so it is excluded from the
+# .claude/rules framework-tree walk (RULES_CONTENT_EXCLUDE below) and owned
+# here instead. That reclassification is recorded as an ADR in
+# docs/knowledge/decisions.md.
 CONTENT_FILES=(
   "ROADMAP.template.md|ROADMAP.md"
   "global-CLAUDE.md|global-CLAUDE.md"
-  "docs/knowledge/decisions.md|docs/knowledge/decisions.md"
-  "docs/knowledge/patterns.md|docs/knowledge/patterns.md"
-  "docs/knowledge/bugs.md|docs/knowledge/bugs.md"
-  "docs/knowledge/architecture.md|docs/knowledge/architecture.md"
-  "docs/knowledge/kv.md|docs/knowledge/kv.md"
-  "docs/knowledge/metrics.md|docs/knowledge/metrics.md"
-  "docs/knowledge/skill-edit-rejections.md|docs/knowledge/skill-edit-rejections.md"
+  "templates/rules/preferences.md|.claude/rules/preferences.md"
+  "templates/knowledge/decisions.md|docs/knowledge/decisions.md"
+  "templates/knowledge/patterns.md|docs/knowledge/patterns.md"
+  "templates/knowledge/bugs.md|docs/knowledge/bugs.md"
+  "templates/knowledge/architecture.md|docs/knowledge/architecture.md"
+  "templates/knowledge/kv.md|docs/knowledge/kv.md"
+  "templates/knowledge/metrics.md|docs/knowledge/metrics.md"
+  "templates/knowledge/skill-edit-rejections.md|docs/knowledge/skill-edit-rejections.md"
+  "templates/docs/product.md|docs/product.md"
+  "templates/docs/tech.md|docs/tech.md"
+  # Framework REFERENCE docs -- not seeds, and not project content, but
+  # shipped files point at them, so a clone without them has dangling refs:
+  #   ROADMAP.md:3                -> roadmap-format.md
+  #   .claude/rules/bash.md       -> windows-bash-scanner.md
+  #   .claude/rules/bash.md       -> docs/proposals/pre-tool-approve-hook.md
+  # They describe the FRAMEWORK's own contracts (ROADMAP marker legend, the
+  # Windows scanner catalog, the auto-approve hook proposal), which are
+  # identical in every project, so they are correct to ship verbatim. They are
+  # deliberately NOT in RESIDUE_WATCHED: staying byte-identical to the
+  # template is the expected steady state for them.
+  # Transferable engineering patterns learned building Project OS. Shipped as
+  # REFERENCE (not as docs/knowledge/patterns.md, which CLAUDE.md @imports as
+  # this project's active conventions) so the guidance survives the seed split
+  # without asserting conventions the new project never established.
+  "templates/knowledge/framework-patterns.md|docs/knowledge/framework-patterns.md"
+  "docs/knowledge/roadmap-format.md|docs/knowledge/roadmap-format.md"
+  "docs/knowledge/windows-bash-scanner.md|docs/knowledge/windows-bash-scanner.md"
+  "docs/knowledge/design-principles.md|docs/knowledge/design-principles.md"
+  "docs/proposals/pre-tool-approve-hook.md|docs/proposals/pre-tool-approve-hook.md"
 )
+
+# Paths inside a FRAMEWORK_TREES tree that CONTENT_FILES owns instead. The
+# tree walk must skip them: copy_tree_safe is ours-wins (framework class), so
+# without this exclusion adopt mode would install the template's
+# preferences.md at the canonical path and demote the user's to
+# .pre-adopt -- then the CONTENT_FILES pass would compare our own freshly
+# installed file against itself and no-op, silently inverting the user-wins
+# guarantee for a content file.
+RULES_CONTENT_EXCLUDE=(
+  ".claude/rules/preferences.md"
+)
+
+# is_content_owned REL -- true when REL is in RULES_CONTENT_EXCLUDE.
+is_content_owned() {
+  local probe="$1" owned
+  for owned in "${RULES_CONTENT_EXCLUDE[@]}"; do
+    [ "$probe" = "$owned" ] && return 0
+  done
+  return 1
+}
 
 if [ "$MODE" = "adopt" ]; then
   # ================= Adopt mode =================
@@ -614,6 +677,16 @@ if [ "$MODE" = "adopt" ]; then
   for rel in "${FRAMEWORK_FILES[@]}"; do
     case "$rel" in
       .claude/*) TEMPLATE_CLAUDE_RELPATHS["$rel"]=1 ;;
+    esac
+  done
+  # CONTENT_FILES destinations under .claude/ are template-known too
+  # (.claude/rules/preferences.md). Registered explicitly rather than relying
+  # on the FRAMEWORK_TREES walk above happening to find this repo's own copy
+  # -- without this, a pre-existing user preferences.md would be swept into
+  # .claude.pre-adopt/ as an orphan the moment the framework's own copy moved.
+  for pair in "${CONTENT_FILES[@]}"; do
+    case "${pair#*|}" in
+      .claude/*) TEMPLATE_CLAUDE_RELPATHS["${pair#*|}"]=1 ;;
     esac
   done
 
@@ -922,9 +995,18 @@ done
 
 sed "s/\[PROJECT_NAME\]/$PROJECT_NAME/g" "$TEMPLATE_DIR/CLAUDE.template.md" > "$FULL_PATH/CLAUDE.md"
 
+# Runs AFTER the FRAMEWORK_TREES loop above, so the templates/rules seed
+# overwrites the framework's own .claude/rules/preferences.md that the tree
+# copy just placed. mkdir -p because some destinations (docs/proposals/) are
+# outside the scaffold's initial mkdir set.
 for pair in "${CONTENT_FILES[@]}"; do
   src_rel="${pair%%|*}"
   dst_rel="${pair#*|}"
+  if [ ! -f "$TEMPLATE_DIR/$src_rel" ]; then
+    echo "ERROR: template file missing: $TEMPLATE_DIR/$src_rel" >&2
+    exit 1
+  fi
+  mkdir -p "$FULL_PATH/$(dirname "$dst_rel")"
   cp "$TEMPLATE_DIR/$src_rel" "$FULL_PATH/$dst_rel"
 done
 

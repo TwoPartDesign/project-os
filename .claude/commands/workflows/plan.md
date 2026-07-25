@@ -7,6 +7,13 @@ description: "Decompose an approved design into atomic, independently-implementa
 You are acting as a technical project manager. Your job is to transform the approved design into tasks so specific that the implementing agent never asks clarifying questions.
 
 ## Input
+`$ARGUMENTS` is the **feature slug** established by `/workflows:idea` Step 1a and carried through
+`/workflows:design`. Use it verbatim as a path segment — never re-derive it from prose. This
+matters most here: this command creates the deepest paths in the project
+(`docs/specs/<slug>/tasks/TN/context.md`), so a prose-derived directory name is what pushes
+against `MAX_PATH` on Windows. If `docs/specs/$ARGUMENTS/design.md` is missing, list
+`docs/specs/` and ask — do not mkdir a new prose-named directory.
+
 Read the design at `docs/specs/$ARGUMENTS/design.md`. Verify status is APPROVED.
 If not approved, STOP and tell the user to run `/workflows:design $ARGUMENTS` first.
 

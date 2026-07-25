@@ -183,6 +183,90 @@ and friends. `CLAUDE.template.md` ships with `[PROJECT_NAME]`, `[YOUR_ROLE]`,
 "init has not run" signal — and are worth their own separate, lower-severity finding
 rather than being folded into the residue gate.
 
+## Companion defects from the same clone→init→idea→design→plan run
+
+The template-content leak (A) and its retro-detector (B) arrived alongside five further defects
+found on the same real-project run, plus one found while fixing C. All are framework-first.
+
+### C — Generated pre-push hook fails every project's first push (HIGH)
+
+`security-scanner.ts` generated a hook running `scan-diff "origin/$BRANCH"` unconditionally. On a
+first push `origin/$BRANCH` does not exist, so git aborts with `fatal: ambiguous argument
+'origin/master...HEAD'`. The hook blocked on a **git error, not a finding** — and its message
+steered the user to `--no-verify`, disabling secret scanning at the exact moment a repo first
+becomes remote and its entire history is published.
+
+Fixed by guarding on `git rev-parse --verify --quiet "origin/$BRANCH"` and falling back to a full
+tracked-file scan (everything being pushed is new, so that is the correct equivalent of the diff).
+
+**One deviation from the reported fix**: it used `xargs -0 --no-run-if-empty`, a GNU long option
+that BSD/macOS xargs rejects outright — that would have traded "broken on first push" for "broken
+on every macOS push". Replaced with an explicit `[ -z "$(git ls-files)" ]` check, portable across
+GNU, BSD, and Git Bash.
+
+### D — Workflow commands build directory paths from raw `$ARGUMENTS` (HIGH on Windows)
+
+`idea.md` Step 3 created `docs/specs/$ARGUMENTS/brief.md` from free prose. A realistic invocation
+resolved to a 150-character directory containing spaces, parentheses, commas, and an em-dash; with
+`plan.md`'s per-task contexts underneath (`docs/specs/<name>/tasks/T13/context.md`) that pushes
+against `MAX_PATH` on Windows. Only avoided because the operator hand-picked a slug.
+
+Fixed by adding Step 1a to `idea.md`: derive a ≤40-char slug, **confirm it before creating
+anything**, and use it for paths and the ROADMAP section key while the brief keeps the user's prose
+as its display name. `design.md`, `plan.md`, and `approve.md` now state that `$ARGUMENTS` *is* the
+slug, must be used verbatim, and that a missing directory means "list `docs/specs/` and ask" — never
+"mkdir a new prose-named directory".
+
+### E — No toolchain permissions, so the first `npm install` silently hangs a sub-agent (MEDIUM)
+
+`permissions.allow` enumerates git subcommands and template scripts but nothing for npm, npx, vite,
+vitest, pytest, cargo, or go. Sub-agents cannot answer permission prompts, so the first install in
+`/workflows:build` stalls — a silent hang, not a visible failure.
+
+Fixed as `init.md` Step 5c: init already knows the stack, so it appends per-subcommand entries from
+a stack→entries table, preserving existing entries. Two hard rules encoded: never a bare interpreter
+(`Bash(node:*)` is arbitrary code execution, not a toolchain grant), never a publish/deploy verb.
+
+### F — `.gitignore` ships ignoring `docs/specs/*` (MEDIUM, consequence is data loss)
+
+Defensible for disposable notes, wrong when the specs *are* the research. Downstream, a PRD with
+market analysis, licensing investigation, and the full decision log was untracked on one disk while
+`git status` reported a clean tree — actively concealing it, immediately after init had walked the
+user through setup without mentioning it.
+
+Fixed as `init.md` Step 5d: ask explicitly, with "track specs, ignore `docs/specs/**/scratch/`" as
+the recommended default, a middle option that ignores only regenerable per-task context, and a
+requirement to name any at-risk untracked spec files in the prompt. Whatever is chosen is stated in
+the report.
+
+### G — init contradicts the framework's own bash rules (LOW)
+
+`init.md` Step 9 used `cat > /tmp/commit-msg.txt << 'EOF'` — both a heredoc (which `bash.md` says to
+avoid, and which falls back to a permission prompt a sub-agent cannot answer) and a `/tmp/` path,
+which the Write tool and Git Bash resolve differently on Windows, so the file is written to one path
+and read from another. `bash.md` itself carried the milder version, telling agents to put scripts
+"under `scripts/` or `/tmp/`".
+
+Fixed in both places: init uses the Write tool and the session scratchpad; `bash.md` drops `/tmp/`
+and explains the Windows split so the rule is not re-derived away later.
+
+### H — `scan-rules.js` is a syntax error on the declared minimum Node (found while testing C)
+
+Not in the original report; surfaced because C's fix required exercising `install-hooks`.
+
+`scripts/lib/scan-rules.js` uses inline regex modifiers `(?i:...)` in 11 rules. That syntax needs
+V8 12.5+ (**Node ≥ 23**). `package.json` declares `"node": ">=22.18"`. On Node 22 the module is a
+**module-level syntax error**, so `loadRules()` throws, `install-hooks.sh` dies, and `setup.sh` emits
+only `WARN: Could not install git hooks`. A project on the documented minimum Node therefore gets
+**no pre-commit secret scan and no system-map auto-heal**, while looking merely noisy. This is also
+the root cause of the 35 pre-existing failures in `tests/new-project-smoke.sh` in any Node-22
+environment.
+
+Partially fixed: the failure now names the file, the cause, the running Node version, and the
+remedy instead of surfacing a raw V8 error. The regex rewrite itself is filed as `#T112` rather than
+bundled here — rewriting 11 secret-detection patterns is a security change that needs its own
+`test-rules` validation pass, which cannot even run on Node 22 until it lands.
+
 ## Open Questions
 
 - Should `docs/knowledge/metrics.md` seed keep the `## Template` block (format example,

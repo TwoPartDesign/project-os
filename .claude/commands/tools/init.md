@@ -356,7 +356,10 @@ Using the answers collected, replace every placeholder found in Step 3.
 Standard mappings:
 - `[PROJECT_NAME]` → project name from Round 1
 - `[YOUR_NAME]` → owner name (ask once if not already known; check memory for the owner's name from past project profiles)
+- `[YOUR_ROLE]` → the owner's role, e.g. `Solo developer`
 - `[PRIMARY_STACK]` → language + framework + db, e.g. `TypeScript / Next.js / SQLite`
+- `[FORMATTER]` → formatter from Round 2 (used in `.claude/rules/preferences.md`)
+- `[TEST_RUNNER]` → test runner from Round 2, with its layout convention if any, e.g. `vitest (tests/ mirrors src/)`
 - `[DATE]` or `[TODAY]` → today's date in `YYYY-MM-DD` format
 - `[preferred language]` → language from Round 2
 - `[prettier/black/gofmt/etc.]` → formatter from Round 2
@@ -387,6 +390,51 @@ Set the models in `.claude/settings.json` (create the file if it doesn't exist, 
 - `env.CLAUDE_CODE_SUBAGENT_MODEL` routes sub-agent tasks
 
 Settings take effect on the next Claude Code session — no shell profile changes needed.
+
+## Step 5b: Seed the knowledge vault from facts you already have
+
+`docs/knowledge/*.md` ship as **near-empty seeds** from `templates/` — they contain format
+contracts and nothing else, so there is no framework prose to clean up. Your job here is narrow:
+replace the architecture seed's placeholder body with the few things you now know as fact.
+
+Write `docs/knowledge/architecture.md`, preserving its YAML frontmatter:
+
+```markdown
+# System Architecture
+
+[PROJECT_NAME] — [one-liner from Round 1].
+
+## Stack
+- Language / runtime: [from Round 2]
+- Framework: [from Round 2, or "none"]
+- Database: [from Round 2, or "none"]
+- Test runner: [from Round 2]
+
+## High-Level Structure
+
+_Not yet designed. `/workflows:design` fills this in per feature._
+
+## Module Map
+
+| Module | Path | Purpose |
+|--------|------|---------|
+```
+
+**Hard rule: write facts, never inferences.** Do not invent components, layers, directories, or
+data flows the project does not yet have. An empty section is correct and honest; a plausible
+invented architecture is the exact failure this seeding exists to prevent — an LLM reads it as
+ground truth and designs against a system that does not exist. If a PRD or spec was discovered in
+Step 1b and states real architecture, cite it: `Source: docs/PRD.md §3`.
+
+Leave `decisions.md`, `patterns.md`, `bugs.md`, `metrics.md`, and `kv.md` **untouched**. They are
+append-only logs; the correct content for a brand-new project is zero entries. `/workflows:design`
+writes ADRs, `/workflows:review` writes patterns, `/workflows:ship` writes metrics.
+
+**DO NOT run `bash scripts/generate-manifest.sh` at any point in this command.** The manifest's
+`seed_hashes` block is the baseline the `unlocalized-template-content` readiness check compares
+against. Regenerating the manifest after you have localized files would re-record your localized
+content as the seed baseline and permanently blind that check for this project. Init never
+regenerates the manifest — only `new-project.sh` (at bootstrap) and `update-project.sh` do.
 
 ## Step 5a: Apply feature toggles
 
@@ -448,6 +496,73 @@ Context7 is enabled for this project. Use it to fetch up-to-date library documen
 - Security: all Context7 calls are governed by `.claude/security/mcp-allowlist.json` — only `api.context7.com` and `registry.npmjs.org` are permitted network destinations
 - Allowed tools: `resolve-library-id`, `get-library-docs` only
 ```
+
+## Step 5c: Grant toolchain permissions for the detected stack
+
+**Why this step exists.** `permissions.allow` in the shipped `.claude/settings.json` enumerates
+git subcommands and every template script by name, but has no entry for any *project* toolchain.
+Sub-agents cannot answer permission prompts (`.claude/rules/bash.md`), so the first
+`npm install` inside `/workflows:build` **stalls the agent** — a silent hang, not a visible
+failure. You are the only step that knows the stack, so you are the only place this can be fixed.
+
+Read `.claude/settings.json`, then **append** stack-appropriate entries to `permissions.allow`
+(preserve every existing entry — never rewrite the array wholesale).
+
+Follow the restrictive-allow posture from the 2026-07-12 ADR: grant **per-subcommand** prefixes,
+never a blanket `Bash(npm *)`. Grant only what the confirmed stack actually needs.
+
+| Stack (from Round 2) | Entries to add |
+|---|---|
+| Node / npm | `Bash(npm install:*)`, `Bash(npm ci:*)`, `Bash(npm run:*)`, `Bash(npm test:*)`, `Bash(npx:*)` |
+| Node / pnpm | `Bash(pnpm install:*)`, `Bash(pnpm run:*)`, `Bash(pnpm test:*)`, `Bash(pnpm dlx:*)` |
+| Node / yarn | `Bash(yarn install:*)`, `Bash(yarn run:*)`, `Bash(yarn test:*)` |
+| Vite / Vitest | `Bash(npx vite:*)`, `Bash(npx vitest:*)` |
+| Python / pip | `Bash(pip install:*)`, `Bash(python -m pytest:*)`, `Bash(pytest:*)` |
+| Python / uv | `Bash(uv sync:*)`, `Bash(uv run:*)` |
+| Python / poetry | `Bash(poetry install:*)`, `Bash(poetry run:*)` |
+| Go | `Bash(go build:*)`, `Bash(go test:*)`, `Bash(go mod:*)`, `Bash(go vet:*)` |
+| Rust | `Bash(cargo build:*)`, `Bash(cargo test:*)`, `Bash(cargo check:*)`, `Bash(cargo clippy:*)` |
+
+Two rules:
+- **Never add a bare interpreter** (`Bash(node:*)`, `Bash(python:*)`, `Bash(bash:*)`). Those are
+  arbitrary code execution, not a toolchain grant.
+- **Never add a publish or deploy verb** (`npm publish`, `cargo publish`, `gh release`,
+  `terraform apply`). Those stay interactive on purpose.
+
+Report what was added in Step 10 so the owner can audit it.
+
+## Step 5d: State the docs/specs tracking policy out loud
+
+The shipped `.gitignore` contains:
+
+```
+docs/specs/*
+!docs/specs/.gitkeep
+```
+
+That is defensible for disposable planning notes and **wrong** for any project whose specs *are*
+the research. Left unmentioned it causes silent data loss: a PRD with market analysis, licensing
+investigation, and a full decision log can exist on exactly one disk while `git status` reports a
+clean tree — actively concealing it.
+
+Do not decide this silently. Ask:
+
+> **Version-control your specs?** `docs/specs/` currently holds briefs, designs, task plans, and
+> any PRD. The shipped `.gitignore` excludes it, so those files would exist only on this machine
+> and `git status` would still look clean.
+>
+> 1. **Track specs** — remove the ignore rule; ignore only `docs/specs/**/scratch/` *(recommended — specs are usually the most valuable documents in the repo)*
+> 2. **Keep specs untracked** — leave the ignore rule as shipped *(you accept they live on one disk)*
+> 3. **Track specs, ignore per-task context** — track briefs/designs/tasks, ignore `docs/specs/**/tasks/*/context.md` (regenerable by `/workflows:plan`)
+
+Apply the answer by editing `.gitignore`:
+
+- **Option 1**: replace the `docs/specs/*` / `!docs/specs/.gitkeep` pair with `docs/specs/**/scratch/`
+- **Option 2**: leave unchanged, and say plainly in Step 10: "docs/specs/ is NOT version-controlled."
+- **Option 3**: replace with `docs/specs/**/tasks/*/context.md`
+
+If the repo already has untracked files under `docs/specs/`, name them in the prompt — those are
+the files at risk right now.
 
 ## Step 6: Populate product and tech docs (if empty)
 
@@ -522,29 +637,93 @@ If the script fails (e.g. missing file, permissions), note the failure but conti
 Check if `.git/` exists. If not, ask:
 > "No git repo detected. Initialize one now?"
 
-If yes:
+If yes, run these as **separate** Bash calls (`.claude/rules/bash.md`: one command per call, no
+`&&` chaining):
+
 ```bash
 git init
+```
+```bash
 git add .
 ```
-Then write the commit message to `/tmp/commit-msg.txt` and commit:
-```bash
-# Write message first (avoids inline shell injection with special chars in project name)
-cat > /tmp/commit-msg.txt << 'EOF'
+
+Then commit with a message file. Two rules from `.claude/rules/bash.md` apply, and the previous
+version of this step broke both:
+
+- **Use the Write tool, not a heredoc.** `cat > file << 'EOF'` is exactly the multi-line embedded
+  construct bash.md says to avoid — it falls back to a permission prompt, which a sub-agent
+  cannot answer.
+- **Never use `/tmp/`.** On Windows the Write tool and Git Bash resolve `/tmp/` to *different*
+  places, so the file is written to one path and `git commit -F` reads from another, which fails.
+  Write to the session scratchpad directory if one is available, otherwise to the project root and
+  delete it afterwards.
+
+Write the message with the Write tool to `<scratchpad>/commit-msg.txt` (or `./commit-msg.txt` if
+no scratchpad exists):
+
+```
 chore: initialize project — [PROJECT_NAME]
-EOF
-git commit -F /tmp/commit-msg.txt
 ```
 
-## Step 10: Report
+Then commit, passing that exact path:
 
-Summarize what was done:
+```bash
+git commit -F "<scratchpad>/commit-msg.txt"
+```
+
+If you wrote to the project root, remove it afterwards:
+
+```bash
+rm ./commit-msg.txt
+```
+
+## Step 10: Verify — assert, do not summarize
+
+**Do not skip this step, and do not report success before running it.** Every step above reports
+what it *wrote*. None of them check whether the project you just initialized would mislead the next
+agent that reads it. That is the actual acceptance criterion for this command, and it is
+mechanically checkable:
+
+```bash
+node scripts/system-map.ts report --json
+```
+
+Filter the findings for these two `kind` values:
+
+| `kind` | Meaning | Expected after a successful init |
+|---|---|---|
+| `init-incomplete` | `CLAUDE.md` still has unfilled `[PLACEHOLDER]` tokens | **none** — Step 5 should have filled them all |
+| `unlocalized-template-content` | A watched content file still hashes identical to the template seed it shipped as | none for `docs/knowledge/architecture.md` (Step 5b wrote it) and `.claude/rules/preferences.md` (Step 5 filled its placeholders) |
+
+Then act on the result:
+
+- **`init-incomplete` present** → Step 5 missed a placeholder. Read `CLAUDE.md`, fill the tokens
+  the finding names, and re-run the check. Do not report success while this finding exists.
+- **`unlocalized-template-content` on `architecture.md` or `preferences.md`** → the file you were
+  supposed to write is still byte-identical to its seed. Go back to Step 5b / Step 5 and actually
+  write it.
+- **`unlocalized-template-content` on `decisions.md` / `patterns.md` / `bugs.md` / `metrics.md`**
+  → **expected and correct.** Those are append-only logs and a new project genuinely has zero
+  entries. Do not write filler to silence them; they clear naturally as
+  `/workflows:design`, `/workflows:review`, and `/workflows:ship` append real entries. Report them
+  as informational.
+- **Command unavailable** (no Node, missing `scripts/system-map.ts`) → say so explicitly in the
+  report rather than silently omitting the verification line.
+
+If `scripts/system-map.ts` is absent, fall back to a manual assertion: grep `CLAUDE.md` for
+`[PROJECT_NAME]`, `[YOUR_ROLE]`, `[YOUR_NAME]`, `[PRIMARY_STACK]` and confirm zero matches.
+
+## Step 11: Report
+
+Summarize what was done. The **Verification** block is not optional — it is the part that says
+whether this init actually succeeded:
 
 > **Project initialized: [PROJECT_NAME]**
 >
 > **Global config** (`~/.claude/CLAUDE.md`): [copied / merged / replaced / skipped]
 > **Placeholders filled**: [N] across [M] files
 > **Docs updated**: [list]
+> **Knowledge vault**: `docs/knowledge/architecture.md` seeded from stack answers; decisions/patterns/bugs/metrics left empty (append-only)
 > **Features enabled**:
 > - Obsidian vault: [enabled — wikilinks + frontmatter active / disabled]
 > - Context7 MCP: [enabled — `.mcp.json` created / disabled]
@@ -553,8 +732,14 @@ Summarize what was done:
 > - Orchestration: [MODEL_ORCHESTRATION]
 > - Sub-agents: [MODEL_SUBAGENT] (`CLAUDE_CODE_SUBAGENT_MODEL`)
 > - Config: `.claude/settings.json` — applies on next session
+> **Toolchain permissions added** (Step 5c): [list the exact `permissions.allow` entries, or "none — no toolchain detected"]
+> **docs/specs tracking** (Step 5d): [tracked, ignoring scratch/ / NOT version-controlled — specs live only on this machine / tracked, per-task context ignored]
 > **Global commands**: [installed — `/tools:new-project` available everywhere / failed — run `bash scripts/install-global-commands.sh` manually]
 > **Memory updated**: `docs/memory/project-profiles.md`
 > **Git**: [initialized / already exists]
+>
+> **Verification** (`node scripts/system-map.ts report`):
+> - `init-incomplete`: [none — all placeholders filled / N found and fixed / CHECK UNAVAILABLE]
+> - `unlocalized-template-content`: [none / N informational — empty append-only logs: decisions, patterns, bugs, metrics]
 >
 > Ready to build. Start with `/pm:prd [feature]` or `/workflows:idea [feature]`.
