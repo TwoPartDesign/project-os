@@ -46,13 +46,18 @@ describe("scan-rules Node 22 compatibility", () => {
     // security-scanner.ts:268 skips rules whose regex is null, so each null is
     // a NAMED detection rule that silently scans nothing.
     //
-    // 24 rules ship as `regex: null /* regex compile error */` — patterns that
-    // failed to convert from their gitleaks originals. This predates the
-    // Node-22 rewrite (identical count before and after) and is tracked
-    // separately as its own defect. This assertion is a RATCHET, not an
-    // aspiration: the count may never grow, and lowering it means someone
-    // fixed rules and should update this number deliberately.
-    const KNOWN_NULL_RULES = 24;
+    // Was 24; #T114 restored 21 of them from the services' documented token
+    // formats, anchored on the literal prefix each rule already recorded in its
+    // `keywords`. The remaining 3 are null BY DECISION, not oversight —
+    // curl-auth-header (multi-line shell match), pkcs12-file (binary container,
+    // wrong mechanism for a line regex), and jwt-base64 (its ZXlK prefix is
+    // base64 of 'eyJ', present in any base64-encoded JSON). Each carries an
+    // explanatory comment in scan-rules.js.
+    //
+    // This assertion is a RATCHET: the count may never grow, and lowering it
+    // means someone implemented one of the three and should update this
+    // number deliberately.
+    const KNOWN_NULL_RULES = 3;
     const mod = await import(resolve(RULES_PATH));
     const nulls = (mod.rules as Array<{ id: string; regex: RegExp | null }>)
       .filter((r) => !r.regex)

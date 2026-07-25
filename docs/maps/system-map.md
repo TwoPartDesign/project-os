@@ -104,6 +104,7 @@
 - `s_observation_parser_test` — `tests/observation-parser.test.ts` (0 dependents)
 - `s_policy_test` — `tests/policy.test.ts` (0 dependents)
 - `s_scan_rules_node22_test` — `tests/scan-rules-node22.test.ts` (0 dependents)
+- `s_scan_rules_restored_test` — `tests/scan-rules-restored.test.ts` (0 dependents)
 - `s_scanner_smoke` — `tests/scanner-smoke.sh` (0 dependents)
 - `s_skill_apply_lib_test` — `tests/skill-apply-lib.test.ts` (0 dependents)
 - `s_skill_apply_test` — `tests/skill-apply.test.ts` (0 dependents)
