@@ -1,6 +1,6 @@
 {
   "project_os_version": "2.3-dev",
-  "generated": "2026-07-25T01:03:08Z",
+  "generated": "2026-07-25T01:41:25Z",
   "upstream": "TwoPartDesign/project-os",
   "seed_hashes": {
     "docs/knowledge/architecture.md": "6326d1b223be2c0143c4a1d4553a2d4f335d96606e5514628fc069b52d061b11",
@@ -78,12 +78,12 @@
     ".claude/security/validate-mcp-output.sh": "fff8eac5143f828437849a3b244c332b35941fb98a24ed58eae5a645bff6aa3f",
     ".claude/settings.json": "d3041ff72d32957fa4e538ddabb5d7de21ea3a46b40add0ae475be86f0b07b1b",
     ".claude/maintenance-policy.yaml": "1e4796e5116367afd449b8bd53be4eeb33dc33561fbf0bb6cd92f0e1ff6cac51",
-    "docs/knowledge/decisions.md": "096eedefcd2cd20bf746ee9e224d0ce215ca787910b91776270a138b93a4ef3d",
+    "docs/knowledge/decisions.md": "9b745148bbc6fc3cc2929a8c054a74b2f286b0ca01325787ebffbd1570303333",
     "docs/knowledge/patterns.md": "568e3145cbb46357d537992d9004dc15d749df5eb493412aa33b18751c9c0f56",
     "docs/knowledge/bugs.md": "15f708cf4dfe99f14cef67df632a489486978438aa079fae7f767ccf2340652c",
     "docs/knowledge/architecture.md": "bc1cdc6152a832cd83de4be32aa0cbc58ab2f83dbe1ff7aa815ed31a55dfd012",
     "docs/knowledge/kv.md": "f750d2880239c146de7bf95936baec11952a1c0a8b5bf4ed05682301baa3ac60",
-    "docs/knowledge/metrics.md": "cb015fb80040cc498f335fb42cf54caaf753238af88e12f37e557ad495bcd470",
+    "docs/knowledge/metrics.md": "aabb1cd1545917439e98183fbf47e4fb02621582a649fae5c661061a4749c9d6",
     "docs/knowledge/skill-edit-rejections.md": "6ce0e6097c4f2811c40c2b066b14fc9b299d470e7108978b1ca179a1b3d38713",
     "scripts/memory-search.sh": "d267f24d2eaeb23ba78abfcd160bdac6876ddb6016bec651d5dcd84e742dee90",
     "scripts/audit-context.sh": "df9d3523fc81619cef2f343046b576c04310abd51f3b6eaf98eec5ff90024a9b",
@@ -95,7 +95,7 @@
     "scripts/validate-freshness.sh": "8dc557bd4e85b52858044ea12d9263f78941ef0dac36cc514f822ed425212274",
     "scripts/codex-review.sh": "1ad4332e4c5e214801435699d8669a22a0f8b899e3c90456174c45dd6df450bd",
     "scripts/generate-manifest.sh": "007123b75fc7a2c7e7606ae74ff520b6356f0b40e69d1a11b377fb69dd88fd48",
-    "scripts/update-project.sh": "f893a36d0fa258ae11b3000375bce0f1842e4663767d2bf7318ae24a84ac2dc1",
+    "scripts/update-project.sh": "05bb501e1b3973c0e67b58b39f89c0b91ad413244a0c45d1ace1bc7cbfaffbd7",
     "scripts/sync-hooks.sh": "019f37e2def4e22755112aaf327408f332ff04a5ca43cc9262c2ae6d2750404d",
     "scripts/knowledge-index.ts": "d7c68c389774278caec3554a77cde7601df6e70ef16aff3f6a550d032789dd6c",
     "scripts/dashboard-server.ts": "3ec9896b8d54a80b8d95ac9a189f3363cf86c96c9c6d76e5b883ec707aed810e",
@@ -116,7 +116,7 @@
     "scripts/lib/json.sh": "db6cc9dc80a3d8f58c722934974dac808c1028eb88a32fd1537fdc198bd72bbb",
     "scripts/lib/policy.ts": "0eda97c7267814fd1cf85b831ff5c43d3242e923548185f9a6e37c525ddc3e97",
     "scripts/lib/project-root.ts": "5afd74f2af4d65ab8c491e1bf85ad9642c32035c9a53b20447ee4547c7a2e122",
-    "scripts/lib/scan-rules.js": "92a4d768014c6a82c0d9b6bf5c7512a2829e1e5099f27b70418c48c91086ed92",
+    "scripts/lib/scan-rules.js": "09bb0de34676ec4871b52c4705b18370ffee04f453e294582a64be1cde94c428",
     "scripts/lib/skill-apply-lib.ts": "585064be29fe3cdd6f782640fe9c5cc68e35580c3d41297604ba5c94e1b3533a",
     "scripts/lib/system-map-lib.ts": "52bbb6435da2d0221043824694c4d41b51248a4fc864be9522c8c8c7a7b0cdaf"
   }

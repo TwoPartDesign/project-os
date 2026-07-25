@@ -57,11 +57,11 @@
 - `l_common` — `.claude/hooks/_common.sh` (12 dependents)
 - `l_dashboard_render` — `scripts/lib/dashboard-render.ts` (5 dependents)
 - `l_json` — `scripts/lib/json.sh` (2 dependents)
-- `l_policy` — `scripts/lib/policy.ts` (9 dependents)
-- `l_project_root` — `scripts/lib/project-root.ts` (16 dependents)
+- `l_policy` — `scripts/lib/policy.ts` (10 dependents)
+- `l_project_root` — `scripts/lib/project-root.ts` (17 dependents)
 - `l_scan_rules` — `scripts/lib/scan-rules.js` (0 dependents)
 - `l_skill_apply_lib` — `scripts/lib/skill-apply-lib.ts` (4 dependents)
-- `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (9 dependents)
+- `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (5 dependents)
 
 ### script
 - `s_audit_context` — `scripts/audit-context.sh` (0 dependents)
@@ -72,7 +72,7 @@
 - `s_dashboard` — `scripts/dashboard.sh` (1 dependent)
 - `s_detect_stack` — `scripts/detect-stack.ts` (3 dependents)
 - `s_dream_accept` — `scripts/dream-accept.sh` (1 dependent)
-- `s_generate_manifest` — `scripts/generate-manifest.sh` (1 dependent)
+- `s_generate_manifest` — `scripts/generate-manifest.sh` (2 dependents)
 - `s_install_global_commands` — `scripts/install-global-commands.sh` (1 dependent)
 - `s_install_hooks` — `scripts/install-hooks.sh` (0 dependents)
 - `s_knowledge_index` — `scripts/knowledge-index.ts` (5 dependents)
@@ -87,7 +87,7 @@
 - `s_skill_apply` — `scripts/skill-apply.ts` (2 dependents)
 - `s_skill_ledger` — `scripts/skill-ledger.ts` (1 dependent)
 - `s_sync_hooks` — `scripts/sync-hooks.sh` (1 dependent)
-- `s_system_map` — `scripts/system-map.ts` (4 dependents)
+- `s_system_map` — `scripts/system-map.ts` (5 dependents)
 - `s_update_project` — `scripts/update-project.sh` (1 dependent)
 - `s_validate_freshness` — `scripts/validate-freshness.sh` (0 dependents)
 - `s_validate_roadmap` — `scripts/validate-roadmap.sh` (4 dependents)
@@ -102,12 +102,15 @@
 - `s_new_project_smoke` — `tests/new-project-smoke.sh` (0 dependents)
 - `s_observation_parser_test` — `tests/observation-parser.test.ts` (0 dependents)
 - `s_policy_test` — `tests/policy.test.ts` (0 dependents)
+- `s_scan_rules_node22_test` — `tests/scan-rules-node22.test.ts` (0 dependents)
 - `s_scanner_smoke` — `tests/scanner-smoke.sh` (0 dependents)
 - `s_skill_apply_lib_test` — `tests/skill-apply-lib.test.ts` (0 dependents)
 - `s_skill_apply_test` — `tests/skill-apply.test.ts` (0 dependents)
 - `s_skill_ledger_test` — `tests/skill-ledger.test.ts` (0 dependents)
 - `s_system_map_smoke` — `tests/system-map-smoke.sh` (0 dependents)
 - `s_system_map_test` — `tests/system-map.test.ts` (0 dependents)
+- `s_template_residue_test` — `tests/template-residue.test.ts` (0 dependents)
+- `s_template_seeds_test` — `tests/template-seeds.test.ts` (0 dependents)
 
 ### skill
 - `sk_context_filter_skill` — `.claude/skills/context-filter/SKILL.md` (0 dependents)
@@ -127,7 +130,9 @@
 - `c_tools_dream_accept` --references--> `s_dream_accept`
 - `c_tools_init` --references--> `s_codex_review`
 - `c_tools_init` --references--> `s_detect_stack`
+- `c_tools_init` --references--> `s_generate_manifest`
 - `c_tools_init` --references--> `s_install_global_commands`
+- `c_tools_init` --references--> `s_system_map`
 - `c_tools_maintain` --references--> `h_session_start_maintain`
 - `c_tools_maintain` --references--> `s_knowledge_index`
 - `c_tools_maintain` --references--> `s_maintain`
@@ -188,16 +193,16 @@
 - `s_skill_ledger` --imports--> `l_project_root`
 - `s_system_map` --imports--> `l_policy`
 - `s_system_map` --imports--> `l_project_root`
-- `s_system_map` --imports--> `l_system_map_lib`
 - `s_system_map_test` --imports--> `l_system_map_lib`
+- `s_template_seeds_test` --imports--> `l_system_map_lib`
 - `sk_context_filter_skill` --references--> `s_knowledge_index`
 
 ## Findings
 
 - LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 3773 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 6882 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 3383 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/patterns.md — docs/knowledge/patterns.md is approximately 2656 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 8435 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 3985 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/patterns.md — docs/knowledge/patterns.md is approximately 3186 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/windows-bash-scanner.md — docs/knowledge/windows-bash-scanner.md is approximately 2678 tokens, exceeding the 2500-token warn threshold.
 - MEDIUM orphan-script s_audit_context — Script scripts/audit-context.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_context_filter — Script scripts/context-filter.sh has no incoming references and is not in the orphan allowlist.

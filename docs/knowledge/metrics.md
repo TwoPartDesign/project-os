@@ -21,6 +21,21 @@ Track per-feature implementation metrics. Updated by `/workflows:ship` and query
 
 <!-- Entries added by /workflows:ship -->
 
+### Feature: template-content-leakage + clone-run-defects
+
+- **Duration**: 2026-07-24 → 2026-07-25 (single continuous remote session; brief → design → implementation → owner approval → autonomous completion)
+- **Tasks**: 16 completed (#T97-#T112), 0 blocked; 3 newly filed and deliberately left `[?]` (#T113-#T115, never human-approved)
+- **Waves**: not wave-scheduled — single-context sequential implementation, verification-driven
+- **Revisions**: design 0 adversarial rounds (owner supplied a field defect report in lieu of review); 4 self-caught defects during verification (see Notable)
+- **First-pass review rate**: n/a — no separate review gate; every change was verified by executing it
+- **Compete usage**: 0
+- **Model split**: orchestration + implementation Opus 5
+- **Lines changed**: +3400 / -300 across 40 files (2 commits)
+- **Tests**: node suite 207 → 274 (+67); bootstrap/adopt smoke 132 → 174 assertions. Smoke suite went from **35 pre-existing failures to 0** — the first time the clone path passes end-to-end on the declared minimum Node.
+- **Origin**: 7 defects reported from a real clone → `/tools:init` → idea → design → plan run on Power-Hour-Rhythm-Game; 2 more found while verifying the fixes.
+- **Notable**: The headline fix (seed tier) was straightforward; the value was in verification. Four defects were caught only because each fix was executed rather than reasoned about: (1) the reported `xargs --no-run-if-empty` fix would have broken every macOS push (GNU-only flag); (2) `scan-rules.js` used inline regex modifiers requiring Node ≥ 23 while `engines` declares ≥ 22.18, so on the documented minimum the entire secret scanner was inert — this was also the root cause of all 35 pre-existing smoke failures, previously invisible; (3) adding `seed_hashes` created duplicate manifest keys, and `update-project.sh`'s parser only read the right one by accident of emission order; (4) the first verification harness produced 19 false PASSes by matching the scanner's "path outside project root" error instead of its findings — a reminder that a green harness proves nothing until it can also produce a red. Two further pre-existing detection gaps (unreachable entropy gate, 24 null-regex rules) were filed rather than fixed: both are security-tuning changes needing their own evidence.
+- **PR**: none (committed to branch `claude/template-content-leakage-4sxcm0`; framework repo)
+
 ### Feature: skill-optimization-loop
 
 - **Duration**: 2026-07-22 → 2026-07-23 (2 days: remote idea capture → local design/plan/build/review/ship; interrupted once by monthly spend limit, resumed clean)

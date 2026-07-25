@@ -251,33 +251,47 @@ Spec: `docs/specs/skill-optimization-loop/` (design APPROVED rev 4, 2026-07-22, 
 Spec: `docs/specs/template-content-leakage/` (brief + design DRAFT, 2026-07-24). `new-project.sh` seeds new projects by copying Project OS's own live knowledge vault, so every clone ships `docs/knowledge/{architecture,patterns,decisions,bugs,metrics}.md` and `.claude/rules/preferences.md` full of framework prose — and `CLAUDE.template.md` `@import`s two of them. Init cannot see it (no `[PLACEHOLDERS]` to match). Fix: a `templates/` seed tier (destination paths unchanged, so `generate-manifest.sh`/`update-project.sh` path lists hold), a write-once `seed_hashes` manifest block that survives `update-project.sh:599` regeneration, and a `template-residue` system-map finding that rides the existing `maintain.sh` map check for draft-only detection in already-cloned projects.
 
 ### Draft
-- [?] Author `templates/knowledge/*.md` + `templates/rules/preferences.md` seeds — derived by deleting entries from the live files, never rewritten; frontmatter and `## Format` blocks preserved #T97
-- [?] `new-project.sh`: repoint `CONTENT_FILES` sources to `templates/`, add the five referenced-but-never-copied docs (`roadmap-format.md`, `windows-bash-scanner.md`, `design-principles.md`, `docs/product.md`, `docs/tech.md`), move `.claude/rules/preferences.md` to content class with a `copy_tree_safe` exclusion (depends: #T97) #T98
-- [?] `generate-manifest.sh`: emit write-once `seed_hashes` per the four-rule resolution table; validate every carried-forward pair (`^[a-f0-9]{64}$`, key ∈ watched set) before emission (depends: #T97) #T99
-- [?] `update-project.sh`: drop the six `docs/knowledge/*.md` entries from `TEMPLATE_FILES` — one-time seeds must never be offered as template updates (depends: #T99) #T100
-- [?] `system-map-lib.ts`: `RESIDUE_WATCHED`, `hasUnfilledPlaceholders`, `findInitIncomplete`, `findTemplateResidue` + `Finding.kind` union extension (depends: #T99) #T101
-- [?] `system-map.ts`: `sha256OfWorkingTreeFile` (raw bytes — must NOT use `normalizeContent`) + wire both finders, mutually exclusive on init state (depends: #T101) #T102
-- [?] Test suite: residue/placeholder unit cases incl. path-traversal, in-scope-symlink, and prefix-collision guards; `generate-manifest` seed-hash cases; new-project smoke assertions; framework-repo no-residue canary (depends: #T101, #T102) #T103
-- [?] `init.md`: Step 5b project-scoped architecture stub from collected answers (facts only, no speculation) + Step 11 residue verification + bold anti-requirement that init never regenerates the manifest (depends: #T102) #T104
-- [?] ADR in `decisions.md` reclassifying `.claude/rules/preferences.md` from framework-authority to content class, + `patterns.md` entry "Ship Seeds, Not Live Content" (depends: #T98) #T105
 
 ### Todo
 ### In Progress
 ### Review
 ### Done
+- [x] Author `templates/knowledge/*.md` + `templates/rules/preferences.md` seeds — derived by deleting entries from the live files, never rewritten; frontmatter and `## Format` blocks preserved #T97
+- [x] `new-project.sh`: repoint `CONTENT_FILES` sources to `templates/`, add the five referenced-but-never-copied docs (`roadmap-format.md`, `windows-bash-scanner.md`, `design-principles.md`, `docs/product.md`, `docs/tech.md`), move `.claude/rules/preferences.md` to content class with a `copy_tree_safe` exclusion (depends: #T97) #T98
+- [x] `generate-manifest.sh`: emit write-once `seed_hashes` per the four-rule resolution table; validate every carried-forward pair (`^[a-f0-9]{64}$`, key ∈ watched set) before emission (depends: #T97) #T99
+- [x] `update-project.sh`: drop the six `docs/knowledge/*.md` entries from `TEMPLATE_FILES` — one-time seeds must never be offered as template updates (depends: #T99) #T100
+- [x] `system-map-lib.ts`: `RESIDUE_WATCHED`, `hasUnfilledPlaceholders`, `findInitIncomplete`, `findTemplateResidue` + `Finding.kind` union extension (depends: #T99) #T101
+- [x] `system-map.ts`: `sha256OfWorkingTreeFile` (raw bytes — must NOT use `normalizeContent`) + wire both finders, mutually exclusive on init state (depends: #T101) #T102
+- [x] Test suite: residue/placeholder unit cases incl. path-traversal, in-scope-symlink, and prefix-collision guards; `generate-manifest` seed-hash cases; new-project smoke assertions; framework-repo no-residue canary (depends: #T101, #T102) #T103
+- [x] `init.md`: Step 5b project-scoped architecture stub from collected answers (facts only, no speculation) + Step 11 residue verification + bold anti-requirement that init never regenerates the manifest (depends: #T102) #T104
+- [x] ADR in `decisions.md` reclassifying `.claude/rules/preferences.md` from framework-authority to content class, + `patterns.md` entry "Ship Seeds, Not Live Content" (depends: #T98) #T105
 
 ## Feature: clone-run-defects
 
 Spec: `docs/specs/template-content-leakage/` (defects C-G + one found while fixing C). Source: full clone → `/tools:init` → `/workflows:idea` → `/workflows:design` (2 adversarial rounds) → `/workflows:plan` (19 tasks) run on Power-Hour-Rhythm-Game, 2026-07-24. All framework-first — they affect every clone and every existing clone. Implementation is on branch `claude/template-content-leakage-4sxcm0` pending this gate.
 
 ### Draft
-- [?] C: pre-push hook generator guards `scan-diff` on `origin/$BRANCH` existing; falls back to a full tracked-file scan on first push (`security-scanner.ts`) #T106
-- [?] D: `/workflows:idea` Step 1a derives + confirms a ≤40-char `FEATURE_SLUG`; design/plan/approve inherit it verbatim instead of re-deriving from prose #T107
-- [?] E: `/tools:init` Step 5c writes per-subcommand toolchain `permissions.allow` entries from the detected stack — never bare interpreters, never publish/deploy verbs (depends: #T104) #T108
-- [?] F: `/tools:init` Step 5d asks the `docs/specs` tracking question with "track specs" recommended, and states the policy in the report (depends: #T104) #T109
-- [?] G: `/tools:init` Step 9 uses the Write tool + scratchpad instead of a `/tmp` heredoc; `.claude/rules/bash.md` drops `/tmp/` from its guidance and says why #T110
-- [?] Ship `templates/knowledge/framework-patterns.md` as reference so the five transferable patterns survive the seed split without being asserted as a new project's conventions (depends: #T97) #T111
-- [?] Rewrite the 11 `(?i:...)` inline-modifier regexes in `scripts/lib/scan-rules.js` to syntax valid on Node 22.18 — the declared `engines` minimum. Until then the whole rules module is a syntax error on Node 22, `install-hooks.sh` dies, and a project gets NO pre-commit secret scan and NO system-map heal while reporting only "Could not install git hooks". Loud diagnosis landed in `security-scanner.ts`; the rewrite needs its own `test-rules` validation pass (model: opus) #T112
+
+### Todo
+### In Progress
+### Review
+### Done
+- [x] C: pre-push hook generator guards `scan-diff` on `origin/$BRANCH` existing; falls back to a full tracked-file scan on first push (`security-scanner.ts`) #T106
+- [x] D: `/workflows:idea` Step 1a derives + confirms a ≤40-char `FEATURE_SLUG`; design/plan/approve inherit it verbatim instead of re-deriving from prose #T107
+- [x] E: `/tools:init` Step 5c writes per-subcommand toolchain `permissions.allow` entries from the detected stack — never bare interpreters, never publish/deploy verbs (depends: #T104) #T108
+- [x] F: `/tools:init` Step 5d asks the `docs/specs` tracking question with "track specs" recommended, and states the policy in the report (depends: #T104) #T109
+- [x] G: `/tools:init` Step 9 uses the Write tool + scratchpad instead of a `/tmp` heredoc; `.claude/rules/bash.md` drops `/tmp/` from its guidance and says why #T110
+- [x] Ship `templates/knowledge/framework-patterns.md` as reference so the five transferable patterns survive the seed split without being asserted as a new project's conventions (depends: #T97) #T111
+- [x] Rewrite the 11 `(?i:...)` inline-modifier regexes in `scripts/lib/scan-rules.js` to syntax valid on Node 22.18 — the declared `engines` minimum. Until then the whole rules module is a syntax error on Node 22, `install-hooks.sh` dies, and a project gets NO pre-commit secret scan and NO system-map heal while reporting only "Could not install git hooks". Loud diagnosis landed in `security-scanner.ts`; the rewrite needs its own `test-rules` validation pass (model: opus) #T112
+
+## Feature: scanner-detection-gaps
+
+Two pre-existing defects found while verifying #T112's rewrite. Both make named CRITICAL/HIGH rules silently detect nothing — the scanner reports "No findings" and looks healthy. Neither is caused by the Node-22 rewrite (both reproduce identically against the pre-rewrite file). Filed, not fixed: each is a security-tuning change that needs its own evidence and review round.
+
+### Draft
+- [?] Entropy gate is mathematically unreachable for short tokens: `ENTROPY_THRESHOLD` is 4.5 bits, but a 20-char token's maximum possible Shannon entropy is log2(20) = 4.32, so EVERY `entropy: true` rule whose token is <= 22 chars can never fire. Confirmed on `aws-access-token` (CRITICAL): a real key `AKIAQYLPMN5HG3WKZ7TQ` scores 4.02 and is silently dropped. Needs a per-rule or length-relative threshold, plus a test asserting each `entropy: true` rule can fire on at least one realistic token (model: opus) #T113
+- [?] 24 rules ship as `regex: null /* regex compile error */` — named detection rules that scan nothing (adobe-client-secret, alibaba-access-key-id, linear-api-key, sendgrid-api-token, postman-api-token, jwt-base64, pkcs12-file, +17). `security-scanner.ts:268` skips them silently. `tests/scan-rules-node22.test.ts` now ratchets the count at 24 so it cannot grow; this task is to convert them back to working patterns #T114
+- [?] 222 of 233 rules have zero test cases (`test-rules` reports "11 passed, 222 warned"), so a rule can silently stop matching with no signal. Add representative test cases for at least every CRITICAL-severity rule (depends: #T113) #T115
 
 ### Todo
 ### In Progress

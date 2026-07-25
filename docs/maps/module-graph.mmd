@@ -97,12 +97,15 @@ flowchart LR
     s_new_project_smoke["tests/new-project-smoke.sh"]
     s_observation_parser_test["tests/observation-parser.test.ts"]
     s_policy_test["tests/policy.test.ts"]
+    s_scan_rules_node22_test["tests/scan-rules-node22.test.ts"]
     s_scanner_smoke["tests/scanner-smoke.sh"]
     s_skill_apply_lib_test["tests/skill-apply-lib.test.ts"]
     s_skill_apply_test["tests/skill-apply.test.ts"]
     s_skill_ledger_test["tests/skill-ledger.test.ts"]
     s_system_map_smoke["tests/system-map-smoke.sh"]
     s_system_map_test["tests/system-map.test.ts"]
+    s_template_residue_test["tests/template-residue.test.ts"]
+    s_template_seeds_test["tests/template-seeds.test.ts"]
   end
   subgraph skill
     sk_context_filter_skill[".claude/skills/context-filter/SKILL.md"]
@@ -120,7 +123,9 @@ flowchart LR
   c_tools_dream_accept -->|references| s_dream_accept
   c_tools_init -->|references| s_codex_review
   c_tools_init -->|references| s_detect_stack
+  c_tools_init -->|references| s_generate_manifest
   c_tools_init -->|references| s_install_global_commands
+  c_tools_init -->|references| s_system_map
   c_tools_maintain -->|references| h_session_start_maintain
   c_tools_maintain -->|references| s_knowledge_index
   c_tools_maintain -->|references| s_maintain
@@ -181,6 +186,6 @@ flowchart LR
   s_skill_ledger -->|imports| l_project_root
   s_system_map -->|imports| l_policy
   s_system_map -->|imports| l_project_root
-  s_system_map -->|imports| l_system_map_lib
   s_system_map_test -->|imports| l_system_map_lib
+  s_template_seeds_test -->|imports| l_system_map_lib
   sk_context_filter_skill -->|references| s_knowledge_index

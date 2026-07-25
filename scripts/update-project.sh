@@ -477,8 +477,21 @@ for relpath in "${!UPSTREAM_HASHES[@]}"; do
 done
 
 # Read manifest hashes (if not legacy)
+#
+# SCOPED TO THE "files" BLOCK. The manifest has TWO path->sha256 maps that share
+# key names: "seed_hashes" (the write-once bootstrap content baseline, emitted
+# first) and "files" (the framework files this script maintains). An unscoped
+# line-by-line parse reads both, so whichever block is emitted last silently
+# wins -- correct today only by accident of emission order, and silently wrong
+# the moment that order changes. Track the current block explicitly instead.
 if [ "$LEGACY_MODE" = false ]; then
+    IN_FILES_BLOCK=false
     while IFS= read -r line; do
+        case "$line" in
+            *'"seed_hashes"'*) IN_FILES_BLOCK=false; continue ;;
+            *'"files"'*) IN_FILES_BLOCK=true; continue ;;
+        esac
+        [ "$IN_FILES_BLOCK" = true ] || continue
         # Parse "    "path/to/file": "hash"" lines
         if [[ "$line" =~ ^[[:space:]]*\"([^\"]+)\":[[:space:]]*\"([a-f0-9]{64})\" ]]; then
             MANIFEST_HASHES["${BASH_REMATCH[1]}"]="${BASH_REMATCH[2]}"
