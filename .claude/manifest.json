@@ -1,6 +1,6 @@
 {
-  "project_os_version": "2.3-dev",
-  "generated": "2026-07-25T01:41:25Z",
+  "project_os_version": "2.3",
+  "generated": "2026-07-25T17:57:16Z",
   "upstream": "TwoPartDesign/project-os",
   "seed_hashes": {
     "docs/knowledge/architecture.md": "6326d1b223be2c0143c4a1d4553a2d4f335d96606e5514628fc069b52d061b11",
@@ -100,7 +100,7 @@
     "scripts/knowledge-index.ts": "d7c68c389774278caec3554a77cde7601df6e70ef16aff3f6a550d032789dd6c",
     "scripts/dashboard-server.ts": "3ec9896b8d54a80b8d95ac9a189f3363cf86c96c9c6d76e5b883ec707aed810e",
     "scripts/observation-parser.ts": "5fda44a76e8c9cd863e6ceccac0e4e36809ff922d076bb52c9fd2fd76d864e98",
-    "scripts/security-scanner.ts": "2a94a6448d25cf18ebf95dff326b6f6eff5f75ccf3749d697f2f13361c640604",
+    "scripts/security-scanner.ts": "c8dfcae2b43164a8efe9b513940dcae4bb8e2313dd95e25ddb2f79023f78e092",
     "scripts/system-map.ts": "fd2e059627960c1ad2509711ded2badbe0fa786d83ceec1fbf6a0bec5c6568d9",
     "scripts/maintain-draft.ts": "ceb0092afa2f720e9fc0b7910fe4dd68a04931b5dc8cd8d6ac95cee71f6dd379",
     "scripts/maintain.sh": "0b0feee68a391281a1083092dea44120ab543461ee0be1765fc1d69cb5745fee",
@@ -110,13 +110,13 @@
     "scripts/new-project.sh": "09c661fb86045fc444c45cc79a50d9581ce74a714c8aa58fc55ef8b74c578b41",
     "scripts/setup.sh": "e5496f8bac7799c87f18ea0480ee3d9131e31ab15e1cf0f1d5205935bd82c502",
     "scripts/detect-stack.ts": "17c4d5b19790bc21cd6bfe4f990aec042464f253880cdc24540f2b20961a181b",
-    "scripts/skill-apply.ts": "414c3a0254f3358971717bc5370a62a44e55aa36caa478d900dfd00527940865",
+    "scripts/skill-apply.ts": "30296b76451d386abb0e4588339dfd632b65fb10eefff461b3271181ce8c4a02",
     "scripts/skill-ledger.ts": "23b4ce2890215ac0025422e9eea357ce73d467b1014b5bcfb2520aa5d52bdd22",
     "scripts/lib/dashboard-render.ts": "5bff04ec5ca293699041d5d3a744ab9ff6c42ae51abced8fc0a078c238bbb0a6",
     "scripts/lib/json.sh": "db6cc9dc80a3d8f58c722934974dac808c1028eb88a32fd1537fdc198bd72bbb",
     "scripts/lib/policy.ts": "0eda97c7267814fd1cf85b831ff5c43d3242e923548185f9a6e37c525ddc3e97",
     "scripts/lib/project-root.ts": "5afd74f2af4d65ab8c491e1bf85ad9642c32035c9a53b20447ee4547c7a2e122",
-    "scripts/lib/scan-rules.js": "09bb0de34676ec4871b52c4705b18370ffee04f453e294582a64be1cde94c428",
+    "scripts/lib/scan-rules.js": "1c7f3851b41e9520d04047f6a8e1f427282772d15b9e4fa4595437c575ead285",
     "scripts/lib/skill-apply-lib.ts": "585064be29fe3cdd6f782640fe9c5cc68e35580c3d41297604ba5c94e1b3533a",
     "scripts/lib/system-map-lib.ts": "52bbb6435da2d0221043824694c4d41b51248a4fc864be9522c8c8c7a7b0cdaf"
   }

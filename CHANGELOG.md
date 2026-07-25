@@ -1,6 +1,61 @@
 # Changelog
 
-## Unreleased (v2.3-dev) — audit remediation
+## v2.3 — 2026-07-25 — template portability + scanner correctness
+
+Nine defects found by running a real project through a full clone → `/tools:init` →
+idea → design → plan cycle, plus two more surfaced while verifying the fixes.
+
+### Template content leakage (the headline)
+- **New `templates/` seed tier.** `new-project.sh` seeded projects by copying this
+  repo's LIVE `docs/knowledge/*.md` and `.claude/rules/preferences.md`. Since
+  `CLAUDE.md` does `@import docs/knowledge/architecture.md`, every clone loaded ~190
+  lines about Project OS's own hook chain as *its* architecture. `/tools:init` was
+  structurally blind to it — it discovers work by scanning for `[ALL_CAPS]` tokens and
+  the leaked content is prose. Destination paths are unchanged, so the manifest and
+  update path keep their hard-coded lists.
+- **Retro-detection for existing clones** — write-once `seed_hashes` manifest block plus
+  an `unlocalized-template-content` system-map readiness finding. `files` could not be
+  the baseline: `update-project.sh` regenerates it from local content after every
+  update, which would make the check silently vacuous.
+- **Seeds leave the update set** — `docs/knowledge/*.md` and `preferences.md` are
+  one-time content; updates no longer offer to overwrite a project's real knowledge.
+- **Five referenced-but-never-copied docs now ship** (`roadmap-format.md`,
+  `windows-bash-scanner.md`, `design-principles.md`, `pre-tool-approve-hook.md`,
+  `product.md`/`tech.md`) — previously dangling references in every clone.
+
+### Secret scanner (was substantially inert)
+- **Rules module was a syntax error on Node 22** — inline regex modifiers `(?i:…)`/`(?s:.)`
+  need Node ≥ 23 while `engines` declares ≥ 22.18. Hook install died, so affected projects
+  had **no pre-commit scan and no system-map heal** while reporting only a WARN.
+- **Entropy bar was unreachable for short tokens** — capped at log2(N), so any token ≤ 22
+  chars could never clear 4.5 bits. `aws-access-token` (CRITICAL) had a 100% miss rate.
+  Bar is now `min(configured, log2(len) × 0.9)`.
+- **21 of 24 `regex: null` rules restored**, anchored on documented vendor prefixes.
+- **22 unreachable entropy gates disabled** where the token alphabet provably cannot
+  clear the bar (hex caps at 4.09 bits), including `databricks-api-token` (CRITICAL).
+- **pre-push hook survives a first push** — guarded on `origin/$BRANCH` existing, with a
+  full tracked-file scan as fallback. It previously failed on a git error and steered
+  users to `--no-verify` exactly when a repo first became remote.
+
+### Workflow & init
+- **Feature slugs** — `/workflows:idea` derives and confirms a ≤40-char slug before
+  creating paths; design/plan/approve inherit it. Fixes 150-char spec directories and
+  `MAX_PATH` pressure on Windows.
+- **Toolchain permissions** — init writes per-subcommand `permissions.allow` entries from
+  the detected stack, so the first `npm install` in `/workflows:build` no longer silently
+  hangs a sub-agent.
+- **`docs/specs` tracking is now an explicit question** rather than a silent ignore rule.
+- **init ends with a verification step** that asserts, instead of a summary that reports.
+- **bash rules** — `/tmp/` dropped from guidance (Write tool and Git Bash resolve it
+  differently on Windows); init no longer uses a `/tmp` heredoc.
+
+### Tests
+207 → 319 node tests. `tests/new-project-smoke.sh` went from 35 pre-existing failures to
+0 (174 assertions) — the clone path had never been green on the declared minimum Node.
+
+---
+
+## Unreleased (v2.4-dev) — audit remediation
 
 Remediation of the 2026-07-11 repo staleness audit (`docs/audits/2026-07-11-staleness-audit.md`), tasks T17–T32 on branch `claude/repo-staleness-audit-zbnon0`.
 
