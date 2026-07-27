@@ -45,7 +45,7 @@
     ".claude/hooks/tool-failure-log.sh": "27cb958fef8af45732e23e23cda72a7daeaf156022c7a17ba686a2e6be462fdc",
     ".claude/manifest.json": "56718b5643159d893afe277d0b8eb8df3bdadc211341a6872d0761fe764ab761",
     ".claude/settings.json": "d3041ff72d32957fa4e538ddabb5d7de21ea3a46b40add0ae475be86f0b07b1b",
-    ".claude/skills/context-filter/SKILL.md": "be429e91b03044e4a834fc28f29b51b69cf172a3bcb9160b2ed5be26818c291b",
+    ".claude/skills/context-filter/SKILL.md": "237f67c43ab374e8d1f9985c98830204d6140b6f99c29adf5c1246fdf8889b2f",
     ".claude/skills/session-management/SKILL.md": "e60cccaa699d7e80351a5f529a58a5ebafc4853152c5de86bf850d84086a4dbb",
     ".claude/skills/spec-driven-dev/SKILL.md": "8b5fe12babe6346eac38ebed916f007aba7711b0644199885195e306aad13253",
     ".claude/skills/tdd-workflow/SKILL.md": "43cd2a28da0a4fda4a5fa7a53433b84152e001469aa0935a8657b6e7182bb05e",

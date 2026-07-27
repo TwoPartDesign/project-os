@@ -23,8 +23,9 @@ scripts/context-filter.sh --file large-log.txt --intent "errors"
 ```bash
 # DON'T: npm test 2>&1  (dumps full test output)
 # DO: capture to file, then filter
-npm test > /tmp/test-output.txt 2>&1
-scripts/context-filter.sh --file /tmp/test-output.txt --intent "failures"
+npm test > ./test-output.txt 2>&1
+scripts/context-filter.sh --file ./test-output.txt --intent "failures"
+rm ./test-output.txt
 ```
 
 ### Search indexed knowledge:
