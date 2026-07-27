@@ -531,6 +531,48 @@ Two rules:
 
 Report what was added in Step 10 so the owner can audit it.
 
+### Record the Node floor the framework's own tooling needs
+
+Everything under `scripts/*.ts` runs on Node's type stripping and requires
+**Node >= 22.18**. `scripts/setup.sh` now checks this at activation and refuses to
+proceed on an older runtime — but nothing in a cloned project *declares* the
+requirement in a machine-readable way, so version managers (nvm, volta, asdf, CI
+images) cannot honour it.
+
+This is deliberately **not** shipped as a template file. A `package.json` copied into
+every clone would be wrong twice over: it would put one in Python, Go, and Rust
+projects that should not have one, and in `--adopt` mode it would collide with the
+target's real `package.json` and leave a spurious `package.json.upstream` behind. You
+know the stack, so you are the right place to decide.
+
+**If the stack from Round 2 is Node/JavaScript/TypeScript:**
+
+Ensure `package.json` exists and carries the floor. If it already exists, **merge**
+this key and preserve every other field verbatim — never rewrite the file:
+
+```json
+{
+  "engines": {
+    "node": ">=22.18"
+  }
+}
+```
+
+Also add `.nvmrc` containing `22.18` if the project uses nvm.
+
+**If the stack is anything else (Python, Go, Rust, Ruby, shell-only):**
+
+Do **not** create a `package.json`. Record the requirement in `docs/tech.md` instead,
+under the Stack section:
+
+```markdown
+- Tooling runtime: Node >=22.18 (required by Project OS's own scripts/*.ts —
+  security scanner, knowledge index, system map. Independent of this project's
+  own language.)
+```
+
+Either way, state in the Step 10 report which of the two you did.
+
 ## Step 5d: State the docs/specs tracking policy out loud
 
 The shipped `.gitignore` contains:

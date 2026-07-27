@@ -62,10 +62,41 @@ warn() { printf 'WARN: %s\n' "$1" >&2; }
 
 DID_SOMETHING=0
 
-# --- Node availability ---------------------------------------------------------
+# --- Node availability + VERSION ------------------------------------------------
+# Presence alone is not enough. Every .ts script here relies on Node's type
+# stripping (>=22.18), and scripts/lib/scan-rules.js has historically used regex
+# syntax that only newer V8 can compile. When setup checked only `command -v
+# node`, a too-old Node produced: setup proceeds -> install-hooks.sh dies for a
+# reason that reads as unrelated -> one generic WARN -> the project silently ran
+# with NO pre-commit secret scan and NO system-map auto-heal. Checking the
+# version here is what turns that into a diagnosis instead of a mystery.
+MIN_NODE_MAJOR=22
+MIN_NODE_MINOR=18
+
 if ! command -v node >/dev/null 2>&1; then
-    warn "Node.js not found in PATH — the TypeScript tooling (security scanner, knowledge index, system map, dashboard) is inactive. Install Node 22.18+ and re-run: bash scripts/setup.sh"
+    warn "Node.js not found in PATH — the TypeScript tooling (security scanner, knowledge index, system map, dashboard) is inactive. Install Node ${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}+ and re-run: bash scripts/setup.sh"
     say "Setup: skipped Node-dependent steps (no Node)."
+    exit 0
+fi
+
+NODE_RAW="$(node --version 2>/dev/null)"
+NODE_VER="${NODE_RAW#v}"
+IFS='.' read -r NODE_MAJOR NODE_MINOR _NODE_PATCH <<< "$NODE_VER"
+case "$NODE_MAJOR" in (*[!0-9]*|"") NODE_MAJOR=0 ;; esac
+case "$NODE_MINOR" in (*[!0-9]*|"") NODE_MINOR=0 ;; esac
+
+NODE_OK=0
+if [ "$NODE_MAJOR" -gt "$MIN_NODE_MAJOR" ]; then
+    NODE_OK=1
+elif [ "$NODE_MAJOR" -eq "$MIN_NODE_MAJOR" ] && [ "$NODE_MINOR" -ge "$MIN_NODE_MINOR" ]; then
+    NODE_OK=1
+fi
+
+if [ "$NODE_OK" -eq 0 ]; then
+    warn "Node ${NODE_RAW:-unknown} is below the required ${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}."
+    warn "The TypeScript tooling cannot run: the git hooks will NOT install, so this project would have no pre-commit secret scan and no system-map auto-heal."
+    warn "Install Node ${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}+ and re-run: bash scripts/setup.sh"
+    say "Setup: skipped Node-dependent steps (Node too old)."
     exit 0
 fi
 
