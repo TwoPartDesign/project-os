@@ -47,11 +47,15 @@ Four secondary defects compound it:
    *before* compacting only functions if there is context left to do that work
    in. Firing at the hard limit leaves none.
 
-3. **System maps go stale mid-session.** `docs/maps/` is healed by the
-   pre-commit hook. A session that has edited hook or command wiring without
-   committing compacts against a map that no longer describes the project, and
-   the post-compaction session trusts it — `CLAUDE.md` instructs consulting the
-   system map before changing wiring.
+3. **Map staleness is invisible across the compaction boundary.** `docs/maps/`
+   is healed at commit time, from the git index. Mid-build that map is
+   *expected* to be behind the working tree — drift is normal there, not a
+   defect, and healing it from a hook would be wrong (the index is the map's
+   source of authority, `system-map.ts:686-687`). The actual problem is that
+   nothing tells the post-compaction session which state it is in. `CLAUDE.md`
+   instructs consulting the system map before changing wiring, and a summarized
+   session will follow that instruction with no way to know the map predates the
+   work it is about to modify.
 
 4. **The early-warning signal is a bad proxy and its documentation is stale.**
    `compact-suggest.sh` counts *tool invocations*, warning at 20 and 35, and its
@@ -100,8 +104,9 @@ Two properties keep this from becoming a trap:
       via `additionalContext` — verifiable in the hook's stdout
 - [ ] A session whose gate blocks and whose handoff is *never* written still
       compacts on the second attempt, with a visible warning (no wedge)
-- [ ] `node scripts/system-map.ts check` reports no drift at the moment
-      compaction proceeds
+- [ ] When `node scripts/system-map.ts check` reports drift, the compaction
+      summary carries that caveat; the gate writes nothing under `docs/maps/`
+      on any path
 - [ ] Sentinel files are removed by `session-end-cleanup.sh` and pruned after 7
       days for sessions that crashed
 - [ ] `compact-suggest.sh` no longer claims a 50% threshold
@@ -199,10 +204,11 @@ worked, though it cannot enforce anything.
 2. What exactly counts as a "fresh" handoff? Newer than the sentinel is the
    simplest rule, but a handoff written at the start of a long turn could be
    stale by the time compaction fires.
-3. Does the gate block on system-map drift, or heal it itself? The hook *could*
-   run `system-map.ts check --heal` directly — it is deterministic and needs no
-   model. Blocking on something the hook could just fix may be needless
-   ceremony.
+3. ~~Does the gate block on system-map drift, or heal it itself?~~ **Resolved:
+   neither.** Healing reads the working tree while the map's authority is the
+   git index, and mid-build drift is expected rather than actionable. The gate
+   runs `check` read-only and forwards the verdict as a caveat. See design
+   Architecture Decision 3.
 4. Exit code 2 with stderr, or exit 0 with `{"decision":"block","reason":...}`?
    The exit-code table verifies the former. The JSON form appears in the
    narrative docs but is less firmly established, and the two differ in who sees

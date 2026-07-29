@@ -34,12 +34,25 @@ standard model window — turns the existing 75% into a real trigger point while
 leaving the status line's percentage aligned with it. The threshold config is
 not a nice-to-have alongside the gate; it is what makes the gate survivable.
 
-**3. Anything the hook can fix, it fixes; it only blocks on what it cannot.**
-System-map drift is deterministic and repairable without a model
-(`system-map.ts check --heal`). Blocking on a condition the hook could resolve
-itself is ceremony that costs a round-trip and adds a second way to fail. So the
-gate *heals* the map and *blocks* only on the missing handoff — one blocking
-condition, one reason string, one thing to fix.
+**3. The gate observes the system map; it does not touch it.** An earlier
+revision had the gate run `system-map.ts check --heal`, on the reasoning that
+drift is deterministically repairable without a model. That was wrong, and the
+source says so: `cmdCheck` builds from `workingTreeSource` and calls
+`writeArtifacts` (`:577`, `:593-595`), while `cmdPrecommit` builds from
+`gitIndexSource` under the explicit docstring *"reads every input from the git
+INDEX (never the working tree)"* (`:686-687`). The divergence is deliberate —
+the map is meant to describe committed reality. Healing from the working tree
+mid-build canonicalizes wiring that may never land, and the next commit
+overwrites it from the index regardless.
+
+Compaction also lands disproportionately *during* long build phases, which is
+exactly when drift is the expected state rather than a defect. So the gate runs
+`check` read-only — input hashing against `.maps.lock`, no `build()`, no writes
+— and forwards the verdict as a caveat. A post-compaction session told "the map
+is drifted; it reflects committed state, re-read wiring from source" is better
+oriented than one handed a freshly generated map of work in flight. The gate
+therefore has exactly one blocking condition, the missing handoff, and mutates
+nothing outside `.claude/`.
 
 The drafted compact message needs no new document type. `/tools:handoff` already
 specifies a `compact_instruction` field (`handoff.md:74-78`); it is simply never
@@ -55,7 +68,8 @@ read by anything. The gate reads it from the freshest handoff and emits it as
 | **`Stop` hook demands a handoff** | Non-blocking event, no wedge risk | Fires at turn end, unrelated to context pressure; would demand a handoff on every trivial turn | Wrong trigger. Compaction pressure is the event we care about |
 | **`PostCompact` writes the record** | Simple, cannot block anything | Runs *after* the context is gone — nothing left to write down | Structurally too late |
 | **Block unconditionally until a handoff exists** | Strongest guarantee | A non-compliant or crashed turn wedges the session permanently at its context limit | Unacceptable. Availability beats completeness for a governance layer |
-| **Gate blocks on map drift too** | Enforces map freshness through the same channel | Adds a second block reason for something the hook can repair itself in-process | Needless round-trip; heal instead |
+| **Gate blocks on map drift too** | Enforces map freshness through the same channel | Mid-build drift is expected, not a defect; blocking on it would stall every build-phase compaction | Report it, don't enforce it |
+| **Gate heals the map (`check --heal`)** | Post-compaction session gets a current map for free | Heals from the working tree, but the map's source of authority is the git index (`:686-687`); canonicalizes wiring that may never land, is overwritten at the next commit, and dirties three tracked files — which would also defeat the gate's own clean-tree skip | Rejected. Read-only `check`, verdict forwarded as a caveat |
 | **Separate second `PreCompact` hook for the gate** | Separation of concerns | Two hooks on one event with independent exit codes; ordering and combined-exit semantics get subtle | One hook, one exit decision |
 
 ## Constraint Analysis
@@ -69,7 +83,8 @@ read by anything. The gate reads it from the freshest handoff and emits it as
 | No pipes / `$()` / bare `cd` in hook-instructed commands | HARD | ✅ | `.claude/rules/bash.md`; existing hooks comply (`pre-compact.sh:56-61` uses awk-reads-file, not a pipe) |
 | Auto-checkpoint must not regress | HARD | ✅ | `pre-compact.sh:137-171` is the current behavior; retained on all paths |
 | Hooks run on Git Bash (Windows) | HARD | ⚠️ | `find -mmin`, `find -newer`, `awk`, `tr` are all already used by shipped hooks, so the dependency set does not grow. Not tested on Windows in this repo |
-| `system-map.ts check --heal` needs Node ≥ 22.18 | HARD | ✅ | `_common.sh:57-87` `node_available()` exists precisely for this; heal degrades loudly |
+| `system-map.ts check` needs Node ≥ 22.18 | HARD | ✅ | `_common.sh:57-87` `node_available()` exists precisely for this. Read-only and non-blocking, so absent Node just drops the caveat |
+| The map's source of authority is the git index, not the working tree | HARD | ✅ | `system-map.ts:686-687`, `:695`. Forbids healing from a hook |
 | Reuse `/tools:handoff` YAML schema | SOFT | ✅ | `handoff.md:28-79` already defines it, `compact_instruction` included |
 | 10-minute checkpoint debounce | SOFT | ✅ | `pre-compact.sh:22-25`. Must not apply to the gate decision — see Risks |
 | Hooks are "advisory, never surface errors" | SOFT | ✅ | Every hook opens `trap 'exit 0' ERR`. The gate deliberately breaks this; recorded as an ADR |
@@ -83,7 +98,7 @@ read by anything. The gate reads it from the freshest handoff and emits it as
 | Setting `CLAUDE_CODE_AUTO_COMPACT_WINDOW` enables the proactive-compaction path | VERIFIED | env-vars: the override "only causes earlier compaction when Claude Code compacts proactively: when `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is set, in cloud sessions, and on Sonnet 4.6 and Opus 4.6..." |
 | Window value is capped at the model's real context window | VERIFIED | env-vars: "The value is capped at the model's actual context window" |
 | A blocked auto-compaction is retried later rather than abandoned for the session | UNVERIFIED | **Load-bearing.** If a block permanently disables auto-compaction for the session, the escape hatch never runs and the session drifts to its hard limit. Mitigation is in Risks; must be confirmed empirically in build |
-| `system-map.ts check` exits 3 on drift, `--heal` regenerates | VERIFIED | `scripts/system-map.ts:12`, `:575-596` |
+| `system-map.ts check` exits 3 on drift and writes nothing without `--heal` | VERIFIED | `scripts/system-map.ts:575-591` — `writeArtifacts` is reached only on the `--heal` branch |
 | `session_id` is present in `PreCompact` stdin JSON | VERIFIED | Documented common input field; `pre-compact.sh:3` already documents receiving it |
 | `.claude/sessions/` may not exist | VERIFIED | Absent in this checkout; `pre-compact.sh:22` `find`s it before `mkdir -p` at `:34`, tolerated via `2>/dev/null` |
 
@@ -102,10 +117,12 @@ PreCompact fires
   │
   ├─ trigger == "manual"? ──────────────► checkpoint only, exit 0   (never gate an explicit /compact)
   │
-  ├─ heal system map (node ≥22.18, else warn) 
+  ├─ map drift check, READ-ONLY (node ≥22.18, else skip)
+  │     `system-map.ts check` — exit 3 means drifted; recorded as a caveat,
+  │     never a block reason, never healed
   │
   ├─ nothing to hand off?  ─────────────► checkpoint only, exit 0
-  │     (no `git diff --name-only` output AND no [-]/[~] in ROADMAP)
+  │     (empty `git status --porcelain` AND no [-]/[~] in ROADMAP)
   │
   ├─ fresh handoff present? ────────────► write `passed`, checkpoint,
   │     (see freshness rule)               emit compact_instruction, exit 0
@@ -152,8 +169,15 @@ Before compacting, run /tools:handoff and make sure it captures:
   - where exactly each in-progress edit stopped
   - a compact_instruction tuned to the current task
 
-The system map has been healed automatically; no action needed there.
-This gate blocks once per session — the next compaction proceeds regardless.
+This gate blocks once per compaction cycle — the retry proceeds regardless.
+```
+
+When `check` reported drift, one further line is appended, addressed to the
+session that will read the summary rather than to the current turn:
+
+```
+The system map is drifted. It describes committed state, not the working
+tree — re-read hook and command wiring from source before trusting it.
 ```
 
 ### Key interfaces
@@ -188,7 +212,7 @@ YAML dependency.
 
 | File | Change |
 |---|---|
-| `.claude/settings.json` | Add `CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000"`; change `PreCompact` matcher `"auto"` → `"*"` so manual compaction still checkpoints; raise hook `timeout` 30 → 60 to cover the map heal |
+| `.claude/settings.json` | Add `CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000"`; change `PreCompact` matcher `"auto"` → `"*"` so manual compaction still checkpoints. Existing 30s `timeout` stays — the drift check only hashes inputs |
 | `.claude/hooks/pre-compact.sh` | Rewrite as the gate above; keep all existing checkpoint logic as the always-run tail |
 | `.claude/hooks/_common.sh` | Add `session_id_from_json()`, `json_escape()` |
 | `.claude/hooks/compact-suggest.sh` | Adopt `session_id_from_json()`; fix the stale "50% auto-compact" comment (`:44`); reword advisories to reference the gate |
@@ -268,7 +292,8 @@ unknown — that a blocked auto-compaction is retried rather than abandoned.
 | A blocked auto-compaction is not retried, so the escape hatch never runs and the session drifts to its hard limit | Medium | High | Verify empirically before merge. If confirmed, downgrade the first gate failure to a non-blocking `systemMessage` + `additionalContext` nudge and keep exit 2 only where a retry is observed |
 | Session wedged by repeated blocking | Low | Critical | One-shot state file; `passed` is written *before* exit on the escape-hatch path so a crash mid-hook cannot re-arm the block |
 | `CLAUDE_CODE_AUTO_COMPACT_WINDOW` decouples the status line from the real trigger | Medium | Low | Set it to `200000`, equal to the standard model window, so the two agree. Document that extended-context (1M) projects must raise it or accept the skew |
-| Map heal exceeds the hook timeout | Low | Medium | Raise timeout to 60s; heal failure is non-fatal and reported in `additionalContext`, never a block reason |
+| Drift check exceeds the hook timeout | Low | Low | Read-only input hashing, no `build()`. Failure drops the caveat and is never a block reason |
+| Post-compaction session over-trusts a map that was drifted at compaction time | Medium | Medium | That is what the forwarded caveat is for. `CLAUDE.md` already directs consulting the map before wiring changes, so the caveat has to be explicit that it describes committed state only |
 | The 10-minute checkpoint debounce suppresses the gate | Medium | High | **The debounce must move.** Today it is the first thing the script does (`pre-compact.sh:22-25`) and it `exit 0`s — which would skip the gate entirely on any compaction within 10 minutes of a checkpoint. Debounce the *checkpoint write*, never the gate decision |
 | Gate fires on trivial read-only sessions | Medium | Low | Skip when the tree is clean and no `[-]`/`[~]` tasks exist |
 | Handoff written but `compact_instruction` left as the template placeholder | Medium | Medium | `handoff.md` makes the field mandatory with concrete guidance; gate emits whatever is there rather than validating prose |
@@ -276,11 +301,23 @@ unknown — that a blocked auto-compaction is retried rather than abandoned.
 
 ## Self-Review Findings
 
-Reviewed inline rather than by sub-agent. Findings are listed unresolved — they
-are revisions to apply before this design is approved, not decisions already
-taken.
+Reviewed inline rather than by sub-agent. Findings marked OPEN are revisions to
+apply before approval; RESOLVED ones were folded into the design above and are
+kept for provenance.
 
-**CRITICAL — `trap 'exit 0' ERR` silently disables the gate.** Every hook in
+**RESOLVED (review round 2) — the gate must not heal the system map.** Raised
+against the first draft, which ran `system-map.ts check --heal`. Three
+independent reasons, any one sufficient: the heal reads the working tree while
+the map's authority is the git index (`:686-687`); mid-build drift is the
+expected state, so there is nothing to act on; and writing three tracked files
+under `docs/maps/` would dirty the tree the gate then inspects, so the
+clean-tree skip could never be taken. Replaced with a read-only `check` whose
+verdict is forwarded as a caveat. See Architecture Decision 3.
+
+**RESOLVED (review round 2) — block-reason wording.** Now reads "once per
+compaction cycle", matching the state machine's re-arming behavior.
+
+**OPEN / CRITICAL — `trap 'exit 0' ERR` silently disables the gate.** Every hook in
 this repo opens `set -euo pipefail` followed by `trap 'exit 0' ERR`
 (`pre-compact.sh:7-8`). That pairing is correct for an advisory hook and
 actively wrong for a gate: any incidental non-zero return — a `grep -c` that
@@ -291,30 +328,21 @@ needs an explicit trap that logs the internal failure and then chooses to fail
 open deliberately, so "the gate passed" and "the gate broke" are distinguishable
 in `.claude/logs/`.
 
-**HIGH — the state machine and the block reason disagree.** The reason string
-promises "this gate blocks once per session". The state machine does not
-implement that: after the escape hatch writes `passed`, a later compaction with
-no fresh handoff falls through and blocks a second time. Re-arming per
-compaction cycle is the better behavior — each compaction genuinely should
-demand a current handoff — so fix the *message*, not the logic: "blocks once per
-compaction cycle; the retry proceeds regardless."
+**OPEN / HIGH — `git diff --name-only` is the wrong emptiness test.** It reports
+neither staged nor untracked files. A session that staged all its work, or
+created new files, reads as a clean tree — so the checkpoint records no modified
+files precisely when there is most to lose. The gate's own skip test has been
+changed to `git status --porcelain` above, but the checkpoint's `modified_files`
+(`pre-compact.sh:86`) is still on the old call. Pre-existing bug, not introduced
+here; fix it in the same change so the two agree.
 
-**HIGH — `git diff --name-only` is the wrong emptiness test.** The
-"nothing to hand off" skip and the checkpoint's `modified_files` (`:86`) both
-use `git diff --name-only`, which reports neither staged nor untracked files. A
-session that staged all its work, or created new files, reads as a clean tree —
-so the gate skips and the checkpoint records no modified files, precisely when
-there is most to lose. Use `git status --porcelain`. This is a pre-existing bug
-in the current checkpoint, not one introduced here, and it should be fixed in
-the same change.
-
-**MEDIUM — the load-bearing unknown is not scheduled.** "A blocked
+**OPEN / MEDIUM — the load-bearing unknown is not scheduled.** "A blocked
 auto-compaction is retried" is marked UNVERIFIED and carries a High-impact risk,
 but nothing in the plan verifies it before the gate ships. It should be its own
 task, sequenced first, with the fallback design (non-blocking nudge) as its
 declared exit if the answer is no.
 
-**LOW — 30 minutes is asserted, not derived.** The freshness bound is borrowed
+**OPEN / LOW — 30 minutes is asserted, not derived.** The freshness bound is borrowed
 from the checkpoint debounce, which was chosen for a different purpose. It is a
 named constant, so it is cheap to change once there is evidence about how long a
 typical session runs between handoff and compaction.
