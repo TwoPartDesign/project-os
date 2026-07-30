@@ -158,9 +158,16 @@ stop, so the chain steers it instead — three stages, two of them hooks:
    serializes `message.content` before `message.usage`, so a `tool_use` input that
    carried its own `usage` object would be measured instead of the context, and a
    user record's `toolUseResult` could supply a number from outside the session
-   entirely. Independently
+   entirely. The tail window escalates 60 → 600 → 4000 lines, widening only when
+   the cheap read comes up empty: a fixed 60 assumed a main-thread record was
+   always near the end, which stops being true during a sub-agent invocation,
+   when hundreds of skipped sidechain records bury it and the hook silently
+   drops to the byte proxy. Independently
    of the nudge — before the once-per-cycle exit, because the handoff is written
-   *after* the nudge asks for it — every call checks `tool_input.file_path` against
+   *after* the nudge asks for it — every call checks `tool_input.file_path` on a
+   **write** payload (`Write`, `Edit`, `MultiEdit`, `NotebookEdit` — `Read`
+   carries the same field, so an ungated branch made `/tools:catchup` claim the
+   handoff it was reading) against
    `*/.claude/sessions/handoff-*.yaml` and appends a match to
    `.claude/logs/.compact-handoff-<session_id>`. This hook's payload is the only
    place the session id and the written path appear together, so it is the only
@@ -191,9 +198,12 @@ stop, so the chain steers it instead — three stages, two of them hooks:
    so this text steers what the summarizer keeps. It also runs `system-map.ts
    check` read-only and appends a drift caveat, writes a filesystem-derived
    checkpoint (10-min debounce; its `modified_files` come from `git status
-   --porcelain --untracked-files=all`, because the default collapses a wholly
+   --porcelain -z --untracked-files=all`, because the default collapses a wholly
    untracked directory to one `?? dir/` entry and a session that just built a new
-   feature is the one with the most to preserve), and opens the next cycle — touching the cycle
+   feature is the one with the most to preserve, and because without `-z` git
+   C-quotes non-ASCII paths — `"caf\303\251.txt"` — whose octal escapes are
+   illegal in a double-quoted YAML scalar and made the entire checkpoint
+   unparseable), and opens the next cycle — touching the cycle
    marker (after discovery, never before) and clearing the nudged marker so stage 1
    can fire again.
 

@@ -189,10 +189,18 @@ feature: 2,897,308 bytes of transcript against 106,432 tokens of context — 27
 bytes per token where ~4 is typical, and the nudge fired at roughly 53% of the
 window rather than the intended 60%.
 
-Five details in the implementation:
+Six details in the implementation:
 
-- **Only the tail is read.** This runs on every tool call; `tail -n 60` seeks
-  from the end instead of walking a multi-megabyte file.
+- **Only the tail is read, and the window escalates 60 → 600 → 4000 lines.**
+  This runs on every tool call, so the first read has to be cheap: `tail -n 60`
+  seeks from the end instead of walking a multi-megabyte file. A fixed 60 was
+  not enough, because it assumed a main-thread record was always near the end.
+  During a sub-agent invocation it is not — every sidechain turn appends records
+  and a long agent buries the main thread's newest `usage` under hundreds of
+  them, so the whole window skips and the scan returns nothing. The wider reads
+  happen only when the cheap one comes up empty, so the normal case pays what it
+  paid before. Past 4000 lines the byte fallback still applies; that ceiling is
+  pinned by a test rather than left implicit.
 - **`isSidechain` records are skipped.** Sub-agent turns write their own, much
   smaller, `usage` objects into the same transcript. Taking the newest record
   blindly would read a sub-agent's context as the main thread's — and because
@@ -284,7 +292,22 @@ payload carries `session_id` and `tool_input.file_path` together. It records the
 path of any handoff it observes being written to `.compact-handoff-<sid>`, and
 `pre-compact.sh` consults that record before the glob.
 
-Five details:
+Six details:
+
+- **Only writes claim.** `Read` carries a `tool_input.file_path` exactly like
+  `Write` does, so an ungated branch made *reading* a handoff a claim on it —
+  and `/tools:catchup`, whose entire job is to read the previous session's
+  handoff, is the documented way that happens. The consequence was worse than
+  no ownership tracking at all: the ownership branch bypasses the age window
+  (it compares against the cycle marker, and a session's first compaction has
+  no cycle marker), so the reader forwarded instructions written for someone
+  else's task however stale, while the claim simultaneously hid that handoff
+  from every other session's fallback glob. The gate is a tool-name allowlist —
+  `Write`, `Edit`, `MultiEdit`, `NotebookEdit`. A write that failed still claims
+  nothing that matters, because `pre-compact.sh` skips claimed paths that do not
+  exist. `tool_name` is a top-level key serialized ahead of `tool_input`, so the
+  first-match extraction cannot be beaten by file contents containing the string
+  — the same ordering argument the transcript scan uses, running the other way.
 
 - **Ownership presupposes distinct files.** Two claims on one path are
   indistinguishable from one claim, so the naming scheme has to guarantee
@@ -399,7 +422,7 @@ directly — no pipes, no `$()`-wrapped programs, no YAML dependency.
 | `.claude/hooks/_common.sh` | Added `session_id_from_json()`, `json_string_field()` |
 | `.claude/hooks/session-end-cleanup.sh` | Removes `.compact-base-*` / `.compact-nudged-*` / `.compact-cycle-*` / `.compact-handoff-*` for the session; 7-day prune of all four |
 | `.claude/commands/tools/handoff.md` | `compact_instruction` mandatory; new "How `compact_instruction` is used" section; note that auto-checkpoints cannot record rationale |
-| `tests/compaction-hooks.sh` | New — 107 assertions across sandboxed project roots |
+| `tests/compaction-hooks.sh` | New — 118 assertions across sandboxed project roots |
 | `docs/knowledge/architecture.md` | Both hook rows updated; new "Compaction Handoff Chain" subsection |
 | `docs/knowledge/decisions.md` | ADR: steer the summarizer, do not block compaction |
 | `docs/knowledge/patterns.md` | "Verify the Channel Before Designing the Gate"; "Test Behaviour in a Copied Project Root" |
@@ -503,7 +526,7 @@ was already being paid — worth knowing, not a reason to change course.
 
 ## Testing Strategy
 
-`tests/compaction-hooks.sh` — 107 assertions, all passing. Per
+`tests/compaction-hooks.sh` — 118 assertions, all passing. Per
 `.claude/rules/tests.md` each case builds its own state and asserts specific
 values, not truthiness.
 
@@ -778,3 +801,42 @@ this expands what was already reported rather than widening the set; a
 `.gitignore` assertion pins that. The sandboxes the other checkpoint tests use
 are bare `mktemp` directories where git reports nothing at all, so the new test
 `git init`s its sandbox and is the only one that exercises `modified_files`.
+
+**RESOLVED (round 8) — a `Read` of a handoff claimed ownership of it.** Raised
+in review against the round-7 commit. The ownership branch keyed on
+`tool_input.file_path` without checking `tool_name`, and `Read` carries that
+field too. `/tools:catchup` — the documented way a session picks up its
+predecessor's handoff — therefore made the reader claim the author's file. This
+is worse than not tracking ownership at all: the ownership branch bypasses the
+age window entirely, comparing only against the cycle marker, and a session's
+first compaction has no cycle marker, so the reader's summarizer received
+instructions written for a different task at any age. The claim also removed
+that handoff from every other session's fallback glob. Fixed with a tool-name
+allowlist (`Write`, `Edit`, `MultiEdit`, `NotebookEdit`). Two of the three new
+assertions fail against the pre-fix hook — the record is written on a `Read`,
+and the foreign instruction reaches the reader's summarizer end to end; the
+third pins that `MultiEdit` still claims, which the allowlist could have broken.
+
+**RESOLVED (round 8) — the checkpoint's path list could be invalid YAML.**
+Second finding in the same review, and one the round-7 change made reachable.
+Without `-z`, git C-quotes any path outside plain ASCII: under the default
+`core.quotePath`, `café.txt` is reported as `"caf\303\251.txt"`. The hook
+stripped the surrounding quotes and left the octal escapes in the value, and
+`\3` is not a legal escape inside a double-quoted YAML scalar — so a single
+accented filename made the *whole* checkpoint unparseable, costing the session
+its objective, its in-progress tasks and its handoff pointer along with the file
+list. Untracked paths are the likeliest to carry a human-typed name, so
+expanding them in round 7 walked straight into it.
+
+`core.quotePath=false` was not enough — it un-quotes non-ASCII only and leaves
+`"`, `\`, newline and tab escaped. `-z` disables quoting entirely and emits raw
+bytes; it cannot be captured with `$( )`, which drops NUL bytes, so the list is
+read through process substitution. Under `-z` a rename is two NUL-terminated
+records (`XY <new>\0<old>\0`) rather than one `old -> new` string, so the origin
+is now read and discarded — left unread it would have become the next entry,
+with status bytes taken from whatever its own filename began with. Escaping runs
+backslash-first so the escapes it introduces are not themselves re-escaped.
+Three of the five new assertions fail against the pre-fix hook; the two rename
+assertions pin behaviour the `-z` rewrite could have broken, and the test forces
+`core.quotePath=true` in its sandbox rather than inheriting it, so a machine
+whose global config turns it off cannot make the test pass against the old code.

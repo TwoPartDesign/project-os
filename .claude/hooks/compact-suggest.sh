@@ -84,7 +84,29 @@ TRANSCRIPT=$(json_string_field "$INPUT" transcript_path)
 # Repeated edits to the same file are collapsed against the last line, so a
 # handoff revised ten times costs one line, not ten. SessionEnd removes the
 # record; the 7-day prune covers sessions that never fired one.
-WRITTEN_PATH=$(json_string_field "$INPUT" file_path)
+#
+# Only WRITES claim. `Read` carries a `tool_input.file_path` too, so without
+# this gate `/tools:catchup` — whose whole job is to read the previous
+# session's handoff — made the reader claim the author's file. That is worse
+# than not tracking ownership at all: the ownership branch in pre-compact.sh
+# bypasses the age window entirely (it compares against the cycle marker, and
+# on a session's first compaction there is no cycle marker), so the reader
+# would forward a stale instruction written for someone else's task, and the
+# claim would simultaneously hide that handoff from every other session's
+# fallback glob. A write that failed still claims nothing that matters —
+# pre-compact.sh skips claimed paths that do not exist.
+#
+# `tool_name` is a top-level key serialized ahead of `tool_input`, so the
+# first-match extraction cannot be beaten by a file whose contents happen to
+# contain the string `"tool_name"`. That is the same ordering argument the
+# transcript scan below relies on, running in the opposite direction.
+TOOL_NAME=$(json_string_field "$INPUT" tool_name)
+WRITTEN_PATH=""
+case "$TOOL_NAME" in
+    Write|Edit|MultiEdit|NotebookEdit)
+        WRITTEN_PATH=$(json_string_field "$INPUT" file_path)
+        ;;
+esac
 case "$WRITTEN_PATH" in
     */.claude/sessions/handoff-*.yaml)
         OWN_RECORD="$LOG_DIR/.compact-handoff-$SESSION_ID"
@@ -105,7 +127,8 @@ NUDGED_FILE="$LOG_DIR/.compact-nudged-$SESSION_ID"
 
 # ── Current context size, in tokens ─────────────────────────────────────────
 # Only the tail is read: this runs on every tool call, and `tail -n` seeks from
-# the end rather than walking a multi-megabyte file.
+# the end rather than walking a multi-megabyte file. The window grows only when
+# the cheap one comes up empty — see the escalation below the awk program.
 #
 # Two precautions in the awk below:
 #   - Sub-agent turns write their own (much smaller) usage records into the
@@ -124,7 +147,7 @@ NUDGED_FILE="$LOG_DIR/.compact-nudged-$SESSION_ID"
 #     structural guards: no record in the transcript that motivated them
 #     actually carried two `usage` keys, but the failure is silent when it does
 #     happen, suppressing the one nudge that had to fire.
-CONTEXT_TOKENS=$(tail -n 60 "$TRANSCRIPT" 2>/dev/null | awk '
+USAGE_AWK='
     function firstnum(s, key,   m) {
         if (match(s, "\"" key "\":[ ]*[0-9]+")) {
             m = substr(s, RSTART, RLENGTH)
@@ -154,8 +177,29 @@ CONTEXT_TOKENS=$(tail -n 60 "$TRANSCRIPT" 2>/dev/null | awk '
         if (t > 0) last = t
     }
     END { if (last > 0) printf "%d\n", last }
-' 2>/dev/null || true)
-CONTEXT_TOKENS=$(printf '%s' "$CONTEXT_TOKENS" | tr -cd '0-9')
+'
+
+# A fixed 60-line tail assumed a main-thread assistant record was always near
+# the end. During a sub-agent invocation it is not: every sidechain turn
+# appends records, and a long agent buries the main thread's newest usage
+# record under hundreds of them. The whole window then skips, the hook falls
+# through to the byte proxy, and the byte proxy is wrong in both directions —
+# it stays silent below 1.2 MB when context is critical, and fires above it
+# when context is fine. Worse, a byte-proxy nudge raised mid-sidechain lands in
+# the sub-agent's context, not the main thread's, and still spends the
+# once-per-cycle marker, so the turn that needed the nudge never sees one.
+#
+# The window therefore escalates, and only when the cheap read comes up empty:
+# a session with a main-thread record in the last 60 lines — the normal case,
+# on every tool call — pays exactly what it paid before. 4000 lines covers a
+# sub-agent run far longer than any observed here; past that the byte fallback
+# still applies, unchanged.
+CONTEXT_TOKENS=""
+for SCAN_LINES in 60 600 4000; do
+    CONTEXT_TOKENS=$(tail -n "$SCAN_LINES" "$TRANSCRIPT" 2>/dev/null | awk "$USAGE_AWK" 2>/dev/null || true)
+    CONTEXT_TOKENS=$(printf '%s' "$CONTEXT_TOKENS" | tr -cd '0-9')
+    [ -n "$CONTEXT_TOKENS" ] && break
+done
 
 if [ -n "$CONTEXT_TOKENS" ] && [ "$CONTEXT_TOKENS" -gt 0 ]; then
     PCT=$((CONTEXT_TOKENS * 100 / WINDOW))

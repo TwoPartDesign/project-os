@@ -138,6 +138,18 @@ sidechain_usage_line() {
         "$1"
 }
 
+# append_sidechain_run <path> <count> <input_tokens>
+# A sub-agent invocation long enough to bury the main thread's newest usage
+# record. Every record it appends is skipped by the scan, so the tail window has
+# to reach past all of them to find the number that actually matters.
+append_sidechain_run() {
+    local i=0
+    while [ "$i" -lt "$2" ]; do
+        sidechain_usage_line "$3" >> "$1"
+        i=$((i + 1))
+    done
+}
+
 # nested_usage_line <tool_payload_tokens> <real_input_tokens>
 # An assistant record whose tool_use input happens to carry its own "usage"
 # object. JSON serialization puts message.content — and therefore the tool
@@ -321,6 +333,38 @@ OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
 assert_contains "context_sidechainAfterMainThread_mainThreadStillMeasured" \
     "$OUT" "Context is at 65% of the 200000-token window"
 
+# context_sidechainRunLongerThanScanWindow_stillMeasuresMainThread
+# The tail window was a fixed 60 lines, which assumed a main-thread record was
+# always near the end. During a sub-agent invocation it is not: 200 sidechain
+# records bury it, every one of them is skipped, and the scan returns nothing.
+# The hook then fell through to the byte proxy — silent here, because 200 short
+# records are nowhere near 1.2 MB, at 75% of the window.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 150000 0 0
+append_sidechain_run "$SB/transcript.jsonl" 200 500
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
+assert_contains "context_sidechainRunLongerThanScanWindow_stillMeasuresMainThread" \
+    "$OUT" "Context is at 75% of the 200000-token window"
+
+# context_sidechainRunBeyondLargestWindow_fallsBackToBytes
+# The escalation is bounded at 4000 lines, so the miss is narrowed, not closed.
+# Pinning the ceiling keeps it a stated limit rather than an accident: raise it
+# and these two assertions are what have to change. 4100 short records are
+# ~700 KB, deterministically under the 1.2 MB byte threshold, so the default
+# run is silent; forcing the threshold down proves it is the byte branch — not
+# the token branch — that produced the silence.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 150000 0 0
+append_sidechain_run "$SB/transcript.jsonl" 4100 500
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
+assert_eq "context_sidechainRunBeyondLargestWindow_fallsBackToBytes" "$OUT" ""
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 150000 0 0
+append_sidechain_run "$SB/transcript.jsonl" 4100 500
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl" PROJECT_OS_COMPACT_NUDGE_BYTES=1000)
+assert_contains "context_sidechainRunBeyondLargestWindow_byteProxyMessageNotTokenMessage" \
+    "$OUT" "This session is approaching its auto-compaction threshold."
+
 # context_usageKeyInsideToolInput_measuresMessageUsageNotToolPayload
 # The record's tool_use input carries a decoy usage object of 5 tokens, and
 # message.usage — serialized after it — carries the real 150000 (75%). A
@@ -503,6 +547,57 @@ printf '{"session_id":"s1","transcript_path":"%s","tool_name":"Write","tool_inpu
           bash "$SB/.claude/hooks/compact-suggest.sh" >/dev/null 2>&1
 assert_file_absent "ownership_writeOfUnrelatedFile_recordsNothing" \
     "$SB/.claude/logs/.compact-handoff-s1"
+
+# ownership_readOfHandoff_recordsNothing
+# A Read payload carries tool_input.file_path exactly like a Write one. Without
+# a tool_name gate, /tools:catchup — whose entire job is to read the previous
+# session's handoff — made the reader claim the author's file.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "FOREIGN instruction"
+printf '{"session_id":"s1","transcript_path":"%s","tool_name":"Read","tool_input":{"file_path":"%s"}}' \
+    "$SB/transcript.jsonl" "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
+    | env -u PROJECT_OS_COMPACT_NUDGE_PCT -u PROJECT_OS_COMPACT_NUDGE_BYTES \
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75 \
+          bash "$SB/.claude/hooks/compact-suggest.sh" >/dev/null 2>&1
+assert_file_absent "ownership_readOfHandoff_recordsNothing" \
+    "$SB/.claude/logs/.compact-handoff-s1"
+
+# ownership_readOfForeignHandoff_notForwardedToTheReader
+# THE BUG THIS CLOSES, end to end. s2 wrote and claimed the handoff; s1 only
+# read it. A claim from that read went through the ownership branch, which
+# bypasses the age window entirely — it compares against the cycle marker, and
+# on a first compaction there is no cycle marker — so s1's summarizer received
+# instructions written for s2's task, however stale.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "SESSION TWO instruction"
+printf '%s\n' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
+    > "$SB/.claude/logs/.compact-handoff-s2"
+printf '{"session_id":"s1","transcript_path":"%s","tool_name":"Read","tool_input":{"file_path":"%s"}}' \
+    "$SB/transcript.jsonl" "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
+    | env -u PROJECT_OS_COMPACT_NUDGE_PCT -u PROJECT_OS_COMPACT_NUDGE_BYTES \
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75 \
+          bash "$SB/.claude/hooks/compact-suggest.sh" >/dev/null 2>&1
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_not_contains "ownership_readOfForeignHandoff_notForwardedToTheReader" \
+    "$OUT" "SESSION TWO instruction"
+
+# ownership_editOfHandoff_stillRecords
+# The gate is a tool-name allowlist, so it has to keep admitting the write tools
+# a handoff is actually revised with, not just the one that creates it.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "REVISED instruction"
+printf '{"session_id":"s1","transcript_path":"%s","tool_name":"MultiEdit","tool_input":{"file_path":"%s"}}' \
+    "$SB/transcript.jsonl" "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
+    | env -u PROJECT_OS_COMPACT_NUDGE_PCT -u PROJECT_OS_COMPACT_NUDGE_BYTES \
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75 \
+          bash "$SB/.claude/hooks/compact-suggest.sh" >/dev/null 2>&1
+RECORDED=$(cat "$SB/.claude/logs/.compact-handoff-s1" 2>/dev/null || true)
+assert_eq "ownership_editOfHandoff_stillRecords" \
+    "$RECORDED" "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml"
 
 # ownership_concurrentSessionHandoff_notForwarded
 # THE BUG THIS CLOSES. Session s2 wrote the newer handoff; s1 is the one
@@ -949,6 +1044,62 @@ if [ -n "$CP" ]; then
         "$BODY" "ignored-out/secret.txt"
 else
     bad "checkpoint_untrackedDirectory_recordsIndividualFiles — no checkpoint written"
+fi
+
+# checkpoint_pathNeedingGitQuoting_writtenAsValidYaml
+# Without -z, git C-quotes any path outside plain ASCII: café.txt is reported as
+# "caf\303\251.txt" under the default core.quotePath. Stripping the surrounding
+# quotes left the octal escapes in the value, and \3 is not a legal escape in a
+# double-quoted YAML scalar — so one accented filename made the whole checkpoint
+# unparseable, costing the session every other field in it. Untracked paths are
+# the likeliest to carry a human-typed name, so expanding them walked into it.
+SB="$(new_sandbox)"
+git init -q "$SB" >/dev/null 2>&1
+# Pinned rather than inherited: core.quotePath defaults to true, but a machine
+# whose global config turns it off would quietly make this test pass against the
+# unfixed hook. -z ignores the setting entirely, which is the point.
+git -C "$SB" config core.quotePath true >/dev/null 2>&1
+printf 'x\n' > "$SB/café.txt"
+printf 'y\n' > "$SB/a\\b\"c.txt"
+printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
+CP=$(find "$SB/.claude/sessions" -name 'auto-checkpoint-*.yaml' -type f 2>/dev/null | head -1)
+if [ -n "$CP" ]; then
+    BODY=$(cat "$CP")
+    assert_contains "checkpoint_nonAsciiPath_writtenAsRawUtf8" \
+        "$BODY" 'path: "café.txt"'
+    assert_not_contains "checkpoint_nonAsciiPath_noOctalEscapeLeftInValue" \
+        "$BODY" 'caf\303\251'
+    # Backslash escaped first, then the quote — reversing the order would
+    # re-escape the backslash the quote escape just introduced.
+    assert_contains "checkpoint_pathWithBackslashAndQuote_bothEscapedForYaml" \
+        "$BODY" 'path: "a\\b\"c.txt"'
+else
+    bad "checkpoint_pathNeedingGitQuoting_writtenAsValidYaml — no checkpoint written"
+fi
+
+# checkpoint_renamedPath_recordsDestinationOnly
+# Under -z a rename is two NUL-terminated records — `XY <new>\0<old>\0` — not
+# one `old -> new` string. Leaving the origin unread made it the next entry, its
+# status bytes taken from whatever its own filename started with, so a rename
+# produced a phantom second file with an invented change_type.
+SB="$(new_sandbox)"
+git init -q "$SB" >/dev/null 2>&1
+printf 'contents\n' > "$SB/before.txt"
+git -C "$SB" add before.txt >/dev/null 2>&1
+git -C "$SB" -c user.email=t@example.com -c user.name=T commit -q -m base >/dev/null 2>&1
+git -C "$SB" mv before.txt after.txt >/dev/null 2>&1
+printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
+CP=$(find "$SB/.claude/sessions" -name 'auto-checkpoint-*.yaml' -type f 2>/dev/null | head -1)
+if [ -n "$CP" ]; then
+    BODY=$(cat "$CP")
+    assert_contains "checkpoint_renamedPath_recordsDestination" \
+        "$BODY" 'path: "after.txt"'
+    assert_not_contains "checkpoint_renamedPath_doesNotAlsoRecordOrigin" \
+        "$BODY" 'before.txt'
+else
+    bad "checkpoint_renamedPath_recordsDestinationOnly — no checkpoint written"
 fi
 
 # checkpoint_recentCheckpointExists_debouncedButStillForwardsInstruction

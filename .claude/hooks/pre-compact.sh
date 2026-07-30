@@ -239,7 +239,22 @@ if [ -z "$RECENT" ]; then
     # it would have handed the next session a directory name instead of the
     # files it just wrote. Ignored paths stay excluded either way, so this
     # expands what is already reported rather than widening the set.
-    CHANGED_RAW=$(git -C "$PROJECT_ROOT" status --porcelain --untracked-files=all 2>/dev/null || true)
+    #
+    # -z, and read through process substitution rather than a variable. Without
+    # -z, git applies C-style quoting to any path outside plain ASCII: under the
+    # default core.quotePath, `café.txt` is reported as `"caf\303\251.txt"`.
+    # Stripping the surrounding quotes — all the previous version did — left the
+    # octal escapes in place, and `\3` is not a legal escape inside a
+    # double-quoted YAML scalar, so the checkpoint failed to parse *as a whole*.
+    # One accented filename cost the session every other field in the file:
+    # objective, in-progress tasks, handoff pointer. Untracked paths are the
+    # ones most likely to be freshly created with a human-typed name, so the
+    # expansion above walked straight into it.
+    #
+    # core.quotePath=false was not enough: it un-quotes non-ASCII only, and
+    # leaves `"`, `\`, newline and tab quoted and escaped. -z disables quoting
+    # entirely and emits paths as raw bytes. It cannot be captured with $( ),
+    # which drops NUL bytes, hence the process substitution.
 
     IN_PROGRESS_YAML=""
     TASK_LIST=""
@@ -268,32 +283,38 @@ if [ -z "$RECENT" ]; then
     fi
 
     MODIFIED_FILES_YAML=""
-    if [ -n "$CHANGED_RAW" ]; then
-        while IFS= read -r entry; do
-            [ -z "$entry" ] && continue
-            st="${entry:0:2}"
-            fpath="${entry:3}"
-            # Renames appear as "old -> new"; keep the destination.
-            case "$fpath" in
-                *" -> "*) fpath="${fpath##* -> }" ;;
-            esac
-            # Strip the quoting git applies to paths with unusual characters.
-            fpath="${fpath%\"}"
-            fpath="${fpath#\"}"
-            [ -z "$fpath" ] && continue
-            case "$st" in
-                "??"*) ctype="created" ;;
-                *D*)   ctype="deleted" ;;
-                A*)    ctype="created" ;;
-                *)     ctype="modified" ;;
-            esac
-            SAFE_PATH="${fpath//\"/\\\"}"
-            MODIFIED_FILES_YAML="${MODIFIED_FILES_YAML}  - path: \"${SAFE_PATH}\"
+    while IFS= read -r -d '' entry; do
+        [ -z "$entry" ] && continue
+        st="${entry:0:2}"
+        fpath="${entry:3}"
+        # Under -z a rename or copy is two records — `XY <new>\0<old>\0` — not
+        # one `old -> new` string. The destination arrives first, which is the
+        # one worth recording, so the origin is read and dropped. Leaving it
+        # unread would have made the *previous* filename the next entry, with
+        # its status bytes taken from whatever the path happened to start with.
+        case "$st" in
+            R*|C*|?R|?C) IFS= read -r -d '' _origpath || true ;;
+        esac
+        [ -z "$fpath" ] && continue
+        case "$st" in
+            "??"*) ctype="created" ;;
+            *D*)   ctype="deleted" ;;
+            A*)    ctype="created" ;;
+            *)     ctype="modified" ;;
+        esac
+        # Escape for a double-quoted YAML scalar, backslash first so the
+        # escapes introduced after it are not themselves re-escaped. -z hands
+        # back raw bytes, which is the point — but raw bytes include the four
+        # characters that a double-quoted scalar reserves.
+        SAFE_PATH="${fpath//\\/\\\\}"
+        SAFE_PATH="${SAFE_PATH//\"/\\\"}"
+        SAFE_PATH="${SAFE_PATH//$'\t'/\\t}"
+        SAFE_PATH="${SAFE_PATH//$'\n'/\\n}"
+        MODIFIED_FILES_YAML="${MODIFIED_FILES_YAML}  - path: \"${SAFE_PATH}\"
     change_type: ${ctype}
     summary: \"uncommitted change (git status ${st})\"
 "
-        done <<< "$CHANGED_RAW"
-    fi
+    done < <(git -C "$PROJECT_ROOT" status --porcelain -z --untracked-files=all 2>/dev/null || true)
 
     if [ -n "$COMPACT_INSTRUCTION" ]; then
         HANDOFF_NOTE="Rich handoff available at ${HANDOFF#"$PROJECT_ROOT/"}"

@@ -335,6 +335,34 @@ and the instruction channel made it unnecessary for verification.
     feature handed the next one a directory name instead of its files;
     `--untracked-files=all` fixes it without reporting anything gitignored.
 
+11. ~~A `Read` of a handoff claimed ownership of it; the token scan lost the
+    main thread during a sub-agent run; and one accented filename could make
+    the whole checkpoint invalid YAML.~~ **Resolved (round 8): three findings
+    from a review of the #T122 commit, each confirmed before it was fixed.**
+    (a) Ownership was recorded from `tool_input.file_path` regardless of tool,
+    and `Read` carries that field too — so `/tools:catchup`, whose whole job is
+    to read the previous session's handoff, made the reader claim the author's
+    file. That is worse than tracking nothing: the ownership branch bypasses the
+    age window entirely, so the reader forwards a stale instruction written for
+    someone else's task, while the claim hides that handoff from every other
+    session's fallback. Claims are now gated on a write tool. (b) The token scan
+    read a fixed 60-line tail, which assumes a main-thread assistant record sits
+    near the end; during a sub-agent invocation it does not, and the hook fell
+    through to a byte proxy that is wrong in both directions — worse, a
+    byte-proxy nudge raised mid-sidechain lands in the *sub-agent's* context and
+    still spends the once-per-cycle marker. The window now escalates 60 → 600 →
+    4000 lines, widening only when the cheap read comes up empty, so the normal
+    case pays exactly what it paid before. (c) The checkpoint's path list used
+    plain `--porcelain`, which C-quotes anything outside ASCII: `café.txt`
+    becomes `"caf\303\251.txt"`, and `\3` is not a legal escape inside a
+    double-quoted YAML scalar — so one accented filename cost the session every
+    other field in the checkpoint. `-z` disables quoting entirely (`quotePath=false`
+    is not enough — it still escapes `"`, `\`, newline and tab), read through
+    process substitution because `$( )` drops NUL bytes, with renames handled as
+    the two records `-z` actually emits. Six of the eleven new assertions
+    verified to fail against the pre-fix hooks; the other five pin behaviour the
+    rewrites could have broken.
+
 **Still open:**
 
 Nothing. The nudge threshold is the last item that required real-session
