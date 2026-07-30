@@ -41,12 +41,23 @@ This makes `compact_instruction` **mandatory**, not decorative:
 - Name what is safe to drop (exploration that went nowhere, superseded attempts).
 - Leaving the template placeholder text in place is treated as absent — the hook
   rejects it and the summarizer gets no guidance.
-- A handoff older than 30 minutes is ignored (`PROJECT_OS_HANDOFF_MAX_AGE_MIN`);
-  it describes earlier work, not the state being compacted away now.
+- Freshness is judged per compaction cycle: a handoff written before this
+  session's last compaction is ignored, however recently. The 30-minute age
+  window (`PROJECT_OS_HANDOFF_MAX_AGE_MIN`) applies only to a session's first
+  compaction, when there is no cycle marker to compare against yet.
 
 ## Create Handoff File
 
-Generate `.claude/sessions/handoff-$(date +%Y-%m-%d-%H%M).yaml` with:
+Generate `.claude/sessions/handoff-$(date +%Y-%m-%d-%H%M%S)-$RANDOM.yaml` with:
+
+Evaluate that whole expression in one shell call — do not compose the name by
+hand. Seconds and the random token are what keep two sessions sharing this
+checkout from writing the same path: at minute granularity, two `/tools:handoff`
+runs in the same minute produced one filename, so the second write silently
+destroyed the first and `pre-compact.sh` forwarded whichever body survived to
+both sessions' summarizers. The token goes **after** the full timestamp so
+lexical order stays chronological — `pre-compact.sh` selects the newest
+candidate with `sort`, not with `find -printf`.
 
 ```yaml
 timestamp: [ISO 8601]

@@ -307,6 +307,19 @@ and the instruction channel made it unnecessary for verification.
    unattributed, so the other session's fallback forwarded one of those instead
    — the same leak one handoff further back.
 
+9. ~~Handoff filenames were minute-granular, so two sessions running
+   `/tools:handoff` in the same minute wrote the same path — one body
+   overwriting the other, and both ownership records truthfully claiming it.~~
+   **Resolved (round 6c): the names are collision-resistant.** The third finding
+   of the same review, and the one no claim tracking could reach: claims name
+   paths, and here the two paths were equal. `/tools:handoff` now generates
+   `handoff-YYYY-MM-DD-HHMMSS-$RANDOM.yaml`. The token trails the timestamp so
+   the `sort`-based newest-handoff selection is unaffected, and that sort is
+   pinned to `LC_ALL=C` so a UTF-8 locale's punctuation collation cannot rank a
+   legacy `-HHMM.yaml` above a later suffixed name. Silent data loss, not just
+   mis-forwarding — the other session's handoff was destroyed whether or not
+   compaction followed.
+
 **Still open:**
 
 Nothing. The nudge threshold is the last item that required real-session

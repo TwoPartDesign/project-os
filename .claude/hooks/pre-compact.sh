@@ -66,9 +66,16 @@ CHECKPOINT_FILE="$SESSIONS_DIR/auto-checkpoint-$TIMESTAMP_FILE.yaml"
 # The age window is the fallback for the first compaction of a session, when
 # no marker exists yet.
 #
-# Filenames are handoff-YYYY-MM-DD-HHMM.yaml, so lexical order is chronological
-# and `sort | tail -1` is portable where find -printf is not. -type f rejects
-# symlinks; resolve_project_path enforces containment before any read.
+# Filenames are handoff-YYYY-MM-DD-HHMMSS-<token>.yaml, so lexical order is
+# chronological and `sort | tail -1` is portable where find -printf is not. The
+# token is a collision-resistant suffix, not an identifier this hook reads — it
+# sits after the full timestamp precisely so it cannot perturb that ordering.
+# Names written before the suffix existed (…-HHMM.yaml) still sort correctly
+# against it — but only in byte order, so the sort is pinned to LC_ALL=C. A
+# UTF-8 locale collates punctuation weakly, which would rank the legacy
+# `…-1400.yaml` above `…-140030-42.yaml` written thirty seconds later.
+# -type f rejects symlinks; resolve_project_path enforces containment before
+# any read.
 #
 # Timestamps alone cannot tell two sessions apart, and a second session working
 # in the same checkout writes into the same directory. compact-suggest.sh
@@ -94,9 +101,9 @@ fi
 
 if [ -z "$HANDOFF" ]; then
     if [ -f "$CYCLE_FILE" ]; then
-        CANDIDATES=$(find "$SESSIONS_DIR" -maxdepth 1 -type f -name 'handoff-*.yaml' -newer "$CYCLE_FILE" 2>/dev/null | sort || true)
+        CANDIDATES=$(find "$SESSIONS_DIR" -maxdepth 1 -type f -name 'handoff-*.yaml' -newer "$CYCLE_FILE" 2>/dev/null | LC_ALL=C sort || true)
     else
-        CANDIDATES=$(find "$SESSIONS_DIR" -maxdepth 1 -type f -name 'handoff-*.yaml' -mmin -"$HANDOFF_MAX_AGE_MIN" 2>/dev/null | sort || true)
+        CANDIDATES=$(find "$SESSIONS_DIR" -maxdepth 1 -type f -name 'handoff-*.yaml' -mmin -"$HANDOFF_MAX_AGE_MIN" 2>/dev/null | LC_ALL=C sort || true)
     fi
 
     # Every session in this checkout writes its ownership record into the same

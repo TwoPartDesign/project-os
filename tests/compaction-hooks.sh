@@ -648,6 +648,62 @@ OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
 assert_contains "ownership_newestOwnClaimDeleted_fallsBackToSurvivingEarlierOne" \
     "$OUT" "SURVIVING instruction"
 
+# ── Filename collision resistance ───────────────────────────────────────────
+# Ownership tracking cannot disambiguate two sessions that wrote the SAME path,
+# and at minute granularity two /tools:handoff runs in one minute produced
+# exactly that: one file, whichever body was written last, claimed by both
+# records. handoff.md now generates handoff-YYYY-MM-DD-HHMMSS-<token>.yaml. The
+# hooks never parse the token — what they rely on is that it comes after the
+# full timestamp, so these tests pin the ordering that assumption rests on.
+
+# naming_twoSessionsSameMinute_eachForwardsItsOwnHandoff
+SB="$(new_sandbox)"
+write_handoff "$SB" "handoff-2026-07-30-140012-9021.yaml" "SESSION ONE same-minute instruction"
+write_handoff "$SB" "handoff-2026-07-30-140044-317.yaml" "SESSION TWO same-minute instruction"
+printf '%s\n' "$SB/.claude/sessions/handoff-2026-07-30-140012-9021.yaml" \
+    > "$SB/.claude/logs/.compact-handoff-s1"
+printf '%s\n' "$SB/.claude/sessions/handoff-2026-07-30-140044-317.yaml" \
+    > "$SB/.claude/logs/.compact-handoff-s2"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "naming_twoSessionsSameMinute_eachForwardsItsOwnHandoff" \
+    "$OUT" "SESSION ONE same-minute instruction"
+assert_not_contains "naming_twoSessionsSameMinute_doesNotForwardTheOtherSession" \
+    "$OUT" "SESSION TWO same-minute instruction"
+
+# naming_variableWidthToken_newestBySecondsStillWins
+# The token is $RANDOM, so it is 1-5 digits wide. A wider token on an older
+# file must not out-sort a narrower one on a newer file — the seconds field
+# decides first because it precedes the token.
+SB="$(new_sandbox)"
+write_handoff "$SB" "handoff-2026-07-30-140012-99999.yaml" "EARLIER SECOND instruction"
+write_handoff "$SB" "handoff-2026-07-30-140059-7.yaml" "LATER SECOND instruction"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "naming_variableWidthToken_newestBySecondsStillWins" \
+    "$OUT" "LATER SECOND instruction"
+assert_not_contains "naming_variableWidthToken_earlierSecondNotForwarded" \
+    "$OUT" "EARLIER SECOND instruction"
+
+# naming_legacyMinuteNameVersusSuffixedName_suffixedWins
+# Handoffs written before this scheme are still on disk. A legacy …-1400.yaml
+# and a suffixed …-140030-42.yaml from thirty seconds later must order by time.
+# In byte order they do ('.' < '3'); under a UTF-8 locale, where glibc gives
+# punctuation a weaker first-level weight, they compare as 1400yaml vs
+# 14003042yaml and invert — which is why the hook pins LC_ALL=C on the sort.
+# The env below makes this a real regression test where that locale is
+# installed; on a C-only image (no en_US.UTF-8 in `locale -a`, as in this
+# project's container) sort falls back to C and only byte order is exercised.
+SB="$(new_sandbox)"
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "LEGACY NAME instruction"
+write_handoff "$SB" "handoff-2026-07-30-140030-42.yaml" "SUFFIXED NAME instruction"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "naming_legacyMinuteNameVersusSuffixedName_suffixedWins" \
+    "$OUT" "SUFFIXED NAME instruction"
+assert_not_contains "naming_legacyMinuteNameVersusSuffixedName_legacyNotForwarded" \
+    "$OUT" "LEGACY NAME instruction"
+
 # forward_noHandoff_cleanMap_printsNothing
 SB="$(new_sandbox)"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \

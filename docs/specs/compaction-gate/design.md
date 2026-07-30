@@ -265,7 +265,17 @@ payload carries `session_id` and `tool_input.file_path` together. It records the
 path of any handoff it observes being written to `.compact-handoff-<sid>`, and
 `pre-compact.sh` consults that record before the glob.
 
-Four details:
+Five details:
+
+- **Ownership presupposes distinct files.** Two claims on one path are
+  indistinguishable from one claim, so the naming scheme has to guarantee
+  distinctness before the record can mean anything. `/tools:handoff` generates
+  `handoff-YYYY-MM-DD-HHMMSS-$RANDOM.yaml`; at the former `-HHMM` granularity two
+  sessions writing in the same minute wrote the *same file*, the second body
+  destroying the first. The token trails the full timestamp so byte order remains
+  chronological, and the candidate `sort` is pinned to `LC_ALL=C` — a UTF-8
+  locale weights punctuation weakly enough to rank a legacy `-1400.yaml` above a
+  `-140030-42.yaml` written thirty seconds later.
 
 - **The record is written before the once-per-cycle exit.** The handoff is
   written *in response to* a nudge, so by then `.compact-nudged-<sid>` exists.
@@ -370,7 +380,7 @@ directly — no pipes, no `$()`-wrapped programs, no YAML dependency.
 | `.claude/hooks/_common.sh` | Added `session_id_from_json()`, `json_string_field()` |
 | `.claude/hooks/session-end-cleanup.sh` | Removes `.compact-base-*` / `.compact-nudged-*` / `.compact-cycle-*` / `.compact-handoff-*` for the session; 7-day prune of all four |
 | `.claude/commands/tools/handoff.md` | `compact_instruction` mandatory; new "How `compact_instruction` is used" section; note that auto-checkpoints cannot record rationale |
-| `tests/compaction-hooks.sh` | New — 94 assertions across sandboxed project roots |
+| `tests/compaction-hooks.sh` | New — 100 assertions across sandboxed project roots |
 | `docs/knowledge/architecture.md` | Both hook rows updated; new "Compaction Handoff Chain" subsection |
 | `docs/knowledge/decisions.md` | ADR: steer the summarizer, do not block compaction |
 | `docs/knowledge/patterns.md` | "Verify the Channel Before Designing the Gate"; "Test Behaviour in a Copied Project Root" |
@@ -474,7 +484,7 @@ was already being paid — worth knowing, not a reason to change course.
 
 ## Testing Strategy
 
-`tests/compaction-hooks.sh` — 94 assertions, all passing. Per
+`tests/compaction-hooks.sh` — 100 assertions, all passing. Per
 `.claude/rules/tests.md` each case builds its own state and asserts specific
 values, not truthiness.
 
@@ -694,3 +704,27 @@ exists and is fresh — so a since-deleted newest claim degrades to the survivin
 earlier one instead of blanking the record. Two rounds of this feature have now
 been fixed by widening what a record can hold rather than by tuning how it is
 read.
+
+**RESOLVED (round 6c) — two sessions could write the same handoff path.** The
+third finding in the same review, and the one that reaches past the record
+entirely: `/tools:handoff` named files at minute granularity, so two sessions
+running it in the same minute wrote one file. Both records then claimed that
+path truthfully, and the surviving body — whichever session wrote last — was
+forwarded to both summarizers. The reviewer's framing was right that no amount
+of claim tracking fixes this: claims name paths, and here the paths are equal.
+The other session's handoff is not merely mis-attributed, it is *gone*, which is
+the worse half of the bug and is real whether or not compaction ever runs.
+
+The fix is in the naming, not the hooks: seconds plus a `$RANDOM` token, placed
+after the timestamp so the `sort`-based "newest" selection is undisturbed. Every
+consumer of the name globs (`handoff-*.yaml`, or `handoff-2026-02-*.yaml` in
+`archive-sessions.sh`), so a longer suffix is transparent to all of them; the
+one real coupling was the ordering assumption, which is now pinned to `LC_ALL=C`
+and covered by tests for variable-width tokens and for legacy names mixed with
+suffixed ones.
+
+A session-id suffix — the literal reading of "session-specific" — remains
+unavailable for the reason recorded twice above: the model has no reliable way
+to learn its own session id. Collision *resistance* was achievable where
+collision *impossibility* was not, and it is enough here, because the failure it
+prevents needs two writes in the same second with the same 15-bit token.

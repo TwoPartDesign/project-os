@@ -173,6 +173,13 @@ stop, so the chain steers it instead — three stages, two of them hooks:
    session's `.compact-handoff-*` record names it on any line — that keeps the glob fallback
    from handing one session's instruction to another session's summarizer, while
    still forwarding a handoff written by some means this hook chain cannot see.
+   Ownership can only distinguish handoffs that are distinct files, so
+   `/tools:handoff` names them `handoff-YYYY-MM-DD-HHMMSS-<token>.yaml`: at the
+   former minute granularity two sessions writing in the same minute produced one
+   path, which no amount of claim tracking can disentangle. The token follows the
+   full timestamp so byte order stays chronological, and the candidate `sort` is
+   pinned to `LC_ALL=C` because a UTF-8 locale's weak punctuation collation would
+   invert a legacy `-HHMM.yaml` against a later suffixed name.
    It then extracts the `compact_instruction` block scalar,
    and prints it on **stdout**. The runtime collects PreCompact stdout into
    `newCustomInstructions` and merges it into the compaction's custom instructions,
