@@ -560,6 +560,94 @@ OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
 assert_not_contains "ownership_recordPointingOutsideProject_rejected" \
     "$OUT" "ESCAPED VIA RECORD instruction"
 
+# ── Session ownership: more than one handoff per session ────────────────────
+# A session can write several handoffs in one cycle. If the record kept only
+# the newest, the earlier ones would look unattributed to a concurrent
+# session's glob fallback — reintroducing the cross-session leak one handoff
+# further back.
+
+# ownership_secondHandoffWrite_appendsRatherThanReplaces
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "FIRST instruction"
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "SECOND instruction"
+for NAME in handoff-2026-07-30-1200.yaml handoff-2026-07-30-1400.yaml; do
+    printf '{"session_id":"s1","transcript_path":"%s","tool_name":"Write","tool_input":{"file_path":"%s"}}' \
+        "$SB/transcript.jsonl" "$SB/.claude/sessions/$NAME" \
+        | env -u PROJECT_OS_COMPACT_NUDGE_PCT -u PROJECT_OS_COMPACT_NUDGE_BYTES \
+              CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75 \
+              bash "$SB/.claude/hooks/compact-suggest.sh" >/dev/null 2>&1
+done
+RECORDED=$(cat "$SB/.claude/logs/.compact-handoff-s1" 2>/dev/null || true)
+assert_eq "ownership_secondHandoffWrite_appendsRatherThanReplaces" \
+    "$RECORDED" \
+    "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml
+$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
+
+# ownership_repeatedWriteOfSameHandoff_recordedOnce
+# A handoff revised in place must not grow the record one line per edit.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "REVISED instruction"
+for _ in 1 2 3; do
+    printf '{"session_id":"s1","transcript_path":"%s","tool_name":"Edit","tool_input":{"file_path":"%s"}}' \
+        "$SB/transcript.jsonl" "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
+        | env -u PROJECT_OS_COMPACT_NUDGE_PCT -u PROJECT_OS_COMPACT_NUDGE_BYTES \
+              CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75 \
+              bash "$SB/.claude/hooks/compact-suggest.sh" >/dev/null 2>&1
+done
+RECORDED=$(cat "$SB/.claude/logs/.compact-handoff-s1" 2>/dev/null || true)
+assert_eq "ownership_repeatedWriteOfSameHandoff_recordedOnce" \
+    "$RECORDED" "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml"
+
+# ownership_olderOfTwoForeignHandoffs_notForwarded
+# THE BUG THIS CLOSES. s2 wrote both handoffs this cycle and s1 wrote none.
+# Excluding only s2's newest claim would leave the older one looking unclaimed,
+# and the glob fallback would forward it to s1's summarizer.
+SB="$(new_sandbox)"
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "FOREIGN FIRST instruction"
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "FOREIGN SECOND instruction"
+printf '%s\n%s\n' \
+    "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
+    "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
+    > "$SB/.claude/logs/.compact-handoff-s2"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_not_contains "ownership_olderOfTwoForeignHandoffs_notForwarded" \
+    "$OUT" "FOREIGN FIRST instruction"
+assert_not_contains "ownership_newerOfTwoForeignHandoffs_notForwarded" \
+    "$OUT" "FOREIGN SECOND instruction"
+
+# ownership_multipleOwnHandoffs_newestForwarded
+# The mirror case: reading only the record's first line would forward this
+# session's stale handoff instead of the one it just wrote.
+SB="$(new_sandbox)"
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "OWN EARLIER instruction"
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "OWN LATER instruction"
+printf '%s\n%s\n' \
+    "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
+    "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
+    > "$SB/.claude/logs/.compact-handoff-s1"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "ownership_multipleOwnHandoffs_newestForwarded" \
+    "$OUT" "OWN LATER instruction"
+assert_not_contains "ownership_multipleOwnHandoffs_earlierNotForwarded" \
+    "$OUT" "OWN EARLIER instruction"
+
+# ownership_newestOwnClaimDeleted_fallsBackToSurvivingEarlierOne
+# A claimed path that no longer exists must not blank out the whole record.
+SB="$(new_sandbox)"
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "SURVIVING instruction"
+printf '%s\n%s\n' \
+    "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
+    "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
+    > "$SB/.claude/logs/.compact-handoff-s1"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "ownership_newestOwnClaimDeleted_fallsBackToSurvivingEarlierOne" \
+    "$OUT" "SURVIVING instruction"
+
 # forward_noHandoff_cleanMap_printsNothing
 SB="$(new_sandbox)"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \

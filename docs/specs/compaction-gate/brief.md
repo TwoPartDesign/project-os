@@ -299,9 +299,13 @@ and the instruction channel made it unnecessary for verification.
    Raised in PR review and reproduced against the round-5 hook. The handoff
    document cannot carry its own session id — the model writing it has no
    reliable way to learn one — but `compact-suggest.sh`'s PostToolUse payload
-   carries `session_id` and `tool_input.file_path` together, so it stamps
+   carries `session_id` and `tool_input.file_path` together, so it appends to
    `.compact-handoff-<session_id>`. `pre-compact.sh` prefers that record and
-   falls back to the newest handoff *no other session has claimed*.
+   falls back to the newest handoff *no other session has claimed*. The record
+   is append-only, one line per handoff: a follow-up review round found that
+   keeping only the newest left a session's earlier handoffs looking
+   unattributed, so the other session's fallback forwarded one of those instead
+   — the same leak one handoff further back.
 
 **Still open:**
 

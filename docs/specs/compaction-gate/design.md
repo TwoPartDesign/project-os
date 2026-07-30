@@ -142,14 +142,17 @@ that can stall a session.
                            with a compact_instruction"
    independently of all of the above, on every call:
    tool_input.file_path matches */.claude/sessions/handoff-*.yaml
-     → record it in .compact-handoff-<sid>   (who wrote which handoff)
+     → append it to .compact-handoff-<sid>   (who wrote which handoffs;
+                                              one path per line, deduped
+                                              against the last line)
 
 2. The model writes .claude/sessions/handoff-<ts>.yaml
    (the one step no hook can perform)
 
 3. PreCompact — pre-compact.sh               (matcher "*", auto and manual)
-     → .compact-handoff-<sid> if it names a file newer than the cycle marker,
-       else newest unclaimed handoff-*.yaml, -newer .compact-cycle-<sid>,
+     → last line of .compact-handoff-<sid> naming a file newer than the
+       cycle marker, else newest handoff-*.yaml no OTHER session's record
+       claims on ANY line, -newer .compact-cycle-<sid>,
        -type f, resolve_project_path         (BEFORE the marker is reset)
      → touch .compact-cycle-<sid>            (open the next cycle)
      → reset .compact-base-<sid> to the current transcript size
@@ -262,19 +265,29 @@ payload carries `session_id` and `tool_input.file_path` together. It records the
 path of any handoff it observes being written to `.compact-handoff-<sid>`, and
 `pre-compact.sh` consults that record before the glob.
 
-Three details:
+Four details:
 
 - **The record is written before the once-per-cycle exit.** The handoff is
   written *in response to* a nudge, so by then `.compact-nudged-<sid>` exists.
   Recording after that early exit would miss every real handoff.
+- **The record is append-only — one line per handoff, not one line per
+  session.** A session can write several handoffs in a cycle. Keeping only the
+  newest leaves the earlier ones looking unattributed, and the *other* session's
+  glob fallback then picks the older one up and forwards it — the same leak, one
+  handoff further back. Found in review on this PR after the first ownership fix
+  shipped, and reproduced end to end through the real hooks before changing
+  anything. Repeated writes to the same path are collapsed against the last
+  line, so a handoff revised ten times costs one line rather than ten.
 - **Ownership does not override freshness.** A handoff this session wrote before
-  the last compaction has already been summarized away; the record is used only
-  when it names a file newer than the cycle marker.
-- **The glob fallback excludes handoffs other sessions claimed.** Every session
-  in the checkout writes its record into the same log directory, so a foreign
-  handoff is identifiable even when this session wrote none. Claims are matched
-  as whole newline-framed lines, so a same-named file under a longer directory
-  prefix cannot suppress the local one.
+  the last compaction has already been summarized away; a line is used only when
+  it names a file newer than the cycle marker. Lines are read in order and the
+  last qualifying one wins, so a since-deleted newest claim falls back to the
+  surviving earlier one rather than blanking the record.
+- **The glob fallback excludes handoffs other sessions claimed — on any line.**
+  Every session in the checkout writes its record into the same log directory,
+  so a foreign handoff is identifiable even when this session wrote none. Claims
+  are matched as whole newline-framed lines, so a same-named file under a longer
+  directory prefix cannot suppress the local one.
 
 The glob is kept rather than replaced: a handoff nobody claimed — written before
 this feature existed, or by a means the PostToolUse hook cannot observe — is
@@ -357,7 +370,7 @@ directly — no pipes, no `$()`-wrapped programs, no YAML dependency.
 | `.claude/hooks/_common.sh` | Added `session_id_from_json()`, `json_string_field()` |
 | `.claude/hooks/session-end-cleanup.sh` | Removes `.compact-base-*` / `.compact-nudged-*` / `.compact-cycle-*` / `.compact-handoff-*` for the session; 7-day prune of all four |
 | `.claude/commands/tools/handoff.md` | `compact_instruction` mandatory; new "How `compact_instruction` is used" section; note that auto-checkpoints cannot record rationale |
-| `tests/compaction-hooks.sh` | New — 87 assertions across sandboxed project roots |
+| `tests/compaction-hooks.sh` | New — 94 assertions across sandboxed project roots |
 | `docs/knowledge/architecture.md` | Both hook rows updated; new "Compaction Handoff Chain" subsection |
 | `docs/knowledge/decisions.md` | ADR: steer the summarizer, do not block compaction |
 | `docs/knowledge/patterns.md` | "Verify the Channel Before Designing the Gate"; "Test Behaviour in a Copied Project Root" |
@@ -461,7 +474,7 @@ was already being paid — worth knowing, not a reason to change course.
 
 ## Testing Strategy
 
-`tests/compaction-hooks.sh` — 87 assertions, all passing. Per
+`tests/compaction-hooks.sh` — 94 assertions, all passing. Per
 `.claude/rules/tests.md` each case builds its own state and asserts specific
 values, not truthiness.
 
@@ -663,3 +676,21 @@ The near-miss worth recording: the obvious fix — stamp a `session_id` field in
 the handoff YAML — cannot work, because the model writing the handoff has no
 reliable way to learn its own session id. Only a hook does. Reaching for the
 hook payload instead of the document is what made the fix possible at all.
+
+**RESOLVED (round 6b) — the ownership record kept one path, not one per
+handoff.** The same reviewer, reviewing the fix above, found it incomplete: the
+record was written with `>`, so a session that wrote two handoffs in a cycle
+claimed only the second. The other session's glob fallback excluded that one and
+took the first — the identical leak, one handoff further back. Reproduced end to
+end through the real hooks rather than a hand-built fixture, because the fixture
+is exactly what the previous round got wrong: driving `compact-suggest.sh` with
+two PostToolUse payloads showed `claims recorded: 1 | forwarded to s1: SESSION
+TWO first instruction` at `HEAD` against `2 | <nothing>` in the working tree.
+
+The lesson generalizes past this bug: an ownership record whose cardinality is
+"one per owner" silently assumes owners produce one artifact. Both readers now
+consume every line, and own-claim selection takes the *last* line that still
+exists and is fresh — so a since-deleted newest claim degrades to the surviving
+earlier one instead of blanking the record. Two rounds of this feature have now
+been fixed by widening what a record can hold rather than by tuning how it is
+read.

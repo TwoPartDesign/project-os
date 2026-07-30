@@ -79,14 +79,17 @@ CHECKPOINT_FILE="$SESSIONS_DIR/auto-checkpoint-$TIMESTAMP_FILE.yaml"
 CYCLE_FILE="$LOG_DIR/.compact-cycle-$SESSION_ID"
 OWNED_FILE="$LOG_DIR/.compact-handoff-$SESSION_ID"
 
+# The record holds every handoff this session wrote, appended in order, so the
+# last line that still exists and is fresh is the one to forward.
 HANDOFF=""
 if [ -f "$OWNED_FILE" ]; then
-    OWNED=$(head -n 1 "$OWNED_FILE" 2>/dev/null || true)
-    if [ -n "$OWNED" ] && [ -f "$OWNED" ]; then
+    while IFS= read -r OWNED; do
+        [ -n "$OWNED" ] || continue
+        [ -f "$OWNED" ] || continue
         if [ ! -f "$CYCLE_FILE" ] || [ "$OWNED" -nt "$CYCLE_FILE" ]; then
             HANDOFF="$OWNED"
         fi
-    fi
+    done < "$OWNED_FILE"
 fi
 
 if [ -z "$HANDOFF" ]; then
@@ -102,6 +105,10 @@ if [ -z "$HANDOFF" ]; then
     # motivated ownership tracking; what remains unattributed is a handoff no
     # session claimed, which is the pre-existing behaviour.
     #
+    # EVERY line of each foreign record counts, not just the newest: a session
+    # that wrote two handoffs this cycle claims both, and reading only the last
+    # would leave its earlier one looking unattributed and forwardable here.
+    #
     # CLAIMED is newline-framed on both sides and matched with the newlines
     # included, so `/s/handoff-1.yaml` cannot be satisfied by a claim on
     # `/s/handoff-1.yaml` written under a longer directory prefix.
@@ -111,9 +118,10 @@ if [ -z "$HANDOFF" ]; then
         case "$OWNERSHIP_RECORD" in
             */".compact-handoff-$SESSION_ID") continue ;;
         esac
-        OTHER=$(head -n 1 "$OWNERSHIP_RECORD" 2>/dev/null || true)
-        [ -n "$OTHER" ] || continue
-        CLAIMED="$CLAIMED$OTHER"$'\n'
+        while IFS= read -r OTHER; do
+            [ -n "$OTHER" ] || continue
+            CLAIMED="$CLAIMED$OTHER"$'\n'
+        done < "$OWNERSHIP_RECORD"
     done
 
     # Ascending order, so the last one accepted is the newest unclaimed handoff.

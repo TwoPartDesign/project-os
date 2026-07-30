@@ -75,10 +75,23 @@ TRANSCRIPT=$(json_string_field "$INPUT" transcript_path)
 # MUST precede the once-per-cycle exit below: the handoff is written *after*
 # the nudge, so by then the nudged marker exists and everything past it is
 # skipped.
+#
+# The record is append-only, one path per line, because a session can write
+# more than one handoff in a cycle. Keeping only the newest would leave the
+# earlier ones looking unclaimed to a concurrent session's glob fallback, which
+# would then forward this session's older instruction to that session's
+# summarizer — the same class of bug ownership tracking exists to prevent.
+# Repeated edits to the same file are collapsed against the last line, so a
+# handoff revised ten times costs one line, not ten. SessionEnd removes the
+# record; the 7-day prune covers sessions that never fired one.
 WRITTEN_PATH=$(json_string_field "$INPUT" file_path)
 case "$WRITTEN_PATH" in
     */.claude/sessions/handoff-*.yaml)
-        printf '%s\n' "$WRITTEN_PATH" > "$LOG_DIR/.compact-handoff-$SESSION_ID" 2>/dev/null || true
+        OWN_RECORD="$LOG_DIR/.compact-handoff-$SESSION_ID"
+        LAST_CLAIM=$(tail -n 1 "$OWN_RECORD" 2>/dev/null || true)
+        if [ "$LAST_CLAIM" != "$WRITTEN_PATH" ]; then
+            printf '%s\n' "$WRITTEN_PATH" >> "$OWN_RECORD" 2>/dev/null || true
+        fi
         ;;
 esac
 
