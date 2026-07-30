@@ -19,10 +19,13 @@
 import { describe, it } from "node:test";
 import { ok, strictEqual } from "node:assert";
 import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const RULES_PATH = resolve(ROOT, "scripts/lib/scan-rules.js");
+// Dynamic import() needs a file:// URL, not a bare absolute path: on Windows
+// `C:\...` parses as the scheme "c:" and throws ERR_UNSUPPORTED_ESM_URL_SCHEME.
+const RULES_URL = pathToFileURL(RULES_PATH).href;
 
 interface LoadedRule {
   id: string;
@@ -31,7 +34,7 @@ interface LoadedRule {
   severity: string;
 }
 
-const { rules } = (await import(RULES_PATH)) as { rules: LoadedRule[] };
+const { rules } = (await import(RULES_URL)) as { rules: LoadedRule[] };
 const byId = new Map(rules.map((r) => [r.id, r]));
 
 const ALNUM = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";

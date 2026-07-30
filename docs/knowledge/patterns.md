@@ -132,3 +132,15 @@ Corollary — **placeholder-scanning cannot find this class**. A setup command t
 **Example**: skill-apply's auto-tier entanglement check went through two broken denylist generations (5 path prefixes → broken by `bin/critical-tool.sh`, reproduced end-to-end) before being inverted in round 3: a dead-ref-bearing line is auto-removable only if excising the ref leaves residue with no `[A-Za-z0-9]` at all. The adversarial verifier then held it under Unicode, boundary, and syntax-smuggling attack (one LOW ASCII-scope residual, filed as #T95).
 
 **Anti-pattern**: Patching a broken recognition denylist by adding the newly-found shape — it converges never; the class of misses survives every instance fix. Also: claiming "any word content" in docs when the implementation matches a narrower character class — keep predicate claims verbatim-accurate to the code.
+
+---
+
+### One Command Runs Every Check, On The Machine That Ships
+
+**When to Use**: Any repo whose checks are split across more than one runner — a `npm test` glob plus free-standing shell suites, unit tests plus smoke scripts, anything where "run the tests" needs a human to remember which ones.
+
+**Pattern**: Exactly one entry point runs everything, **discovers** its suites by glob rather than listing them, and returns one exit code. Discovery is the load-bearing half: a listed suite is a suite someone must remember to add, and the omission is invisible because a suite that never runs looks exactly like a suite that passes. Then run it on the machine that actually ships — a check that only ever executes in CI or a cloud container is a check whose portability is untested, and the platform gap shows up as a defect in the *product*, not the test.
+
+**Example**: `tests/run-all.sh` — one node:test entry plus every `tests/*.sh` found by glob, per-suite logs under `tests/.logs/`, failing suites' tails printed inline. Wired as `npm test`, with `--fast` skipping the slow bootstrap suites for the dev loop. `tests/test-hygiene.test.ts` pins the properties the runner depends on: the glob is still the broad one, `npm test` is still the full gate, and no test file does `await import(absolutePath)` — the Linux-only idiom that had silently aborted three test files at module scope on Windows, taking 33 assertions with them.
+
+**Anti-pattern**: `"test": "node --test \"tests/**/*.test.ts\""` next to seven `tests/*-smoke.sh` files that nothing invokes. Also: a naming convention (`*-smoke.sh`) as the discovery rule — the next suite gets a different name and drops out of the gate silently. Match the directory, not the convention.

@@ -6,6 +6,9 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "test": "node --test \"tests/**/*.test.ts\""
+    "test": "bash tests/run-all.sh",
+    "test:fast": "bash tests/run-all.sh --fast",
+    "test:unit": "node --test \"tests/**/*.test.ts\"",
+    "test:only": "bash tests/run-all.sh --only"
   }
 }

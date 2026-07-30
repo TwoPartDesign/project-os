@@ -21,10 +21,13 @@ import { describe, it } from "node:test";
 import { strictEqual, ok, deepStrictEqual } from "node:assert";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const RULES_PATH = resolve(ROOT, "scripts/lib/scan-rules.js");
+// Dynamic import() needs a file:// URL, not a bare absolute path: on Windows
+// `C:\...` parses as the scheme "c:" and throws ERR_UNSUPPORTED_ESM_URL_SCHEME.
+const RULES_URL = pathToFileURL(RULES_PATH).href;
 
 // ==========================================================================
 // 1. The module loads, and no inline modifier groups remain
@@ -34,7 +37,7 @@ describe("scan-rules Node 22 compatibility", () => {
   it("scanRules_moduleLoadsOnThisNode_doesNotThrow", async () => {
     // The actual regression. On Node 22 with inline modifiers present, this
     // import throws SyntaxError and the entire scanner is inert.
-    const mod = await import(resolve(RULES_PATH));
+    const mod = await import(RULES_URL);
     ok(Array.isArray(mod.rules), "scan-rules.js must export a rules array");
     ok(
       mod.rules.length > 100,
@@ -58,7 +61,7 @@ describe("scan-rules Node 22 compatibility", () => {
     // means someone implemented one of the three and should update this
     // number deliberately.
     const KNOWN_NULL_RULES = 3;
-    const mod = await import(resolve(RULES_PATH));
+    const mod = await import(RULES_URL);
     const nulls = (mod.rules as Array<{ id: string; regex: RegExp | null }>)
       .filter((r) => !r.regex)
       .map((r) => r.id);

@@ -28,6 +28,9 @@ docs/memory/*
 dist/
 build/
 
+# Per-suite logs from tests/run-all.sh
+tests/.logs/
+
 # Context filter index (rebuilt from source files)
 .claude/index/
 

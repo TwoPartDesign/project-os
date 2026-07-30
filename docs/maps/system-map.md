@@ -104,6 +104,7 @@
 - `s_new_project_smoke` — `tests/new-project-smoke.sh` (0 dependents)
 - `s_observation_parser_test` — `tests/observation-parser.test.ts` (0 dependents)
 - `s_policy_test` — `tests/policy.test.ts` (0 dependents)
+- `s_run_all` — `tests/run-all.sh` (0 dependents)
 - `s_scan_rules_node22_test` — `tests/scan-rules-node22.test.ts` (0 dependents)
 - `s_scan_rules_restored_test` — `tests/scan-rules-restored.test.ts` (0 dependents)
 - `s_scanner_smoke` — `tests/scanner-smoke.sh` (0 dependents)
@@ -116,6 +117,7 @@
 - `s_system_map_test` — `tests/system-map.test.ts` (0 dependents)
 - `s_template_residue_test` — `tests/template-residue.test.ts` (0 dependents)
 - `s_template_seeds_test` — `tests/template-seeds.test.ts` (0 dependents)
+- `s_test_hygiene_test` — `tests/test-hygiene.test.ts` (0 dependents)
 
 ### skill
 - `sk_context_filter_skill` — `.claude/skills/context-filter/SKILL.md` (0 dependents)
@@ -207,7 +209,7 @@
 - LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 3773 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 8435 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 3985 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/patterns.md — docs/knowledge/patterns.md is approximately 3186 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/patterns.md — docs/knowledge/patterns.md is approximately 3620 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/windows-bash-scanner.md — docs/knowledge/windows-bash-scanner.md is approximately 2678 tokens, exceeding the 2500-token warn threshold.
 - MEDIUM orphan-script s_audit_context — Script scripts/audit-context.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_context_filter — Script scripts/context-filter.sh has no incoming references and is not in the orphan allowlist.

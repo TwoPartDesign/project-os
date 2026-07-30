@@ -83,7 +83,7 @@
     "scripts/update-project.sh": "05bb501e1b3973c0e67b58b39f89c0b91ad413244a0c45d1ace1bc7cbfaffbd7",
     "scripts/validate-freshness.sh": "8dc557bd4e85b52858044ea12d9263f78941ef0dac36cc514f822ed425212274",
     "scripts/validate-roadmap.sh": "4bec58920f220f0666fef73557b2b5bb735b373ad38b21a56e4a74c6dc72e08f",
-    "tests/critical-rules.test.ts": "60e6fcf4d9486ee0b680370af2a9b6cee1e5ec448b3946b46da51992b65c9648",
+    "tests/critical-rules.test.ts": "7761b205042f3b85fbdb572270c05f6d559ae506ceebb73050785cdf79f4fee8",
     "tests/dashboard-render.test.ts": "78e1adbc90c152718eb327e895b70423392d01b7b969ee0b493f4d892f9adfb2",
     "tests/dashboard-smoke.sh": "160409ecdd8e6abd1be584ad2cd4307773d90f666c28df36c85c5913c642bf4e",
     "tests/detect-stack.test.ts": "c5b82e198f3aa202db281fc2bbf9e7a41439b65f1980b8f28c138411f959b016",
@@ -96,8 +96,9 @@
     "tests/new-project-smoke.sh": "599975b209baef7b35eb283a60e70d2bcd912b90c9640c9020766ee23fcd464a",
     "tests/observation-parser.test.ts": "231883f297af5d54c9410cc035a7e4b0bcaad239239b9f3e8b0b73928317447a",
     "tests/policy.test.ts": "ce0cc331e82a10a154915148ca42388afdb67420c80f311169890ab900b23eb1",
-    "tests/scan-rules-node22.test.ts": "0864a10c6a996bfe0b5d088fd61e4223bc15dd18d7eb0270e78aa7fae9756a90",
-    "tests/scan-rules-restored.test.ts": "7fd37a58196e9c3980ef9abdaf4a03fe86a6b72d12ac59eccefa229beaac8932",
+    "tests/run-all.sh": "3ff328e52556c5cccc31ede2bcd37b689cc682262801718f1f657e2245310d91",
+    "tests/scan-rules-node22.test.ts": "3937868da107370a2412fcc8d1efe34af2476791aac3cdfb90ee19a2c1b3256d",
+    "tests/scan-rules-restored.test.ts": "345d051c7c93e0d938395e0090a8cc7904d9fe66ccbb90f9d2583c6dd423bc0d",
     "tests/scanner-smoke.sh": "c5f49d4398bd56bd3736db5fb6b13435b4585e7d0f13f31cf4e5284113a7f3a8",
     "tests/setup-node-guard.test.ts": "be95a10f40069ad8f1fcf8b1691ddc9cc14fb1845dfd064c1a588c17e0cda74b",
     "tests/shipped-settings.test.ts": "8d03a6d7138cf713923f8b78ff7d1923caecaed2a603d8067e235683bf45caa9",
@@ -107,6 +108,7 @@
     "tests/system-map-smoke.sh": "c9d83f43eb1bd3ad806c47a18c1628dff41e1ca57599345816bf6b084f32e991",
     "tests/system-map.test.ts": "59951846b2162689867a13764681ac390cbf893fb98b7f984aeec2241f2a015e",
     "tests/template-residue.test.ts": "47d1f39cfa06db7f4cc9891696598679d7d41419d2b1e77bffe27eed7f4e43eb",
-    "tests/template-seeds.test.ts": "a69e80a0a15c84ebe00e955305f989503fc0e51ba1d5843744052d00905976c3"
+    "tests/template-seeds.test.ts": "a69e80a0a15c84ebe00e955305f989503fc0e51ba1d5843744052d00905976c3",
+    "tests/test-hygiene.test.ts": "121058e57cf3448826ec4766f06c0271c911a95afbeec25f13ccde013033adaf"
   }
 }
