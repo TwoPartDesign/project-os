@@ -43,6 +43,27 @@ HANDOFF_MAX_AGE_MIN="${PROJECT_OS_HANDOFF_MAX_AGE_MIN:-30}"
 # contribution below, which must be emitted on every compaction.
 CHECKPOINT_DEBOUNCE_MIN=10
 
+# Escape a value for a double-quoted YAML scalar. Backslash goes first, so the
+# escapes introduced after it are not themselves re-escaped.
+#
+# EVERY double-quoted scalar in the checkpoint built from data this hook did not
+# author has to go through here. The checkpoint is one document: an unescaped
+# character anywhere in it does not corrupt one field, it makes the whole file
+# unparseable, and the next session loses the objective, the in-progress tasks
+# and the handoff pointer along with the offending value. The path list learned
+# that from an accented filename; the ROADMAP-derived values below are the same
+# hazard from a source the reader controls even more directly — a task
+# description reading `- [-] Fix the C:\path parser #T1` ends the scalar's
+# escape sequence at `\p` and takes the document with it.
+yaml_escape() {
+    local v="$1"
+    v="${v//\\/\\\\}"
+    v="${v//\"/\\\"}"
+    v="${v//$'\t'/\\t}"
+    v="${v//$'\n'/\\n}"
+    printf '%s' "$v"
+}
+
 mkdir -p "$SESSIONS_DIR" "$LOG_DIR"
 
 INPUT=$(cat 2>/dev/null || true)
@@ -261,7 +282,7 @@ if [ -z "$RECENT" ]; then
     if [ -n "$IN_PROGRESS_RAW" ]; then
         while IFS= read -r task_desc; do
             [ -z "$task_desc" ] && continue
-            SAFE_DESC="${task_desc//\"/\\\"}"
+            SAFE_DESC=$(yaml_escape "$task_desc")
             IN_PROGRESS_YAML="${IN_PROGRESS_YAML}    - description: \"${SAFE_DESC}\"
       files: \"\"
       state: \"in-progress at compaction time\"
@@ -302,14 +323,9 @@ if [ -z "$RECENT" ]; then
             A*)    ctype="created" ;;
             *)     ctype="modified" ;;
         esac
-        # Escape for a double-quoted YAML scalar, backslash first so the
-        # escapes introduced after it are not themselves re-escaped. -z hands
-        # back raw bytes, which is the point — but raw bytes include the four
-        # characters that a double-quoted scalar reserves.
-        SAFE_PATH="${fpath//\\/\\\\}"
-        SAFE_PATH="${SAFE_PATH//\"/\\\"}"
-        SAFE_PATH="${SAFE_PATH//$'\t'/\\t}"
-        SAFE_PATH="${SAFE_PATH//$'\n'/\\n}"
+        # -z hands back raw bytes, which is the point — but raw bytes include
+        # the four characters a double-quoted scalar reserves.
+        SAFE_PATH=$(yaml_escape "$fpath")
         MODIFIED_FILES_YAML="${MODIFIED_FILES_YAML}  - path: \"${SAFE_PATH}\"
     change_type: ${ctype}
     summary: \"uncommitted change (git status ${st})\"
@@ -325,7 +341,7 @@ if [ -z "$RECENT" ]; then
     {
         printf 'timestamp: "%s"\n' "$TIMESTAMP_ISO"
         printf 'phase: "%s"\n' "$PHASE"
-        printf 'feature: "%s"\n' "${FEATURE//\"/\\\"}"
+        printf 'feature: "%s"\n' "$(yaml_escape "$FEATURE")"
         printf '\n'
         printf 'objective: |\n'
         printf '  Auto-checkpoint before context compaction\n'
@@ -358,6 +374,11 @@ if [ -z "$RECENT" ]; then
             printf '  System map drifted at compaction time — it describes committed state.\n'
         fi
         printf '\n'
+        # Literal block scalar, so FEATURE and TASK_LIST go in RAW — do not
+        # route these through yaml_escape. A block scalar takes its content
+        # verbatim; escaping would put a literal backslash into the summarizer's
+        # instructions. Only the indentation matters, and both values are built
+        # from `read -r` lines, so neither can contain a newline to break it.
         printf 'compact_instruction: |\n'
         printf '  Working on %s. In-progress tasks: %s.\n' "$FEATURE" "$TASK_LIST"
     } > "$CHECKPOINT_FILE"

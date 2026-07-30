@@ -189,22 +189,44 @@ feature: 2,897,308 bytes of transcript against 106,432 tokens of context — 27
 bytes per token where ~4 is typical, and the nudge fired at roughly 53% of the
 window rather than the intended 60%.
 
-Six details in the implementation:
+Seven details in the implementation:
 
 - **Only the tail is read, and the window escalates 60 → 600 → 4000 lines.**
   This runs on every tool call, so the first read has to be cheap: `tail -n 60`
   seeks from the end instead of walking a multi-megabyte file. A fixed 60 was
-  not enough, because it assumed a main-thread record was always near the end.
-  During a sub-agent invocation it is not — every sidechain turn appends records
-  and a long agent buries the main thread's newest `usage` under hundreds of
-  them, so the whole window skips and the scan returns nothing. The wider reads
-  happen only when the cheap one comes up empty, so the normal case pays what it
-  paid before. Past 4000 lines the byte fallback still applies; that ceiling is
-  pinned by a test rather than left implicit.
-- **`isSidechain` records are skipped.** Sub-agent turns write their own, much
-  smaller, `usage` objects into the same transcript. Taking the newest record
-  blindly would read a sub-agent's context as the main thread's — and because
-  sub-agent totals are small, the failure is silent under-reporting.
+  not enough, because it assumed a usage-bearing assistant record was always
+  near the end; a long run of tool-result records carries no `usage` object at
+  all and pushes it out of reach, and the byte proxy the hook then fell through
+  to is wrong in both directions. The wider reads happen only when the cheap one
+  comes up empty, so the normal case pays what it paid before. Past 4000 lines
+  the byte fallback still applies; that ceiling is pinned by a test rather than
+  left implicit.
+- **`isSidechain` records never contribute a number.** Sub-agent turns write
+  their own, much smaller, `usage` objects into the same transcript. Taking the
+  newest record blindly would read a sub-agent's context as the main thread's —
+  and because sub-agent totals are small, the failure is silent
+  under-reporting.
+- **If the newest `usage`-bearing record *is* a sidechain one, the nudge is
+  deferred, not raised.** This is a delivery question, not a measurement one,
+  and the two were conflated at first. The hook fires on the sub-agent's tool
+  calls too, and `additionalContext` lands in the context of whichever agent
+  made the call — so a nudge raised mid-sub-agent-run reaches an agent that can
+  neither write a handoff nor be compacted, *and* spends the once-per-cycle
+  marker the main thread's own nudge needed. The turn that had to be told never
+  hears anything. The transcript answers "who is speaking now": if the newest
+  record is a sidechain turn, a sub-agent is mid-run, so the hook exits without
+  emitting and without writing the marker. The next main-thread tool call nudges
+  with a number that is, if anything, more urgent by then.
+
+  Two bounds stated rather than buried. Right after a sub-agent returns its last
+  record is still the newest, so the main thread's own `PostToolUse` for the
+  `Task` defers too and the nudge waits one further turn — accepted, because
+  deferring costs a turn and mis-delivering costs the cycle. And whether
+  sub-agent hook firings share the main session's id was **not** confirmed here:
+  the transcript this was built against contains no sidechain records at all.
+  The gate is correct either way — if the id is shared, the marker spend is the
+  serious half of the bug; if it is not, a stray nudge in a sub-agent's context
+  is still noise it can do nothing with — but the severity is unverified.
 - **Matching starts at the `"usage"` key.** The same field names recur inside
   the `iterations` array and could appear in assistant prose, so the scan takes
   the first occurrence of each field *after* `"usage"`, which is the top-level
@@ -420,7 +442,7 @@ directly — no pipes, no `$()`-wrapped programs, no YAML dependency.
 | `.claude/hooks/pre-compact.sh` | Rewritten: stdout contract, handoff discovery + extraction, read-only map check, cycle marker + nudge re-arm; checkpoint retained as the debounced tail. ROADMAP marker patterns fixed; feature derivation fixed (round 5); ownership record preferred over the glob, foreign claims excluded from it (round 6) |
 | `.claude/hooks/compact-suggest.sh` | Rewritten: measured context-token threshold with byte growth as fallback, one nudge per compaction cycle, `additionalContext` payload; records handoff authorship ahead of the cycle exit (round 6) |
 | `.claude/hooks/_common.sh` | Added `session_id_from_json()`, `json_string_field()` |
-| `.claude/hooks/session-end-cleanup.sh` | Removes `.compact-base-*` / `.compact-nudged-*` / `.compact-cycle-*` / `.compact-handoff-*` for the session; 7-day prune of all four |
+| `.claude/hooks/session-end-cleanup.sh` | Removes the session-private `.compact-base-*` / `.compact-nudged-*` / `.compact-cycle-*`; deliberately **keeps** `.compact-handoff-*`, which concurrent sessions read, and lets the 7-day prune collect it. 7-day prune of all four |
 | `.claude/commands/tools/handoff.md` | `compact_instruction` mandatory; new "How `compact_instruction` is used" section; note that auto-checkpoints cannot record rationale |
 | `tests/compaction-hooks.sh` | New — 118 assertions across sandboxed project roots |
 | `docs/knowledge/architecture.md` | Both hook rows updated; new "Compaction Handoff Chain" subsection |
@@ -840,3 +862,74 @@ Three of the five new assertions fail against the pre-fix hook; the two rename
 assertions pin behaviour the `-z` rewrite could have broken, and the test forces
 `core.quotePath=true` in its sandbox rather than inheriting it, so a machine
 whose global config turns it off cannot make the test pass against the old code.
+
+**RESOLVED (round 9) — the nudge could be delivered to a sub-agent, which spent
+the cycle's only nudge on a reader that could not act on it.** Round 8 taught
+the scan to find the main thread's number during a sub-agent run, and treated
+that as the whole fix. It was half of one: knowing the right number does not
+make it the right moment to speak. `additionalContext` goes to whichever agent
+made the tool call, so a nudge raised mid-sub-agent-run reaches the sub-agent
+and writes `.compact-nudged-<sid>` anyway — after which the main thread is
+silently skipped for the rest of the cycle. Round 8 made this *more* reliable
+rather than less, because the byte proxy it replaced fired only past 1.2 MB
+while the token path fires whenever the threshold is genuinely crossed.
+
+The scan now returns two values: the main thread's token total, and whether the
+newest `usage`-bearing record is a sidechain one. The second is a delivery gate
+— when set, the hook exits without emitting and without spending the marker.
+The escalating window stays, but its justification narrows to what it actually
+still covers: a run of tool-result records long enough to push the newest
+assistant record out of a 60-line tail. Reversing an assertion written and
+defended one round earlier is the honest cost here — round 8's
+`context_sidechainRunLongerThanScanWindow_stillMeasuresMainThread` asserted a
+nudge fires mid-sidechain, which is now precisely the thing that must not
+happen. It is replaced by a fixture where the main thread takes a turn *after*
+the sub-agent run, which still catches the original bug (a scan that measured
+sidechains would read 500 tokens and stay silent) without asserting the wrong
+destination. See the delivery-gate bullet above for the two bounds this leaves
+standing.
+
+A live incident during the change is pinned as its own assertion. The two-value
+output was consumed with `tr -cd '0-9'` across the whole line for one edit,
+which fused `98800 0` into `988000` — the hook reported context at 494% of the
+window and nudged on a session sitting at 49%. Splitting the fields before
+stripping non-digits is the fix; `context_twoFieldScanOutput_notFusedIntoOneNumber`
+is the guard, and it pins the new code rather than failing against the old,
+since a single-field output had no fusion hazard to begin with.
+
+**RESOLVED (round 9) — ROADMAP text reached double-quoted YAML scalars with only
+`"` escaped.** The same failure the path list had in round 8, from a source
+round 8 did not touch and which the reader controls far more directly. A task
+description or `## Feature:` heading containing a backslash — a Windows path, a
+regex — ended its escape sequence at an illegal character and made the whole
+checkpoint unparseable. Verified rather than argued: a ROADMAP reading
+`## Feature: parse C:\shellout "paths"` produced a checkpoint that PyYAML
+rejects with `found unknown escape character 's'` at line 3, aborting the
+document and taking `objective`, `in_progress`, `next_steps` and
+`compact_instruction` with it.
+
+The fix is a single `yaml_escape()` used by every double-quoted scalar built
+from data the hook did not author — the path list, the task descriptions and the
+feature name — rather than a fourth copy of the four substitutions. The audit
+that produced it also settled the values that must *not* be escaped:
+`compact_instruction` and `context_notes` are literal block scalars, which take
+their content verbatim, so escaping there would put literal backslashes into the
+summarizer's instructions. That is now a comment in the hook, so the next reader
+does not "fix" it. The remaining quoted scalars are hook-authored constants or
+git's two status bytes. Both the escaped output and the pre-fix failure are
+checked against a real YAML parser, not just asserted as substrings.
+
+**RESOLVED (round 9) — `SessionEnd` deleted the handoff ownership record, which
+is the one marker read across sessions.** `.compact-base-*`, `.compact-nudged-*`
+and `.compact-cycle-*` are session-private and correctly die with the session.
+`.compact-handoff-*` is not: it is what tells a *concurrent* session that a
+handoff already on disk belongs to someone else. Deleting it at `SessionEnd`
+un-claimed this session's handoffs the instant it exited, so the next session's
+fallback glob picked up the newest file and forwarded a `compact_instruction`
+written for a task that was not its own — the exact failure ownership tracking
+was introduced to prevent, reintroduced at the moment the session ended. The
+handoff file outlives the session; the record of who wrote it has to outlive it
+too. The 7-day prune already covered `.compact-handoff-*` and is now the only
+thing that collects it, which is the safe direction: a stale claim merely
+excludes a handoff from the fallback glob, and a handoff that old fails the
+freshness filter regardless.

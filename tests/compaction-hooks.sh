@@ -140,12 +140,23 @@ sidechain_usage_line() {
 
 # append_sidechain_run <path> <count> <input_tokens>
 # A sub-agent invocation long enough to bury the main thread's newest usage
-# record. Every record it appends is skipped by the scan, so the tail window has
-# to reach past all of them to find the number that actually matters.
+# record, and to leave a sidechain turn as the newest record in the transcript.
 append_sidechain_run() {
     local i=0
     while [ "$i" -lt "$2" ]; do
         sidechain_usage_line "$3" >> "$1"
+        i=$((i + 1))
+    done
+}
+
+# append_toolresult_run <path> <count>
+# Main-thread tool results: no usage object, so they carry no number and do not
+# make the newest record a sidechain one either. This is the case the escalating
+# tail window exists for — the scan has to reach back past all of them.
+append_toolresult_run() {
+    local i=0
+    while [ "$i" -lt "$2" ]; do
+        printf '{"type":"user","isSidechain":false,"message":{"role":"user","content":"tool result"}}\n' >> "$1"
         i=$((i + 1))
     done
 }
@@ -323,47 +334,96 @@ sidechain_usage_line 190000 >> "$SB/transcript.jsonl"
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
 assert_eq "context_sidechainRecord_notMistakenForMainThread" "$OUT" ""
 
-# context_sidechainAfterMainThread_mainThreadStillMeasured
-# The converse: skipping sidechains must not also discard the main-thread record
-# that precedes them.
+# context_newestRecordIsSidechain_defersInsteadOfNudging
+# The main thread is at 65% — over the nudge point — but a sub-agent turn is the
+# newest record, so a sub-agent is mid-run and this firing is almost certainly
+# one of its own tool calls. `additionalContext` lands in the context of the
+# agent that made the call, so nudging here talks to an agent that can neither
+# write a handoff nor be compacted. Deferring costs one turn; delivering to the
+# wrong agent costs the whole cycle.
 SB="$(new_sandbox)"
 make_token_transcript "$SB/transcript.jsonl" 130000 0 0
 sidechain_usage_line 500 >> "$SB/transcript.jsonl"
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
-assert_contains "context_sidechainAfterMainThread_mainThreadStillMeasured" \
-    "$OUT" "Context is at 65% of the 200000-token window"
+assert_eq "context_newestRecordIsSidechain_defersInsteadOfNudging" "$OUT" ""
 
-# context_sidechainRunLongerThanScanWindow_stillMeasuresMainThread
-# The tail window was a fixed 60 lines, which assumed a main-thread record was
-# always near the end. During a sub-agent invocation it is not: 200 sidechain
-# records bury it, every one of them is skipped, and the scan returns nothing.
-# The hook then fell through to the byte proxy — silent here, because 200 short
-# records are nowhere near 1.2 MB, at 75% of the window.
+# context_newestRecordIsSidechain_leavesNudgeMarkerUnspent
+# The half of the bug that outlives the firing. One nudge is allowed per
+# compaction cycle, so a nudge emitted into a sub-agent does not merely go to
+# the wrong reader — it burns the marker, and the main thread is silently
+# skipped for the rest of the cycle. Deferring must not write the marker.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 130000 0 0
+sidechain_usage_line 500 >> "$SB/transcript.jsonl"
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
+assert_file_absent "context_newestRecordIsSidechain_leavesNudgeMarkerUnspent" \
+    "$SB/.claude/logs/.compact-nudged-s1"
+
+# context_newestRecordIsSidechain_byteProxyDoesNotOverrideTheDefer
+# The gate has to be checked before the byte fallback, not after it. With the
+# byte threshold forced down to 1000 the fallback would fire on any transcript;
+# silence proves the defer is reached first.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 130000 0 0
+sidechain_usage_line 500 >> "$SB/transcript.jsonl"
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl" PROJECT_OS_COMPACT_NUDGE_BYTES=1000)
+assert_eq "context_newestRecordIsSidechain_byteProxyDoesNotOverrideTheDefer" "$OUT" ""
+
+# context_sidechainRunThenMainThreadTurn_nudgesOnceTheMainThreadResumes
+# The deferral is a delay, not a suppression. 200 sidechain records bury the
+# earlier main-thread record, but once the main thread takes a turn again it is
+# the newest and the nudge fires — and on the main thread's number, not the
+# sub-agent's 500. Skipping sidechains must not discard the main-thread record.
 SB="$(new_sandbox)"
 make_token_transcript "$SB/transcript.jsonl" 150000 0 0
 append_sidechain_run "$SB/transcript.jsonl" 200 500
+usage_line 150000 0 0 >> "$SB/transcript.jsonl"
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
-assert_contains "context_sidechainRunLongerThanScanWindow_stillMeasuresMainThread" \
+assert_contains "context_sidechainRunThenMainThreadTurn_nudgesOnceTheMainThreadResumes" \
     "$OUT" "Context is at 75% of the 200000-token window"
 
-# context_sidechainRunBeyondLargestWindow_fallsBackToBytes
+# context_longNonAssistantTail_escalatesWindowToFindMainThread
+# What the escalating window is still for, now that a sidechain tail defers
+# rather than digs. A run of tool-result records carries no usage object at all,
+# so a fixed 60-line tail returns nothing and the hook falls through to the byte
+# proxy — silent here, because 200 short records are nowhere near 1.2 MB, at 75%
+# of the window. Widening to 600 finds the real number.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 150000 0 0
+append_toolresult_run "$SB/transcript.jsonl" 200
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
+assert_contains "context_longNonAssistantTail_escalatesWindowToFindMainThread" \
+    "$OUT" "Context is at 75% of the 200000-token window"
+
+# context_nonAssistantTailBeyondLargestWindow_fallsBackToBytes
 # The escalation is bounded at 4000 lines, so the miss is narrowed, not closed.
 # Pinning the ceiling keeps it a stated limit rather than an accident: raise it
 # and these two assertions are what have to change. 4100 short records are
-# ~700 KB, deterministically under the 1.2 MB byte threshold, so the default
-# run is silent; forcing the threshold down proves it is the byte branch — not
-# the token branch — that produced the silence.
+# well under the 1.2 MB byte threshold, so the default run is silent; forcing
+# the threshold down proves it is the byte branch — not the token branch — that
+# produced the silence.
 SB="$(new_sandbox)"
 make_token_transcript "$SB/transcript.jsonl" 150000 0 0
-append_sidechain_run "$SB/transcript.jsonl" 4100 500
+append_toolresult_run "$SB/transcript.jsonl" 4100
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
-assert_eq "context_sidechainRunBeyondLargestWindow_fallsBackToBytes" "$OUT" ""
+assert_eq "context_nonAssistantTailBeyondLargestWindow_fallsBackToBytes" "$OUT" ""
 SB="$(new_sandbox)"
 make_token_transcript "$SB/transcript.jsonl" 150000 0 0
-append_sidechain_run "$SB/transcript.jsonl" 4100 500
+append_toolresult_run "$SB/transcript.jsonl" 4100
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl" PROJECT_OS_COMPACT_NUDGE_BYTES=1000)
-assert_contains "context_sidechainRunBeyondLargestWindow_byteProxyMessageNotTokenMessage" \
+assert_contains "context_nonAssistantTailBeyondLargestWindow_byteProxyMessageNotTokenMessage" \
     "$OUT" "This session is approaching its auto-compaction threshold."
+
+# context_twoFieldScanOutput_notFusedIntoOneNumber
+# The scan returns "<tokens> <sidechain-flag>". Stripping non-digits across the
+# whole line rather than splitting the fields first fuses "100000 0" into
+# "1000000" — a fivefold overreading that nudges at a real 50%. Observed live
+# during this change, which is why it is pinned: 50% is under the 60% nudge
+# point, so correct handling is silence.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 100000 0 0
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
+assert_eq "context_twoFieldScanOutput_notFusedIntoOneNumber" "$OUT" ""
 
 # context_usageKeyInsideToolInput_measuresMessageUsageNotToolPayload
 # The record's tool_use input carries a decoy usage object of 5 tokens, and
@@ -976,6 +1036,40 @@ else
     bad "checkpoint_inProgressTaskInEarlierFeatureSection_featureStillDerived — no checkpoint written"
 fi
 
+# checkpoint_roadmapTextNeedingYamlEscaping_writtenAsValidYaml
+# The same failure the path list had, from a source the reader controls even
+# more directly. Task descriptions and feature headings went into double-quoted
+# scalars with only `"` escaped, so a backslash in either ended the escape
+# sequence at an illegal character and made the WHOLE checkpoint unparseable —
+# taking the objective, the handoff pointer and every other field with it. A
+# Windows path or a regex in a task title is all it takes.
+SB="$(new_sandbox)"
+{
+    printf '# ROADMAP\n\n'
+    printf '## Feature: parse C:\\shellout paths\n\n'
+    printf -- '- [-] Fix the C:\\path parser and the "quoted" case #T906\n'
+} > "$SB/ROADMAP.md"
+printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
+CP=$(find "$SB/.claude/sessions" -name 'auto-checkpoint-*.yaml' -type f 2>/dev/null | head -1)
+if [ -n "$CP" ]; then
+    BODY=$(cat "$CP")
+    assert_contains "checkpoint_roadmapDescriptionBackslash_escapedForYaml" \
+        "$BODY" 'description: "Fix the C:\\path parser and the \"quoted\" case"'
+    assert_contains "checkpoint_featureHeadingBackslash_escapedForYaml" \
+        "$BODY" 'feature: "parse C:\\shellout paths"'
+    # The point of escaping is that everything AFTER the offending value
+    # survives. An unescaped backslash cost the fields below it, not itself.
+    assert_contains "checkpoint_backslashInRoadmap_laterFieldsStillWritten" \
+        "$BODY" "compact_instruction:"
+    # The block scalar takes its content verbatim — escaping there would put a
+    # literal backslash into the summarizer's instructions.
+    assert_contains "checkpoint_blockScalar_keepsRoadmapTextRaw" \
+        "$BODY" 'Working on parse C:\shellout paths'
+else
+    bad "checkpoint_roadmapTextNeedingYamlEscaping_writtenAsValidYaml — no checkpoint written"
+fi
+
 # checkpoint_noInProgressTask_featureIsNone
 # The derivation must not name a feature merely because a heading exists.
 SB="$(new_sandbox)"
@@ -1153,7 +1247,29 @@ printf '{"session_id":"s1","reason":"exit"}' \
 assert_file_absent "cleanup_sessionEnd_removesCompactBaseMarker" "$SB/.claude/logs/.compact-base-s1"
 assert_file_absent "cleanup_sessionEnd_removesCompactNudgedMarker" "$SB/.claude/logs/.compact-nudged-s1"
 assert_file_absent "cleanup_sessionEnd_removesCompactCycleMarker" "$SB/.claude/logs/.compact-cycle-s1"
-assert_file_absent "cleanup_sessionEnd_removesHandoffOwnershipRecord" "$SB/.claude/logs/.compact-handoff-s1"
+
+# cleanup_sessionEnd_keepsOwnHandoffOwnershipRecord
+# The other three markers are session-private, but .compact-handoff-* is read
+# ACROSS sessions: it is what tells a concurrent session that a handoff on disk
+# already belongs to someone. Deleting it at SessionEnd un-claims this session's
+# handoffs the instant it exits, so the next session's fallback glob picks up
+# the newest file and forwards a compact_instruction written for a task that is
+# not its own. The claim has to outlive the session, exactly as the handoff it
+# points at does; the 7-day prune below is what collects it.
+assert_file_exists "cleanup_sessionEnd_keepsOwnHandoffOwnershipRecord" \
+    "$SB/.claude/logs/.compact-handoff-s1"
+
+# cleanup_staleHandoffOwnershipRecord_prunedAfterSevenDays
+# Retention is bounded, not permanent — the record is kept for the concurrent
+# reader, not forever. touch -d backdates past the -mtime +7 window.
+SB="$(new_sandbox)"
+touch "$SB/.claude/logs/.compact-handoff-s9"
+touch -d '30 days ago' "$SB/.claude/logs/.compact-handoff-s9" 2>/dev/null \
+    || touch -t 202001010000 "$SB/.claude/logs/.compact-handoff-s9"
+printf '{"session_id":"s1","reason":"exit"}' \
+    | bash "$SB/.claude/hooks/session-end-cleanup.sh" >/dev/null 2>&1
+assert_file_absent "cleanup_staleHandoffOwnershipRecord_prunedAfterSevenDays" \
+    "$SB/.claude/logs/.compact-handoff-s9"
 
 # cleanup_otherSessionMarkers_leftIntact
 SB="$(new_sandbox)"

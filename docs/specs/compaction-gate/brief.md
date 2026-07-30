@@ -363,6 +363,49 @@ and the instruction channel made it unnecessary for verification.
     verified to fail against the pre-fix hooks; the other five pin behaviour the
     rewrites could have broken.
 
+12. ~~The nudge could still be delivered into a sub-agent's context; one
+    backslash in a ROADMAP line made the whole checkpoint invalid YAML; and
+    SessionEnd deleted the one marker other sessions read.~~ **Resolved
+    (round 9): three findings from a review of the round-8 commit.**
+    (a) Round 8 named the mis-delivery — "a byte-proxy nudge raised
+    mid-sidechain lands in the *sub-agent's* context and still spends the
+    once-per-cycle marker" — and then only widened the scan window, which made
+    the hook *better* at finding a main-thread number to nudge on while a
+    sub-agent was running, and so made the mis-delivery more reliable rather
+    than less. `additionalContext` is delivered to whichever agent made the
+    tool call; a sub-agent can neither write a handoff nor be compacted, and
+    the marker it spends was the main thread's one nudge for the cycle. The
+    scan now reports whether the newest `usage`-bearing record is a sidechain
+    one, and the hook exits before nudging — and before the byte fallback —
+    when it is. This reverses a round-8 assertion (`context_sidechainRunLonger
+    ThanScanWindow_stillMeasuresMainThread`) that was defended in review: the
+    number is still measured correctly, but measuring it is not a reason to
+    deliver on it. Cost: one turn of delay, since PostToolUse for the `Task`
+    itself fires after the sub-agent completes. Bound worth stating — whether
+    sub-agent hook firings share the main session's id was **not** confirmed;
+    the transcript this was built against contains no sidechain records at all,
+    so the fix is right either way but its severity is unmeasured.
+    (b) The checkpoint escaped `"` in ROADMAP-derived values but not `\`, and
+    `\s` is not a legal escape in a double-quoted YAML scalar — the same class
+    of bug as round 8's C-quoting, reached by a different route. Reproduced
+    against the pre-fix hook: `while scanning a double-quoted scalar ... found
+    unknown escape character 's'`, aborting the *document*, so a task titled
+    `Fix the C:\path parser` cost the next session the objective, the task list
+    and the handoff pointer. A single `yaml_escape` helper now handles
+    backslash first, then quote, tab and newline, and every double-quoted
+    scalar built from data the hook did not author goes through it — including
+    the feature heading, which was not flagged. The `|` block scalars are
+    deliberately left raw; escaping there would put literal backslashes into
+    the summarizer's instructions.
+    (c) SessionEnd deleted `.compact-handoff-<session_id>` along with the
+    session-private markers. That record is the only one read *across*
+    sessions: deleting it un-claims this session's handoffs the instant it
+    exits, so a concurrent session's fallback glob forwards a
+    `compact_instruction` written for someone else's task. The handoff outlives
+    the session, so the record of who wrote it has to as well; the 7-day prune
+    already covered it, and a stale claim is the safe failure. Six of the
+    fourteen new assertions verified to fail against the pre-fix hooks.
+
 **Still open:**
 
 Nothing. The nudge threshold is the last item that required real-session

@@ -130,10 +130,12 @@ NUDGED_FILE="$LOG_DIR/.compact-nudged-$SESSION_ID"
 # the end rather than walking a multi-megabyte file. The window grows only when
 # the cheap one comes up empty — see the escalation below the awk program.
 #
-# Two precautions in the awk below:
+# Three precautions in the awk below:
 #   - Sub-agent turns write their own (much smaller) usage records into the
-#     same transcript. `isSidechain` records are skipped so a subagent's
-#     context is never mistaken for the main thread's.
+#     same transcript. `isSidechain` records never contribute a number, so a
+#     subagent's context is not mistaken for the main thread's — but whether
+#     the *newest* usage-bearing record is one is reported separately, because
+#     that answers a different question (see the delivery gate below).
 #   - The field names recur inside the `iterations` array, and could also
 #     appear in assistant prose. Matching starts at a `"usage":` key and takes
 #     the first occurrence of each field within it.
@@ -156,7 +158,6 @@ USAGE_AWK='
         }
         return 0
     }
-    /"isSidechain"[ ]*:[ ]*true/ { next }
     !/"type"[ ]*:[ ]*"assistant"/ { next }
     {
         # Walk to the last "usage": key. base counts characters already
@@ -174,32 +175,65 @@ USAGE_AWK='
         t = firstnum(u, "input_tokens") \
           + firstnum(u, "cache_read_input_tokens") \
           + firstnum(u, "cache_creation_input_tokens")
-        if (t > 0) last = t
+        if (t <= 0) next
+        # `side` tracks only the newest usage-bearing record, so it is set on
+        # every sidechain turn and cleared by the next main-thread one.
+        if ($0 ~ /"isSidechain"[ ]*:[ ]*true/) { side = 1; next }
+        side = 0
+        last = t
     }
-    END { if (last > 0) printf "%d\n", last }
+    END { printf "%d %d\n", last + 0, side + 0 }
 '
 
-# A fixed 60-line tail assumed a main-thread assistant record was always near
-# the end. During a sub-agent invocation it is not: every sidechain turn
-# appends records, and a long agent buries the main thread's newest usage
-# record under hundreds of them. The whole window then skips, the hook falls
-# through to the byte proxy, and the byte proxy is wrong in both directions —
-# it stays silent below 1.2 MB when context is critical, and fires above it
-# when context is fine. Worse, a byte-proxy nudge raised mid-sidechain lands in
-# the sub-agent's context, not the main thread's, and still spends the
-# once-per-cycle marker, so the turn that needed the nudge never sees one.
+# A fixed 60-line tail assumed a usage-bearing assistant record was always near
+# the end. It usually is, but a long run of tool-result records can push it out
+# of reach, and the byte proxy the hook then fell through to is wrong in both
+# directions — silent below 1.2 MB when context is critical, firing above it
+# when context is fine. The window therefore escalates, and only when the cheap
+# read comes up empty: a session with a record in the last 60 lines — the
+# normal case, on every tool call — pays exactly what it paid before.
 #
-# The window therefore escalates, and only when the cheap read comes up empty:
-# a session with a main-thread record in the last 60 lines — the normal case,
-# on every tool call — pays exactly what it paid before. 4000 lines covers a
-# sub-agent run far longer than any observed here; past that the byte fallback
-# still applies, unchanged.
+# Two numbers come back. The second is the delivery gate.
 CONTEXT_TOKENS=""
+SIDECHAIN_NEWEST=0
 for SCAN_LINES in 60 600 4000; do
-    CONTEXT_TOKENS=$(tail -n "$SCAN_LINES" "$TRANSCRIPT" 2>/dev/null | awk "$USAGE_AWK" 2>/dev/null || true)
-    CONTEXT_TOKENS=$(printf '%s' "$CONTEXT_TOKENS" | tr -cd '0-9')
-    [ -n "$CONTEXT_TOKENS" ] && break
+    SCAN=$(tail -n "$SCAN_LINES" "$TRANSCRIPT" 2>/dev/null | awk "$USAGE_AWK" 2>/dev/null || true)
+    # Split the two fields BEFORE stripping non-digits. Running `tr -cd '0-9'`
+    # over the whole line would fuse "98800 0" into "988000" and report a
+    # tenfold context reading.
+    CONTEXT_TOKENS=$(printf '%s' "${SCAN%% *}" | tr -cd '0-9')
+    SIDECHAIN_NEWEST=$(printf '%s' "${SCAN##* }" | tr -cd '0-9')
+    SIDECHAIN_NEWEST="${SIDECHAIN_NEWEST:-0}"
+    if [ "$SIDECHAIN_NEWEST" = "1" ]; then break; fi
+    if [ -n "$CONTEXT_TOKENS" ] && [ "$CONTEXT_TOKENS" != "0" ]; then break; fi
 done
+
+# ── Deliver to the main thread, or not at all ───────────────────────────────
+# This hook fires on the sub-agent's tool calls too, and `additionalContext`
+# lands in the context of whichever agent made the call. A nudge raised while a
+# sub-agent is running therefore reaches the sub-agent — which cannot write a
+# handoff and cannot be compacted — while spending the once-per-cycle marker
+# that the main thread's own nudge needed. The turn that had to be told never
+# hears anything.
+#
+# The transcript answers "who is speaking right now": sidechain turns are
+# appended to the same file, so if the newest usage-bearing record is one of
+# them, a sub-agent is mid-run and this firing is almost certainly its own.
+# Defer — the marker stays unspent and the next main-thread tool call nudges
+# with a number that is, if anything, more urgent by then. Deferring costs at
+# most one turn; delivering to the wrong agent costs the whole cycle.
+#
+# Bounded honestly: right after a sub-agent returns, its last record is still
+# the newest, so the main thread's own PostToolUse for the Task defers too and
+# the nudge waits for the turn after. That is the accepted cost. Whether
+# sub-agent hook firings share this session's id could not be confirmed here —
+# no sidechain records exist in the transcript this was built against — but the
+# gate is correct either way: if the id is shared the marker spend is the
+# serious half of the bug, and if it is not, a stray nudge in a sub-agent's
+# context is still noise it can do nothing with.
+if [ "$SIDECHAIN_NEWEST" = "1" ]; then
+    exit 0
+fi
 
 if [ -n "$CONTEXT_TOKENS" ] && [ "$CONTEXT_TOKENS" -gt 0 ]; then
     PCT=$((CONTEXT_TOKENS * 100 / WINDOW))
