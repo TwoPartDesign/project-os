@@ -46,7 +46,7 @@ User ──→ Workflow Commands ──→ Orchestrator ──→ Sub-agents (is
 | Hook | Purpose |
 |------|---------|
 | `_common.sh` | Shared utilities: path resolution, validation, JSON extraction |
-| `compact-suggest.sh` | PostToolUse — when the transcript's newest `usage` record puts context past `NUDGE_PCT` of the window (default 60%), inject `additionalContext` telling Claude to run `/tools:handoff` with a `compact_instruction`; one nudge per compaction cycle. Deferred entirely when the payload's `agent_id` differs from its `session_id` (a sub-agent firing), because `additionalContext` lands in the *calling* agent's context and a sub-agent can neither write a handoff nor be compacted; a payload with no `agent_id` at all falls back to deferring on a sidechain transcript tail. Also records handoff authorship: on every call, a write to `.claude/sessions/handoff-*.yaml` is appended to `.compact-handoff-<session_id>` (one path per line, so a session that writes several in a cycle claims all of them) so `pre-compact.sh` can tell this session's handoffs from a concurrent session's |
+| `compact-suggest.sh` | PostToolUse — when the transcript's newest `usage` record, plus a byte-proxy estimate of the tool result that just landed, puts context past `NUDGE_PCT` of the window (default 60%), inject `additionalContext` telling Claude to run `/tools:handoff` with a `compact_instruction`; one nudge per compaction cycle. Records are read structurally, not textually: each is reduced to a brace/bracket skeleton, so `type:assistant` counts only at the record's own depth and only a `message.usage` object is measured — a `usage` buried in a tool payload cannot be mistaken for the session's context. Deferred entirely when the payload's `agent_id` differs from its `session_id` (a sub-agent firing), because `additionalContext` lands in the *calling* agent's context and a sub-agent can neither write a handoff nor be compacted; a payload with no `agent_id` at all falls back to deferring on a sidechain transcript tail. **Also registered on PreToolUse** for `Write\|Edit\|MultiEdit\|NotebookEdit`, where it records handoff authorship and stops — never emitting, since PreToolUse is the one event where a hook can deny the tool call. A write to `.claude/sessions/handoff-*.yaml` is appended to `.compact-handoff-<session_id>` (one path per line, so a session that writes several in a cycle claims all of them) so `pre-compact.sh` can tell this session's handoffs from a concurrent session's; claiming before the write means the claim can never trail the artifact it describes, and the PostToolUse pass repeats the claim as a backstop, collapsing against the last line |
 | `log-activity.sh` | Append structured JSONL events to the activity log |
 | `notify-phase-change.sh` | Terminal/desktop notification on phase transitions |
 | `output-index.sh` | PostToolUse advisory — index large tool outputs, hint via additionalContext |
@@ -154,11 +154,24 @@ stop, so the chain steers it instead — three stages, two of them hooks:
    (`PROJECT_OS_COMPACT_NUDGE_BYTES`) is a fallback for when no `usage` record
    parses — it is not the primary signal, because the transcript retains discarded
    history and so diverges from real context after every compaction. The scan reads
-   the *last* `"usage":` key of a `type:assistant` record, not the first: a record
-   serializes `message.content` before `message.usage`, so a `tool_use` input that
-   carried its own `usage` object would be measured instead of the context, and a
-   user record's `toolUseResult` could supply a number from outside the session
-   entirely. The tail window escalates 60 → 600 → 4000 lines, widening only when
+   the `message.usage` key of a `type:assistant` record, identified by nesting
+   depth rather than by position or by a substring test. A record serializes
+   `message.content` before `message.usage`, so taking the first `"usage":` key
+   would measure a `tool_use` input that carried one; and because `toolUseResult`
+   holds unescaped nested JSON, a whole-line search for the record type matches
+   tool payloads too, which could supply a number from outside the session
+   entirely. The scan therefore reduces each record to a brace/bracket skeleton
+   and accepts the type key only at the record's own depth and the `usage` key
+   only one level inside `message`. A record whose only `usage` object lives
+   deeper is skipped rather than measured. Whatever the scan reports is then
+   topped up by `${#INPUT} / 4` for the tool result that just landed: PostToolUse
+   fires before the model's next request, so the newest `usage` record describes
+   the request that *asked for* the tool and the result itself is unmeasured for
+   one more turn — long enough for a single large read to cross the whole gap
+   between the nudge line and the compaction line. That top-up is a proxy and
+   runs short by design (4 bytes/token under-estimates JSON and code), so it
+   narrows the gap without ever inflating it. The tail window escalates 60 → 600
+   → 4000 lines, widening only when
    the cheap read comes up empty: a fixed 60 assumed a `usage`-bearing record was
    always near the end, which a long run of tool-result records — none of which
    carries a `usage` object at all — pushes out of reach, silently dropping the
@@ -188,6 +201,16 @@ stop, so the chain steers it instead — three stages, two of them hooks:
    because a session can write several handoffs in one cycle; keeping only the
    newest would leave the earlier ones looking unattributed to a concurrent
    session. Repeated writes to the same path collapse against the last line.
+   The same hook is registered on **PreToolUse** for those four tools as well,
+   and on that path it records the claim and exits immediately — no measurement,
+   no output. Claiming after the write leaves a window in which the file exists
+   and belongs to nobody, and a concurrent session compacting inside it forwards
+   a `compact_instruction` written for someone else's task; claiming first
+   removes the window rather than narrowing it, and the PostToolUse pass remains
+   as a backstop for a write this session did not see the start of. Printing
+   nothing on the PreToolUse path is deliberate: it is the one event where a hook
+   can deny a tool call, and an advisory hook must never be able to block a
+   write.
 2. **Claude runs `/tools:handoff`** — the only stage that can author decisions and
    rationale, because only the model has them. The hooks cannot.
 3. **`pre-compact.sh` (PreCompact, matcher `*`)** — reads this session's handoff:

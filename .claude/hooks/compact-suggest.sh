@@ -2,6 +2,10 @@
 # PostToolUse hook: when context pressure builds, tell Claude to write a
 # handoff while it still has the context to write one.
 #
+# Also registered on PreToolUse for the write tools, where it does one thing and
+# stops: record that this session is about to write a handoff, so the ownership
+# claim cannot lag behind the file it describes. See the claim block below.
+#
 # WHY THIS HOOK CARRIES THE REQUIREMENT
 # PreCompact can block compaction, but on the auto path a block reaches only a
 # debug log — never Claude — so it defers compaction without telling anyone
@@ -88,13 +92,25 @@ TRANSCRIPT=$(json_string_field "$INPUT" transcript_path)
 # Only WRITES claim. `Read` carries a `tool_input.file_path` too, so without
 # this gate `/tools:catchup` — whose whole job is to read the previous
 # session's handoff — made the reader claim the author's file. That is worse
-# than not tracking ownership at all: the ownership branch in pre-compact.sh
-# bypasses the age window entirely (it compares against the cycle marker, and
-# on a session's first compaction there is no cycle marker), so the reader
-# would forward a stale instruction written for someone else's task, and the
-# claim would simultaneously hide that handoff from every other session's
-# fallback glob. A write that failed still claims nothing that matters —
+# than not tracking ownership at all: the reader would forward a stale
+# instruction written for someone else's task, and the claim would
+# simultaneously hide that handoff from every other session's fallback glob.
+# (At the time that was compounded by the ownership branch in pre-compact.sh
+# skipping the age window whenever no cycle marker existed; both branches share
+# one window now, but the claim gate is what keeps a reader out of the record in
+# the first place.) A write that failed still claims nothing that matters —
 # pre-compact.sh skips claimed paths that do not exist.
+#
+# THE CLAIM RUNS ON PreToolUse AS WELL AS PostToolUse, and that is the point.
+# Recorded only after the write, the claim trails the artifact it describes: for
+# the interval between the file appearing on disk and this hook appending its
+# path, the handoff exists unclaimed, and a second session entering PreCompact
+# in that window sees it as unattributed and forwards its compact_instruction to
+# its own summarizer. A claim appended a millisecond later cannot un-compact
+# anything. Claiming on PreToolUse inverts the order — the claim is on record
+# before the file can be discovered — and the PostToolUse pass is kept as the
+# backstop for a write this hook did not see the start of. Both passes collapse
+# against the last line, so claiming twice costs nothing.
 #
 # `tool_name` is a top-level key serialized ahead of `tool_input`, so the
 # first-match extraction cannot be beaten by a file whose contents happen to
@@ -116,6 +132,21 @@ case "$WRITTEN_PATH" in
         fi
         ;;
 esac
+
+# Everything below measures context and may emit a nudge, and neither is
+# meaningful before the tool has run: there is no result to account for, and a
+# PreToolUse payload has no `hookEventName` this hook could answer with. This
+# pass exists only to get the claim above on record ahead of the write.
+#
+# Exiting 0 and printing nothing is load-bearing on this path — PreToolUse is
+# the one event where a hook can deny the tool call, and an advisory hook must
+# never do that. `hook_event_name` is part of the payload prefix, ahead of
+# `tool_input`, so first-match extraction of it cannot be beaten by file
+# contents — the same ordering argument as `tool_name` and `agent_id`.
+HOOK_EVENT=$(json_string_field "$INPUT" hook_event_name)
+if [ "$HOOK_EVENT" = "PreToolUse" ]; then
+    exit 0
+fi
 
 # ── Who is this firing for? ─────────────────────────────────────────────────
 # `additionalContext` lands in the context of whichever agent made the tool
@@ -172,16 +203,29 @@ NUDGED_FILE="$LOG_DIR/.compact-nudged-$SESSION_ID"
 #   - The field names recur inside the `iterations` array, and could also
 #     appear in assistant prose. Matching starts at a `"usage":` key and takes
 #     the first occurrence of each field within it.
-#   - Which `"usage":` key matters. `message.content` is serialized before
-#     `message.usage`, so a tool_use input carrying its own `usage` object would
-#     be found first by a leftmost search, and the hook would measure a tool
-#     payload instead of the context. The scan therefore walks to the LAST
-#     `"usage":` in the record. Records are also required to be `type:assistant`,
-#     which keeps a `toolUseResult` body on a user record — arbitrary JSON from
-#     an MCP server or a file read — from supplying a number at all. Both are
-#     structural guards: no record in the transcript that motivated them
-#     actually carried two `usage` keys, but the failure is silent when it does
-#     happen, suppressing the one nudge that had to fire.
+#   - Which `"usage":` key matters, and which record it belongs to. Both
+#     questions are answered STRUCTURALLY, by nesting depth, because a textual
+#     match cannot answer either one. `message.content` is serialized before
+#     `message.usage`, so a leftmost search finds a tool_use input's own `usage`
+#     object first and measures a tool payload instead of the context. Worse,
+#     an earlier version tested `type:assistant` by searching the whole line —
+#     but `toolUseResult` is written as a structured object (687 of 2958
+#     records in the transcript this was measured against, plus 65 arrays), and
+#     the JSON nested there is NOT escaped, so a tool result carrying
+#     `"type":"assistant"` alongside a `usage` object satisfied the guard that
+#     existed to exclude it. Anchoring the check to the record's own `type`
+#     field is not possible positionally either: `message` is serialized ahead
+#     of the top-level `type` in all 1185 assistant records measured, putting it
+#     at a mean offset of 2194 bytes and a maximum of 33108, so there is no
+#     prefix worth trusting.
+#
+#     So the record is reduced to its brace/bracket skeleton and the depth of
+#     each interesting key is read off directly: `type:"assistant"` counts only
+#     at depth 1, and only a `usage` key at depth 2 is measured. All 1185
+#     usage keys observed sit at depth 2 and none of the guards fires on real
+#     data — as with the two guards before them, these are structural hardening
+#     against a failure that is silent when it happens, suppressing the one
+#     nudge that had to fire.
 USAGE_AWK='
     function firstnum(s, key,   m) {
         if (match(s, "\"" key "\":[ ]*[0-9]+")) {
@@ -191,29 +235,69 @@ USAGE_AWK='
         }
         return 0
     }
-    !/"type"[ ]*:[ ]*"assistant"/ { next }
+    # Reduce a record to structure alone. The three keys this program reasons
+    # about are replaced by sentinels FIRST, while their quotes are still
+    # intact; each replaced pattern spans whole quoted tokens (an even number
+    # of quote characters), so collapsing the remaining strings afterwards
+    # still pairs quotes correctly. Escape sequences go before strings do, so
+    # that a \" inside a value cannot be mistaken for a string terminator —
+    # which is also why an escaped occurrence of any of these keys is invisible
+    # here, exactly as it is to the index() walk below.
+    function skeleton(line,   t) {
+        t = line
+        gsub(/"type"[ ]*:[ ]*"assistant"/, "\001", t)
+        gsub(/"isSidechain"[ ]*:[ ]*true/, "\002", t)
+        gsub(/"usage":/, "\003", t)
+        gsub(/\\./, "", t)
+        gsub(/"[^"]*"/, "", t)
+        return t
+    }
+    # Records with no usage key at all are most of the file. Skipping them on a
+    # single index() keeps the skeleton work off the common path.
+    index($0, "\"usage\":") == 0 { next }
     {
-        # Walk to the last "usage": key. base counts characters already
-        # consumed, so p ends up as its absolute offset in the original line.
+        sk = skeleton($0)
+        depth = 0; nusage = 0; want = 0; is_asst = 0; is_side = 0
+        n = length(sk)
+        for (i = 1; i <= n; i++) {
+            c = substr(sk, i, 1)
+            if (c == "{" || c == "[") { depth++ }
+            else if (c == "}" || c == "]") { depth-- }
+            else if (c == "\001") { if (depth == 1) is_asst = 1 }
+            else if (c == "\002") { if (depth == 1) is_side = 1 }
+            else if (c == "\003") { nusage++; if (depth == 2) want = nusage }
+        }
+        # Not this record type, or every usage key in it is nested deeper than
+        # message.usage. Either way there is nothing here worth measuring.
+        if (!is_asst || want == 0) next
+        # Walk the ORIGINAL to the want-th "usage": key. gsub replaced them
+        # left to right, so the want-th sentinel and the want-th index() hit
+        # are the same key — which is why the sentinel pattern is the exact
+        # string index() searches for, with no whitespace tolerance to let the
+        # two counts drift apart. base counts characters already consumed, so
+        # p ends up as the keys absolute offset in the original line.
         s = $0
         base = 0
         p = 0
+        k = 0
         while ((i = index(s, "\"usage\":")) > 0) {
+            k++
             p = base + i
             base = base + i + 7
             s = substr(s, i + 8)
+            if (k == want) break
         }
         if (p == 0) next
         u = substr($0, p)
-        t = firstnum(u, "input_tokens") \
-          + firstnum(u, "cache_read_input_tokens") \
-          + firstnum(u, "cache_creation_input_tokens")
-        if (t <= 0) next
+        tot = firstnum(u, "input_tokens") \
+            + firstnum(u, "cache_read_input_tokens") \
+            + firstnum(u, "cache_creation_input_tokens")
+        if (tot <= 0) next
         # `side` tracks only the newest usage-bearing record, so it is set on
         # every sidechain turn and cleared by the next main-thread one.
-        if ($0 ~ /"isSidechain"[ ]*:[ ]*true/) { side = 1; next }
+        if (is_side) { side = 1; next }
         side = 0
-        last = t
+        last = tot
     }
     END { printf "%d %d\n", last + 0, side + 0 }
 '
@@ -271,8 +355,33 @@ if [ "$TAIL_HEURISTIC" = "1" ] && [ "$SIDECHAIN_NEWEST" = "1" ]; then
     exit 0
 fi
 
+# ── The result that just landed is not in that number yet ───────────────────
+# PostToolUse fires after the tool produced its result but before the model's
+# next request, so the newest assistant `usage` record describes the request
+# that ASKED for this tool — the result itself has not been sent to the model
+# and is not counted anywhere in the transcript yet.
+#
+# Normally that lag costs nothing: the next tool call measures a count that
+# includes it. It matters when one result is large enough to cross the whole
+# gap between the nudge line and the compaction line in a single step — 15
+# points, ~30k tokens at a 200k window. Below the nudge line the hook stays
+# silent, the model's next request tips the session past the compaction
+# threshold, and auto-compaction runs before any further PostToolUse can fire.
+# The cycle is lost outright, which is the same failure mode as a mis-delivered
+# nudge and just as unrecoverable.
+#
+# The payload is the only place that result can be measured from, and only as
+# bytes, so this is a proxy — the honest kind, in a known direction. Four bytes
+# per token is the conventional figure for prose and an UNDER-estimate for the
+# JSON and source code tool results usually carry, so the correction runs short
+# rather than long: it narrows the gap, it does not close it. The whole payload
+# is measured rather than just `tool_response` because the remaining fields are
+# a few hundred bytes against a result large enough to matter, and extracting
+# one JSON field in bash would cost more than that error.
+PENDING_TOKENS=$(( ${#INPUT} / 4 ))
+
 if [ -n "$CONTEXT_TOKENS" ] && [ "$CONTEXT_TOKENS" -gt 0 ]; then
-    PCT=$((CONTEXT_TOKENS * 100 / WINDOW))
+    PCT=$(( (CONTEXT_TOKENS + PENDING_TOKENS) * 100 / WINDOW ))
     [ "$PCT" -ge "$NUDGE_PCT" ] || exit 0
     # Digits only — safe to interpolate into the JSON string literal below.
     SIGNAL="Context is at ${PCT}% of the ${WINDOW}-token window and auto-compaction fires at ${COMPACT_PCT}%."

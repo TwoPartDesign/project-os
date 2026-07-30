@@ -585,9 +585,18 @@ was already being paid — worth knowing, not a reason to change course.
 
 ## Testing Strategy
 
-`tests/compaction-hooks.sh` — 118 assertions, all passing. Per
+`tests/compaction-hooks.sh` — 158 assertions, all passing. Per
 `.claude/rules/tests.md` each case builds its own state and asserts specific
 values, not truthiness.
+
+**Wiring.** Almost every case invokes a hook directly, which means almost none
+of them can tell whether the hook is registered for the event it was written
+for. Round 11 added a hook-registration section that parses the real
+`.claude/settings.json` and pins each event's matcher against the tool list read
+out of the hook source. The gap it closes is not hypothetical: the ownership
+claim reads `file_path` out of `tool_input` and runs correctly on a `PreToolUse`
+payload whether or not it is registered for `PreToolUse`, so the entire
+pre-claim could have been dead in production with the suite green.
 
 **Sandboxing.** Each case runs `new_sandbox()`: a `mktemp -d` root with
 `.claude/hooks`, `.claude/sessions`, `.claude/logs` and `scripts/`, the four
@@ -1018,3 +1027,97 @@ branches share one tool and one threshold; where a cycle marker does exist it
 still governs, being the stricter and more meaningful signal. Three of the four
 new assertions fail against the pre-fix hook; the fourth pins that the cycle
 marker still wins when present.
+
+**RESOLVED (round 11) — the completed tool result was invisible to the
+measurement that decides whether to nudge.** `PostToolUse` fires after the tool
+produced its result but before the model's next request, so the newest assistant
+`usage` record describes the request that *asked for* the tool. The result now
+sitting in context is not counted until one more turn has gone by. The 15-point
+gap between the nudge line and the compaction line normally absorbs that lag —
+it exists precisely so a turn's worth of growth cannot skip the nudge. It does
+not absorb a single result that crosses the whole gap: a large `Read` or a wide
+`Grep` can add ~30k tokens in one step, taking the session from below the nudge
+line to at or past the compaction line without ever being measured in between,
+and the nudge is then never owed at a moment it could still be delivered. That
+is the same "cycle lost outright" failure round 10 fixed by a different route.
+`PENDING_TOKENS = ${#INPUT} / 4` is added to the measured count in the token
+branch only; the byte-proxy branch already scales with payload size, so adding
+it there would double-count.
+
+This correction is a proxy, not a measurement, and the direction of its error is
+the point. 4 bytes/token is the English-prose ratio; JSON and source code both
+run denser, so the estimate comes in **under** the true cost of the payload. The
+hook therefore still nudges later than an exact accounting would, but it never
+nudges on a number larger than reality. Given the alternative — a hook that
+inflates context pressure and burns the once-per-cycle nudge early — running
+short is the correct failure. It narrows the gap; it does not close it.
+
+**RESOLVED (round 11) — the record-type guard was a substring test on a line
+containing nested JSON.** Round 6 required `"type":"assistant"` somewhere on the
+line before measuring a record. A transcript record nests arbitrary structured
+data, and `toolUseResult` is an object in 687 of 2958 records (plus 65 arrays),
+with its contents *not* escaped — so a tool result carrying an assistant-shaped
+object satisfied the guard, and the scan measured a tool payload as the
+session's context. Escaped occurrences were never the exposure: `\"type\"` has a
+backslash before the quote, so the regex never matched it.
+
+The same probe ruled out the cheap fix and made the strict one free. `message`
+is serialized ahead of the top-level `type` in all 1185 assistant records (mean
+offset 2194 bytes, max 33108), so there is no prefix window a scan could trust;
+and all 1185 `"usage":` keys sit at exactly depth 2, so requiring that depth
+costs nothing against real data. The awk now reduces each record to a
+brace/bracket skeleton — substituting sentinels for the three keys it reasons
+about *while the quotes are still intact*, then stripping escapes and string
+bodies — and walks it: `type:assistant` and `isSidechain` count only at depth 1,
+and only a depth-2 `usage` key is measured. A record whose only `usage` object
+lives deeper is skipped outright rather than measured on whatever payload
+happens to be there. The skeleton work is prefiltered behind
+`index($0, "\"usage\":")`, so the common path pays one substring test.
+
+Recorded with the same honesty round 6 applied to its own guard: in the
+transcript this was measured against, 0 of 1182 raw-regex hits had a
+non-assistant top-level type and 0 unescaped occurrences sat outside depth 1.
+This is structural hardening against a silent failure, not a fix for an observed
+one — the failure mode it prevents is a wrong number reported confidently, which
+is worse than no number.
+
+**RESOLVED (round 11) — ownership was claimed after the artifact it
+describes.** The claim ran on `PostToolUse`, so between the `Write` creating
+`handoff-*.yaml` and the hook recording who wrote it, the file is discoverable
+and unattributed. A concurrent session compacting inside that window takes the
+fresh handoff off the fallback glob and forwards a `compact_instruction` written
+for someone else's task — the round-5 leak reached by timing rather than by a
+missing record. The window is narrow, it widens with hook latency, and it is the
+failure this chain has now closed three times.
+
+Fixed by inverting the order rather than by adding synchronization.
+`compact-suggest.sh` is registered on `PreToolUse` for the write tools as well,
+where it records the claim and exits, so the claim is on record before the
+artifact can exist. The `PostToolUse` pass is kept as a backstop for a write
+this session did not see the start of, and both passes collapse against the last
+line, so claiming twice costs nothing. Exiting 0 and printing nothing on the
+`PreToolUse` path is load-bearing: that is the one event where a hook can deny
+the tool call, and an advisory hook must never be able to block a write.
+
+Encoding ownership in the published artifact was considered and rejected for the
+reason recorded twice before — the model authoring a handoff has no reliable way
+to learn its own session id, which is why the claim lives in a hook payload in
+the first place.
+
+This round also added the suite's first **hook-registration** assertions, which
+read the real `.claude/settings.json`. Every other assertion invokes a hook
+directly, so none of them can see whether the hook is wired to the event it was
+written for; and the claim block reads `file_path` out of `tool_input` and works
+on a `PreToolUse` payload whether or not it is registered for that event. The
+entire pre-claim could therefore have been dead in production with the suite
+green. The assertions pin the `PreToolUse` matcher to the tool list the claim
+block actually gates on — extracted from the hook source, so the two cannot
+drift apart — and pin that the catch-all `PostToolUse` registration survives,
+since the nudge and the backstop both still depend on it.
+
+Seven of the eighteen new assertions fail against the pre-fix hooks and pre-fix
+settings: three for the record-type parse, one for the pending result, three for
+the pre-claim. The remaining eleven pin properties the fixes must not break —
+escaped decoys stay immune, a small payload does not perturb the measurement, a
+read of a handoff still claims nothing, and the `PreToolUse` pass neither emits
+nor spends the once-per-cycle marker.

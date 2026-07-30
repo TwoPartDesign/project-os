@@ -179,6 +179,52 @@ user_usage_line() {
         "$1"
 }
 
+# toolresult_assistant_line <tokens>
+# A user record whose toolUseResult is a STRUCTURED object carrying both
+# "type":"assistant" and a usage object. That is the common shape, not an exotic
+# one — 687 of 2958 records in the transcript this was measured against have an
+# object there (plus 65 arrays) — and the JSON nested in it is NOT escaped, so a
+# whole-line search for the record type finds "assistant" here and measures a
+# tool payload as the session's context.
+#
+# The nested object carries no isSidechain flag on purpose. With one, a textual
+# scan skips the record for the right outcome by the wrong reason, and the test
+# stops exercising the type key it exists to pin. Nested sidechain flags are
+# covered separately by nested_sidechain_flag_line.
+toolresult_assistant_line() {
+    printf '{"type":"user","isSidechain":false,"message":{"role":"user","content":"tool result"},"toolUseResult":{"type":"assistant","usage":{"input_tokens":%s,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' \
+        "$1"
+}
+
+# deep_usage_only_line <tokens>
+# An assistant record whose ONLY usage object is buried in a tool_use input.
+# There is nothing at message.usage to measure, so the record must be skipped
+# outright rather than measured on the payload that happens to be there.
+deep_usage_only_line() {
+    printf '{"type":"assistant","isSidechain":false,"message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"usage":{"input_tokens":%s,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}]}}\n' \
+        "$1"
+}
+
+# escaped_decoy_usage_line <decoy_tokens> <real_tokens>
+# An assistant record quoting a transcript excerpt inside a string value, so the
+# decoy keys in it are escaped, followed by the real message.usage. Escape
+# sequences are stripped before strings are collapsed, so the quoted blob
+# contributes neither a sentinel nor a brace — and the depth walk and the
+# index() walk have to agree on which "usage": key is the real one.
+escaped_decoy_usage_line() {
+    printf '{"type":"assistant","isSidechain":false,"message":{"role":"assistant","content":"excerpt: {\\"type\\":\\"assistant\\",\\"usage\\":{\\"input_tokens\\":%s}}","usage":{"input_tokens":%s,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":42}}}\n' \
+        "$1" "$2"
+}
+
+# nested_sidechain_flag_line <tokens>
+# A main-thread assistant record whose tool_use input carries "isSidechain":true
+# — a payload that DESCRIBES a sub-agent rather than a sub-agent turn. Read
+# textually the record looks like a sidechain one and its number is discarded.
+nested_sidechain_flag_line() {
+    printf '{"type":"assistant","isSidechain":false,"message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"isSidechain":true}}],"usage":{"input_tokens":%s,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":42}}}\n' \
+        "$1"
+}
+
 # make_token_transcript <path> <input_tokens> <cache_read> <cache_creation>
 make_token_transcript() {
     printf '{"type":"user","message":{"role":"user","content":"hello"}}\n' > "$1"
@@ -221,6 +267,38 @@ run_suggest_as() {
               CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 \
               CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75 \
               "$@" bash "$sb/.claude/hooks/compact-suggest.sh" 2>/dev/null
+}
+
+# run_suggest_padded <sandbox> <transcript> <pad_bytes> [env...]
+# The same run with a tool_response of <pad_bytes> filler characters, standing
+# in for a large tool result. PostToolUse fires after the tool produced that
+# result but before the model's next request, so it appears in no usage record
+# yet and the payload is the only place it can be measured.
+run_suggest_padded() {
+    local sb="$1" transcript="$2" pad="$3"
+    shift 3
+    local filler
+    filler=$(dd if=/dev/zero bs=1 count="$pad" 2>/dev/null | tr '\0' 'x')
+    printf '{"session_id":"s1","transcript_path":"%s","hook_event_name":"PostToolUse","tool_name":"Read","tool_response":"%s"}' \
+        "$transcript" "$filler" \
+        | env -u PROJECT_OS_COMPACT_NUDGE_PCT -u PROJECT_OS_COMPACT_NUDGE_BYTES \
+              CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 \
+              CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75 \
+              "$@" bash "$sb/.claude/hooks/compact-suggest.sh" 2>/dev/null
+}
+
+# run_suggest_pre <sandbox> <transcript> <tool_name> <file_path>
+# A PreToolUse payload. `hook_event_name` sits in the same prefix as
+# `session_id` and `tool_name`, ahead of `tool_input`, which is what makes
+# first-match extraction of it safe against file contents.
+run_suggest_pre() {
+    local sb="$1" transcript="$2" tool="$3" path="$4"
+    printf '{"session_id":"s1","transcript_path":"%s","hook_event_name":"PreToolUse","tool_name":"%s","tool_input":{"file_path":"%s"}}' \
+        "$transcript" "$tool" "$path" \
+        | env -u PROJECT_OS_COMPACT_NUDGE_PCT -u PROJECT_OS_COMPACT_NUDGE_BYTES \
+              CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 \
+              CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75 \
+              bash "$sb/.claude/hooks/compact-suggest.sh" 2>/dev/null
 }
 
 echo "=== Compaction Hook Behaviour ==="
@@ -460,6 +538,89 @@ make_token_transcript "$SB/transcript.jsonl" 100000 0 0
 user_usage_line 190000 >> "$SB/transcript.jsonl"
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
 assert_eq "context_userRecordWithUsageBody_ignored" "$OUT" ""
+
+# ── Record type read structurally, not textually ────────────────────────────
+# The record-type guard used to search the whole line for `"type":"assistant"`.
+# Anchoring it to the record's own field is not possible positionally either:
+# `message` is serialized ahead of the top-level `type` in all 1185 assistant
+# records measured, at a mean offset of 2194 bytes and a maximum of 33108, so
+# there is no prefix worth trusting. These pin the depth-aware parse that
+# replaced it.
+
+# context_toolResultCarryingAssistantType_ignored
+# The false positive the textual guard could not see. A tool result is arbitrary
+# JSON from outside the session, and an object there carrying BOTH
+# `"type":"assistant"` and a usage object satisfies the very guard that existed
+# to exclude it. The main thread sits at 50% and is quiet; measuring the tool
+# result reports 95% and nudges on a number the model was never fed.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 100000 0 0
+toolresult_assistant_line 190000 >> "$SB/transcript.jsonl"
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
+assert_eq "context_toolResultCarryingAssistantType_ignored" "$OUT" ""
+
+# context_usageOnlyDeeperThanMessage_recordSkippedEntirely
+# The companion to the decoy test above, with the real usage object absent
+# rather than merely later: an assistant record whose only usage object sits in
+# a tool_use input. Taking the last — or the only — usage key measures the
+# payload. Depth is what distinguishes them, so a record with nothing at depth 2
+# has nothing to contribute and must fall through to the earlier record.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 100000 0 0
+deep_usage_only_line 190000 >> "$SB/transcript.jsonl"
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
+assert_eq "context_usageOnlyDeeperThanMessage_recordSkippedEntirely" "$OUT" ""
+
+# context_escapedDecoyInStringValue_measuresTheRealUsageKey
+# Escaped keys are invisible to both halves of the parse — the sentinel pass
+# skips them because a `\"` is not a `"`, and the index() walk skips them for
+# the same reason — so the two counts stay in step and the real message.usage
+# is still the one measured. Reducing the record to a skeleton must not lose
+# that key: 150000 is 75%, and silence here would be the nudge suppressed at
+# exactly the moment it is most needed.
+SB="$(new_sandbox)"
+printf '{"type":"user","message":{"role":"user","content":"hello"}}\n' > "$SB/transcript.jsonl"
+escaped_decoy_usage_line 5 150000 >> "$SB/transcript.jsonl"
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
+assert_contains "context_escapedDecoyInStringValue_measuresTheRealUsageKey" \
+    "$OUT" "Context is at 75% of the 200000-token window"
+
+# context_nestedSidechainFlagInToolInput_notTreatedAsSubagentTurn
+# `isSidechain` is read at depth 1 for the same reason `type` is. A tool_use
+# input that happens to carry the flag describes a sub-agent; it does not make
+# the record one, and discarding the record's number costs the whole nudge —
+# the byte fallback it drops through to is nowhere near its threshold here.
+SB="$(new_sandbox)"
+printf '{"type":"user","message":{"role":"user","content":"hello"}}\n' > "$SB/transcript.jsonl"
+nested_sidechain_flag_line 150000 >> "$SB/transcript.jsonl"
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
+assert_contains "context_nestedSidechainFlagInToolInput_notTreatedAsSubagentTurn" \
+    "$OUT" "Context is at 75% of the 200000-token window"
+
+# ── The result that just landed ─────────────────────────────────────────────
+# PostToolUse fires before the completed result reaches the model, so the newest
+# usage record describes the request that ASKED for the tool. Normally the next
+# tool call absorbs the lag; it matters when one result crosses the whole gap
+# between the nudge line and the compaction line in a single step, because then
+# auto-compaction fires before any further PostToolUse can nudge.
+
+# context_largePendingToolResult_countedTowardPressure
+# 118000 tokens is 59% — one point under the nudge line. A 40 KB result is
+# ~10000 tokens at the conventional four bytes each, which puts the next request
+# at 64% and inside the window where a handoff can still be written.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 118000 0 0
+OUT=$(run_suggest_padded "$SB" "$SB/transcript.jsonl" 40000)
+assert_contains "context_largePendingToolResult_countedTowardPressure" \
+    "$OUT" "Context is at 64% of the 200000-token window"
+
+# context_smallPayload_doesNotPerturbTheMeasurement
+# The correction is bounded by the payload it measures, so an ordinary tool call
+# moves the reading by tens of tokens, not thousands. The same 59% stays quiet.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 118000 0 0
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
+assert_eq "context_smallPayload_doesNotPerturbTheMeasurement" "$OUT" ""
 
 # context_largeTranscriptSmallContext_staysSilent
 # The regression that motivated the token signal. The transcript keeps every
@@ -724,10 +885,11 @@ assert_file_absent "ownership_readOfHandoff_recordsNothing" \
 
 # ownership_readOfForeignHandoff_notForwardedToTheReader
 # THE BUG THIS CLOSES, end to end. s2 wrote and claimed the handoff; s1 only
-# read it. A claim from that read went through the ownership branch, which
-# bypasses the age window entirely — it compares against the cycle marker, and
-# on a first compaction there is no cycle marker — so s1's summarizer received
-# instructions written for s2's task, however stale.
+# read it. A claim from that read sent s1 down the ownership branch, so s1's
+# summarizer received instructions written for s2's task. (At the time that
+# branch also skipped the age window, which made even an ancient handoff
+# eligible; both branches share one window now, but the tool-name gate is what
+# keeps a reader out of the record in the first place.)
 SB="$(new_sandbox)"
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "SESSION TWO instruction"
@@ -853,6 +1015,100 @@ OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_not_contains "ownership_recordPointingOutsideProject_rejected" \
     "$OUT" "ESCAPED VIA RECORD instruction"
+
+# ── Ownership claimed ahead of the write ────────────────────────────────────
+# Recorded only after the write, the claim trails the artifact it describes: for
+# the interval between the file appearing on disk and the PostToolUse hook
+# appending its path, the handoff exists unclaimed. The hook therefore also runs
+# on PreToolUse for the write tools, where it records the claim and stops.
+
+# preToolUse_handoffWrite_claimsBeforeTheFileExists
+# The claim is on record while the path still points at nothing — which is the
+# whole point, and is why pre-compact.sh skips claimed paths that do not exist.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+run_suggest_pre "$SB" "$SB/transcript.jsonl" Write \
+    "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" >/dev/null
+RECORDED=$(cat "$SB/.claude/logs/.compact-handoff-s1" 2>/dev/null || true)
+assert_eq "preToolUse_handoffWrite_claimsBeforeTheFileExists" \
+    "$RECORDED" "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
+assert_file_absent "preToolUse_claimRecorded_whileFileStillAbsent" \
+    "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
+
+# preToolUse_claimPrecedesPublication_foreignSessionDoesNotForwardIt
+# THE RACE THIS CLOSES. s1 claims, then publishes; s2 compacts in between. With
+# the claim trailing the write, s2's fallback glob finds an unattributed handoff
+# and forwards s1's compact_instruction to s2's summarizer — and a claim
+# appended a millisecond later cannot un-compact anything.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+run_suggest_pre "$SB" "$SB/transcript.jsonl" Write \
+    "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" >/dev/null
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "RACE WINDOW instruction"
+OUT=$(printf '{"session_id":"s2","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_not_contains "preToolUse_claimPrecedesPublication_foreignSessionDoesNotForwardIt" \
+    "$OUT" "RACE WINDOW instruction"
+
+# preToolUse_pass_emitsNothingAndExitsZero
+# PreToolUse is the one event where a hook can deny the tool call, so an
+# advisory hook must print nothing and exit 0 there — and there is nothing to
+# say in any case: the tool has not run, so no result can be accounted for. The
+# context here is at 75%, far past the nudge line, which is exactly when a stray
+# byte on stdout would be most likely.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 150000 0 0
+RC=0
+OUT=$(run_suggest_pre "$SB" "$SB/transcript.jsonl" Write \
+    "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml") || RC=$?
+assert_eq "preToolUse_pass_emitsNothing" "$OUT" ""
+assert_eq "preToolUse_pass_exitsZero" "$RC" "0"
+assert_file_absent "preToolUse_pass_leavesNudgeMarkerUnspent" \
+    "$SB/.claude/logs/.compact-nudged-s1"
+
+# preToolUse_readOfHandoff_claimsNothing
+# The tool-name gate governs both passes. Claiming earlier must not mean
+# claiming more widely: /tools:catchup reads the previous session's handoff, and
+# a claim from that read is worse than no ownership tracking at all.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "FOREIGN instruction"
+run_suggest_pre "$SB" "$SB/transcript.jsonl" Read \
+    "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" >/dev/null
+assert_file_absent "preToolUse_readOfHandoff_claimsNothing" \
+    "$SB/.claude/logs/.compact-handoff-s1"
+
+# preToolUse_thenPostToolUse_sameHandoffClaimedOnce
+# The PostToolUse pass is kept as the backstop for a write the PreToolUse hook
+# did not see the start of, so the ordinary path runs both. Both collapse
+# against the last line, so claiming twice costs one line, not two.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+run_suggest_pre "$SB" "$SB/transcript.jsonl" Write \
+    "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" >/dev/null
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "CLAIMED TWICE instruction"
+printf '{"session_id":"s1","transcript_path":"%s","hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"%s"}}' \
+    "$SB/transcript.jsonl" "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
+    | env -u PROJECT_OS_COMPACT_NUDGE_PCT -u PROJECT_OS_COMPACT_NUDGE_BYTES \
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75 \
+          bash "$SB/.claude/hooks/compact-suggest.sh" >/dev/null 2>&1
+RECORDED=$(cat "$SB/.claude/logs/.compact-handoff-s1" 2>/dev/null || true)
+assert_eq "preToolUse_thenPostToolUse_sameHandoffClaimedOnce" \
+    "$RECORDED" "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
+
+# postToolUse_explicitEventName_stillNudges
+# The early exit keys on the event name, and every real payload carries one —
+# including the PostToolUse payloads the nudge depends on. Testing only the
+# absent-key case would leave the live path unasserted.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 130000 0 0
+OUT=$(printf '{"session_id":"s1","transcript_path":"%s","hook_event_name":"PostToolUse","tool_name":"Read"}' \
+    "$SB/transcript.jsonl" \
+    | env -u PROJECT_OS_COMPACT_NUDGE_PCT -u PROJECT_OS_COMPACT_NUDGE_BYTES \
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75 \
+          bash "$SB/.claude/hooks/compact-suggest.sh" 2>/dev/null)
+assert_contains "postToolUse_explicitEventName_stillNudges" \
+    "$OUT" "Context is at 65% of the 200000-token window"
 
 # ── Session ownership: more than one handoff per session ────────────────────
 # A session can write several handoffs in one cycle. If the record kept only
@@ -1444,6 +1700,63 @@ printf '{"session_id":"s1","reason":"exit"}' \
 assert_file_exists "cleanup_otherSessionMarkers_leftIntact" "$SB/.claude/logs/.compact-base-s2"
 assert_file_exists "cleanup_otherSessionCycleMarker_leftIntact" "$SB/.claude/logs/.compact-cycle-s2"
 assert_file_exists "cleanup_otherSessionOwnershipRecord_leftIntact" "$SB/.claude/logs/.compact-handoff-s2"
+
+echo ""
+
+# ── Hook registration ───────────────────────────────────────────────────────
+# Every other assertion in this file invokes a hook directly, which means none
+# of them can tell whether the hook is wired to the event it was written for.
+# The PreToolUse claim is the case where that gap bites: the claim block reads
+# `file_path` out of `tool_input` and works on a PreToolUse payload whether or
+# not the hook is registered for that event, so the entire pre-claim can be
+# dead in production with the unit tests still green. These read the real
+# settings.json.
+echo "hook registration (.claude/settings.json):"
+
+SB="$(new_sandbox)"
+printf '%s\n' \
+    'const fs = require("fs");' \
+    'const settings = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));' \
+    'const [, , , event, needle] = process.argv;' \
+    'const matchers = [];' \
+    'for (const entry of (settings.hooks && settings.hooks[event]) || []) {' \
+    '  for (const hook of entry.hooks || []) {' \
+    '    if (typeof hook.command === "string" && hook.command.includes(needle)) {' \
+    '      matchers.push(entry.matcher === undefined ? "*" : entry.matcher);' \
+    '    }' \
+    '  }' \
+    '}' \
+    'process.stdout.write(matchers.join(","));' \
+    > "$SB/scripts/hook-matchers.js"
+
+matchers_for() {
+    node "$SB/scripts/hook-matchers.js" \
+        "$PROJECT_ROOT/.claude/settings.json" "$1" "compact-suggest.sh" 2>/dev/null
+}
+
+# wiring_claimToolList_readFromTheHookSource
+# The tool list the claim block actually gates on, lifted from the `case` that
+# follows the TOOL_NAME switch. Pinned to a literal so the comparison below
+# cannot pass vacuously on two empty strings if this extraction ever breaks.
+CLAIM_TOOLS=$(awk '/case "\$TOOL_NAME" in/ { getline; gsub(/[ )]/, ""); print; exit }' \
+    "$PROJECT_ROOT/.claude/hooks/compact-suggest.sh")
+assert_eq "wiring_claimToolList_readFromTheHookSource" \
+    "$CLAIM_TOOLS" "Write|Edit|MultiEdit|NotebookEdit"
+
+# wiring_preToolUseMatcher_equalsTheClaimToolList
+# A write tool the claim handles but the matcher omits is a handoff whose claim
+# lands only on the PostToolUse backstop — the race Finding 3 closed, reopened
+# silently. Equality keeps the two lists from drifting apart in either
+# direction.
+assert_eq "wiring_preToolUseMatcher_equalsTheClaimToolList" \
+    "$(matchers_for PreToolUse)" "$CLAIM_TOOLS"
+
+# wiring_compactSuggest_stillRegisteredOnPostToolUse
+# The PreToolUse pass exits before measuring anything, so it replaces nothing:
+# the nudge, and the claim backstop for a write this session did not start,
+# both still depend on the catch-all PostToolUse registration.
+assert_eq "wiring_compactSuggest_stillRegisteredOnPostToolUse" \
+    "$(matchers_for PostToolUse)" ".*"
 
 echo ""
 

@@ -432,6 +432,40 @@ and the instruction channel made it unnecessary for verification.
     and one tool; a cycle marker, when present, still governs. Eight of the
     thirteen new assertions verified to fail against the pre-fix hooks.
 
+14. ~~The nudge measured a context that excluded the result it was firing on,
+    identified assistant records by substring, and claimed handoff ownership
+    after publishing the handoff.~~ **Resolved (round 11): three findings from a
+    review of the round-10 commit.**
+    (a) `PostToolUse` fires before the model's next request, so the newest
+    `usage` record describes the request that *asked for* the tool and the result
+    now in context goes unmeasured for a turn. The 15-point gap between the nudge
+    line and the compaction line absorbs an ordinary turn but not one large read
+    that crosses the whole gap in a single step — and the cycle's nudge is then
+    never owed while it could still be delivered, the same loss round 10 fixed by
+    another route. `${#INPUT} / 4` is now added in the token branch only. It is a
+    proxy, and it under-estimates JSON and code on purpose: it narrows the gap
+    without ever inflating the number the hook nudges on.
+    (b) The `type:assistant` guard was a substring test against a line that nests
+    unescaped JSON — `toolUseResult` is a structured object in 687 of 2958
+    records — so a tool payload could be measured as the session's context.
+    Probing also ruled out a prefix-scan shortcut (`message` precedes the
+    top-level `type` in all 1185 assistant records, max offset 33108) and made
+    the strict fix free (all 1185 `usage` keys sit at depth 2). Records are now
+    reduced to a brace/bracket skeleton and read by depth. As with round 6's
+    guard, no instance occurs in the measured transcript: this prevents a wrong
+    number reported confidently, which is worse than no number.
+    (c) The ownership claim ran after the `Write`, leaving a window in which the
+    handoff exists and belongs to nobody — the round-5 leak reached by timing.
+    Inverted rather than synchronized: the hook is registered on `PreToolUse` for
+    the write tools, where it claims and exits without emitting (that is the one
+    event where a hook can deny a tool call), with the `PostToolUse` pass kept as
+    a backstop. This round also added the suite's first assertions against
+    `.claude/settings.json` itself, because the claim block works on a
+    `PreToolUse` payload whether or not it is registered for that event — the
+    whole pre-claim could have been dead in production with the suite green.
+    Seven of the eighteen new assertions verified to fail against the pre-fix
+    hooks and pre-fix settings.
+
 **Still open:**
 
 Nothing. The nudge threshold is the last item that required real-session
