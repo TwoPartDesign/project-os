@@ -120,9 +120,11 @@ Two properties keep this from becoming a trap:
 - Hooks are shell commands. They cannot invoke the model, so no hook can
   author a detailed handoff itself. This is the constraint the whole design
   routes around, not one it can relax.
-- `PreCompact` receives `custom_instructions` as **input only**. A hook cannot
-  rewrite what the user typed after `/compact`; the drafted message can only be
-  *added* alongside it via `additionalContext`.
+- ~~`PreCompact` receives `custom_instructions` as **input only**.~~
+  **Retracted** — verified false against the shipped CLI. A `PreCompact` hook's
+  stdout becomes `newCustomInstructions` and is appended to the user's own
+  instructions for that compaction. The drafted message has a native channel;
+  see design § CLI Verification.
 - The gate must never be able to permanently prevent compaction. A session
   pinned at its context limit with compaction blocked has no path forward.
 - `.claude/rules/bash.md` — no pipes, no `$()` in commands, no bare `cd`,

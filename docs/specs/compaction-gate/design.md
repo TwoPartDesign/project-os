@@ -56,9 +56,10 @@ nothing outside `.claude/`.
 
 The drafted compact message needs no new document type. `/tools:handoff` already
 specifies a `compact_instruction` field (`handoff.md:74-78`); it is simply never
-read by anything. The gate reads it from the freshest handoff and emits it as
-`hookSpecificOutput.additionalContext`, which is the only channel available —
-`custom_instructions` arrives as hook *input* and cannot be rewritten.
+read by anything. The gate reads it from the freshest handoff and emits it on
+stdout, which the runtime turns into `newCustomInstructions` and merges into the
+compaction's own custom instructions — a first-class native channel, not the
+`additionalContext` workaround an earlier draft assumed. See CLI Verification.
 
 ## Alternatives Considered
 
@@ -78,7 +79,8 @@ read by anything. The gate reads it from the freshest handoff and emits it as
 |------------|------|----------|-------|
 | Hooks cannot invoke the model | HARD | ✅ | Hook config is `{"type":"command"}` shell invocation (`settings.json:176-181`) |
 | `PreCompact` can block via exit 2 | HARD | ✅ | Hooks reference exit-code table: `PreCompact \| Yes \| Blocks compaction` |
-| `custom_instructions` is input-only | HARD | ✅ | Listed as a `PreCompact` *input* field; no documented output field overrides it |
+| ~~`custom_instructions` is input-only~~ | — | ❌ | **Retracted.** A `PreCompact` hook's stdout becomes `newCustomInstructions` and is merged into the compaction's instructions. See CLI Verification |
+| Manual `/compact` cannot be gated | HARD | ✅ | The `/compact` path never reads `blockedBy` — blocking is not merely undesirable there, it is impossible. See CLI Verification |
 | Gate must never permanently block | HARD | ✅ | Design constraint; enforced by the one-shot state file |
 | No pipes / `$()` / bare `cd` in hook-instructed commands | HARD | ✅ | `.claude/rules/bash.md`; existing hooks comply (`pre-compact.sh:56-61` uses awk-reads-file, not a pipe) |
 | Auto-checkpoint must not regress | HARD | ✅ | `pre-compact.sh:137-171` is the current behavior; retained on all paths |
@@ -97,7 +99,9 @@ read by anything. The gate reads it from the freshest handoff and emits it as
 | `{"decision":"block","reason":...}` also blocks, showing the reason to the *user* | UNVERIFIED | Appears in narrative docs but not in the exit-code table. **Not load-bearing** — design uses exit 2, because the actor who must respond is Claude, not the user |
 | Setting `CLAUDE_CODE_AUTO_COMPACT_WINDOW` enables the proactive-compaction path | VERIFIED | env-vars: the override "only causes earlier compaction when Claude Code compacts proactively: when `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is set, in cloud sessions, and on Sonnet 4.6 and Opus 4.6..." |
 | Window value is capped at the model's real context window | VERIFIED | env-vars: "The value is capped at the model's actual context window" |
-| A blocked auto-compaction is retried later rather than abandoned for the session | UNVERIFIED | **Load-bearing.** If a block permanently disables auto-compaction for the session, the escape hatch never runs and the session drifts to its hard limit. Mitigation is in Risks; must be confirmed empirically in build |
+| A blocked auto-compaction is retried later rather than abandoned for the session | **VERIFIED** | The reactive path returns `{result:null, hookBlocked:true}` and the runner logs `" compaction blocked by PreCompact hook; continuing uncompacted"`. Nothing latches the block off; the next trigger re-evaluates, so the escape hatch runs. See CLI Verification |
+| The block reason reaches *Claude*, not just the user | UNVERIFIED | **Now the load-bearing one.** A blocked hook's stdout goes to `blockedBy`, which is logged and surfaced as a `compaction-blocked-by-hook` user warning. Whether it also enters Claude's context is not established, and the gate's whole mechanism depends on Claude reading it. See Risks |
+| Hook stdout that is JSON is parsed rather than passed through verbatim | UNVERIFIED | The runtime validates hook JSON (`"Hook JSON output had unrecognized keys (ignored)"`), but whether a JSON-printing hook contributes its raw text to `newCustomInstructions` was not pinned down. Decides whether the gate prints JSON or bare text |
 | `system-map.ts check` exits 3 on drift and writes nothing without `--heal` | VERIFIED | `scripts/system-map.ts:575-591` — `writeArtifacts` is reached only on the `--heal` branch |
 | `session_id` is present in `PreCompact` stdin JSON | VERIFIED | Documented common input field; `pre-compact.sh:3` already documents receiving it |
 | `.claude/sessions/` may not exist | VERIFIED | Absent in this checkout; `pre-compact.sh:22` `find`s it before `mkdir -p` at `:34`, tolerated via `2>/dev/null` |
@@ -230,6 +234,88 @@ YAML dependency.
 None. `find`, `awk`, `tr`, `git`, and optional `node` are all already required
 by shipped hooks.
 
+## CLI Verification
+
+The retry question could not be settled from documentation — the hooks reference
+states only that `PreCompact` blocks, and says nothing about what happens next.
+It was settled by reading the shipped executable
+(`/opt/claude-code/bin/claude`, 275 MB, bundle strings searchable in place).
+Findings below are quoted from that binary and are version-specific; re-check
+them after a CLI upgrade.
+
+**The PreCompact handler.** Reduced from the bundle:
+
+```js
+async function MEe(e, t, r = Hm) {
+  let n = { ...Kf(void 0), hook_event_name: "PreCompact",
+            trigger: e.trigger, custom_instructions: e.customInstructions },
+      o = await EM({ hookInput: n, matchQuery: e.trigger, signal: t, timeoutMs: r });
+  if (o.length === 0) return {};
+  let i = o.filter((l) => l.succeeded && !l.blocked && l.output.trim().length > 0)
+           .map((l) => l.output.trim());
+  // ... builds `s` = "PreCompact [cmd] completed successfully: ..." display lines
+  let a = o.filter((l) => l.blocked);
+  return {
+    newCustomInstructions: i.length > 0 ? i.join("\n\n") : void 0,
+    userDisplayMessage:    s.length > 0 ? s.join("\n")   : void 0,
+    ...a.length > 0 && { blockedBy: a.map((l) => { let c = l.output.trim();
+        return `[${l.command}]${c ? `: ${c}` : ""}` }).join("\n") }
+  }
+}
+```
+
+**1. A block does not end compaction for the session.** Two distinct auto paths
+consume `blockedBy`, and neither latches anything off:
+
+- *Precomputed* (proactive): `if (I.blockedBy) { w("Precomputed compact blocked
+  by PreCompact hook: " + I.blockedBy), YAo(a, d, null); return }` — abandons
+  that speculative arm only. The re-arm counter is not incremented on this path.
+- *Reactive*: `if (_.blockedBy) return { result: null, hookBlocked: true }`, and
+  the caller logs `" compaction blocked by PreCompact hook; continuing
+  uncompacted"`.
+
+"Continuing uncompacted" is the answer: the turn proceeds, and the next
+compaction trigger re-evaluates the hook. **The escape hatch will run.** The
+design's blocking mechanism is sound as written.
+
+**2. There are two auto-compaction triggers, and the hook cannot tell them
+apart.** Both call `MEe({trigger: "auto", ...})`, so `trigger` is `"auto"` for
+the proactive arm and the reactive one alike. Blocking the proactive arm is
+cheap; blocking the reactive one means continuing uncompacted toward the hard
+limit, where the bundle's `"Conversation too long"` path lives. Since the hook
+cannot distinguish them, the one-shot escape hatch is not merely prudent — it is
+the only thing standing between a blocked reactive compaction and that error.
+
+**3. Manual `/compact` cannot be blocked at all.** The `/compact` command path
+(`Il_`) and the shared compaction routine (`Pko`) call `MEe` and read only
+`newCustomInstructions`; neither inspects `blockedBy`. The design's choice not
+to gate manual compaction is therefore forced, not merely preferred.
+
+**4. Hook stdout becomes the compaction's custom instructions.** This retracts a
+stated HARD constraint. Successful non-blocked hooks' stdout is joined into
+`newCustomInstructions`, and every caller merges it with the user's own via
+
+```js
+function MLo(e, t) { if (!t) return e || void 0; if (!e) return t;
+                     return `${e}\n\n${t}` }
+```
+
+so the user's instructions come first and the hook's are appended. The drafted
+compact message therefore has a purpose-built native channel; `additionalContext`
+is not needed for it.
+
+**5. Blocking and instructing are mutually exclusive in one invocation.** The
+`!l.blocked` filter excludes a blocking hook's output from
+`newCustomInstructions` — it goes to `blockedBy` instead. This suits the
+two-phase design exactly: the blocking pass carries the reason, the passing pass
+carries the instruction. It also means the gate must never try to do both at
+once.
+
+**6. Configuring any `PreCompact` hook disables precompute reuse.** In `Rl_`:
+`if (t) return { hit: !1, reuse: "miss_hook" }`, where `t` is the hook result.
+Project OS already ships a `PreCompact` hook, so this cost is already being
+paid — worth knowing, not a reason to change course.
+
 ## Testing Strategy
 
 Extends `tests/hook-smoke.sh`, which already drives hooks by feeding stdin JSON
@@ -289,7 +375,9 @@ unknown — that a blocked auto-compaction is retried rather than abandoned.
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| A blocked auto-compaction is not retried, so the escape hatch never runs and the session drifts to its hard limit | Medium | High | Verify empirically before merge. If confirmed, downgrade the first gate failure to a non-blocking `systemMessage` + `additionalContext` nudge and keep exit 2 only where a retry is observed |
+| ~~A blocked auto-compaction is not retried~~ | — | — | **Closed by CLI Verification.** The runner continues uncompacted and re-evaluates on the next trigger; nothing latches the block off |
+| The block reason never reaches Claude, so nothing acts on it and the gate is pure friction | Medium | High | Now the top open risk. A blocked hook's output lands in `blockedBy` → logged + user warning; its path into Claude's context is unconfirmed. Settle this in the same spike, before any implementation. If it does not reach Claude, the gate must deliver the instruction some other way — a `systemMessage` the user relays, or a non-blocking design |
+| A blocked *reactive* compaction continues uncompacted into the hard context limit | Medium | High | The hook cannot distinguish reactive from proactive (`trigger` is `"auto"` for both). The one-shot escape hatch is the only mitigation, which raises its priority from prudent to required |
 | Session wedged by repeated blocking | Low | Critical | One-shot state file; `passed` is written *before* exit on the escape-hatch path so a crash mid-hook cannot re-arm the block |
 | `CLAUDE_CODE_AUTO_COMPACT_WINDOW` decouples the status line from the real trigger | Medium | Low | Set it to `200000`, equal to the standard model window, so the two agree. Document that extended-context (1M) projects must raise it or accept the skew |
 | Drift check exceeds the hook timeout | Low | Low | Read-only input hashing, no `build()`. Failure drops the caveat and is never a block reason |
@@ -336,11 +424,17 @@ changed to `git status --porcelain` above, but the checkpoint's `modified_files`
 (`pre-compact.sh:86`) is still on the old call. Pre-existing bug, not introduced
 here; fix it in the same change so the two agree.
 
-**OPEN / MEDIUM — the load-bearing unknown is not scheduled.** "A blocked
-auto-compaction is retried" is marked UNVERIFIED and carries a High-impact risk,
-but nothing in the plan verifies it before the gate ships. It should be its own
-task, sequenced first, with the fallback design (non-blocking nudge) as its
-declared exit if the answer is no.
+**RESOLVED (review round 3) — "is a blocked auto-compaction retried?"** Verified
+against the shipped CLI: yes, the runner continues uncompacted and re-evaluates
+on the next trigger. The blocking design stands. The same pass retracted the
+`custom_instructions`-is-input-only constraint and surfaced two auto-compaction
+triggers the hook cannot distinguish. See CLI Verification.
+
+**OPEN / HIGH — does the block reason reach Claude?** Inherits the "load-bearing
+unknown" slot from the retry question. The gate depends on Claude reading the
+reason and running `/tools:handoff`; what is established is only that the reason
+reaches `blockedBy`, a log line, and a user-facing warning. Sequence this first;
+its answer decides whether the gate can work as designed.
 
 **OPEN / LOW — 30 minutes is asserted, not derived.** The freshness bound is borrowed
 from the checkpoint debounce, which was chosen for a different purpose. It is a
