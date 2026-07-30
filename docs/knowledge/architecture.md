@@ -46,7 +46,7 @@ User ──→ Workflow Commands ──→ Orchestrator ──→ Sub-agents (is
 | Hook | Purpose |
 |------|---------|
 | `_common.sh` | Shared utilities: path resolution, validation, JSON extraction |
-| `compact-suggest.sh` | PostToolUse — when the transcript's newest `usage` record puts context past `NUDGE_PCT` of the window (default 60%), inject `additionalContext` telling Claude to run `/tools:handoff` with a `compact_instruction`; one nudge per compaction cycle |
+| `compact-suggest.sh` | PostToolUse — when the transcript's newest `usage` record puts context past `NUDGE_PCT` of the window (default 60%), inject `additionalContext` telling Claude to run `/tools:handoff` with a `compact_instruction`; one nudge per compaction cycle. Also records handoff authorship: on every call, a write to `.claude/sessions/handoff-*.yaml` is stamped into `.compact-handoff-<session_id>` so `pre-compact.sh` can tell this session's handoff from a concurrent session's |
 | `log-activity.sh` | Append structured JSONL events to the activity log |
 | `notify-phase-change.sh` | Terminal/desktop notification on phase transitions |
 | `output-index.sh` | PostToolUse advisory — index large tool outputs, hint via additionalContext |
@@ -153,13 +153,24 @@ stop, so the chain steers it instead — three stages, two of them hooks:
    `.claude/logs/.compact-nudged-<session_id>`. Transcript-byte growth
    (`PROJECT_OS_COMPACT_NUDGE_BYTES`) is a fallback for when no `usage` record
    parses — it is not the primary signal, because the transcript retains discarded
-   history and so diverges from real context after every compaction.
+   history and so diverges from real context after every compaction. Independently
+   of the nudge — before the once-per-cycle exit, because the handoff is written
+   *after* the nudge asks for it — every call checks `tool_input.file_path` against
+   `*/.claude/sessions/handoff-*.yaml` and records a match in
+   `.claude/logs/.compact-handoff-<session_id>`. This hook's payload is the only
+   place the session id and the written path appear together, so it is the only
+   component that can attribute a handoff to its author.
 2. **Claude runs `/tools:handoff`** — the only stage that can author decisions and
    rationale, because only the model has them. The hooks cannot.
-3. **`pre-compact.sh` (PreCompact, matcher `*`)** — reads the newest
-   `handoff-*.yaml` written since the last compaction (`-newer
-   .claude/logs/.compact-cycle-<session_id>`; a 30-minute window bootstraps a
-   session's first compaction), extracts its `compact_instruction` block scalar,
+3. **`pre-compact.sh` (PreCompact, matcher `*`)** — reads this session's handoff:
+   the file named by `.compact-handoff-<session_id>` when it is newer than the
+   cycle marker, else the newest *unclaimed* `handoff-*.yaml` written since the
+   last compaction (`-newer .claude/logs/.compact-cycle-<session_id>`; a 30-minute
+   window bootstraps a session's first compaction). "Unclaimed" means no *other*
+   session's `.compact-handoff-*` record names it — that keeps the glob fallback
+   from handing one session's instruction to another session's summarizer, while
+   still forwarding a handoff written by some means this hook chain cannot see.
+   It then extracts the `compact_instruction` block scalar,
    and prints it on **stdout**. The runtime collects PreCompact stdout into
    `newCustomInstructions` and merges it into the compaction's custom instructions,
    so this text steers what the summarizer keeps. It also runs `system-map.ts

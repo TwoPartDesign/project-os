@@ -1,6 +1,6 @@
 # Design: Compaction Handoff Chain
 Created: 2026-07-29
-Revised: 2026-07-30 (round 5 — byte proxy replaced by a measured token count; freshness scoped to the compaction cycle)
+Revised: 2026-07-30 (round 6 — handoff discovery correlated with the authoring session)
 Status: IMPLEMENTED
 Brief: ./brief.md
 
@@ -140,13 +140,17 @@ that can stall a session.
      → touch .compact-nudged-<sid>
      → additionalContext: "context is at N%; run /tools:handoff now,
                            with a compact_instruction"
+   independently of all of the above, on every call:
+   tool_input.file_path matches */.claude/sessions/handoff-*.yaml
+     → record it in .compact-handoff-<sid>   (who wrote which handoff)
 
 2. The model writes .claude/sessions/handoff-<ts>.yaml
    (the one step no hook can perform)
 
 3. PreCompact — pre-compact.sh               (matcher "*", auto and manual)
-     → newest handoff-*.yaml, -newer .compact-cycle-<sid>, -type f,
-       resolve_project_path                  (BEFORE the marker is reset)
+     → .compact-handoff-<sid> if it names a file newer than the cycle marker,
+       else newest unclaimed handoff-*.yaml, -newer .compact-cycle-<sid>,
+       -type f, resolve_project_path         (BEFORE the marker is reset)
      → touch .compact-cycle-<sid>            (open the next cycle)
      → reset .compact-base-<sid> to the current transcript size
      → rm .compact-nudged-<sid>              (re-arm stage 1 for the next cycle)
@@ -243,6 +247,44 @@ GNU-only and absent on the platforms this must survive.
 Symlinks are excluded (`-type f`) and the winning path passes through
 `resolve_project_path()` before being read, so a handoff symlinked outside the
 project cannot pipe external file content into the compaction instructions.
+
+### Which session wrote it (round 6)
+
+Timestamps cannot tell two sessions apart. Handoff filenames carry no session
+identifier, so two Claude sessions working in one checkout write into the same
+directory and the freshness rule above accepts both: the newest file wins even
+when the other session wrote it, and this session's compaction gets steered by
+instructions meant for the other one. Raised in review on the PR; reproduced
+against the round-5 hook, which forwarded the foreign instruction.
+
+`compact-suggest.sh` is the only place the two facts meet — its PostToolUse
+payload carries `session_id` and `tool_input.file_path` together. It records the
+path of any handoff it observes being written to `.compact-handoff-<sid>`, and
+`pre-compact.sh` consults that record before the glob.
+
+Three details:
+
+- **The record is written before the once-per-cycle exit.** The handoff is
+  written *in response to* a nudge, so by then `.compact-nudged-<sid>` exists.
+  Recording after that early exit would miss every real handoff.
+- **Ownership does not override freshness.** A handoff this session wrote before
+  the last compaction has already been summarized away; the record is used only
+  when it names a file newer than the cycle marker.
+- **The glob fallback excludes handoffs other sessions claimed.** Every session
+  in the checkout writes its record into the same log directory, so a foreign
+  handoff is identifiable even when this session wrote none. Claims are matched
+  as whole newline-framed lines, so a same-named file under a longer directory
+  prefix cannot suppress the local one.
+
+The glob is kept rather than replaced: a handoff nobody claimed — written before
+this feature existed, or by a means the PostToolUse hook cannot observe — is
+forwarded exactly as before. Removing it would make the whole chain depend on
+`compact-suggest.sh` being registered, turning a missing hook registration into
+silent total failure instead of a narrower one.
+
+Residual: a handoff written by a tool call the hook cannot see (a `Bash`
+heredoc, say) is unattributable and still reachable by the fallback. That is the
+pre-existing behaviour, not a new exposure.
 `tests/compaction-hooks.sh` covers both an escaping symlink and an in-scope one,
 per `.claude/rules/tests.md` — the in-scope case is there so that a future
 relaxation to `-type f -o -type l` fails loudly.
@@ -310,12 +352,12 @@ directly — no pipes, no `$()`-wrapped programs, no YAML dependency.
 | File | Change |
 |---|---|
 | `.claude/settings.json` | `CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000"` added; `PreCompact` matcher `"auto"` → `"*"` so manual `/compact` also checkpoints and forwards its instruction |
-| `.claude/hooks/pre-compact.sh` | Rewritten: stdout contract, handoff discovery + extraction, read-only map check, cycle marker + nudge re-arm; checkpoint retained as the debounced tail. ROADMAP marker patterns fixed; feature derivation fixed (round 5) |
-| `.claude/hooks/compact-suggest.sh` | Rewritten: measured context-token threshold with byte growth as fallback, one nudge per compaction cycle, `additionalContext` payload |
+| `.claude/hooks/pre-compact.sh` | Rewritten: stdout contract, handoff discovery + extraction, read-only map check, cycle marker + nudge re-arm; checkpoint retained as the debounced tail. ROADMAP marker patterns fixed; feature derivation fixed (round 5); ownership record preferred over the glob, foreign claims excluded from it (round 6) |
+| `.claude/hooks/compact-suggest.sh` | Rewritten: measured context-token threshold with byte growth as fallback, one nudge per compaction cycle, `additionalContext` payload; records handoff authorship ahead of the cycle exit (round 6) |
 | `.claude/hooks/_common.sh` | Added `session_id_from_json()`, `json_string_field()` |
-| `.claude/hooks/session-end-cleanup.sh` | Removes `.compact-base-*` / `.compact-nudged-*` / `.compact-cycle-*` for the session; 7-day prune of all three |
+| `.claude/hooks/session-end-cleanup.sh` | Removes `.compact-base-*` / `.compact-nudged-*` / `.compact-cycle-*` / `.compact-handoff-*` for the session; 7-day prune of all four |
 | `.claude/commands/tools/handoff.md` | `compact_instruction` mandatory; new "How `compact_instruction` is used" section; note that auto-checkpoints cannot record rationale |
-| `tests/compaction-hooks.sh` | New — 72 assertions across sandboxed project roots |
+| `tests/compaction-hooks.sh` | New — 87 assertions across sandboxed project roots |
 | `docs/knowledge/architecture.md` | Both hook rows updated; new "Compaction Handoff Chain" subsection |
 | `docs/knowledge/decisions.md` | ADR: steer the summarizer, do not block compaction |
 | `docs/knowledge/patterns.md` | "Verify the Channel Before Designing the Gate"; "Test Behaviour in a Copied Project Root" |
@@ -419,7 +461,7 @@ was already being paid — worth knowing, not a reason to change course.
 
 ## Testing Strategy
 
-`tests/compaction-hooks.sh` — 72 assertions, all passing. Per
+`tests/compaction-hooks.sh` — 87 assertions, all passing. Per
 `.claude/rules/tests.md` each case builds its own state and asserts specific
 values, not truthiness.
 
@@ -459,6 +501,16 @@ Groups:
   minutes ago but *before* the cycle marker is ignored; discovery happens before
   the marker is reset (asserted against a pre-existing marker); an instruction
   forwarded by one compaction is not re-forwarded by the next.
+- **session ownership** — a `Write` to a handoff path records the authoring
+  session; a write to any other path records nothing; the record is written even
+  when the nudge already fired this cycle (the case that matters, since the
+  handoff always follows the nudge); a concurrent session's *newer* handoff loses
+  to this session's own; a foreign handoff is not reachable through the glob
+  fallback either, but an *unclaimed* one still is; exclusion skips to the next
+  candidate rather than abandoning the search; a claim on a path that merely ends
+  with the same filename does not suppress the local handoff; ownership does not
+  exempt a handoff from the cycle boundary; a record pointing outside the project
+  is rejected by the same containment guard as the glob result.
 - **containment** — a handoff symlinked outside the project is rejected, *and* a
   symlink to an in-scope sibling is rejected too. The second case exists so a
   future switch to `-type f -o -type l` fails here.
@@ -475,7 +527,7 @@ Groups:
 - **malformed input** — empty stdin, non-JSON stdin, and a `session_id`
   containing a space all exit 0 on both hooks.
 - **session-end-cleanup** — removes this session's markers including the cycle
-  marker, leaves other sessions' intact.
+  marker and the ownership record, leaves other sessions' intact.
 
 `tests/hook-smoke.sh` still passes 15/15 — no regression.
 
@@ -595,3 +647,19 @@ section was discarded as soon as a later section without one was read, and the
 checkpoint recorded `feature: "none"`. Latent since the round-4 marker fix,
 which corrected the regex but left this. Rewritten to print at the first marker,
 which removes the state that could be lost.
+
+**RESOLVED (round 6) — handoff discovery was not correlated with the session.**
+Raised by an automated reviewer on the PR, and the first finding in this feature
+that came from outside. Every round had treated `.claude/sessions/` as belonging
+to one session; the cycle marker was session-scoped, but the handoff filenames
+it filtered are not, so two sessions in one checkout could cross their
+instructions. Reproduced against the round-5 hook before fixing: with s1 and s2
+each owning a handoff, the old hook forwarded s2's instruction to s1's
+compaction; the new one forwards s1's. Fixed by recording authorship in
+`compact-suggest.sh`, which is the only hook that sees the session id and the
+written path in the same payload.
+
+The near-miss worth recording: the obvious fix — stamp a `session_id` field into
+the handoff YAML — cannot work, because the model writing the handoff has no
+reliable way to learn its own session id. Only a hook does. Reaching for the
+hook payload instead of the document is what made the fix possible at all.

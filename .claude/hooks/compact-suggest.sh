@@ -62,6 +62,26 @@ INPUT=$(cat 2>/dev/null || true)
 SESSION_ID=$(session_id_from_json "$INPUT")
 TRANSCRIPT=$(json_string_field "$INPUT" transcript_path)
 
+# ── Record which session authored a handoff ─────────────────────────────────
+# Handoff filenames carry a timestamp but no session identifier, so two Claude
+# sessions sharing one checkout look identical to pre-compact.sh's discovery
+# glob: the newest file wins even if the other session wrote it, and this
+# session's compaction gets steered by instructions meant for the other one.
+# This hook is the only place the two facts can be correlated — it sees the
+# session id and the path being written in the same payload. pre-compact.sh
+# prefers this record and falls back to the glob when it is absent (a handoff
+# written by some other means still gets forwarded, as before).
+#
+# MUST precede the once-per-cycle exit below: the handoff is written *after*
+# the nudge, so by then the nudged marker exists and everything past it is
+# skipped.
+WRITTEN_PATH=$(json_string_field "$INPUT" file_path)
+case "$WRITTEN_PATH" in
+    */.claude/sessions/handoff-*.yaml)
+        printf '%s\n' "$WRITTEN_PATH" > "$LOG_DIR/.compact-handoff-$SESSION_ID" 2>/dev/null || true
+        ;;
+esac
+
 [ -n "$TRANSCRIPT" ] || exit 0
 [ -f "$TRANSCRIPT" ] || exit 0
 

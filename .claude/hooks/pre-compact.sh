@@ -69,11 +69,61 @@ CHECKPOINT_FILE="$SESSIONS_DIR/auto-checkpoint-$TIMESTAMP_FILE.yaml"
 # Filenames are handoff-YYYY-MM-DD-HHMM.yaml, so lexical order is chronological
 # and `sort | tail -1` is portable where find -printf is not. -type f rejects
 # symlinks; resolve_project_path enforces containment before any read.
+#
+# Timestamps alone cannot tell two sessions apart, and a second session working
+# in the same checkout writes into the same directory. compact-suggest.sh
+# records the path of any handoff THIS session wrote, so that record is
+# consulted first; the glob remains for handoffs written by other means. Both
+# paths obey the same freshness rule — ownership does not license forwarding a
+# handoff this session wrote before the previous compaction.
 CYCLE_FILE="$LOG_DIR/.compact-cycle-$SESSION_ID"
-if [ -f "$CYCLE_FILE" ]; then
-    HANDOFF=$(find "$SESSIONS_DIR" -maxdepth 1 -type f -name 'handoff-*.yaml' -newer "$CYCLE_FILE" 2>/dev/null | sort | tail -1 || true)
-else
-    HANDOFF=$(find "$SESSIONS_DIR" -maxdepth 1 -type f -name 'handoff-*.yaml' -mmin -"$HANDOFF_MAX_AGE_MIN" 2>/dev/null | sort | tail -1 || true)
+OWNED_FILE="$LOG_DIR/.compact-handoff-$SESSION_ID"
+
+HANDOFF=""
+if [ -f "$OWNED_FILE" ]; then
+    OWNED=$(head -n 1 "$OWNED_FILE" 2>/dev/null || true)
+    if [ -n "$OWNED" ] && [ -f "$OWNED" ]; then
+        if [ ! -f "$CYCLE_FILE" ] || [ "$OWNED" -nt "$CYCLE_FILE" ]; then
+            HANDOFF="$OWNED"
+        fi
+    fi
+fi
+
+if [ -z "$HANDOFF" ]; then
+    if [ -f "$CYCLE_FILE" ]; then
+        CANDIDATES=$(find "$SESSIONS_DIR" -maxdepth 1 -type f -name 'handoff-*.yaml' -newer "$CYCLE_FILE" 2>/dev/null | sort || true)
+    else
+        CANDIDATES=$(find "$SESSIONS_DIR" -maxdepth 1 -type f -name 'handoff-*.yaml' -mmin -"$HANDOFF_MAX_AGE_MIN" 2>/dev/null | sort || true)
+    fi
+
+    # Every session in this checkout writes its ownership record into the same
+    # log directory, so a handoff another session claimed is identifiable even
+    # from here. Skipping those makes the fallback safe in the case that
+    # motivated ownership tracking; what remains unattributed is a handoff no
+    # session claimed, which is the pre-existing behaviour.
+    #
+    # CLAIMED is newline-framed on both sides and matched with the newlines
+    # included, so `/s/handoff-1.yaml` cannot be satisfied by a claim on
+    # `/s/handoff-1.yaml` written under a longer directory prefix.
+    CLAIMED=$'\n'
+    for OWNERSHIP_RECORD in "$LOG_DIR"/.compact-handoff-*; do
+        [ -f "$OWNERSHIP_RECORD" ] || continue
+        case "$OWNERSHIP_RECORD" in
+            */".compact-handoff-$SESSION_ID") continue ;;
+        esac
+        OTHER=$(head -n 1 "$OWNERSHIP_RECORD" 2>/dev/null || true)
+        [ -n "$OTHER" ] || continue
+        CLAIMED="$CLAIMED$OTHER"$'\n'
+    done
+
+    # Ascending order, so the last one accepted is the newest unclaimed handoff.
+    while IFS= read -r CANDIDATE; do
+        [ -n "$CANDIDATE" ] || continue
+        case "$CLAIMED" in
+            *$'\n'"$CANDIDATE"$'\n'*) continue ;;
+        esac
+        HANDOFF="$CANDIDATE"
+    done <<< "$CANDIDATES"
 fi
 if [ -n "$HANDOFF" ]; then
     HANDOFF=$(resolve_project_path "$HANDOFF") || HANDOFF=""

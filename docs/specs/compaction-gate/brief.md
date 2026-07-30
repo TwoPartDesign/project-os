@@ -293,6 +293,16 @@ and the instruction channel made it unnecessary for verification.
    of the declared window, derived as `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE − 15`.
    Bytes remain only as a fallback for a transcript format change.
 
+8. ~~Handoff discovery globbed `.claude/sessions/` project-wide with no reference
+   to the session id, so two sessions sharing a checkout could steer each other's
+   compaction.~~ **Resolved (round 6): authorship is recorded, not declared.**
+   Raised in PR review and reproduced against the round-5 hook. The handoff
+   document cannot carry its own session id — the model writing it has no
+   reliable way to learn one — but `compact-suggest.sh`'s PostToolUse payload
+   carries `session_id` and `tool_input.file_path` together, so it stamps
+   `.compact-handoff-<session_id>`. `pre-compact.sh` prefers that record and
+   falls back to the newest handoff *no other session has claimed*.
+
 **Still open:**
 
 Nothing. The nudge threshold is the last item that required real-session
