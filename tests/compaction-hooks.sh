@@ -117,8 +117,55 @@ write_handoff() {
 }
 
 # make_transcript <path> <bytes>
+# A transcript with no parseable usage record, so compact-suggest.sh falls back
+# to byte growth. Used by the fallback tests.
 make_transcript() {
     dd if=/dev/zero bs=1 count="$2" 2>/dev/null | tr '\0' 'x' > "$1"
+}
+
+# usage_line <input_tokens> <cache_read> <cache_creation>
+# One assistant record carrying the usage object the hook sums.
+usage_line() {
+    printf '{"type":"assistant","isSidechain":false,"message":{"role":"assistant","usage":{"input_tokens":%s,"cache_read_input_tokens":%s,"cache_creation_input_tokens":%s,"output_tokens":42}}}\n' \
+        "$1" "$2" "$3"
+}
+
+# sidechain_usage_line <input_tokens>
+# A sub-agent turn. It lands in the same transcript and must never be mistaken
+# for the main thread's context size.
+sidechain_usage_line() {
+    printf '{"type":"assistant","isSidechain":true,"message":{"role":"assistant","usage":{"input_tokens":%s,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":42}}}\n' \
+        "$1"
+}
+
+# make_token_transcript <path> <input_tokens> <cache_read> <cache_creation>
+make_token_transcript() {
+    printf '{"type":"user","message":{"role":"user","content":"hello"}}\n' > "$1"
+    usage_line "$2" "$3" "$4" >> "$1"
+}
+
+# make_padded_token_transcript <path> <pad_bytes> <input_tokens>
+# Large on disk, small in context — the shape that exposed the byte proxy as
+# the wrong measurement. The pad is one long line with no "usage" key in it.
+make_padded_token_transcript() {
+    dd if=/dev/zero bs=1 count="$2" 2>/dev/null | tr '\0' 'x' > "$1"
+    printf '\n' >> "$1"
+    usage_line "$3" 0 0 >> "$1"
+}
+
+# run_suggest <sandbox> <transcript> [VAR=VAL ...]
+# Runs compact-suggest.sh with a hermetic environment: the real session exports
+# CLAUDE_CODE_AUTO_COMPACT_WINDOW and CLAUDE_AUTOCOMPACT_PCT_OVERRIDE via
+# settings.json, and inheriting those would make these assertions depend on the
+# machine running them. Trailing VAR=VAL arguments override the baseline.
+run_suggest() {
+    local sb="$1" transcript="$2"
+    shift 2
+    printf '{"session_id":"s1","transcript_path":"%s"}' "$transcript" \
+        | env -u PROJECT_OS_COMPACT_NUDGE_PCT -u PROJECT_OS_COMPACT_NUDGE_BYTES \
+              CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 \
+              CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75 \
+              "$@" bash "$sb/.claude/hooks/compact-suggest.sh" 2>/dev/null
 }
 
 echo "=== Compaction Hook Behaviour ==="
@@ -183,6 +230,103 @@ assert_eq "sessionId_traversal_wroteNothingOutsideLogDir" "$ESCAPED" ""
 
 echo ""
 
+# ── Context signal (token measurement) ──────────────────────────────────────
+# The nudge threshold is a percentage of the same window auto-compaction
+# measures against, read from the transcript's usage records. These assert the
+# real number is used — the byte path below is only a fallback.
+echo "compact-suggest.sh context signal:"
+
+# context_atNudgeThreshold_nudgesWithMeasuredPercentage
+# 130000 / 200000 = 65%; the derived nudge point is 75 - 15 = 60%.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 130000 0 0
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
+assert_contains "context_atNudgeThreshold_nudges" "$OUT" '"hookEventName":"PostToolUse"'
+assert_contains "context_nudge_reportsMeasuredPercentage" \
+    "$OUT" "Context is at 65% of the 200000-token window"
+assert_contains "context_nudge_reportsCompactionThreshold" "$OUT" "auto-compaction fires at 75%"
+
+# context_belowNudgeThreshold_staysSilent — 100000 / 200000 = 50%, under 60%.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 100000 0 0
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
+assert_eq "context_belowNudgeThreshold_staysSilent" "$OUT" ""
+
+# context_cacheTokensCountedTowardTotal
+# input alone is 1000 (0%); with the two cache fields it is 130000 (65%). The
+# cache fields carry nearly the whole context on a warm session, so omitting
+# them would read as an almost-empty window.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 120000 9000
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
+assert_contains "context_cacheTokensCountedTowardTotal" \
+    "$OUT" "Context is at 65% of the 200000-token window"
+
+# context_compactPctOverride_movesNudgePointWithIt
+# At a 95% compaction threshold the nudge point derives to 80%, so 65% is quiet.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 130000 0 0
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl" CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=95)
+assert_eq "context_compactPctOverride_movesNudgePointWithIt" "$OUT" ""
+
+# context_explicitNudgePct_overridesDerivation — 50% nudges when the floor is 40.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 100000 0 0
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl" PROJECT_OS_COMPACT_NUDGE_PCT=40)
+assert_contains "context_explicitNudgePct_overridesDerivation" \
+    "$OUT" "Context is at 50% of the 200000-token window"
+
+# context_largerWindow_lowersMeasuredPercentage
+# The same 130000 tokens are 65% of 200k but 32% of 400k — under the threshold.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 130000 0 0
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl" CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000)
+assert_eq "context_largerWindow_lowersMeasuredPercentage" "$OUT" ""
+
+# context_sidechainRecord_notMistakenForMainThread
+# A sub-agent turn writes its own usage into the same transcript. Here the main
+# thread is at 20% and the sub-agent at 95%; reading the newest record blindly
+# would nudge on the sub-agent's number.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 40000 0 0
+sidechain_usage_line 190000 >> "$SB/transcript.jsonl"
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
+assert_eq "context_sidechainRecord_notMistakenForMainThread" "$OUT" ""
+
+# context_sidechainAfterMainThread_mainThreadStillMeasured
+# The converse: skipping sidechains must not also discard the main-thread record
+# that precedes them.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 130000 0 0
+sidechain_usage_line 500 >> "$SB/transcript.jsonl"
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
+assert_contains "context_sidechainAfterMainThread_mainThreadStillMeasured" \
+    "$OUT" "Context is at 65% of the 200000-token window"
+
+# context_largeTranscriptSmallContext_staysSilent
+# The regression that motivated the token signal. The transcript keeps every
+# discarded turn, so after a compaction it is large while the context is small.
+# 400 KB of transcript against 20% context must not nudge, even with the byte
+# fallback threshold set low enough to fire.
+SB="$(new_sandbox)"
+make_padded_token_transcript "$SB/transcript.jsonl" 400000 40000
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl" PROJECT_OS_COMPACT_NUDGE_BYTES=100)
+assert_eq "context_largeTranscriptSmallContext_staysSilent" "$OUT" ""
+
+# context_noUsageRecord_fallsBackToByteGrowth
+# The fallback must still fire, and must not claim a percentage it never
+# measured.
+SB="$(new_sandbox)"
+make_transcript "$SB/transcript.jsonl" 500
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl" PROJECT_OS_COMPACT_NUDGE_BYTES=100)
+assert_contains "context_noUsageRecord_fallsBackToByteGrowth" \
+    "$OUT" '"hookEventName":"PostToolUse"'
+assert_contains "context_byteFallback_usesUnmeasuredWording" \
+    "$OUT" "approaching its auto-compaction threshold"
+assert_not_contains "context_byteFallback_claimsNoPercentage" "$OUT" "Context is at"
+
+echo ""
+
 # ── pre-compact.sh ──────────────────────────────────────────────────────────
 echo "pre-compact.sh:"
 
@@ -221,13 +365,55 @@ OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_eq "forward_unfilledPlaceholder_treatedAsAbsent" "$OUT" ""
 
-# forward_staleHandoff_ignored — older than PROJECT_OS_HANDOFF_MAX_AGE_MIN
+# forward_staleHandoff_ignored — first compaction of a session, so freshness
+# falls back to the age window and a two-hour-old handoff is out of scope.
 SB="$(new_sandbox)"
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "STALE instruction"
 touch -d '2 hours ago' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_eq "forward_staleHandoff_ignored" "$OUT" ""
+
+# ── Cycle-scoped freshness ──────────────────────────────────────────────────
+# Once a cycle marker exists, "fresh" means "written since the last
+# compaction", not "written in the last 30 minutes". The wall-clock window is
+# only the bootstrap for a session's first compaction.
+
+# freshness_handoffWrittenThisCycleButOldByClock_stillForwarded
+# Three hours into a cycle, an hour-old handoff is still the one describing the
+# work being compacted. The age window alone would have discarded it.
+SB="$(new_sandbox)"
+touch -d '3 hours ago' "$SB/.claude/logs/.compact-cycle-s1"
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "SLOW SESSION instruction"
+touch -d '1 hour ago' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "freshness_handoffWrittenThisCycleButOldByClock_stillForwarded" \
+    "$OUT" "SLOW SESSION instruction"
+
+# freshness_handoffPredatingCycleMarker_ignoredEvenWhenRecent
+# Written five minutes ago — well inside the age window — but before the last
+# compaction, so it describes context that has already been summarized away.
+SB="$(new_sandbox)"
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "PREVIOUS CYCLE instruction"
+touch -d '5 minutes ago' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml"
+touch "$SB/.claude/logs/.compact-cycle-s1"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_not_contains "freshness_handoffPredatingCycleMarker_ignoredEvenWhenRecent" \
+    "$OUT" "PREVIOUS CYCLE instruction"
+
+# freshness_cycleMarkerReadBeforeItIsReset
+# The marker is touched by this same hook. If that happened before discovery,
+# every handoff would look older than the current cycle and nothing would ever
+# be forwarded. Asserted with a marker that already exists, so the reset is a
+# real overwrite rather than a first write.
+SB="$(new_sandbox)"
+touch -d '1 hour ago' "$SB/.claude/logs/.compact-cycle-s1"
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "ORDERING instruction"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "freshness_cycleMarkerReadBeforeItIsReset" "$OUT" "ORDERING instruction"
 
 # forward_noHandoff_cleanMap_printsNothing
 SB="$(new_sandbox)"
@@ -292,6 +478,7 @@ printf '0\n' > "$SB/.claude/logs/.compact-base-s1"
 printf '{"session_id":"s1","trigger":"auto","transcript_path":"%s"}' "$SB/transcript.jsonl" \
     | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
 assert_file_absent "cycle_preCompact_clearsNudgedMarker" "$SB/.claude/logs/.compact-nudged-s1"
+assert_file_exists "cycle_preCompact_opensNewCycleMarker" "$SB/.claude/logs/.compact-cycle-s1"
 NEW_BASE=$(tr -cd '0-9' < "$SB/.claude/logs/.compact-base-s1")
 assert_eq "cycle_preCompact_resetsBaselineToCurrentSize" "$NEW_BASE" "500"
 # Same transcript, same size: growth since the reset is 0, so no re-nudge.
@@ -303,6 +490,19 @@ make_transcript "$SB/transcript.jsonl" 900
 OUT=$(printf '{"session_id":"s1","transcript_path":"%s"}' "$SB/transcript.jsonl" \
     | PROJECT_OS_COMPACT_NUDGE_BYTES=100 bash "$SB/.claude/hooks/compact-suggest.sh" 2>/dev/null)
 assert_contains "cycle_afterReset_newGrowth_nudgesAgain" "$OUT" '"hookEventName":"PostToolUse"'
+
+# cycle_handoffConsumedOnce_notReforwardedNextCompaction
+# The marker the first compaction opens must sit after the handoff it just
+# read, or the same instruction would be replayed into every later compaction.
+SB="$(new_sandbox)"
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "ONE SHOT instruction"
+FIRST=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "cycle_firstCompaction_forwardsHandoff" "$FIRST" "ONE SHOT instruction"
+SECOND=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_not_contains "cycle_handoffConsumedOnce_notReforwardedNextCompaction" \
+    "$SECOND" "ONE SHOT instruction"
 
 echo ""
 
@@ -324,6 +524,67 @@ if [ -n "$CP" ]; then
         "$BODY" "No fresh handoff was written before this compaction"
 else
     bad "checkpoint_noRecentCheckpoint_writesFile — no auto-checkpoint-*.yaml produced"
+fi
+
+# checkpoint_inProgressTaskInEarlierFeatureSection_featureStillDerived
+# Regression: the derivation used to track a per-section "saw a task" flag and
+# print it at the next heading, but reset that flag on every `## Feature:`
+# line. A later feature section with no in-progress task therefore erased the
+# earlier one's match, and the checkpoint recorded feature "none".
+SB="$(new_sandbox)"
+{
+    printf '# ROADMAP\n\n'
+    printf '## Feature: early-feature\n\n'
+    printf -- '- [-] Task under the early feature #T901\n\n'
+    printf '## Feature: later-feature\n\n'
+    printf -- '- [ ] Not started #T902\n'
+} > "$SB/ROADMAP.md"
+printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
+CP=$(find "$SB/.claude/sessions" -name 'auto-checkpoint-*.yaml' -type f 2>/dev/null | head -1)
+if [ -n "$CP" ]; then
+    BODY=$(cat "$CP")
+    assert_contains "checkpoint_inProgressTaskInEarlierFeatureSection_featureStillDerived" \
+        "$BODY" 'feature: "early-feature"'
+    assert_not_contains "checkpoint_laterEmptyFeatureSection_doesNotEraseMatch" \
+        "$BODY" 'feature: "none"'
+else
+    bad "checkpoint_inProgressTaskInEarlierFeatureSection_featureStillDerived — no checkpoint written"
+fi
+
+# checkpoint_noInProgressTask_featureIsNone
+# The derivation must not name a feature merely because a heading exists.
+SB="$(new_sandbox)"
+printf '# ROADMAP\n\n## Feature: idle-feature\n\n- [ ] Not started #T903\n' > "$SB/ROADMAP.md"
+printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
+CP=$(find "$SB/.claude/sessions" -name 'auto-checkpoint-*.yaml' -type f 2>/dev/null | head -1)
+if [ -n "$CP" ]; then
+    assert_contains "checkpoint_noInProgressTask_featureIsNone" "$(cat "$CP")" 'feature: "none"'
+else
+    bad "checkpoint_noInProgressTask_featureIsNone — no checkpoint written"
+fi
+
+# checkpoint_reviewMarkerInEarlierSection_featureStillDerived
+# [~] (review) counts as in-progress for feature derivation, same as [-].
+SB="$(new_sandbox)"
+{
+    printf '# ROADMAP\n\n'
+    printf '## Feature: review-feature\n\n'
+    printf -- '- [~] Task in review #T904\n\n'
+    printf '## Feature: quiet-feature\n\n'
+    printf -- '- [x] Done #T905\n'
+} > "$SB/ROADMAP.md"
+printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
+CP=$(find "$SB/.claude/sessions" -name 'auto-checkpoint-*.yaml' -type f 2>/dev/null | head -1)
+if [ -n "$CP" ]; then
+    BODY=$(cat "$CP")
+    assert_contains "checkpoint_reviewMarkerInEarlierSection_featureStillDerived" \
+        "$BODY" 'feature: "review-feature"'
+    assert_contains "checkpoint_reviewMarkerOnly_phaseIsReview" "$BODY" 'phase: "review"'
+else
+    bad "checkpoint_reviewMarkerInEarlierSection_featureStillDerived — no checkpoint written"
 fi
 
 # checkpoint_recentCheckpointExists_debouncedButStillForwardsInstruction
@@ -370,18 +631,22 @@ echo "session-end-cleanup.sh:"
 
 # cleanup_sessionEnd_removesCompactionMarkers
 SB="$(new_sandbox)"
-touch "$SB/.claude/logs/.compact-base-s1" "$SB/.claude/logs/.compact-nudged-s1"
+touch "$SB/.claude/logs/.compact-base-s1" "$SB/.claude/logs/.compact-nudged-s1" \
+      "$SB/.claude/logs/.compact-cycle-s1"
 printf '{"session_id":"s1","reason":"exit"}' \
     | bash "$SB/.claude/hooks/session-end-cleanup.sh" >/dev/null 2>&1
 assert_file_absent "cleanup_sessionEnd_removesCompactBaseMarker" "$SB/.claude/logs/.compact-base-s1"
 assert_file_absent "cleanup_sessionEnd_removesCompactNudgedMarker" "$SB/.claude/logs/.compact-nudged-s1"
+assert_file_absent "cleanup_sessionEnd_removesCompactCycleMarker" "$SB/.claude/logs/.compact-cycle-s1"
 
 # cleanup_otherSessionMarkers_leftIntact
 SB="$(new_sandbox)"
-touch "$SB/.claude/logs/.compact-base-s1" "$SB/.claude/logs/.compact-base-s2"
+touch "$SB/.claude/logs/.compact-base-s1" "$SB/.claude/logs/.compact-base-s2" \
+      "$SB/.claude/logs/.compact-cycle-s2"
 printf '{"session_id":"s1","reason":"exit"}' \
     | bash "$SB/.claude/hooks/session-end-cleanup.sh" >/dev/null 2>&1
 assert_file_exists "cleanup_otherSessionMarkers_leftIntact" "$SB/.claude/logs/.compact-base-s2"
+assert_file_exists "cleanup_otherSessionCycleMarker_leftIntact" "$SB/.claude/logs/.compact-cycle-s2"
 
 echo ""
 

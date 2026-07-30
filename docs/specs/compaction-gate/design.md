@@ -1,6 +1,6 @@
 # Design: Compaction Handoff Chain
 Created: 2026-07-29
-Revised: 2026-07-30 (round 4 — rewritten from a blocking gate to a two-channel chain)
+Revised: 2026-07-30 (round 5 — byte proxy replaced by a measured token count; freshness scoped to the compaction cycle)
 Status: IMPLEMENTED
 Brief: ./brief.md
 
@@ -34,10 +34,10 @@ So the design inverts. Two channels were verified to carry text to a reader, and
 each takes the half of the requirement it can actually serve:
 
 **1. `PostToolUse` → `additionalContext` carries the requirement.** This is the
-only hook output that lands in Claude's context. `compact-suggest.sh` watches
-transcript growth since the last compaction and, once per cycle, injects a
-message telling Claude to run `/tools:handoff` *now*, while the context needed
-to write one still exists. It is a nudge with no enforcement behind it, which is
+only hook output that lands in Claude's context. `compact-suggest.sh` reads the
+current context size out of the transcript's `usage` records and, once per
+cycle, injects a message telling Claude to run `/tools:handoff` *now*, while the
+context needed to write one still exists. It is a nudge with no enforcement behind it, which is
 the honest description of what any mechanism here can be: nothing can compel a
 model turn, and the alternative — blocking — could not even inform it.
 
@@ -122,7 +122,9 @@ that can stall a session.
 | Hook stdout that is JSON is passed through verbatim on `PreCompact` | VERIFIED | `newCustomInstructions` takes `l.output.trim()` with no parse. Hence the stdout contract: **plain text only** |
 | `system-map.ts check` exits nonzero on drift and writes nothing without `--heal` | VERIFIED | `scripts/system-map.ts:575-591` — `writeArtifacts` is reached only on the `--heal` branch |
 | `session_id` and `transcript_path` are present in hook stdin JSON | VERIFIED | Documented common input fields; exercised by `tests/compaction-hooks.sh` |
-| Transcript bytes since last compaction track context growth | **ASSUMED** | Hooks receive no token count. Monotonic within a cycle and roughly proportional, but the 1.2 MB default is uncalibrated — Open Question 7 in the brief |
+| ~~Transcript bytes since last compaction track context growth~~ | **DISPROVED (round 5)** | They do not. The transcript retains every discarded turn, so it grows monotonically across compactions while the context it stands for halves at each one. Measured on a live session: 2,897,308 bytes against 106,432 context tokens — 27 bytes/token where ~4 is typical, and the nudge fired at roughly 53% of the window instead of 60% |
+| The transcript carries the real context size | VERIFIED (round 5) | Every assistant record's `message.usage` holds `input_tokens`, `cache_read_input_tokens` and `cache_creation_input_tokens`; their sum is the context fed to that turn, in the same unit as `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Probed directly against this session's transcript |
+| Sub-agent turns write `usage` records into the same transcript | VERIFIED (round 5) | They carry `isSidechain: true` and much smaller totals. Skipped, or a sub-agent's context would be read as the main thread's |
 | `.claude/sessions/` may not exist | VERIFIED | `find`ed before `mkdir -p`, tolerated via `2>/dev/null` |
 
 ## Technical Approach
@@ -131,18 +133,23 @@ that can stall a session.
 
 ```
 1. PostToolUse — compact-suggest.sh          (every tool call, matcher ".*")
-   transcript bytes − baseline ≥ NUDGE_BYTES,
+   newest non-sidechain usage record in the transcript tail:
+     tokens = input + cache_read + cache_creation
+   tokens × 100 / WINDOW ≥ NUDGE_PCT  (default 75 − 15 = 60),
    and this cycle has not nudged yet
      → touch .compact-nudged-<sid>
-     → additionalContext: "run /tools:handoff now, with a compact_instruction"
+     → additionalContext: "context is at N%; run /tools:handoff now,
+                           with a compact_instruction"
 
 2. The model writes .claude/sessions/handoff-<ts>.yaml
    (the one step no hook can perform)
 
 3. PreCompact — pre-compact.sh               (matcher "*", auto and manual)
+     → newest handoff-*.yaml, -newer .compact-cycle-<sid>, -type f,
+       resolve_project_path                  (BEFORE the marker is reset)
+     → touch .compact-cycle-<sid>            (open the next cycle)
      → reset .compact-base-<sid> to the current transcript size
      → rm .compact-nudged-<sid>              (re-arm stage 1 for the next cycle)
-     → newest handoff-*.yaml, -mmin -30, -type f, resolve_project_path
      → awk out the compact_instruction block scalar; reject the placeholder
      → system-map.ts check (read-only) → MAP_DRIFTED
      → write auto-checkpoint-<ts>.yaml unless one is <10 min old
@@ -153,20 +160,85 @@ Stage 3 always runs stage 1's re-arm and always prints, regardless of the
 checkpoint debounce. The debounce governs one thing: whether a checkpoint *file*
 is written.
 
+### The pressure signal
+
+Rounds 1–4 used transcript bytes since the last compaction as a stand-in for
+context size, on the stated premise that hooks receive no token count. That
+premise was wrong. Every assistant record in the transcript JSONL carries a
+`message.usage` object, and
+
+```
+input_tokens + cache_read_input_tokens + cache_creation_input_tokens
+```
+
+is the context that was actually fed to the model on that turn — the same unit
+as `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, so no conversion and no calibration.
+
+Bytes were not merely uncalibrated, they measured the wrong quantity. The
+transcript is append-only and retains every discarded turn, so it keeps growing
+after a compaction while the context it stands for has just halved. The
+divergence widens with every cycle. Measured on the session that built this
+feature: 2,897,308 bytes of transcript against 106,432 tokens of context — 27
+bytes per token where ~4 is typical, and the nudge fired at roughly 53% of the
+window rather than the intended 60%.
+
+Three details in the implementation:
+
+- **Only the tail is read.** This runs on every tool call; `tail -n 60` seeks
+  from the end instead of walking a multi-megabyte file.
+- **`isSidechain` records are skipped.** Sub-agent turns write their own, much
+  smaller, `usage` objects into the same transcript. Taking the newest record
+  blindly would read a sub-agent's context as the main thread's — and because
+  sub-agent totals are small, the failure is silent under-reporting.
+- **Matching starts at the `"usage"` key.** The same field names recur inside
+  the `iterations` array and could appear in assistant prose, so the scan takes
+  the first occurrence of each field *after* `"usage"`, which is the top-level
+  one.
+
+The threshold is derived rather than asserted. `NUDGE_PCT` defaults to
+`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE − 15` (floored at 20), so at the shipped 75% it
+nudges at 60% — about 30k tokens of runway at a 200k window, ample for a handoff
+turn — and raising the compaction threshold moves the nudge with it.
+`PROJECT_OS_COMPACT_NUDGE_PCT` overrides the derivation.
+
+Byte growth survives as a fallback for the case where no `usage` record parses
+(a transcript format change). Its message deliberately claims no percentage,
+because on that path none was measured.
+
 ### Freshness rule
 
 A handoff qualifies when it is a regular file matching
-`.claude/sessions/handoff-*.yaml` and written within `HANDOFF_MAX_AGE_MIN`
-(default 30, override `PROJECT_OS_HANDOFF_MAX_AGE_MIN`), so a handoff from an
-earlier phase of a long session does not get forwarded as if it described the
-state being compacted away now.
+`.claude/sessions/handoff-*.yaml` written **during the current compaction
+cycle** — `find -newer .compact-cycle-<sid>`, where that marker is touched at
+each compaction and nowhere else.
+
+This replaces round 4's wall-clock window, which asked a question nobody had
+evidence for ("is 30 minutes the right age?"). The cycle boundary asks the
+question that actually matters — *was this handoff written after the last
+compaction?* — and needs no tuning: a slow session that took two hours between
+handoff and compaction still qualifies, and a handoff from before the previous
+compaction never does, however recent it is. It also makes each handoff
+single-use, so an instruction cannot be replayed into every subsequent
+compaction.
+
+`HANDOFF_MAX_AGE_MIN` (default 30, override `PROJECT_OS_HANDOFF_MAX_AGE_MIN`)
+remains as the bootstrap for a session's *first* compaction, when no cycle
+marker exists yet.
+
+**Ordering is load-bearing.** Discovery must run before the marker is touched.
+The reset is in the same hook, and doing it first would make every handoff look
+older than the current cycle — nothing would ever be forwarded, silently.
+`tests/compaction-hooks.sh` asserts this against a pre-existing marker so the
+reset is a real overwrite, not a first write.
+
+The cycle marker is deliberately separate from `.compact-base-<sid>`.
+`compact-suggest.sh` rewrites the byte baseline when it sees a transcript
+smaller than the recorded one, and a shared file would let that reset move a
+cycle boundary mid-cycle. Only `pre-compact.sh` writes `.compact-cycle-<sid>`.
 
 Filenames are `handoff-YYYY-MM-DD-HHMM.yaml`, so lexical order is chronological
 and `sort | tail -1` selects the newest — chosen over `find -printf`, which is
 GNU-only and absent on the platforms this must survive.
-
-Round 3's second freshness condition, `find -newer <state-file>`, existed only to
-terminate the block → handoff → retry loop. With no loop, it is gone.
 
 Symlinks are excluded (`-type f`) and the winning path passes through
 `resolve_project_path()` before being read, so a handoff symlinked outside the
@@ -238,12 +310,12 @@ directly — no pipes, no `$()`-wrapped programs, no YAML dependency.
 | File | Change |
 |---|---|
 | `.claude/settings.json` | `CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000"` added; `PreCompact` matcher `"auto"` → `"*"` so manual `/compact` also checkpoints and forwards its instruction |
-| `.claude/hooks/pre-compact.sh` | Rewritten: stdout contract, handoff discovery + extraction, read-only map check, nudge re-arm; checkpoint retained as the debounced tail. ROADMAP marker patterns fixed |
-| `.claude/hooks/compact-suggest.sh` | Rewritten: transcript-growth threshold, one nudge per compaction cycle, `additionalContext` payload |
+| `.claude/hooks/pre-compact.sh` | Rewritten: stdout contract, handoff discovery + extraction, read-only map check, cycle marker + nudge re-arm; checkpoint retained as the debounced tail. ROADMAP marker patterns fixed; feature derivation fixed (round 5) |
+| `.claude/hooks/compact-suggest.sh` | Rewritten: measured context-token threshold with byte growth as fallback, one nudge per compaction cycle, `additionalContext` payload |
 | `.claude/hooks/_common.sh` | Added `session_id_from_json()`, `json_string_field()` |
-| `.claude/hooks/session-end-cleanup.sh` | Removes `.compact-base-*` / `.compact-nudged-*` for the session; 7-day prune of both |
+| `.claude/hooks/session-end-cleanup.sh` | Removes `.compact-base-*` / `.compact-nudged-*` / `.compact-cycle-*` for the session; 7-day prune of all three |
 | `.claude/commands/tools/handoff.md` | `compact_instruction` mandatory; new "How `compact_instruction` is used" section; note that auto-checkpoints cannot record rationale |
-| `tests/compaction-hooks.sh` | New — 45 assertions across sandboxed project roots |
+| `tests/compaction-hooks.sh` | New — 72 assertions across sandboxed project roots |
 | `docs/knowledge/architecture.md` | Both hook rows updated; new "Compaction Handoff Chain" subsection |
 | `docs/knowledge/decisions.md` | ADR: steer the summarizer, do not block compaction |
 | `docs/knowledge/patterns.md` | "Verify the Channel Before Designing the Gate"; "Test Behaviour in a Copied Project Root" |
@@ -347,7 +419,7 @@ was already being paid — worth knowing, not a reason to change course.
 
 ## Testing Strategy
 
-`tests/compaction-hooks.sh` — 45 assertions, all passing. Per
+`tests/compaction-hooks.sh` — 72 assertions, all passing. Per
 `.claude/rules/tests.md` each case builds its own state and asserts specific
 values, not truthiness.
 
@@ -362,36 +434,55 @@ below; a mock would have encoded the same wrong assumption.
 
 Groups:
 
-- **compact-suggest** — fires above threshold, silent below; once per cycle;
-  transcript smaller than baseline resets the baseline instead of reporting
-  negative growth; missing transcript exits 0; a `session_id` of
+- **compact-suggest (byte fallback)** — fires above threshold, silent below;
+  once per cycle; transcript smaller than baseline resets the baseline instead
+  of reporting negative growth; missing transcript exits 0; a `session_id` of
   `../../etc/passwd` writes `.compact-nudged-etcpasswd` and nothing outside the
   log directory.
+- **compact-suggest (context signal)** — nudges at the measured percentage and
+  reports it; silent below; the two cache fields are counted (input alone would
+  read 0%); raising `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` moves the nudge point with
+  it; `PROJECT_OS_COMPACT_NUDGE_PCT` overrides the derivation; a larger window
+  lowers the measured percentage; a sidechain record is not mistaken for the
+  main thread **and** does not discard the main-thread record before it; 400 KB
+  of transcript at 20% context stays silent even with the byte threshold set to
+  fire; with no `usage` record the fallback fires and claims no percentage.
+  These run under `env -u` with the window and threshold pinned, so they do not
+  inherit the real session's `settings.json` values.
 - **pre-compact** — instruction body forwarded; multi-line body forwarded
   intact; handoff path named; **stdout is plain text, not JSON**; newest handoff
-  wins; placeholder rejected; handoff older than 30 min (`touch -d '2 hours
-  ago'`) ignored; silence when there is nothing to say; drift caveat alone;
-  drift caveat appended to an instruction.
+  wins; placeholder rejected; on a session's first compaction a handoff older
+  than 30 min (`touch -d '2 hours ago'`) is ignored; silence when there is
+  nothing to say; drift caveat alone; drift caveat appended to an instruction.
+- **cycle-scoped freshness** — a handoff written during the current cycle is
+  forwarded even when it is an hour old by the clock; a handoff written five
+  minutes ago but *before* the cycle marker is ignored; discovery happens before
+  the marker is reset (asserted against a pre-existing marker); an instruction
+  forwarded by one compaction is not re-forwarded by the next.
 - **containment** — a handoff symlinked outside the project is rejected, *and* a
   symlink to an in-scope sibling is rejected too. The second case exists so a
   future switch to `-type f -o -type l` fails here.
-- **cycle handshake** — pre-compact clears the nudged marker and resets the
-  baseline to the current size; no re-nudge without growth; re-nudge after
-  growth.
+- **cycle handshake** — pre-compact clears the nudged marker, opens the cycle
+  marker, and resets the baseline to the current size; no re-nudge without
+  growth; re-nudge after growth.
 - **checkpoint** — file written; phase derived as `"build"`; feature derived
   from the `## Feature:` heading; in-progress description recorded; absence of a
-  handoff recorded as "rationale not captured"; the 10-minute debounce
+  handoff recorded as "rationale not captured"; an in-progress task in an
+  *earlier* feature section is still found when a later section has none; a
+  ROADMAP with no in-progress task yields `"none"` rather than the first
+  heading; `[~]` counts for both feature and phase; the 10-minute debounce
   suppresses a second file **but still forwards the instruction**.
 - **malformed input** — empty stdin, non-JSON stdin, and a `session_id`
   containing a space all exit 0 on both hooks.
-- **session-end-cleanup** — removes this session's markers, leaves other
-  sessions' intact.
+- **session-end-cleanup** — removes this session's markers including the cycle
+  marker, leaves other sessions' intact.
 
 `tests/hook-smoke.sh` still passes 15/15 — no regression.
 
 Not automatable here, and left to observation in real sessions: that
-auto-compaction actually fires near 75% of the configured window, and whether
-`PROJECT_OS_COMPACT_NUDGE_BYTES` is calibrated (Open Question 7).
+auto-compaction actually fires near 75% of the configured window. The nudge
+point no longer needs observation — it is measured against that same window in
+the same unit.
 
 ## Security Considerations
 
@@ -417,7 +508,8 @@ auto-compaction actually fires near 75% of the configured window, and whether
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| The nudge threshold is miscalibrated and fires too early or too late | **High** | Medium | `PROJECT_OS_COMPACT_NUDGE_BYTES` is a tunable env var, default 1,200,000. It fired immediately in the session that built the feature, which is evidence the default is low. Firing early costs one handoff; firing late costs the session's context — the default is deliberately biased toward early. Open Question 7 |
+| The nudge threshold is miscalibrated and fires too early or too late | Low | Medium | Resolved in round 5. The threshold is a percentage of the same window auto-compaction measures against, computed from the transcript's own `usage` records — there is nothing left to calibrate. `PROJECT_OS_COMPACT_NUDGE_PCT` tunes the 15-point headroom if a session wants more or less runway |
+| The transcript format changes and no `usage` record parses | Low | Medium | Degrades to the byte fallback, which nudges without claiming a percentage. Silent, but the failure mode is a coarser nudge rather than no nudge. Asserted by `context_noUsageRecord_fallsBackToByteGrowth` |
 | Claude ignores the nudge and compaction proceeds with no handoff | Medium | Medium | Accepted. Nothing can compel a model turn, and the rejected alternative could not even inform it. The auto-checkpoint is the fallback and says in its own `context_notes` that rationale was not captured |
 | A handoff exists but `compact_instruction` is the unfilled placeholder | Medium | Medium | Placeholder rejected by substring match; `handoff.md` makes the field mandatory with concrete guidance and a worked example |
 | `CLAUDE_CODE_AUTO_COMPACT_WINDOW` decouples the status line from the real trigger | Medium | Low | Set to `200000`, equal to the standard model window, so the two agree. Extended-context (1M) projects must raise it or accept the skew |
@@ -472,15 +564,34 @@ inception. Fixed to `^[[:space:]]*([-*][[:space:]]+)?\[-\]` in all three places,
 which also drops the GNU-only `\s`. `scripts/validate-roadmap.sh` was checked
 for the same mistake and does not have it.
 
-**OPEN / MEDIUM — the pressure proxy is uncalibrated.** Transcript bytes since
-the last compaction is a stand-in for a token count hooks never receive. The
-1.2 MB default fired immediately in the session that built the feature, which
-suggests it is low, but one observation is not calibration. Needs data from
-several real sessions: transcript bytes at the moment auto-compaction fires,
-compared against the nudge point. Tracked as Open Question 7 in the brief.
+**RESOLVED (round 5) — the pressure proxy measured the wrong quantity.** Raised
+in round 4 as "the proxy is uncalibrated", which understated it. Transcript
+bytes were a stand-in for a token count the design asserted hooks never receive.
+They do receive it: `message.usage` in every assistant record carries
+`input_tokens + cache_read_input_tokens + cache_creation_input_tokens`, which is
+the context size in the same unit as the window. And bytes were not a
+conservative approximation of it — the transcript retains discarded history, so
+it diverges further from real context with every compaction. Measured live:
+2,897,308 bytes against 106,432 tokens, 27 bytes/token against a typical ~4, and
+the nudge firing at ~53% of the window. Replaced with the measured count; bytes
+kept only as a fallback. The round-4 finding is the same mistake the round-3
+finding was — an assumption about what a channel carries, asserted rather than
+checked. `patterns.md`'s *"Verify the Channel Before Designing the Gate"* covers
+both.
 
-**OPEN / LOW — 30 minutes is asserted, not derived.** The handoff freshness
-bound was borrowed from the checkpoint debounce, which was chosen for a
-different purpose. It is a named constant with an env override, so it is cheap
-to change once there is evidence about how long a typical session runs between
-handoff and compaction.
+**RESOLVED (round 5) — 30 minutes was asserted, not derived.** Raised in round 4
+as OPEN/LOW: the freshness bound was borrowed from the checkpoint debounce,
+which was chosen for a different purpose. Rather than find evidence for a
+better number, the question was replaced: freshness is now "written during the
+current compaction cycle" (`-newer .compact-cycle-<sid>`), which is what the
+rule was trying to approximate and has no free parameter. The 30-minute window
+survives only as the bootstrap for a session's first compaction.
+
+**RESOLVED (round 5) — feature derivation lost matches across sections.** Found
+by writing the round-5 tests, not by review. The `## Feature:` extraction
+tracked a per-section `found_task` flag and printed it at the next heading, but
+reset the flag on every `## Feature:` line — so an in-progress task in an early
+section was discarded as soon as a later section without one was read, and the
+checkpoint recorded `feature: "none"`. Latent since the round-4 marker fix,
+which corrected the regex but left this. Rewritten to print at the first marker,
+which removes the state that could be lost.

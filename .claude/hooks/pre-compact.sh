@@ -53,23 +53,41 @@ TIMESTAMP_FILE=$(date +%Y-%m-%d-%H%M)
 TIMESTAMP_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 CHECKPOINT_FILE="$SESSIONS_DIR/auto-checkpoint-$TIMESTAMP_FILE.yaml"
 
-# ── Reset the pressure baseline for compact-suggest.sh ──────────────────────
-# Each compaction cycle earns one nudge. Recording the transcript size here
-# means the next cycle measures growth since this compaction, not since the
-# start of the session.
+# ── Locate the freshest handoff ─────────────────────────────────────────────
+# MUST run before the cycle marker is touched below. The freshness rule reads
+# that marker's mtime, so resetting it first would make every handoff look
+# older than the current cycle and nothing would ever be forwarded.
+#
+# Freshness is "written during the current compaction cycle": the marker is
+# touched at each compaction, so -newer than it means "since the last
+# compaction". That is the question actually being asked, and it needs no
+# tuning — a slow session that took two hours between handoff and compaction
+# still qualifies, and a handoff from before the last compaction never does.
+# The age window is the fallback for the first compaction of a session, when
+# no marker exists yet.
+#
+# Filenames are handoff-YYYY-MM-DD-HHMM.yaml, so lexical order is chronological
+# and `sort | tail -1` is portable where find -printf is not. -type f rejects
+# symlinks; resolve_project_path enforces containment before any read.
+CYCLE_FILE="$LOG_DIR/.compact-cycle-$SESSION_ID"
+if [ -f "$CYCLE_FILE" ]; then
+    HANDOFF=$(find "$SESSIONS_DIR" -maxdepth 1 -type f -name 'handoff-*.yaml' -newer "$CYCLE_FILE" 2>/dev/null | sort | tail -1 || true)
+else
+    HANDOFF=$(find "$SESSIONS_DIR" -maxdepth 1 -type f -name 'handoff-*.yaml' -mmin -"$HANDOFF_MAX_AGE_MIN" 2>/dev/null | sort | tail -1 || true)
+fi
+if [ -n "$HANDOFF" ]; then
+    HANDOFF=$(resolve_project_path "$HANDOFF") || HANDOFF=""
+fi
+
+# ── Open the next compaction cycle ──────────────────────────────────────────
+# Each cycle earns one nudge and accepts handoffs written after this point.
+# The cycle marker is touched only here, never by compact-suggest.sh, so
+# nothing can move the boundary mid-cycle.
+touch "$CYCLE_FILE" 2>/dev/null || true
 if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
     wc -c < "$TRANSCRIPT" > "$LOG_DIR/.compact-base-$SESSION_ID" 2>/dev/null || true
 fi
 rm -f "$LOG_DIR/.compact-nudged-$SESSION_ID"
-
-# ── Locate the freshest handoff ─────────────────────────────────────────────
-# Filenames are handoff-YYYY-MM-DD-HHMM.yaml, so lexical order is chronological
-# and `sort | tail -1` is portable where find -printf is not. -type f rejects
-# symlinks; resolve_project_path enforces containment before any read.
-HANDOFF=$(find "$SESSIONS_DIR" -maxdepth 1 -type f -name 'handoff-*.yaml' -mmin -"$HANDOFF_MAX_AGE_MIN" 2>/dev/null | sort | tail -1 || true)
-if [ -n "$HANDOFF" ]; then
-    HANDOFF=$(resolve_project_path "$HANDOFF") || HANDOFF=""
-fi
 
 # ── Extract its compact_instruction block scalar ────────────────────────────
 # awk reads the file directly — no pipe from another command.
@@ -121,12 +139,17 @@ if [ -z "$RECENT" ]; then
         PHASE="ad-hoc"
     fi
 
+    # The feature owning the first in-progress task. An earlier version tracked
+    # a per-section `found_task` flag and printed it at the next heading, which
+    # reset the flag every time a new `## Feature:` heading appeared — so an
+    # in-progress task in an early section was forgotten as soon as a later
+    # section without one was read, and FEATURE came out "none". Printing at the
+    # first marker instead removes the state that could be lost.
     FEATURE=$(awk '
-        /^## Feature:/ { current = substr($0, index($0, ":") + 2); found_task = 0 }
-        /^[[:space:]]*([-*][[:space:]]+)?\[-\]/ { found_task = 1 }
-        /^[[:space:]]*([-*][[:space:]]+)?\[~\]/ { found_task = 1 }
-        /^## / && !/^## Feature:/ { if (found_task) { print current; exit } }
-        END { if (found_task) print current }
+        /^## Feature:/ { current = substr($0, index($0, ":") + 2); next }
+        /^[[:space:]]*([-*][[:space:]]+)?\[[-~]\]/ {
+            if (current != "") { print current; exit }
+        }
     ' "$ROADMAP" 2>/dev/null | head -1 || true)
     FEATURE="${FEATURE#"${FEATURE%%[![:space:]]*}"}"
     FEATURE="${FEATURE%"${FEATURE##*[![:space:]]}"}"

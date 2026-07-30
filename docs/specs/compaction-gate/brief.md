@@ -91,8 +91,10 @@ anyone why. See design § CLI Verification.
 
 What ships instead:
 
-1. **Ask early, via PostToolUse.** `compact-suggest.sh` is rewritten. When
-   transcript growth since the last compaction passes a threshold, it injects
+1. **Ask early, via PostToolUse.** `compact-suggest.sh` is rewritten. It reads
+   the current context size out of the transcript's `usage` records
+   (`input_tokens + cache_read_input_tokens + cache_creation_input_tokens`) and,
+   when that passes a percentage of the declared window, injects
    `hookSpecificOutput.additionalContext` — the one channel that reaches Claude's
    context — instructing it to run `/tools:handoff` *now*, with a task-tuned
    `compact_instruction`. One nudge per compaction cycle, tracked by a
@@ -104,7 +106,7 @@ What ships instead:
    summarizer*, not to a human reader.
 
 3. **Forward it, via PreCompact stdout.** `pre-compact.sh` reads the newest
-   handoff written in the last 30 minutes, extracts its `compact_instruction`
+   handoff written since the last compaction, extracts its `compact_instruction`
    block scalar, and prints it on stdout. The runtime collects PreCompact stdout
    into `newCustomInstructions` and merges it into the compaction's own custom
    instructions — so the text the model authored becomes guidance the summarizer
@@ -133,8 +135,9 @@ talks.
       summarizer — emitted on `pre-compact.sh` stdout, which the runtime forwards
       as `newCustomInstructions`
 - [x] An unfilled template placeholder is treated as no instruction at all
-- [x] A handoff older than the freshness window is ignored — it describes earlier
-      work, not the state being compacted away now
+- [x] A handoff written before the last compaction is ignored — it describes
+      work that has already been summarized away, not the state being compacted
+      away now
 - [x] `pre-compact.sh` stdout is plain text on every path; it never emits a JSON
       envelope, which the runtime would forward verbatim as instruction text
 - [x] When `node scripts/system-map.ts check` reports drift, the compaction
@@ -278,11 +281,19 @@ and the instruction channel made it unnecessary for verification.
    **Resolved: still written.** It is cheap, it is the fallback when no handoff
    was written, and its `context_notes` now states explicitly which case applies.
 
+7. ~~`PROJECT_OS_COMPACT_NUDGE_BYTES` (default 1,200,000) is an uncalibrated
+   proxy.~~ **Resolved: the proxy was removed rather than calibrated.** The
+   premise behind it — that hooks receive no token count — was wrong. Every
+   assistant record in the transcript carries a `usage` object whose
+   `input_tokens + cache_read_input_tokens + cache_creation_input_tokens` is the
+   real context size, in the same unit as the window. Bytes were also not a
+   conservative approximation: the transcript keeps every discarded turn, so it
+   diverges further from real context after each compaction. Measured live at
+   2,897,308 bytes against 106,432 tokens. The nudge now fires at a percentage
+   of the declared window, derived as `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE − 15`.
+   Bytes remain only as a fallback for a transcript format change.
+
 **Still open:**
 
-7. `PROJECT_OS_COMPACT_NUDGE_BYTES` (default 1,200,000) is an uncalibrated
-   proxy. Transcript bytes are monotonic within a cycle and roughly track
-   context growth, but the constant of proportionality varies with tool-output
-   volume. It fired immediately in the session that built this feature. Needs
-   tuning against real sessions — the leading candidate is to correlate observed
-   nudge timing against actual compaction events over a week of use.
+Nothing. The nudge threshold is the last item that required real-session
+observation, and it no longer does — it is measured, not estimated.

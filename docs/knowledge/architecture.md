@@ -46,14 +46,14 @@ User ──→ Workflow Commands ──→ Orchestrator ──→ Sub-agents (is
 | Hook | Purpose |
 |------|---------|
 | `_common.sh` | Shared utilities: path resolution, validation, JSON extraction |
-| `compact-suggest.sh` | PostToolUse — on transcript growth since the last compaction, inject `additionalContext` telling Claude to run `/tools:handoff` with a `compact_instruction`; one nudge per compaction cycle |
+| `compact-suggest.sh` | PostToolUse — when the transcript's newest `usage` record puts context past `NUDGE_PCT` of the window (default 60%), inject `additionalContext` telling Claude to run `/tools:handoff` with a `compact_instruction`; one nudge per compaction cycle |
 | `log-activity.sh` | Append structured JSONL events to the activity log |
 | `notify-phase-change.sh` | Terminal/desktop notification on phase transitions |
 | `output-index.sh` | PostToolUse advisory — index large tool outputs, hint via additionalContext |
 | `post-mcp-validate.sh` | PostToolUse — validate Context7 MCP output (exit 2 / additionalContext contract) |
 | `post-tool-use.sh` | Auto-format files after Write/Edit |
 | `post-write-session.sh` | Scrub secrets from `.claude/sessions/` files after write |
-| `pre-compact.sh` | PreCompact (`*` — auto and manual) — print the freshest handoff's `compact_instruction` on stdout, which the runtime forwards to the compaction summarizer; also writes a filesystem-derived checkpoint YAML (10-min debounce) and resets the nudge baseline. Advisory: never blocks |
+| `pre-compact.sh` | PreCompact (`*` — auto and manual) — print the `compact_instruction` of the newest handoff written since the last compaction on stdout, which the runtime forwards to the compaction summarizer; also writes a filesystem-derived checkpoint YAML (10-min debounce), opens the next compaction cycle and re-arms the nudge. Advisory: never blocks |
 | `session-start-setup.sh` | SessionStart — idempotent activation fallback: runs `setup.sh --check` so a cloned project installs its git hooks on first session |
 | `session-start-maintain.sh` | SessionStart — auto-runs the maintenance loop once per `auto_run_hours` (policy, default 24h); drafts-only, debounced on ledger age, skips worktrees |
 | `session-end-cleanup.sh` | SessionEnd — remove per-session counters, rotate append-only logs |
@@ -143,21 +143,30 @@ the threshold is inert unless `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is also set, whi
 activates the proactive trigger path). Compaction is not something a hook can usefully
 stop, so the chain steers it instead — three stages, two of them hooks:
 
-1. **`compact-suggest.sh` (PostToolUse)** — transcript growth past
-   `PROJECT_OS_COMPACT_NUDGE_BYTES` since the last compaction injects
+1. **`compact-suggest.sh` (PostToolUse)** — measures the current context size from
+   the transcript's newest non-sidechain `usage` record
+   (`input_tokens + cache_read_input_tokens + cache_creation_input_tokens`) and,
+   once it passes `PROJECT_OS_COMPACT_NUDGE_PCT` of the window (default
+   `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE − 15`, i.e. 60%), injects
    `hookSpecificOutput.additionalContext` into Claude's context: *write the handoff
    now, with a `compact_instruction`*. One nudge per cycle, tracked by
-   `.claude/logs/.compact-nudged-<session_id>`.
+   `.claude/logs/.compact-nudged-<session_id>`. Transcript-byte growth
+   (`PROJECT_OS_COMPACT_NUDGE_BYTES`) is a fallback for when no `usage` record
+   parses — it is not the primary signal, because the transcript retains discarded
+   history and so diverges from real context after every compaction.
 2. **Claude runs `/tools:handoff`** — the only stage that can author decisions and
    rationale, because only the model has them. The hooks cannot.
 3. **`pre-compact.sh` (PreCompact, matcher `*`)** — reads the newest
-   `handoff-*.yaml` written in the last 30 minutes, extracts its
-   `compact_instruction` block scalar, and prints it on **stdout**. The runtime
-   collects PreCompact stdout into `newCustomInstructions` and merges it into the
-   compaction's custom instructions, so this text steers what the summarizer keeps.
-   It also runs `system-map.ts check` read-only and appends a drift caveat, writes
-   a filesystem-derived checkpoint (10-min debounce), and resets the nudge baseline
-   so stage 1 can fire again next cycle.
+   `handoff-*.yaml` written since the last compaction (`-newer
+   .claude/logs/.compact-cycle-<session_id>`; a 30-minute window bootstraps a
+   session's first compaction), extracts its `compact_instruction` block scalar,
+   and prints it on **stdout**. The runtime collects PreCompact stdout into
+   `newCustomInstructions` and merges it into the compaction's custom instructions,
+   so this text steers what the summarizer keeps. It also runs `system-map.ts
+   check` read-only and appends a drift caveat, writes a filesystem-derived
+   checkpoint (10-min debounce), and opens the next cycle — touching the cycle
+   marker (after discovery, never before) and clearing the nudged marker so stage 1
+   can fire again.
 
 Why `pre-compact.sh` does not block: exit 2 defers compaction, but on the auto path
 the block reason reaches only a debug log and a fixed-string notification that omits
