@@ -8,6 +8,8 @@ Capture the current session's state so the next session (or another agent) can r
 
 ## When to use
 - Context window approaching 70%+ usage
+- When `compact-suggest.sh` injects a context-pressure notice — write the handoff
+  then, not later; compaction discards what a later handoff would have described
 - End of a working session
 - Before switching to a different task
 - Before handing work to Codex or another agent
@@ -18,8 +20,29 @@ A PreCompact hook automatically generates checkpoint files before context compac
 These are saved as `.claude/sessions/auto-checkpoint-*.yaml` and follow the same schema
 as manual handoffs. Use `/tools:catchup` to resume from either type.
 
-Manual handoffs via this command capture richer context (decisions, blockers, context notes)
-and should still be used for end-of-session or cross-agent handoffs.
+Auto-checkpoints are filesystem-derived — ROADMAP markers and `git status`. They
+cannot record why anything was decided. Manual handoffs via this command capture
+that richer context (decisions, blockers, context notes) and remain the only way
+those survive compaction.
+
+## How `compact_instruction` is used
+
+`pre-compact.sh` reads the newest handoff written in the last 30 minutes, extracts
+its `compact_instruction` block, and prints it on stdout. The runtime forwards
+PreCompact stdout to the compaction summarizer as custom instructions — so this
+field is what steers what compaction keeps.
+
+This makes `compact_instruction` **mandatory**, not decorative:
+
+- Write it as instructions **to the summarizer**, not notes to a human. "Preserve
+  the exact awk extraction in pre-compact.sh:78-82 and the reason `git diff` was
+  rejected for `git status --porcelain`" — not "worked on hooks today".
+- Name the files, functions, and line ranges that must survive verbatim.
+- Name what is safe to drop (exploration that went nowhere, superseded attempts).
+- Leaving the template placeholder text in place is treated as absent — the hook
+  rejects it and the summarizer gets no guidance.
+- A handoff older than 30 minutes is ignored (`PROJECT_OS_HANDOFF_MAX_AGE_MIN`);
+  it describes earlier work, not the state being compacted away now.
 
 ## Create Handoff File
 
@@ -71,11 +94,16 @@ context_notes: |
   [Anything important that would be lost without explicit capture.
    Gotchas discovered, edge cases found, things that almost worked, etc.]
 
+# REQUIRED. Forwarded verbatim to the compaction summarizer by pre-compact.sh.
+# Two-space indent on every line — the hook's block-scalar extraction strips
+# exactly that. Replace the placeholder; unfilled placeholder text is rejected.
 compact_instruction: |
   [A /compact instruction tuned to the current task, e.g.:
    "Focus on the auth middleware refactor in src/middleware/auth.ts.
-   Key context: we're switching from JWT to session tokens. Tests in
-   tests/middleware/auth.test.ts need the mock session store pattern."]
+   Preserve verbatim: the token-rotation logic at auth.ts:120-168 and the
+   reason httpOnly cookies were chosen over localStorage. Tests in
+   tests/middleware/auth.test.ts need the mock session store pattern.
+   Safe to drop: the abandoned Redis-backed session experiment."]
 ```
 
 ## Also do:

@@ -1,238 +1,259 @@
-# Design: Compaction Gate
+# Design: Compaction Handoff Chain
 Created: 2026-07-29
-Status: DRAFT
+Revised: 2026-07-30 (round 4 — rewritten from a blocking gate to a two-channel chain)
+Status: IMPLEMENTED
 Brief: ./brief.md
+
+> **Naming.** The directory is `compaction-gate/` for historical reasons: rounds
+> 1–3 designed a blocking `PreCompact` gate. Round 3's CLI verification killed
+> that design (see CLI Verification finding 1). Nothing in the shipped system
+> gates anything; the directory name is kept so existing links and `#T117`
+> resolve.
 
 ## Architecture Decision
 
-**Promote `PreCompact` from advisory checkpointer to a blocking gate that fails
-closed once, then fails open.**
+**Split the requirement across the two channels that verifiably reach a reader,
+and never block compaction.**
 
-The governing constraint is that hooks are shell commands with no model access,
-so no hook can *author* a detailed handoff. But `PreCompact` is one of the few
-hook events that can block (exit 2 → "Blocks compaction"). Blocking is therefore
-the only mechanism by which the platform can *require* work it cannot itself
-perform: the hook refuses, and the refusal lands in front of the one participant
-who still has full context and can act on it.
+The requirement has three parts — *require* a handoff, *update* the system map,
+*draft* a compact message — and the governing constraint is that hooks are shell
+commands with no model access. A hook can therefore never author a handoff; it
+can only cause one to be authored. Rounds 1–3 assumed the mechanism for that was
+`PreCompact` exit 2: the hook refuses, the refusal lands in front of the one
+participant who still has full context.
 
-The design rests on three decisions that each close off a failure mode:
+Reading the shipped CLI disproved the premise. A blocking `PreCompact` hook's
+output goes to `blockedBy`, and on the auto path `blockedBy` reaches exactly
+three places: a debug log, a fixed-string user notification that omits the
+reason (and is suppressed outright when `isAutoCompact`), and a thrown error.
+It never enters Claude's context. A blocking gate on the auto path defers
+compaction without telling anyone why — pure friction, and on the *reactive*
+arm it defers straight toward the hard context limit. See CLI Verification.
 
-**1. Blocking is one-shot per session.** A gate that can block indefinitely can
-wedge a session at its context ceiling — compaction denied, context exhausted,
-no path forward. The gate writes a per-session state file when it blocks; on the
-next attempt, if the handoff still is not there, it proceeds anyway with a
-`systemMessage` warning. The gate's job is to make skipping the handoff
-*deliberate*, not impossible.
+So the design inverts. Two channels were verified to carry text to a reader, and
+each takes the half of the requirement it can actually serve:
 
-**2. Blocking buys nothing without headroom.** Refusing to compact at the hard
-context limit leaves no room to write the handoff that the refusal demands.
-`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "75"` is already set but is inert unless
-Claude Code takes its *proactive* compaction path — and per the env-vars
-documentation, merely setting `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is one of the
-conditions that enables that path. Setting it to `200000` — equal to the
-standard model window — turns the existing 75% into a real trigger point while
-leaving the status line's percentage aligned with it. The threshold config is
-not a nice-to-have alongside the gate; it is what makes the gate survivable.
+**1. `PostToolUse` → `additionalContext` carries the requirement.** This is the
+only hook output that lands in Claude's context. `compact-suggest.sh` watches
+transcript growth since the last compaction and, once per cycle, injects a
+message telling Claude to run `/tools:handoff` *now*, while the context needed
+to write one still exists. It is a nudge with no enforcement behind it, which is
+the honest description of what any mechanism here can be: nothing can compel a
+model turn, and the alternative — blocking — could not even inform it.
 
-**3. The gate observes the system map; it does not touch it.** An earlier
-revision had the gate run `system-map.ts check --heal`, on the reasoning that
-drift is deterministically repairable without a model. That was wrong, and the
-source says so: `cmdCheck` builds from `workingTreeSource` and calls
-`writeArtifacts` (`:577`, `:593-595`), while `cmdPrecommit` builds from
+**2. `PreCompact` stdout → `newCustomInstructions` carries the drafted message.**
+The runtime joins every successful non-blocked `PreCompact` hook's stdout and
+merges it into the compaction's custom instructions, after the user's own. That
+is a first-class native channel for the drafted compact message, not the
+`additionalContext` workaround round 1 assumed. `pre-compact.sh` reads the
+freshest handoff's `compact_instruction` and prints it. The field already
+existed in the `/tools:handoff` schema and was read by nothing; this design
+gives it its consumer and makes it mandatory.
+
+**3. Blocking buys nothing without headroom — but the headroom is still needed.**
+`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "75"` is inert unless Claude Code takes its
+*proactive* compaction path, and setting `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is
+one of the conditions that enables it. `200000` — equal to the standard model
+window — turns the existing 75% into a real trigger while keeping the status
+line's percentage aligned with it. Blocking is gone, but the reason the
+threshold mattered survives it: the nudge is worthless if it arrives with no
+room left to act on it.
+
+**4. The system map is observed, never healed.** An earlier revision had the
+hook run `system-map.ts check --heal`. That was wrong for three independent
+reasons, any one sufficient. `cmdCheck` builds from `workingTreeSource` and
+calls `writeArtifacts` (`:577`, `:593-595`), while `cmdPrecommit` builds from
 `gitIndexSource` under the explicit docstring *"reads every input from the git
-INDEX (never the working tree)"* (`:686-687`). The divergence is deliberate —
-the map is meant to describe committed reality. Healing from the working tree
-mid-build canonicalizes wiring that may never land, and the next commit
-overwrites it from the index regardless.
+INDEX (never the working tree)"* (`:686-687`) — the map's authority is committed
+reality, so healing from the working tree canonicalizes wiring that may never
+land and is overwritten at the next commit. Compaction also lands
+disproportionately *during* long build phases, where drift is the expected state
+rather than a defect. And writing three tracked files under `docs/maps/` would
+dirty the tree the hook then inspects. So the hook runs `check` read-only — input
+hashing against `.maps.lock`, no `build()`, no writes — and forwards the verdict
+as a caveat. A post-compaction session told *"the map is drifted; it reflects
+committed state, re-read wiring from source"* is better oriented than one handed
+a freshly generated map of work in flight.
 
-Compaction also lands disproportionately *during* long build phases, which is
-exactly when drift is the expected state rather than a defect. So the gate runs
-`check` read-only — input hashing against `.maps.lock`, no `build()`, no writes
-— and forwards the verdict as a caveat. A post-compaction session told "the map
-is drifted; it reflects committed state, re-read wiring from source" is better
-oriented than one handed a freshly generated map of work in flight. The gate
-therefore has exactly one blocking condition, the missing handoff, and mutates
-nothing outside `.claude/`.
-
-The drafted compact message needs no new document type. `/tools:handoff` already
-specifies a `compact_instruction` field (`handoff.md:74-78`); it is simply never
-read by anything. The gate reads it from the freshest handoff and emits it on
-stdout, which the runtime turns into `newCustomInstructions` and merges into the
-compaction's own custom instructions — a first-class native channel, not the
-`additionalContext` workaround an earlier draft assumed. See CLI Verification.
+The hook therefore mutates nothing outside `.claude/`, and has no failure mode
+that can stall a session.
 
 ## Alternatives Considered
 
 | Approach | Pros | Cons | Why Not |
 |----------|------|------|---------|
-| **Status quo + richer bash extraction** — keep the hook advisory, teach it to scrape more from git and ROADMAP | No new failure modes; nothing can wedge | Cannot produce decisions, rationale, or "where I left off" at any level of effort — those exist only in the model's context | Fails the actual requirement. The missing information is categorically unavailable to a shell script |
-| **`Stop` hook demands a handoff** | Non-blocking event, no wedge risk | Fires at turn end, unrelated to context pressure; would demand a handoff on every trivial turn | Wrong trigger. Compaction pressure is the event we care about |
-| **`PostCompact` writes the record** | Simple, cannot block anything | Runs *after* the context is gone — nothing left to write down | Structurally too late |
-| **Block unconditionally until a handoff exists** | Strongest guarantee | A non-compliant or crashed turn wedges the session permanently at its context limit | Unacceptable. Availability beats completeness for a governance layer |
-| **Gate blocks on map drift too** | Enforces map freshness through the same channel | Mid-build drift is expected, not a defect; blocking on it would stall every build-phase compaction | Report it, don't enforce it |
-| **Gate heals the map (`check --heal`)** | Post-compaction session gets a current map for free | Heals from the working tree, but the map's source of authority is the git index (`:686-687`); canonicalizes wiring that may never land, is overwritten at the next commit, and dirties three tracked files — which would also defeat the gate's own clean-tree skip | Rejected. Read-only `check`, verdict forwarded as a caveat |
-| **Separate second `PreCompact` hook for the gate** | Separation of concerns | Two hooks on one event with independent exit codes; ordering and combined-exit semantics get subtle | One hook, one exit decision |
+| **Blocking `PreCompact` gate** (rounds 1–3) | Strongest-looking guarantee; makes skipping the handoff deliberate | The block reason never reaches Claude on the auto path — `blockedBy` goes to a debug log, a reason-less notification suppressed under `isAutoCompact`, and a throw | **Rejected on verification.** It defers compaction without informing the one actor who could respond, and on the reactive arm defers toward the hard limit |
+| **`additionalContext` from `PreCompact`** | Would put the requirement in Claude's context at exactly the right moment | `PreCompact` output becomes `newCustomInstructions`; it has no `additionalContext` channel | Not available on that event. Hence the split across two hooks |
+| **Status quo + richer bash extraction** — keep the hook advisory, scrape more from git and ROADMAP | No new failure modes | Cannot produce decisions, rationale, or "where I left off" at any effort — those exist only in the model's context | Fails the requirement. The checkpoint is a *fallback*, and says so in its own `context_notes` |
+| **`Stop` hook demands a handoff** | Non-blocking, no wedge risk | Fires at turn end, unrelated to context pressure; would demand a handoff on every trivial turn | Wrong trigger |
+| **`PostCompact` writes the record** | Cannot block anything | Runs after the context is gone | Structurally too late |
+| **Hook heals the map (`check --heal`)** | Post-compaction session gets a current map free | Heals from the working tree while the map's authority is the git index (`:686-687`); canonicalizes uncommitted wiring; dirties three tracked files | Rejected. Read-only `check`, verdict forwarded as a caveat |
+| **Count tool calls instead of transcript bytes as the pressure proxy** | Simpler, no filesystem read | Tool calls vary in output size by orders of magnitude; a session of large file reads and one of small edits look identical | Bytes are the closer proxy. Still uncalibrated — see Open Questions |
+| **Distinguish proactive from reactive compaction and behave differently** | Would let the risky arm be treated more carefully | Both arms call the handler with `trigger: "auto"`; the hook cannot tell them apart | Not expressible. Moot once nothing blocks |
 
 ## Constraint Analysis
 
 | Constraint | Type | Verified | Notes |
 |------------|------|----------|-------|
-| Hooks cannot invoke the model | HARD | ✅ | Hook config is `{"type":"command"}` shell invocation (`settings.json:176-181`) |
-| `PreCompact` can block via exit 2 | HARD | ✅ | Hooks reference exit-code table: `PreCompact \| Yes \| Blocks compaction` |
-| ~~`custom_instructions` is input-only~~ | — | ❌ | **Retracted.** A `PreCompact` hook's stdout becomes `newCustomInstructions` and is merged into the compaction's instructions. See CLI Verification |
-| Manual `/compact` cannot be gated | HARD | ✅ | The `/compact` path never reads `blockedBy` — blocking is not merely undesirable there, it is impossible. See CLI Verification |
-| Gate must never permanently block | HARD | ✅ | Design constraint; enforced by the one-shot state file |
-| No pipes / `$()` / bare `cd` in hook-instructed commands | HARD | ✅ | `.claude/rules/bash.md`; existing hooks comply (`pre-compact.sh:56-61` uses awk-reads-file, not a pipe) |
-| Auto-checkpoint must not regress | HARD | ✅ | `pre-compact.sh:137-171` is the current behavior; retained on all paths |
-| Hooks run on Git Bash (Windows) | HARD | ⚠️ | `find -mmin`, `find -newer`, `awk`, `tr` are all already used by shipped hooks, so the dependency set does not grow. Not tested on Windows in this repo |
-| `system-map.ts check` needs Node ≥ 22.18 | HARD | ✅ | `_common.sh:57-87` `node_available()` exists precisely for this. Read-only and non-blocking, so absent Node just drops the caveat |
+| Hooks cannot invoke the model | HARD | ✅ | Hook config is `{"type":"command"}` shell invocation (`settings.json:174-186`) |
+| `PreCompact` output does not reach Claude when blocking | HARD | ✅ | `blockedBy` → debug log, reason-less notification (suppressed when `isAutoCompact`), throw. See CLI Verification 1 |
+| `PreCompact` stdout becomes the compaction's custom instructions | HARD | ✅ | `newCustomInstructions`, merged by `MLo` after the user's. See CLI Verification 4 |
+| `PostToolUse` `additionalContext` reaches Claude | HARD | ✅ | The channel the whole requirement now rides on |
+| ~~`custom_instructions` is input-only~~ | — | ❌ | **Retracted (round 3).** See CLI Verification 4 |
+| ~~Manual `/compact` cannot be blocked~~ | — | ❌ | **Retracted (round 3).** Both `Il_` and `Pko` reach `PLo`, which inspects `blockedBy` and throws. The manual path *can* be blocked; it is the *auto* path that cannot be blocked usefully. Moot — nothing blocks now |
+| Hooks must never stall a session | HARD | ✅ | Satisfied trivially: no exit-2 path exists |
+| No pipes / `$()` / bare `cd` in hook-instructed commands | HARD | ✅ | `.claude/rules/bash.md`; `pre-compact.sh` uses awk-reads-file, not a pipe |
+| Auto-checkpoint must not regress | HARD | ✅ | Retained on every path, and its ROADMAP extraction fixed (see Self-Review) |
+| Hooks run on Git Bash (Windows) | HARD | ⚠️ | `find -mmin`, `awk`, `tr`, `wc` are already used by shipped hooks, so the dependency set does not grow. `find -printf` was deliberately avoided in favour of `sort \| tail -1`. Not tested on Windows in this repo |
+| `system-map.ts check` needs Node ≥ 22.18 | HARD | ✅ | `_common.sh` `node_available()`. Read-only and non-blocking, so absent Node just drops the caveat |
 | The map's source of authority is the git index, not the working tree | HARD | ✅ | `system-map.ts:686-687`, `:695`. Forbids healing from a hook |
-| Reuse `/tools:handoff` YAML schema | SOFT | ✅ | `handoff.md:28-79` already defines it, `compact_instruction` included |
-| 10-minute checkpoint debounce | SOFT | ✅ | `pre-compact.sh:22-25`. Must not apply to the gate decision — see Risks |
-| Hooks are "advisory, never surface errors" | SOFT | ✅ | Every hook opens `trap 'exit 0' ERR`. The gate deliberately breaks this; recorded as an ADR |
+| Reuse the `/tools:handoff` YAML schema | SOFT | ✅ | `compact_instruction` already existed; now mandatory and consumed |
+| 10-minute checkpoint debounce | SOFT | ✅ | Applies to the checkpoint **file write** only. The stdout contribution is emitted on every compaction |
+| Hooks are "advisory, never surface errors" | SOFT | ✅ | Preserved. `trap 'exit 0' ERR` is now correct rather than dangerous, because no exit code carries a verdict |
 
 ## Assumptions
 
 | Assumption | Status | Evidence |
 |------------|--------|----------|
-| Exit 2 from `PreCompact` blocks compaction and shows stderr to Claude | VERIFIED | Hooks reference exit-code-2 table |
-| `{"decision":"block","reason":...}` also blocks, showing the reason to the *user* | UNVERIFIED | Appears in narrative docs but not in the exit-code table. **Not load-bearing** — design uses exit 2, because the actor who must respond is Claude, not the user |
-| Setting `CLAUDE_CODE_AUTO_COMPACT_WINDOW` enables the proactive-compaction path | VERIFIED | env-vars: the override "only causes earlier compaction when Claude Code compacts proactively: when `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is set, in cloud sessions, and on Sonnet 4.6 and Opus 4.6..." |
+| A blocked auto-compaction is retried rather than abandoned | VERIFIED | Reactive path returns `{result:null, hookBlocked:true}`; runner logs `" compaction blocked by PreCompact hook; continuing uncompacted"`. **No longer load-bearing** — nothing blocks |
+| The block reason reaches *Claude* | **DISPROVED** | It does not. This is what killed the gate. See CLI Verification 1 |
+| Setting `CLAUDE_CODE_AUTO_COMPACT_WINDOW` enables the proactive path | VERIFIED | env-vars: the override "only causes earlier compaction when Claude Code compacts proactively: when `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is set, in cloud sessions, and on Sonnet 4.6 and Opus 4.6…" |
 | Window value is capped at the model's real context window | VERIFIED | env-vars: "The value is capped at the model's actual context window" |
-| A blocked auto-compaction is retried later rather than abandoned for the session | **VERIFIED** | The reactive path returns `{result:null, hookBlocked:true}` and the runner logs `" compaction blocked by PreCompact hook; continuing uncompacted"`. Nothing latches the block off; the next trigger re-evaluates, so the escape hatch runs. See CLI Verification |
-| The block reason reaches *Claude*, not just the user | UNVERIFIED | **Now the load-bearing one.** A blocked hook's stdout goes to `blockedBy`, which is logged and surfaced as a `compaction-blocked-by-hook` user warning. Whether it also enters Claude's context is not established, and the gate's whole mechanism depends on Claude reading it. See Risks |
-| Hook stdout that is JSON is parsed rather than passed through verbatim | UNVERIFIED | The runtime validates hook JSON (`"Hook JSON output had unrecognized keys (ignored)"`), but whether a JSON-printing hook contributes its raw text to `newCustomInstructions` was not pinned down. Decides whether the gate prints JSON or bare text |
-| `system-map.ts check` exits 3 on drift and writes nothing without `--heal` | VERIFIED | `scripts/system-map.ts:575-591` — `writeArtifacts` is reached only on the `--heal` branch |
-| `session_id` is present in `PreCompact` stdin JSON | VERIFIED | Documented common input field; `pre-compact.sh:3` already documents receiving it |
-| `.claude/sessions/` may not exist | VERIFIED | Absent in this checkout; `pre-compact.sh:22` `find`s it before `mkdir -p` at `:34`, tolerated via `2>/dev/null` |
+| Hook stdout that is JSON is passed through verbatim on `PreCompact` | VERIFIED | `newCustomInstructions` takes `l.output.trim()` with no parse. Hence the stdout contract: **plain text only** |
+| `system-map.ts check` exits nonzero on drift and writes nothing without `--heal` | VERIFIED | `scripts/system-map.ts:575-591` — `writeArtifacts` is reached only on the `--heal` branch |
+| `session_id` and `transcript_path` are present in hook stdin JSON | VERIFIED | Documented common input fields; exercised by `tests/compaction-hooks.sh` |
+| Transcript bytes since last compaction track context growth | **ASSUMED** | Hooks receive no token count. Monotonic within a cycle and roughly proportional, but the 1.2 MB default is uncalibrated — Open Question 7 in the brief |
+| `.claude/sessions/` may not exist | VERIFIED | `find`ed before `mkdir -p`, tolerated via `2>/dev/null` |
 
 ## Technical Approach
 
-### Gate state machine
-
-One state file per session: `.claude/logs/.compact-gate-<session_id>`, single
-line, `<state> <epoch>` where state ∈ `blocked` | `passed`. It reuses the
-sentinel convention `compact-suggest.sh:17-23` and `session-end-cleanup.sh:19-25`
-already establish — `session_id` from stdin JSON, sanitized `tr -cd '[:alnum:]_-'`,
-defaulting to `default`.
+### The three stages
 
 ```
-PreCompact fires
-  │
-  ├─ trigger == "manual"? ──────────────► checkpoint only, exit 0   (never gate an explicit /compact)
-  │
-  ├─ map drift check, READ-ONLY (node ≥22.18, else skip)
-  │     `system-map.ts check` — exit 3 means drifted; recorded as a caveat,
-  │     never a block reason, never healed
-  │
-  ├─ nothing to hand off?  ─────────────► checkpoint only, exit 0
-  │     (empty `git status --porcelain` AND no [-]/[~] in ROADMAP)
-  │
-  ├─ fresh handoff present? ────────────► write `passed`, checkpoint,
-  │     (see freshness rule)               emit compact_instruction, exit 0
-  │
-  ├─ state == "blocked"?  ──────────────► ESCAPE HATCH: write `passed`,
-  │                                        checkpoint, systemMessage warning, exit 0
-  │
-  └─ otherwise ─────────────────────────► write `blocked`, checkpoint,
-                                           reason to stderr, exit 2
+1. PostToolUse — compact-suggest.sh          (every tool call, matcher ".*")
+   transcript bytes − baseline ≥ NUDGE_BYTES,
+   and this cycle has not nudged yet
+     → touch .compact-nudged-<sid>
+     → additionalContext: "run /tools:handoff now, with a compact_instruction"
+
+2. The model writes .claude/sessions/handoff-<ts>.yaml
+   (the one step no hook can perform)
+
+3. PreCompact — pre-compact.sh               (matcher "*", auto and manual)
+     → reset .compact-base-<sid> to the current transcript size
+     → rm .compact-nudged-<sid>              (re-arm stage 1 for the next cycle)
+     → newest handoff-*.yaml, -mmin -30, -type f, resolve_project_path
+     → awk out the compact_instruction block scalar; reject the placeholder
+     → system-map.ts check (read-only) → MAP_DRIFTED
+     → write auto-checkpoint-<ts>.yaml unless one is <10 min old
+     → print instruction + handoff path + drift caveat on stdout
 ```
 
-Checkpoint is written on **every** path. It is the fallback record when the
-escape hatch fires, and it costs one `awk` pass plus one `git diff`.
+Stage 3 always runs stage 1's re-arm and always prints, regardless of the
+checkpoint debounce. The debounce governs one thing: whether a checkpoint *file*
+is written.
 
 ### Freshness rule
 
 A handoff qualifies when it is a regular file matching
-`.claude/sessions/handoff-*.yaml` and satisfies **both**:
+`.claude/sessions/handoff-*.yaml` and written within `HANDOFF_MAX_AGE_MIN`
+(default 30, override `PROJECT_OS_HANDOFF_MAX_AGE_MIN`), so a handoff from an
+earlier phase of a long session does not get forwarded as if it described the
+state being compacted away now.
 
-- `find -mmin -30` — written within the last 30 minutes, so a handoff from an
-  earlier phase of a long session does not satisfy a later gate; and
-- `find -newer <state-file>` — written *after* this session's last gate event,
-  which is what makes the block → handoff → retry loop terminate. Skipped when
-  no state file exists yet (first compaction of the session).
+Filenames are `handoff-YYYY-MM-DD-HHMM.yaml`, so lexical order is chronological
+and `sort | tail -1` selects the newest — chosen over `find -printf`, which is
+GNU-only and absent on the platforms this must survive.
 
-The 30-minute bound is the same order as the existing checkpoint debounce and
-is a tunable constant at the top of the script, not a magic number inline.
+Round 3's second freshness condition, `find -newer <state-file>`, existed only to
+terminate the block → handoff → retry loop. With no loop, it is gone.
 
-Symlinks are excluded (`-type f`) and the winning path is passed through
-`resolve_project_path()` (`_common.sh:8-42`) before being read, so a handoff
-symlinked outside the project cannot pipe external file content into
-`additionalContext`.
+Symlinks are excluded (`-type f`) and the winning path passes through
+`resolve_project_path()` before being read, so a handoff symlinked outside the
+project cannot pipe external file content into the compaction instructions.
+`tests/compaction-hooks.sh` covers both an escaping symlink and an in-scope one,
+per `.claude/rules/tests.md` — the in-scope case is there so that a future
+relaxation to `-type f -o -type l` fails loudly.
 
-### The block reason (stderr, seen by Claude)
+### The stdout contract
 
-Must name exact, bash-rules-compliant next actions and state its own escape
-hatch, so a turn that genuinely cannot comply knows it will not be trapped:
+Documented at the top of `pre-compact.sh` because it is the one thing a future
+edit is most likely to break:
 
-```
-Compaction gate: no handoff for this session written in the last 30 minutes.
+1. **Plain text only.** JSON would be forwarded to the summarizer verbatim as
+   instructions, not parsed.
+2. **Print nothing when there is nothing to say.** Empty output is filtered out
+   by the runtime; noise is not.
 
-Before compacting, run /tools:handoff and make sure it captures:
-  - decisions made and alternatives rejected
-  - where exactly each in-progress edit stopped
-  - a compact_instruction tuned to the current task
-
-This gate blocks once per compaction cycle — the retry proceeds regardless.
-```
-
-When `check` reported drift, one further line is appended, addressed to the
-session that will read the summary rather than to the current turn:
+What it prints, when a handoff supplied an instruction:
 
 ```
-The system map is drifted. It describes committed state, not the working
-tree — re-read hook and command wiring from source before trusting it.
+<the handoff's compact_instruction, verbatim>
+
+Session state for this work is saved at <path> — read it with /tools:catchup before resuming.
+The system map at docs/maps/ is drifted: it describes committed state, not the working
+tree. Re-read hook and command wiring from source before trusting it.
 ```
+
+The third line appears only when `check` reported drift, and appears alone when
+there is drift but no instruction.
+
+### Placeholder rejection
+
+`handoff.md` ships `compact_instruction` with a bracketed example. An unfilled
+placeholder forwarded to the summarizer is worse than silence — it is
+instructions about a fictional auth refactor. `pre-compact.sh` matches the
+placeholder's leading text and treats it as absent. This is deliberately a
+substring match on the shipped template, not prose validation: the hook cannot
+judge whether an instruction is *good*, only whether it was written at all.
 
 ### Key interfaces
 
-New helpers in `.claude/hooks/_common.sh`, both reusable and both currently
-duplicated or missing:
+Two helpers added to `.claude/hooks/_common.sh`:
 
 ```bash
 # Extract and sanitize session_id from hook stdin JSON.
-# Replaces three near-identical copies (compact-suggest.sh:18-21,
-# session-end-cleanup.sh:19-21, and a new one here).
-# Usage: sid=$(session_id_from_json "$INPUT")
+# Replaced three near-identical copies.
 session_id_from_json() { ...; }   # -> [[:alnum:]_-]+ or "default"
 
-# Escape a string for embedding in a JSON string literal.
-# Handles \ " newline tab and C0 control chars via \uXXXX.
-# Usage: safe=$(json_escape "$text")
-json_escape() { ...; }            # awk-based; no node dependency
+# Extract a simple scalar string field from hook stdin JSON.
+# Documented as safe only for simple scalars — it is grep+sed, not a parser.
+json_string_field() { ...; }
 ```
 
-`json_escape` is not optional polish: an unescaped newline or quote in a
-handoff's `compact_instruction` produces malformed stdout, and a malformed
-hook payload fails *silently* — the drafted message would simply never reach the
-compactor with no error anywhere.
+Round 3's design also specified a `json_escape()` helper, on the reasoning that
+`compact_instruction` free text would be embedded in a JSON payload. It was
+never implemented and is not needed: `PreCompact` output is plain text, and
+`compact-suggest.sh`'s message is a fixed single line with no quotes,
+backslashes or newlines, emitted directly inside the string literal. Avoiding
+the escaping problem entirely beat solving it — an awk-based JSON escaper is a
+correctness hazard (a malformed payload fails *silently*) for zero gain here.
+If a future message needs interpolation, write the escaper then, with tests.
 
-Extraction of the `compact_instruction` block scalar from the handoff YAML uses
-`awk` reading the file directly (the pattern already used at
-`pre-compact.sh:56-61` and `:74-82`) — no pipes, no `$()`-wrapped programs, no
-YAML dependency.
+Extraction of the `compact_instruction` block scalar uses `awk` reading the file
+directly — no pipes, no `$()`-wrapped programs, no YAML dependency.
 
 ### File changes
 
 | File | Change |
 |---|---|
-| `.claude/settings.json` | Add `CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000"`; change `PreCompact` matcher `"auto"` → `"*"` so manual compaction still checkpoints. Existing 30s `timeout` stays — the drift check only hashes inputs |
-| `.claude/hooks/pre-compact.sh` | Rewrite as the gate above; keep all existing checkpoint logic as the always-run tail |
-| `.claude/hooks/_common.sh` | Add `session_id_from_json()`, `json_escape()` |
-| `.claude/hooks/compact-suggest.sh` | Adopt `session_id_from_json()`; fix the stale "50% auto-compact" comment (`:44`); reword advisories to reference the gate |
-| `.claude/hooks/session-end-cleanup.sh` | Remove `.compact-gate-<sid>`; extend the 7-day prune to `.compact-gate-*` |
-| `.claude/commands/tools/handoff.md` | Make `compact_instruction` mandatory with guidance on what a good one contains; document the gate and its one-shot escape hatch |
-| `tests/hook-smoke.sh` | Gate cases (below) |
-| `docs/knowledge/architecture.md` | Update the `pre-compact.sh` row (`:56`) and the auto-checkpoint note (`:136`) |
-| `docs/knowledge/decisions.md` | ADR: hooks may block where the platform must require model-only work |
-| `docs/knowledge/patterns.md` | Pattern: "Gate on what you cannot do; heal what you can" |
-| `README.md` | Update `:171` — session state is *required*, not merely auto-saved |
-| `ROADMAP.md` | Draft tasks `#T117`+ under `## Feature: compaction-gate` |
+| `.claude/settings.json` | `CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000"` added; `PreCompact` matcher `"auto"` → `"*"` so manual `/compact` also checkpoints and forwards its instruction |
+| `.claude/hooks/pre-compact.sh` | Rewritten: stdout contract, handoff discovery + extraction, read-only map check, nudge re-arm; checkpoint retained as the debounced tail. ROADMAP marker patterns fixed |
+| `.claude/hooks/compact-suggest.sh` | Rewritten: transcript-growth threshold, one nudge per compaction cycle, `additionalContext` payload |
+| `.claude/hooks/_common.sh` | Added `session_id_from_json()`, `json_string_field()` |
+| `.claude/hooks/session-end-cleanup.sh` | Removes `.compact-base-*` / `.compact-nudged-*` for the session; 7-day prune of both |
+| `.claude/commands/tools/handoff.md` | `compact_instruction` mandatory; new "How `compact_instruction` is used" section; note that auto-checkpoints cannot record rationale |
+| `tests/compaction-hooks.sh` | New — 45 assertions across sandboxed project roots |
+| `docs/knowledge/architecture.md` | Both hook rows updated; new "Compaction Handoff Chain" subsection |
+| `docs/knowledge/decisions.md` | ADR: steer the summarizer, do not block compaction |
+| `docs/knowledge/patterns.md` | "Verify the Channel Before Designing the Gate"; "Test Behaviour in a Copied Project Root" |
+| `README.md` | New tip: compaction is steered, not just survived |
+| `ROADMAP.md` | `#T117` under `## Feature: compaction-gate` |
 
 ### Dependencies
 
-None. `find`, `awk`, `tr`, `git`, and optional `node` are all already required
-by shipped hooks.
+None. `find`, `awk`, `tr`, `wc`, `git`, and optional `node` are all already
+required by shipped hooks.
 
 ## CLI Verification
 
@@ -264,7 +285,15 @@ async function MEe(e, t, r = Hm) {
 }
 ```
 
-**1. A block does not end compaction for the session.** Two distinct auto paths
+**1. A block reason never reaches Claude, which is what killed the gate.**
+`blockedBy` has exactly three consumers: a debug log line, a user-facing
+notification whose text is a fixed string that *omits* the reason (and which is
+suppressed entirely when `isAutoCompact`), and a thrown error on the manual
+path. No consumer puts it in Claude's context. A blocking `PreCompact` hook can
+therefore defer compaction but cannot say why to the only participant able to
+act — the mechanism rounds 1–3 were built on does not exist.
+
+**2. A block does not end compaction for the session.** Two distinct auto paths
 consume `blockedBy`, and neither latches anything off:
 
 - *Precomputed* (proactive): `if (I.blockedBy) { w("Precomputed compact blocked
@@ -274,22 +303,16 @@ consume `blockedBy`, and neither latches anything off:
   the caller logs `" compaction blocked by PreCompact hook; continuing
   uncompacted"`.
 
-"Continuing uncompacted" is the answer: the turn proceeds, and the next
-compaction trigger re-evaluates the hook. **The escape hatch will run.** The
-design's blocking mechanism is sound as written.
+"Continuing uncompacted" is the answer to round 2's load-bearing question. It is
+retained for provenance; it stopped mattering when finding 1 removed the reason
+to block at all.
 
-**2. There are two auto-compaction triggers, and the hook cannot tell them
+**3. There are two auto-compaction triggers, and the hook cannot tell them
 apart.** Both call `MEe({trigger: "auto", ...})`, so `trigger` is `"auto"` for
 the proactive arm and the reactive one alike. Blocking the proactive arm is
 cheap; blocking the reactive one means continuing uncompacted toward the hard
-limit, where the bundle's `"Conversation too long"` path lives. Since the hook
-cannot distinguish them, the one-shot escape hatch is not merely prudent — it is
-the only thing standing between a blocked reactive compaction and that error.
-
-**3. Manual `/compact` cannot be blocked at all.** The `/compact` command path
-(`Il_`) and the shared compaction routine (`Pko`) call `MEe` and read only
-`newCustomInstructions`; neither inspects `blockedBy`. The design's choice not
-to gate manual compaction is therefore forced, not merely preferred.
+limit, where the bundle's `"Conversation too long"` path lives. A hook cannot
+choose to block only the cheap one.
 
 **4. Hook stdout becomes the compaction's custom instructions.** This retracts a
 stated HARD constraint. Successful non-blocked hooks' stdout is joined into
@@ -301,142 +324,163 @@ function MLo(e, t) { if (!t) return e || void 0; if (!e) return t;
 ```
 
 so the user's instructions come first and the hook's are appended. The drafted
-compact message therefore has a purpose-built native channel; `additionalContext`
-is not needed for it.
+compact message has a purpose-built native channel. Note that `l.output.trim()`
+is taken as-is with no parse — hence the plain-text stdout contract.
 
 **5. Blocking and instructing are mutually exclusive in one invocation.** The
 `!l.blocked` filter excludes a blocking hook's output from
-`newCustomInstructions` — it goes to `blockedBy` instead. This suits the
-two-phase design exactly: the blocking pass carries the reason, the passing pass
-carries the instruction. It also means the gate must never try to do both at
-once.
+`newCustomInstructions` — it goes to `blockedBy` instead. A hook cannot both
+refuse and instruct.
 
-**6. Configuring any `PreCompact` hook disables precompute reuse.** In `Rl_`:
+**6. Manual `/compact` reaches a path that *does* inspect `blockedBy`.** This
+corrects round 3, which claimed manual compaction could not be blocked at all.
+`Il_` (the `/compact` command) and `Pko` (the shared routine) both reach `PLo`,
+which inspects `blockedBy` and throws. So the manual path is the one that *can*
+be blocked meaningfully; the auto path is the one that cannot. The shipped
+design blocks neither, and sets the matcher to `"*"` so manual compaction gets
+the same forwarded instruction and checkpoint.
+
+**7. Configuring any `PreCompact` hook disables precompute reuse.** In `Rl_`:
 `if (t) return { hit: !1, reuse: "miss_hook" }`, where `t` is the hook result.
-Project OS already ships a `PreCompact` hook, so this cost is already being
-paid — worth knowing, not a reason to change course.
+Project OS already shipped a `PreCompact` hook before this change, so this cost
+was already being paid — worth knowing, not a reason to change course.
 
 ## Testing Strategy
 
-Extends `tests/hook-smoke.sh`, which already drives hooks by feeding stdin JSON
-and asserting exit codes (`:18-23`). Per `.claude/rules/tests.md`, each case
-sets up its own state file and sessions directory and asserts specific values,
-not truthiness. Names follow `[unit]_[scenario]_[expected]`:
+`tests/compaction-hooks.sh` — 45 assertions, all passing. Per
+`.claude/rules/tests.md` each case builds its own state and asserts specific
+values, not truthiness.
 
-- `precompact_no_handoff_first_attempt_blocks` — exit 2, stderr contains
-  `/tools:handoff`, state file reads `blocked`
-- `precompact_no_handoff_second_attempt_passes` — pre-seeded `blocked` state →
-  exit 0, stdout contains a `systemMessage`, state file reads `passed`
-- `precompact_fresh_handoff_passes` — handoff newer than state file and under 30
-  min → exit 0, state `passed`
-- `precompact_stale_handoff_blocks` — handoff with mtime 31 min old → exit 2
-- `precompact_handoff_older_than_state_blocks` — the loop-termination case:
-  handoff recent but predating the `blocked` marker
-- `precompact_manual_trigger_never_blocks` — `"trigger":"manual"` with no
-  handoff → exit 0
-- `precompact_clean_tree_no_tasks_passes` — nothing to hand off → exit 0
-- `precompact_compact_instruction_reaches_stdout` — handoff whose
-  `compact_instruction` contains a double-quote, a backslash and a newline →
-  stdout parses as JSON (`node -e` via a script file per bash rules) and the
-  decoded `additionalContext` equals the original text
-- `precompact_session_id_traversal_is_sanitized` — `session_id` of
-  `../../etc/passwd` writes `.claude/logs/.compact-gate-etcpasswd`, and no file
-  is created outside `.claude/logs/`
-- `precompact_symlinked_handoff_is_ignored` — per `.claude/rules/tests.md`'s
-  in-bounds-indirection requirement, both a symlink escaping the project *and* a
-  symlink to an in-scope sibling are rejected by `-type f`
-- `precompact_checkpoint_written_on_every_path` — asserted in the block, pass,
-  and escape-hatch cases alike
+**Sandboxing.** Each case runs `new_sandbox()`: a `mktemp -d` root with
+`.claude/hooks`, `.claude/sessions`, `.claude/logs` and `scripts/`, the four
+hooks copied in, a `scripts/system-map.ts` stub (`process.exit(0)`, rewritten to
+`process.exit(3)` to simulate drift), and a synthetic `ROADMAP.md`. Because the
+hooks resolve their project root as `$SCRIPT_DIR/../..`, copying them makes that
+resolution land inside the sandbox — so tests exercise real filesystem
+behaviour without touching the repo. This is what caught the ROADMAP-marker bug
+below; a mock would have encoded the same wrong assumption.
 
-Manual verification required in build (not automatable here): that a real
-auto-compaction fires near 75% of the configured window, and — the load-bearing
-unknown — that a blocked auto-compaction is retried rather than abandoned.
+Groups:
+
+- **compact-suggest** — fires above threshold, silent below; once per cycle;
+  transcript smaller than baseline resets the baseline instead of reporting
+  negative growth; missing transcript exits 0; a `session_id` of
+  `../../etc/passwd` writes `.compact-nudged-etcpasswd` and nothing outside the
+  log directory.
+- **pre-compact** — instruction body forwarded; multi-line body forwarded
+  intact; handoff path named; **stdout is plain text, not JSON**; newest handoff
+  wins; placeholder rejected; handoff older than 30 min (`touch -d '2 hours
+  ago'`) ignored; silence when there is nothing to say; drift caveat alone;
+  drift caveat appended to an instruction.
+- **containment** — a handoff symlinked outside the project is rejected, *and* a
+  symlink to an in-scope sibling is rejected too. The second case exists so a
+  future switch to `-type f -o -type l` fails here.
+- **cycle handshake** — pre-compact clears the nudged marker and resets the
+  baseline to the current size; no re-nudge without growth; re-nudge after
+  growth.
+- **checkpoint** — file written; phase derived as `"build"`; feature derived
+  from the `## Feature:` heading; in-progress description recorded; absence of a
+  handoff recorded as "rationale not captured"; the 10-minute debounce
+  suppresses a second file **but still forwards the instruction**.
+- **malformed input** — empty stdin, non-JSON stdin, and a `session_id`
+  containing a space all exit 0 on both hooks.
+- **session-end-cleanup** — removes this session's markers, leaves other
+  sessions' intact.
+
+`tests/hook-smoke.sh` still passes 15/15 — no regression.
+
+Not automatable here, and left to observation in real sessions: that
+auto-compaction actually fires near 75% of the configured window, and whether
+`PROJECT_OS_COMPACT_NUDGE_BYTES` is calibrated (Open Question 7).
 
 ## Security Considerations
 
-- **Path traversal via `session_id`.** The sentinel filename embeds a value from
-  hook stdin. Sanitized to `[[:alnum:]_-]` by `session_id_from_json()`, matching
-  the existing convention; covered by a test.
+- **Path traversal via `session_id`.** Marker filenames embed a value from hook
+  stdin. Sanitized to `[[:alnum:]_-]` by `session_id_from_json()`; tested,
+  including that nothing is written outside the log directory.
 - **Symlink escape via handoff discovery.** `find -type f` plus
-  `resolve_project_path()` containment; in-bounds-symlink and prefix-collision
-  cases tested per `.claude/rules/tests.md`.
-- **JSON injection into hook stdout.** `compact_instruction` content is
-  user-authored free text emitted into a JSON payload. Escaped via
-  `json_escape()`; a malformed payload fails silently, so this is a correctness
-  risk as much as a security one.
-- **Secret leakage into `additionalContext`.** A handoff could contain a
-  credential pasted into `context_notes`. The gate forwards only
-  `compact_instruction`, never the whole file — a deliberate narrowing.
-- **No new write surface.** The gate writes only under `.claude/logs/` and
-  `.claude/sessions/`, both already written by shipped hooks. The map heal
-  writes `docs/maps/`, which is the documented owner of that path.
+  `resolve_project_path()` containment; both the escaping and the in-bounds
+  symlink case are tested.
+- **Untrusted text into the compaction instructions.** `compact_instruction` is
+  free text that becomes summarizer guidance. It is author-written in a repo
+  file, the same trust level as `CLAUDE.md`, and only that one field is
+  forwarded — never the whole handoff, which could contain a credential pasted
+  into `context_notes`. A deliberate narrowing.
+- **No JSON injection surface.** Neither hook interpolates variable text into a
+  JSON payload — `PreCompact` emits plain text, `PostToolUse` emits a fixed
+  string. This is why `json_escape()` was dropped rather than written.
+- **No new write surface.** Writes are confined to `.claude/logs/` and
+  `.claude/sessions/`, both already written by shipped hooks. Nothing under
+  `docs/maps/` is touched.
 
 ## Risks
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| ~~A blocked auto-compaction is not retried~~ | — | — | **Closed by CLI Verification.** The runner continues uncompacted and re-evaluates on the next trigger; nothing latches the block off |
-| The block reason never reaches Claude, so nothing acts on it and the gate is pure friction | Medium | High | Now the top open risk. A blocked hook's output lands in `blockedBy` → logged + user warning; its path into Claude's context is unconfirmed. Settle this in the same spike, before any implementation. If it does not reach Claude, the gate must deliver the instruction some other way — a `systemMessage` the user relays, or a non-blocking design |
-| A blocked *reactive* compaction continues uncompacted into the hard context limit | Medium | High | The hook cannot distinguish reactive from proactive (`trigger` is `"auto"` for both). The one-shot escape hatch is the only mitigation, which raises its priority from prudent to required |
-| Session wedged by repeated blocking | Low | Critical | One-shot state file; `passed` is written *before* exit on the escape-hatch path so a crash mid-hook cannot re-arm the block |
-| `CLAUDE_CODE_AUTO_COMPACT_WINDOW` decouples the status line from the real trigger | Medium | Low | Set it to `200000`, equal to the standard model window, so the two agree. Document that extended-context (1M) projects must raise it or accept the skew |
-| Drift check exceeds the hook timeout | Low | Low | Read-only input hashing, no `build()`. Failure drops the caveat and is never a block reason |
-| Post-compaction session over-trusts a map that was drifted at compaction time | Medium | Medium | That is what the forwarded caveat is for. `CLAUDE.md` already directs consulting the map before wiring changes, so the caveat has to be explicit that it describes committed state only |
-| The 10-minute checkpoint debounce suppresses the gate | Medium | High | **The debounce must move.** Today it is the first thing the script does (`pre-compact.sh:22-25`) and it `exit 0`s — which would skip the gate entirely on any compaction within 10 minutes of a checkpoint. Debounce the *checkpoint write*, never the gate decision |
-| Gate fires on trivial read-only sessions | Medium | Low | Skip when the tree is clean and no `[-]`/`[~]` tasks exist |
-| Handoff written but `compact_instruction` left as the template placeholder | Medium | Medium | `handoff.md` makes the field mandatory with concrete guidance; gate emits whatever is there rather than validating prose |
-| Breaking the "hooks are advisory" convention confuses future maintainers | Medium | Low | ADR in `decisions.md` stating the exception and its bounds: only `PreCompact`, only for missing model-authored artifacts, always one-shot |
+| The nudge threshold is miscalibrated and fires too early or too late | **High** | Medium | `PROJECT_OS_COMPACT_NUDGE_BYTES` is a tunable env var, default 1,200,000. It fired immediately in the session that built the feature, which is evidence the default is low. Firing early costs one handoff; firing late costs the session's context — the default is deliberately biased toward early. Open Question 7 |
+| Claude ignores the nudge and compaction proceeds with no handoff | Medium | Medium | Accepted. Nothing can compel a model turn, and the rejected alternative could not even inform it. The auto-checkpoint is the fallback and says in its own `context_notes` that rationale was not captured |
+| A handoff exists but `compact_instruction` is the unfilled placeholder | Medium | Medium | Placeholder rejected by substring match; `handoff.md` makes the field mandatory with concrete guidance and a worked example |
+| `CLAUDE_CODE_AUTO_COMPACT_WINDOW` decouples the status line from the real trigger | Medium | Low | Set to `200000`, equal to the standard model window, so the two agree. Extended-context (1M) projects must raise it or accept the skew |
+| Drift check exceeds the 30s hook timeout | Low | Low | Read-only input hashing, no `build()`. Failure drops the caveat and is never anything more |
+| Post-compaction session over-trusts a map that was drifted at compaction time | Medium | Medium | The forwarded caveat states explicitly that the map describes committed state only |
+| CLI internals change and the stdout channel stops working | Medium | High | The findings above are version-specific and labelled as such. Failure is silent — the instruction simply stops arriving. Re-verify after a CLI upgrade; `tests/compaction-hooks.sh` asserts the hook's *output*, which is the half that can be tested locally |
+| Configuring `PreCompact` disables precompute reuse | Certain | Low | Already the case before this change (CLI Verification 7) |
 
 ## Self-Review Findings
 
-Reviewed inline rather than by sub-agent. Findings marked OPEN are revisions to
-apply before approval; RESOLVED ones were folded into the design above and are
-kept for provenance.
+Findings marked RESOLVED were folded into the design or the implementation and
+are kept for provenance.
 
-**RESOLVED (review round 2) — the gate must not heal the system map.** Raised
-against the first draft, which ran `system-map.ts check --heal`. Three
+**RESOLVED (round 2) — the hook must not heal the system map.** Three
 independent reasons, any one sufficient: the heal reads the working tree while
 the map's authority is the git index (`:686-687`); mid-build drift is the
-expected state, so there is nothing to act on; and writing three tracked files
-under `docs/maps/` would dirty the tree the gate then inspects, so the
-clean-tree skip could never be taken. Replaced with a read-only `check` whose
-verdict is forwarded as a caveat. See Architecture Decision 3.
+expected state; and writing three tracked files under `docs/maps/` would dirty
+the tree the hook then inspects. Replaced with read-only `check`. See
+Architecture Decision 4.
 
-**RESOLVED (review round 2) — block-reason wording.** Now reads "once per
-compaction cycle", matching the state machine's re-arming behavior.
+**RESOLVED (round 3) — "is a blocked auto-compaction retried?"** Yes; the runner
+continues uncompacted and re-evaluates. Superseded in round 4 by the finding
+that made blocking moot.
 
-**OPEN / CRITICAL — `trap 'exit 0' ERR` silently disables the gate.** Every hook in
-this repo opens `set -euo pipefail` followed by `trap 'exit 0' ERR`
-(`pre-compact.sh:7-8`). That pairing is correct for an advisory hook and
-actively wrong for a gate: any incidental non-zero return — a `grep -c` that
-matched nothing, a `find` on a missing directory — converts into `exit 0`, which
-*is* the pass verdict. The gate would fail open permanently and no error would
-appear anywhere. A gate cannot inherit the advisory boilerplate unexamined. It
-needs an explicit trap that logs the internal failure and then chooses to fail
-open deliberately, so "the gate passed" and "the gate broke" are distinguishable
-in `.claude/logs/`.
+**RESOLVED (round 4) — does the block reason reach Claude?** No. This was the
+load-bearing unknown, and answering it inverted the design. See CLI
+Verification 1. The pattern is recorded in `patterns.md` as *"Verify the Channel
+Before Designing the Gate"* — round 3 confirmed the mechanism *existed* without
+confirming anyone could *observe* it.
 
-**OPEN / HIGH — `git diff --name-only` is the wrong emptiness test.** It reports
-neither staged nor untracked files. A session that staged all its work, or
-created new files, reads as a clean tree — so the checkpoint records no modified
-files precisely when there is most to lose. The gate's own skip test has been
-changed to `git status --porcelain` above, but the checkpoint's `modified_files`
-(`pre-compact.sh:86`) is still on the old call. Pre-existing bug, not introduced
-here; fix it in the same change so the two agree.
+**RESOLVED (round 4) — `trap 'exit 0' ERR` silently disables the gate.** Raised
+as CRITICAL against the blocking design, where any incidental non-zero return
+would convert into `exit 0` — the pass verdict — and fail open permanently with
+no error anywhere. Moot: no exit code carries a verdict now, so the advisory
+boilerplate is correct again rather than dangerous. Had the gate shipped, this
+alone would have required a custom trap.
 
-**RESOLVED (review round 3) — "is a blocked auto-compaction retried?"** Verified
-against the shipped CLI: yes, the runner continues uncompacted and re-evaluates
-on the next trigger. The blocking design stands. The same pass retracted the
-`custom_instructions`-is-input-only constraint and surfaced two auto-compaction
-triggers the hook cannot distinguish. See CLI Verification.
+**RESOLVED (round 4) — `git diff --name-only` is the wrong emptiness test.**
+It reports neither staged nor untracked files, so a session that staged all its
+work recorded an empty `modified_files` precisely when it had most to lose.
+Pre-existing bug; fixed by switching the checkpoint to `git status --porcelain`,
+with rename (`old -> new`) and git path-quoting handled and change types
+classified.
 
-**OPEN / HIGH — does the block reason reach Claude?** Inherits the "load-bearing
-unknown" slot from the retry question. The gate depends on Claude reading the
-reason and running `/tools:handoff`; what is established is only that the reason
-reaches `blockedBy`, a log line, and a user-facing warning. Sequence this first;
-its answer decides whether the gate can work as designed.
+**RESOLVED (round 4) — ROADMAP marker patterns never matched.** Found by the new
+tests, not by review. `pre-compact.sh` anchored markers as `^\s*\[-\]`, but
+ROADMAP tasks are markdown list items — `- [-] Task #T1` — so the marker is
+never at line start. Every auto-checkpoint ever written recorded `phase:
+"ad-hoc"`, `feature: "none"` and `in_progress: (none)` regardless of what was in
+flight; the checkpoint's only content-bearing fields had been inert since
+inception. Fixed to `^[[:space:]]*([-*][[:space:]]+)?\[-\]` in all three places,
+which also drops the GNU-only `\s`. `scripts/validate-roadmap.sh` was checked
+for the same mistake and does not have it.
 
-**OPEN / LOW — 30 minutes is asserted, not derived.** The freshness bound is borrowed
-from the checkpoint debounce, which was chosen for a different purpose. It is a
-named constant, so it is cheap to change once there is evidence about how long a
-typical session runs between handoff and compaction.
+**OPEN / MEDIUM — the pressure proxy is uncalibrated.** Transcript bytes since
+the last compaction is a stand-in for a token count hooks never receive. The
+1.2 MB default fired immediately in the session that built the feature, which
+suggests it is low, but one observation is not calibration. Needs data from
+several real sessions: transcript bytes at the moment auto-compaction fires,
+compared against the nudge point. Tracked as Open Question 7 in the brief.
+
+**OPEN / LOW — 30 minutes is asserted, not derived.** The handoff freshness
+bound was borrowed from the checkpoint debounce, which was chosen for a
+different purpose. It is a named constant with an env override, so it is cheap
+to change once there is evidence about how long a typical session runs between
+handoff and compaction.

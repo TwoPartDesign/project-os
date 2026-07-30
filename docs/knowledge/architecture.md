@@ -46,14 +46,14 @@ User ──→ Workflow Commands ──→ Orchestrator ──→ Sub-agents (is
 | Hook | Purpose |
 |------|---------|
 | `_common.sh` | Shared utilities: path resolution, validation, JSON extraction |
-| `compact-suggest.sh` | PostToolUse — warn when tool-call count suggests context is filling |
+| `compact-suggest.sh` | PostToolUse — on transcript growth since the last compaction, inject `additionalContext` telling Claude to run `/tools:handoff` with a `compact_instruction`; one nudge per compaction cycle |
 | `log-activity.sh` | Append structured JSONL events to the activity log |
 | `notify-phase-change.sh` | Terminal/desktop notification on phase transitions |
 | `output-index.sh` | PostToolUse advisory — index large tool outputs, hint via additionalContext |
 | `post-mcp-validate.sh` | PostToolUse — validate Context7 MCP output (exit 2 / additionalContext contract) |
 | `post-tool-use.sh` | Auto-format files after Write/Edit |
 | `post-write-session.sh` | Scrub secrets from `.claude/sessions/` files after write |
-| `pre-compact.sh` | PreCompact — auto-generate session handoff YAML (10-min debounce) |
+| `pre-compact.sh` | PreCompact (`*` — auto and manual) — print the freshest handoff's `compact_instruction` on stdout, which the runtime forwards to the compaction summarizer; also writes a filesystem-derived checkpoint YAML (10-min debounce) and resets the nudge baseline. Advisory: never blocks |
 | `session-start-setup.sh` | SessionStart — idempotent activation fallback: runs `setup.sh --check` so a cloned project installs its git hooks on first session |
 | `session-start-maintain.sh` | SessionStart — auto-runs the maintenance loop once per `auto_run_hours` (policy, default 24h); drafts-only, debounced on ledger age, skips worktrees |
 | `session-end-cleanup.sh` | SessionEnd — remove per-session counters, rotate append-only logs |
@@ -135,6 +135,35 @@ Project OS includes an FTS5-based knowledge index for efficient context manageme
 - **Advisory hook**: `.claude/hooks/output-index.sh` — indexes large tool outputs and persists extracted observations to `observation_meta` table
 - **Auto-checkpoint hook**: `.claude/hooks/pre-compact.sh` — PreCompact hook auto-saves session state before context compaction (10-min debounce)
 - **SKILL**: `.claude/skills/context-filter/SKILL.md` — teaches proactive routing for large content
+
+### Compaction Handoff Chain
+
+Auto-compaction fires at 75% of the context window (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75`;
+the threshold is inert unless `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is also set, which
+activates the proactive trigger path). Compaction is not something a hook can usefully
+stop, so the chain steers it instead — three stages, two of them hooks:
+
+1. **`compact-suggest.sh` (PostToolUse)** — transcript growth past
+   `PROJECT_OS_COMPACT_NUDGE_BYTES` since the last compaction injects
+   `hookSpecificOutput.additionalContext` into Claude's context: *write the handoff
+   now, with a `compact_instruction`*. One nudge per cycle, tracked by
+   `.claude/logs/.compact-nudged-<session_id>`.
+2. **Claude runs `/tools:handoff`** — the only stage that can author decisions and
+   rationale, because only the model has them. The hooks cannot.
+3. **`pre-compact.sh` (PreCompact, matcher `*`)** — reads the newest
+   `handoff-*.yaml` written in the last 30 minutes, extracts its
+   `compact_instruction` block scalar, and prints it on **stdout**. The runtime
+   collects PreCompact stdout into `newCustomInstructions` and merges it into the
+   compaction's custom instructions, so this text steers what the summarizer keeps.
+   It also runs `system-map.ts check` read-only and appends a drift caveat, writes
+   a filesystem-derived checkpoint (10-min debounce), and resets the nudge baseline
+   so stage 1 can fire again next cycle.
+
+Why `pre-compact.sh` does not block: exit 2 defers compaction, but on the auto path
+the block reason reaches only a debug log and a fixed-string notification that omits
+it — never Claude — so the gate would stall the session without saying why. See
+`docs/knowledge/decisions.md` and `docs/specs/compaction-gate/design.md`. Behaviour
+is pinned by `tests/compaction-hooks.sh`.
 
 ### Recency-Weighted Search
 

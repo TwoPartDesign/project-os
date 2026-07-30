@@ -86,6 +86,7 @@ flowchart LR
     s_update_project["scripts/update-project.sh"]
     s_validate_freshness["scripts/validate-freshness.sh"]
     s_validate_roadmap["scripts/validate-roadmap.sh"]
+    s_compaction_hooks["tests/compaction-hooks.sh"]
     s_critical_rules_test["tests/critical-rules.test.ts"]
     s_dashboard_render_test["tests/dashboard-render.test.ts"]
     s_dashboard_smoke["tests/dashboard-smoke.sh"]
@@ -167,6 +168,7 @@ flowchart LR
   cfg_settings -->|wires| h_session_start_maintain
   cfg_settings -->|wires| h_session_start_setup
   cfg_settings -->|wires| h_tool_failure_log
+  h_compact_suggest -->|sources| l_common
   h_log_activity -->|sources| l_common
   h_output_index -->|sources| l_common
   h_post_tool_use -->|sources| l_common

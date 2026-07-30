@@ -132,3 +132,27 @@ Corollary — **placeholder-scanning cannot find this class**. A setup command t
 **Example**: skill-apply's auto-tier entanglement check went through two broken denylist generations (5 path prefixes → broken by `bin/critical-tool.sh`, reproduced end-to-end) before being inverted in round 3: a dead-ref-bearing line is auto-removable only if excising the ref leaves residue with no `[A-Za-z0-9]` at all. The adversarial verifier then held it under Unicode, boundary, and syntax-smuggling attack (one LOW ASCII-scope residual, filed as #T95).
 
 **Anti-pattern**: Patching a broken recognition denylist by adding the newly-found shape — it converges never; the class of misses survives every instance fix. Also: claiming "any word content" in docs when the implementation matches a narrower character class — keep predicate claims verbatim-accurate to the code.
+
+---
+
+### Verify the Channel Before Designing the Gate
+
+**When to Use**: Any design whose value rests on a platform mechanism doing something observable — a hook that blocks, a callback that receives a value, an event that reaches a consumer. Especially when the mechanism is documented as *possible* but the design needs it to be *useful*.
+
+**Pattern**: Before building, identify the one or two assumptions the design cannot survive being wrong about, and check each against the shipped runtime — not the docs, not inference. "Exit 2 blocks compaction" and "exit 2 blocks compaction *in a way that tells someone why*" are different claims, and only the second one buys anything. When verification inverts an assumption, redesign around the channels that verifiably work rather than salvaging the original shape.
+
+**Example**: the compaction gate was specced as a PreCompact hook blocking until a fresh handoff existed. Two load-bearing assumptions were checked against the CLI binary first. Retry held. Reachability did not: `blockedBy` goes to a debug log, to a notification with a fixed string that omits the reason (suppressed entirely when `isAutoCompact`), and to a thrown error — never to Claude's context, and the reactive path never reads it at all. Blocking was dropped for two channels that were confirmed to land: PostToolUse `additionalContext` (reaches Claude) and PreCompact stdout → `newCustomInstructions` (reaches the summarizer). The same pass also disproved one of my own asserted HARD constraints — that the summarizer was unreachable from a hook — which had been about to remove a requirement from scope.
+
+**Anti-pattern**: Designing enforcement around a mechanism's *existence* (it can block!) without checking its *observability* (can anyone tell why?) — the result stalls the system silently. Also: treating your own stated constraints as verified because you stated them confidently; an assumption load-bearing enough to shape an architecture is load-bearing enough to check.
+
+---
+
+### Test Behaviour in a Copied Project Root
+
+**When to Use**: Testing scripts that derive their own project root from `$BASH_SOURCE` (hooks, git-hook shims, setup scripts) and write into it.
+
+**Pattern**: Copy the scripts into a throwaway root (`mktemp -d` + the directory skeleton they expect) and run the copies. They resolve `$SCRIPT_DIR/../..` to the sandbox, so every read and write lands there — the real `.claude/sessions/`, `.claude/logs/`, and git tree are untouched, and each test gets a genuinely fresh state with no shared mutable fixtures. Stub the sandbox's external dependencies to make each branch reachable (a `scripts/system-map.ts` of `process.exit(0)` vs `process.exit(3)` selects clean-map vs drifted-map behaviour without invoking the real generator).
+
+**Example**: `tests/compaction-hooks.sh` builds a sandbox per test case and asserts what the hooks *do* — instruction forwarded, nudge fired exactly once per cycle, symlinked handoff rejected — rather than only that they exit 0, which is all `tests/hook-smoke.sh` could safely check while running against the live root. It caught a pre-existing bug immediately: `pre-compact.sh` matched ROADMAP markers with `^\s*\[-\]`, but tasks are markdown list items (`- [-] …`), so every auto-checkpoint ever written had recorded `phase: "ad-hoc"` / `feature: "none"`.
+
+**Anti-pattern**: Exit-code-only smoke tests standing in for behaviour tests — a hook that silently does nothing passes every one of them. Or testing against the live project root, which makes assertions order-dependent (debounce files, markers left by earlier cases) and leaves artifacts in tracked directories.

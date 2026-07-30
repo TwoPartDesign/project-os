@@ -22,10 +22,14 @@ SESSION_ID=$(echo "$SESSION_ID" | tr -cd '[:alnum:]_-')
 
 if [ -n "$SESSION_ID" ]; then
     rm -f "$LOG_DIR/.tool-count-$SESSION_ID" "$LOG_DIR/.tool-count-$SESSION_ID.lock"
+    # Compaction-pressure markers written by compact-suggest.sh / pre-compact.sh
+    rm -f "$LOG_DIR/.compact-base-$SESSION_ID" "$LOG_DIR/.compact-nudged-$SESSION_ID"
 fi
 
-# Prune stale counters from sessions that never cleaned up (>7 days old)
+# Prune stale markers from sessions that never cleaned up (>7 days old)
 find "$LOG_DIR" -maxdepth 1 -name '.tool-count-*' -type f -mtime +7 -delete 2>/dev/null || true
+find "$LOG_DIR" -maxdepth 1 -name '.compact-base-*' -type f -mtime +7 -delete 2>/dev/null || true
+find "$LOG_DIR" -maxdepth 1 -name '.compact-nudged-*' -type f -mtime +7 -delete 2>/dev/null || true
 
 # Opportunistic rotation of the append-only logs
 rotate_log "$LOG_DIR/activity.jsonl"

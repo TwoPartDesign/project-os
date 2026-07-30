@@ -302,12 +302,13 @@ Two pre-existing defects found while verifying #T112's rewrite. Both make named 
 ## Feature: compaction-gate
 
 ### Draft
-- [?] Compaction Gate — require a model-authored handoff, a healed system map, and a drafted compact message before auto-compaction. Brief + design drafted at `docs/specs/compaction-gate/`; design carries one CRITICAL and two HIGH self-review findings to resolve before approval. Blocked on verifying that a blocked auto-compaction is actually retried — if it is not, the gate degrades to a non-blocking nudge #T117
+- [?] Calibrate `PROJECT_OS_COMPACT_NUDGE_BYTES` — the nudge threshold is a transcript-bytes proxy for a token count hooks never receive, and the 1,200,000 default fired immediately in the session that built the chain. Collect transcript size at the moment auto-compaction fires across several real sessions and set the default from data (depends: #T117) #T118
 
 ### Todo
 ### In Progress
 ### Review
 ### Done
+- [x] Compaction Handoff Chain — auto-compaction at 75% of the window, a PostToolUse nudge that requires a model-authored handoff while the context to write one still exists, and the handoff's `compact_instruction` forwarded to the compaction summarizer via PreCompact stdout. Blocking was designed for three rounds and rejected on CLI verification: a `PreCompact` block reason reaches only a debug log and a reason-less notification, never Claude. Read-only system-map drift check, forwarded as a caveat — never healed. Fixed a pre-existing bug that had made every auto-checkpoint's `phase`/`feature`/`in_progress` fields inert. Spec `docs/specs/compaction-gate/`, tests `tests/compaction-hooks.sh` (45 assertions). Implemented directly at the owner's direction; did not pass through `/pm:approve` #T117
 
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->
