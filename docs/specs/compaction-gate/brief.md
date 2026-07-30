@@ -380,11 +380,12 @@ and the instruction channel made it unnecessary for verification.
     when it is. This reverses a round-8 assertion (`context_sidechainRunLonger
     ThanScanWindow_stillMeasuresMainThread`) that was defended in review: the
     number is still measured correctly, but measuring it is not a reason to
-    deliver on it. Cost: one turn of delay, since PostToolUse for the `Task`
-    itself fires after the sub-agent completes. Bound worth stating — whether
-    sub-agent hook firings share the main session's id was **not** confirmed;
-    the transcript this was built against contains no sidechain records at all,
-    so the fix is right either way but its severity is unmeasured.
+    deliver on it. Two bounds were stated here and both were later corrected in
+    round 10: the "one turn of delay" for the main thread's own PostToolUse on
+    the completed `Task` turned out not to be a bounded delay at all, and the
+    open question of whether sub-agent firings share the main session's id
+    (unanswerable from a transcript containing no sidechain records) was
+    settled — they do.
     (b) The checkpoint escaped `"` in ROADMAP-derived values but not `\`, and
     `\s` is not a legal escape in a double-quoted YAML scalar — the same class
     of bug as round 8's C-quoting, reached by a different route. Reproduced
@@ -405,6 +406,31 @@ and the instruction channel made it unnecessary for verification.
     the session, so the record of who wrote it has to as well; the 7-day prune
     already covered it, and a stale claim is the safe failure. Six of the
     fourteen new assertions verified to fail against the pre-fix hooks.
+
+13. ~~The delivery gate threw away the main thread's own nudge after a sub-agent
+    finished, and an owned handoff skipped the age window before the first
+    compaction.~~ **Resolved (round 10): two findings from a review of the
+    round-9 commit.**
+    (a) Round 9 inferred the speaker from the transcript tail, which cannot tell
+    a sub-agent's own tool call from the main thread's `PostToolUse` for the
+    *completed* `Task` — the sub-agent's last turn is newest in both cases. Round
+    9 wrote that consequence down and accepted it as one turn of delay; that was
+    wrong, because there may be no further turn. If the resumed turn ends without
+    another tool call, or auto-compaction fires first, the cycle's nudge is lost
+    with nothing to recover it. The gate now compares the payload's `agent_id`
+    against `session_id`, which is what "main thread" actually means, and reading
+    the shipped CLI's payload assembly answered round 9's open question at the
+    same time: sub-agent firings do share the session id, so the marker spend was
+    the serious half of the original bug. The tail heuristic survives only for
+    payloads carrying no `agent_id` at all.
+    (b) The ownership branch accepted a claimed handoff at any age when no cycle
+    marker existed, while the glob fallback applied the 30-minute window. Two
+    reachable paths — a first compaction hours after the handoff was written, and
+    a session resuming after `SessionEnd`. The second is a regression from
+    round 9's own retention fix, which kept the claim past `SessionEnd` while the
+    cycle marker still dies with the session. Both branches now share one window
+    and one tool; a cycle marker, when present, still governs. Eight of the
+    thirteen new assertions verified to fail against the pre-fix hooks.
 
 **Still open:**
 

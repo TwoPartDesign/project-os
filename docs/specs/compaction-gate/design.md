@@ -206,27 +206,47 @@ Seven details in the implementation:
   newest record blindly would read a sub-agent's context as the main thread's —
   and because sub-agent totals are small, the failure is silent
   under-reporting.
-- **If the newest `usage`-bearing record *is* a sidechain one, the nudge is
-  deferred, not raised.** This is a delivery question, not a measurement one,
-  and the two were conflated at first. The hook fires on the sub-agent's tool
-  calls too, and `additionalContext` lands in the context of whichever agent
-  made the call — so a nudge raised mid-sub-agent-run reaches an agent that can
-  neither write a handoff nor be compacted, *and* spends the once-per-cycle
-  marker the main thread's own nudge needed. The turn that had to be told never
-  hears anything. The transcript answers "who is speaking now": if the newest
-  record is a sidechain turn, a sub-agent is mid-run, so the hook exits without
-  emitting and without writing the marker. The next main-thread tool call nudges
-  with a number that is, if anything, more urgent by then.
+- **Delivery is gated on `agent_id`, not on the transcript tail.** This is a
+  delivery question, not a measurement one, and the two were conflated at first.
+  The hook fires on the sub-agent's tool calls too, and `additionalContext` lands
+  in the context of whichever agent made the call — so a nudge raised
+  mid-sub-agent-run reaches an agent that can neither write a handoff nor be
+  compacted, *and* spends the once-per-cycle marker the main thread's own nudge
+  needed. The turn that had to be told never hears anything.
 
-  Two bounds stated rather than buried. Right after a sub-agent returns its last
-  record is still the newest, so the main thread's own `PostToolUse` for the
-  `Task` defers too and the nudge waits one further turn — accepted, because
-  deferring costs a turn and mis-delivering costs the cycle. And whether
-  sub-agent hook firings share the main session's id was **not** confirmed here:
-  the transcript this was built against contains no sidechain records at all.
-  The gate is correct either way — if the id is shared, the marker spend is the
-  serious half of the bug; if it is not, a stray nudge in a sub-agent's context
-  is still noise it can do nothing with — but the severity is unverified.
+  The payload answers "who is speaking" directly. Every hook payload is built
+  from a common prefix carrying both `session_id` and `agent_id`; the main
+  thread's tool-use context is `{agentType:"main", agentId:<session id>}`, while
+  a sub-agent gets a distinct id. So `agent_id == session_id` *is* the
+  main-thread test, and both values arrive in the same payload, which makes the
+  comparison self-contained. It is preferred over `agent_type == "main"` because
+  that default is a *configurable* value in the CLI, so the literal string is not
+  guaranteed; an id comparison does not depend on a name.
+
+  This also settles a question round 9 left open. It read the transcript tail as
+  a proxy for identity and recorded that whether sub-agent hook firings share the
+  main session's id was unconfirmed, because the transcript it was built against
+  contained no sidechain records. Reading the shipped CLI's hook-payload
+  assembly answers it: `session_id` is resolved from the session, independently
+  of the agent, so **sub-agent firings do share the main session's id** — the
+  marker spend was the serious half of the bug, as round 9 guessed.
+
+  The tail heuristic survives only as a fallback for a payload carrying no
+  `agent_id` key at all — an older CLI. Absence must not be read as "main
+  thread", or the guard would silently retire itself on a version that needs it.
+
+  Round 9 also stated a bound and accepted it: right after a sub-agent returns,
+  its last record is still the newest, so the main thread's own `PostToolUse` for
+  the completed `Task` deferred too, waiting "one further turn". That acceptance
+  was wrong. If the resumed turn ends without another tool call, or
+  auto-compaction fires first, no later `PostToolUse` delivers the nudge and the
+  cycle is simply lost — nothing recovers it, because the marker logic has no
+  notion of a nudge that was owed and never sent. Gating on the payload closes
+  that path: the `Task`-completion firing is a main-thread firing and is now
+  recognized as one. For the same reason the scan loop no longer stops early on a
+  sidechain tail once identity is known — that tail is exactly the case needing
+  the *wider* window, since the main thread's number sits behind a whole
+  sub-agent run's worth of records.
 - **Matching starts at the `"usage"` key.** The same field names recur inside
   the `iterations` array and could appear in assistant prose, so the scan takes
   the first occurrence of each field *after* `"usage"`, which is the top-level
@@ -320,9 +340,10 @@ Six details:
   `Write` does, so an ungated branch made *reading* a handoff a claim on it —
   and `/tools:catchup`, whose entire job is to read the previous session's
   handoff, is the documented way that happens. The consequence was worse than
-  no ownership tracking at all: the ownership branch bypasses the age window
-  (it compares against the cycle marker, and a session's first compaction has
-  no cycle marker), so the reader forwarded instructions written for someone
+  no ownership tracking at all: at the time, the ownership branch bypassed the
+  age window (it compared against the cycle marker, and a session's first
+  compaction has no cycle marker — closed in round 10, below), so the reader
+  forwarded instructions written for someone
   else's task however stale, while the claim simultaneously hid that handoff
   from every other session's fallback glob. The gate is a tool-name allowlist —
   `Write`, `Edit`, `MultiEdit`, `NotebookEdit`. A write that failed still claims
@@ -357,6 +378,22 @@ Six details:
   it names a file newer than the cycle marker. Lines are read in order and the
   last qualifying one wins, so a since-deleted newest claim falls back to the
   surviving earlier one rather than blanking the record.
+
+  Where there is no cycle marker — a session's first compaction — the branch
+  applies the same `HANDOFF_MAX_AGE_MIN` window the glob fallback uses, rather
+  than accepting the claim at any age. Until round 10 it did the latter, and the
+  asymmetry was reachable two ways: a session that wrote a handoff and then
+  worked for hours before its first compaction, and a session resuming after
+  `SessionEnd`. The second path is a regression introduced by round 9 itself,
+  which kept `.compact-handoff-<sid>` past `SessionEnd` while `.compact-cycle-
+  <sid>` is still deleted — before that change a resumed session fell through to
+  the age-windowed glob, and after it the claim survived into an unwindowed
+  branch. Because the loop keeps the *last* qualifying line, an unfiltered stale
+  entry did not merely add a candidate, it displaced a fresher one. Where a
+  cycle marker does exist it remains the authority, and it is the stricter
+  signal: "written since the last compaction" is what freshness actually means,
+  so a long-running session's second compaction does not lose a handoff merely
+  for being older than the window.
 - **The glob fallback excludes handoffs other sessions claimed — on any line.**
   Every session in the checkout writes its record into the same log directory,
   so a foreign handoff is identifiable even when this session wrote none. Claims
@@ -933,3 +970,51 @@ too. The 7-day prune already covered `.compact-handoff-*` and is now the only
 thing that collects it, which is the safe direction: a stale claim merely
 excludes a handoff from the fallback glob, and a handoff that old fails the
 freshness filter regardless.
+
+**RESOLVED (round 10) — the delivery gate discarded the main thread's own
+`Task`-completion nudge.** Round 9 inferred "who is speaking" from the
+transcript tail, and inference cannot separate a sub-agent's own tool call from
+the main thread's `PostToolUse` for the *completed* `Task`: at that instant the
+sub-agent's last turn is still the newest `usage`-bearing record either way. So
+the gate dropped a genuine main-thread firing. Round 9 named this in its own
+design text and accepted it as "one further turn" of delay — the same pattern as
+round 8 naming the mis-delivery and shipping a fix for something else. The
+acceptance was wrong, because there is no guarantee of a further turn: if the
+resumed turn ends without another tool call, or auto-compaction fires first, no
+later `PostToolUse` delivers the nudge and the cycle is lost outright. Nothing
+recovers it — the marker logic has no notion of a nudge that was owed and never
+sent.
+
+The gate now reads `agent_id` from the payload and compares it to `session_id`.
+Reading the shipped CLI's payload assembly also closed round 9's stated open
+question: `session_id` is resolved from the session independently of the agent,
+so sub-agent firings *do* share the main session's id, and the marker spend was
+the serious half of the bug rather than a possibility. The tail heuristic
+remains only for a payload with no `agent_id` key at all, since treating an
+absent key as "main thread" would retire the guard silently on an older CLI. One
+consequence in the scan loop: it stopped early on a sidechain tail, which was
+right only while that tail decided delivery — with identity known, a sidechain
+tail is exactly the case needing the *wider* window, because the
+`Task`-completion firing sits behind a whole sub-agent run's worth of records.
+Five of the nine new assertions fail against the pre-fix hook; the rest pin
+behaviour the change could have broken — the fallback path for `agent_id`-less
+payloads, the byte proxy on the main thread, and the ownership claim, which is
+deliberately recorded *above* the identity exit so a sub-agent's handoff write
+still claims its file.
+
+**RESOLVED (round 10) — an owned handoff bypassed the age window before the
+first compaction.** The ownership branch accepted any claimed path when no cycle
+marker existed, while the glob fallback applied `HANDOFF_MAX_AGE_MIN`. The
+asymmetry had been described in this document twice as an accepted property; it
+was a defect. Two reachable paths: a session that wrote a handoff and worked for
+hours before its first compaction, and a session resuming after `SessionEnd` —
+and the second is a regression from round 9, which kept `.compact-handoff-<sid>`
+past `SessionEnd` while `.compact-cycle-<sid>` is still deleted, so a claim that
+used to expire with the session now survives into an unwindowed branch. Because
+the loop keeps the last qualifying line, a stale entry displaced a fresher one
+rather than merely joining it. The branch now applies the same window when no
+cycle marker exists, using `find -maxdepth 0 -mmin` on the single path so both
+branches share one tool and one threshold; where a cycle marker does exist it
+still governs, being the stricter and more meaningful signal. Three of the four
+new assertions fail against the pre-fix hook; the fourth pins that the cycle
+marker still wins when present.

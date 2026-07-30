@@ -109,14 +109,31 @@ OWNED_FILE="$LOG_DIR/.compact-handoff-$SESSION_ID"
 
 # The record holds every handoff this session wrote, appended in order, so the
 # last line that still exists and is fresh is the one to forward.
+#
+# "Fresh" means the same thing on both branches, and it has to. An earlier
+# version accepted an owned handoff of ANY age whenever the cycle marker was
+# missing, on the reasoning that no marker means no compaction has happened
+# yet. But missing-marker is not the same as recently-written, and the glob
+# fallback below applies the age window in exactly that situation. Two ways the
+# gap was reachable: a session that wrote a handoff and then worked for hours
+# before its first compaction, and — more sharply — a session resuming after
+# SessionEnd, since cleanup removes the session-private cycle marker while
+# deliberately keeping the cross-session ownership record. Claims outliving
+# markers is what makes the second case possible, so the retention fix that
+# introduced it is the reason this branch now has to check age for itself.
 HANDOFF=""
 if [ -f "$OWNED_FILE" ]; then
     while IFS= read -r OWNED; do
         [ -n "$OWNED" ] || continue
         [ -f "$OWNED" ] || continue
-        if [ ! -f "$CYCLE_FILE" ] || [ "$OWNED" -nt "$CYCLE_FILE" ]; then
-            HANDOFF="$OWNED"
+        if [ -f "$CYCLE_FILE" ]; then
+            [ "$OWNED" -nt "$CYCLE_FILE" ] || continue
+        else
+            # Same window, same tool as the fallback branch: -maxdepth 0 makes
+            # find test this one path rather than descend anything.
+            [ -n "$(find "$OWNED" -maxdepth 0 -mmin -"$HANDOFF_MAX_AGE_MIN" 2>/dev/null)" ] || continue
         fi
+        HANDOFF="$OWNED"
     done < "$OWNED_FILE"
 fi
 

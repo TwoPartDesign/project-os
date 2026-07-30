@@ -46,7 +46,7 @@ User ──→ Workflow Commands ──→ Orchestrator ──→ Sub-agents (is
 | Hook | Purpose |
 |------|---------|
 | `_common.sh` | Shared utilities: path resolution, validation, JSON extraction |
-| `compact-suggest.sh` | PostToolUse — when the transcript's newest `usage` record puts context past `NUDGE_PCT` of the window (default 60%), inject `additionalContext` telling Claude to run `/tools:handoff` with a `compact_instruction`; one nudge per compaction cycle. Deferred entirely while the newest `usage`-bearing record is a sidechain one, because `additionalContext` lands in the *calling* agent's context and a sub-agent can neither write a handoff nor be compacted. Also records handoff authorship: on every call, a write to `.claude/sessions/handoff-*.yaml` is appended to `.compact-handoff-<session_id>` (one path per line, so a session that writes several in a cycle claims all of them) so `pre-compact.sh` can tell this session's handoffs from a concurrent session's |
+| `compact-suggest.sh` | PostToolUse — when the transcript's newest `usage` record puts context past `NUDGE_PCT` of the window (default 60%), inject `additionalContext` telling Claude to run `/tools:handoff` with a `compact_instruction`; one nudge per compaction cycle. Deferred entirely when the payload's `agent_id` differs from its `session_id` (a sub-agent firing), because `additionalContext` lands in the *calling* agent's context and a sub-agent can neither write a handoff nor be compacted; a payload with no `agent_id` at all falls back to deferring on a sidechain transcript tail. Also records handoff authorship: on every call, a write to `.claude/sessions/handoff-*.yaml` is appended to `.compact-handoff-<session_id>` (one path per line, so a session that writes several in a cycle claims all of them) so `pre-compact.sh` can tell this session's handoffs from a concurrent session's |
 | `log-activity.sh` | Append structured JSONL events to the activity log |
 | `notify-phase-change.sh` | Terminal/desktop notification on phase transitions |
 | `output-index.sh` | PostToolUse advisory — index large tool outputs, hint via additionalContext |
@@ -162,14 +162,20 @@ stop, so the chain steers it instead — three stages, two of them hooks:
    the cheap read comes up empty: a fixed 60 assumed a `usage`-bearing record was
    always near the end, which a long run of tool-result records — none of which
    carries a `usage` object at all — pushes out of reach, silently dropping the
-   hook to the byte proxy. The scan reports two things, the newest main-thread
-   number *and* whether the newest `usage`-bearing record was a sidechain one;
-   if it was, the hook exits without nudging and without spending the
-   once-per-cycle marker. `additionalContext` is delivered to whichever agent
-   made the tool call, so nudging mid-sidechain reaches a sub-agent that cannot
-   write a handoff and will not be compacted, and burns the one nudge the main
-   thread was owed. The cost is one turn of delay: the main thread nudges on its
-   next tool call after the sub-agent returns. Independently
+   hook to the byte proxy. Delivery is gated separately from measurement:
+   `additionalContext` reaches whichever agent made the tool call, so a nudge
+   raised during a sub-agent's run lands on an agent that cannot write a handoff
+   and will not be compacted, while still spending the one nudge the main thread
+   was owed. The gate compares the payload's `agent_id` against its `session_id`
+   — the main thread's tool-use context carries `agentId == <session id>`, a
+   sub-agent a distinct one — and exits on a mismatch, before the byte fallback,
+   without writing the marker. Preferred over `agent_type == "main"` because that
+   default is configurable in the CLI, so the literal string is not guaranteed.
+   A payload carrying no `agent_id` at all (an older CLI) falls back to the
+   transcript tail: newest `usage`-bearing record is a sidechain one → defer.
+   That inference is strictly weaker, since it cannot separate a sub-agent's own
+   call from the main thread's `PostToolUse` for the *completed* `Task`, and
+   dropping the latter can lose the cycle's nudge outright. Independently
    of the nudge — before the once-per-cycle exit, because the handoff is written
    *after* the nudge asks for it — every call checks `tool_input.file_path` on a
    **write** payload (`Write`, `Edit`, `MultiEdit`, `NotebookEdit` — `Read`
@@ -188,7 +194,10 @@ stop, so the chain steers it instead — three stages, two of them hooks:
    the last line of `.compact-handoff-<session_id>` naming a file newer than the
    cycle marker, else the newest *unclaimed* `handoff-*.yaml` written since the
    last compaction (`-newer .claude/logs/.compact-cycle-<session_id>`; a 30-minute
-   window bootstraps a session's first compaction). "Unclaimed" means no *other*
+   window bootstraps a session's first compaction — on **both** branches, since
+   the claim now outlives `SessionEnd` while the cycle marker does not, and an
+   unwindowed owned branch would let a resumed session forward a handoff of any
+   age). "Unclaimed" means no *other*
    session's `.compact-handoff-*` record names it on any line — that keeps the glob fallback
    from handing one session's instruction to another session's summarizer, while
    still forwarding a handoff written by some means this hook chain cannot see.

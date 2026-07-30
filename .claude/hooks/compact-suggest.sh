@@ -117,6 +117,39 @@ case "$WRITTEN_PATH" in
         ;;
 esac
 
+# ── Who is this firing for? ─────────────────────────────────────────────────
+# `additionalContext` lands in the context of whichever agent made the tool
+# call, so the nudge is only useful on a main-thread firing: a sub-agent can
+# neither run /tools:handoff nor be compacted, and the marker it would spend is
+# the main thread's one nudge for the cycle.
+#
+# The payload answers this directly. Every hook payload is built from a common
+# prefix (`Kf` in the shipped CLI) which carries both `session_id` and
+# `agent_id`; the main thread's tool-use context is `{agentType:"main",
+# agentId:<session id>}`, while a sub-agent gets a distinct id. So
+# `agent_id == session_id` IS the main-thread test, and both values arrive in
+# the same payload, which makes the comparison self-contained.
+#
+# Compared against `agent_type == "main"`, which looks more direct: that
+# default is `mainThreadAgentType`, a *configurable* value, so the literal
+# string is not guaranteed. The id comparison does not depend on a name.
+#
+# Both keys sit in the prefix, ahead of `tool_input`, so first-match extraction
+# cannot be beaten by file contents — the same ordering argument as `tool_name`
+# above. Sanitized the same way `session_id` is, so the two sides are
+# comparable rather than merely similar.
+AGENT_ID=$(json_string_field "$INPUT" agent_id | tr -cd '[:alnum:]_-')
+
+# An empty `agent_id` means the payload predates the field, NOT that this is
+# the main thread — reading absence as "main" would silently retire the guard
+# on an older CLI. Absence falls through to the transcript-tail heuristic
+# below; presence makes that heuristic unnecessary.
+TAIL_HEURISTIC=1
+if [ -n "$AGENT_ID" ]; then
+    TAIL_HEURISTIC=0
+    [ "$AGENT_ID" = "$SESSION_ID" ] || exit 0
+fi
+
 [ -n "$TRANSCRIPT" ] || exit 0
 [ -f "$TRANSCRIPT" ] || exit 0
 
@@ -204,34 +237,37 @@ for SCAN_LINES in 60 600 4000; do
     CONTEXT_TOKENS=$(printf '%s' "${SCAN%% *}" | tr -cd '0-9')
     SIDECHAIN_NEWEST=$(printf '%s' "${SCAN##* }" | tr -cd '0-9')
     SIDECHAIN_NEWEST="${SIDECHAIN_NEWEST:-0}"
-    if [ "$SIDECHAIN_NEWEST" = "1" ]; then break; fi
+    # Stopping early on a sidechain tail is only right when that tail is what
+    # decides delivery. With `agent_id` in hand this firing is already known to
+    # be the main thread's, and a sidechain tail is exactly the case that needs
+    # the WIDER window — the Task-completion firing sits behind a whole
+    # sub-agent run's worth of records.
+    if [ "$TAIL_HEURISTIC" = "1" ] && [ "$SIDECHAIN_NEWEST" = "1" ]; then break; fi
     if [ -n "$CONTEXT_TOKENS" ] && [ "$CONTEXT_TOKENS" != "0" ]; then break; fi
 done
 
-# ── Deliver to the main thread, or not at all ───────────────────────────────
-# This hook fires on the sub-agent's tool calls too, and `additionalContext`
-# lands in the context of whichever agent made the call. A nudge raised while a
-# sub-agent is running therefore reaches the sub-agent — which cannot write a
-# handoff and cannot be compacted — while spending the once-per-cycle marker
-# that the main thread's own nudge needed. The turn that had to be told never
-# hears anything.
+# ── Fallback delivery gate, for payloads with no `agent_id` ─────────────────
+# The identity check above already exited on a sub-agent firing. This remains
+# only for a payload that carried no `agent_id` at all, where "who is speaking"
+# has to be inferred: sidechain turns are appended to the same transcript, so a
+# sidechain record newest means a sub-agent is mid-run and this firing is
+# probably its own. Defer — the marker stays unspent.
 #
-# The transcript answers "who is speaking right now": sidechain turns are
-# appended to the same file, so if the newest usage-bearing record is one of
-# them, a sub-agent is mid-run and this firing is almost certainly its own.
-# Defer — the marker stays unspent and the next main-thread tool call nudges
-# with a number that is, if anything, more urgent by then. Deferring costs at
-# most one turn; delivering to the wrong agent costs the whole cycle.
+# Inference is strictly worse than the payload, and this is where it shows: it
+# cannot tell a sub-agent's own tool call apart from the main thread's
+# PostToolUse for the completed `Task`, because at that moment the sub-agent's
+# last record is still the newest one in the file. So this branch discards a
+# genuine main-thread firing. An earlier version treated that as a one-turn
+# delay and accepted it, which was wrong — if the resumed turn ends without
+# another tool call, or auto-compaction fires first, no later PostToolUse
+# delivers the nudge and the cycle is simply lost. Nothing recovers it, because
+# the marker logic has no notion of a nudge that was owed and never sent.
 #
-# Bounded honestly: right after a sub-agent returns, its last record is still
-# the newest, so the main thread's own PostToolUse for the Task defers too and
-# the nudge waits for the turn after. That is the accepted cost. Whether
-# sub-agent hook firings share this session's id could not be confirmed here —
-# no sidechain records exist in the transcript this was built against — but the
-# gate is correct either way: if the id is shared the marker spend is the
-# serious half of the bug, and if it is not, a stray nudge in a sub-agent's
-# context is still noise it can do nothing with.
-if [ "$SIDECHAIN_NEWEST" = "1" ]; then
+# It is kept regardless: on a CLI old enough to omit `agent_id`, an
+# over-eager defer loses some nudges, while no gate at all mis-delivers them
+# into sub-agent contexts and spends the marker doing it. The failure that
+# stays is the quieter one.
+if [ "$TAIL_HEURISTIC" = "1" ] && [ "$SIDECHAIN_NEWEST" = "1" ]; then
     exit 0
 fi
 

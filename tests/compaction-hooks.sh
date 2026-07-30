@@ -209,6 +209,20 @@ run_suggest() {
               "$@" bash "$sb/.claude/hooks/compact-suggest.sh" 2>/dev/null
 }
 
+# run_suggest_as <sandbox> <transcript> <agent_id> [env...]
+# The same run, with an `agent_id` in the payload. Key order mirrors the real
+# hook payload, where both `session_id` and `agent_id` are serialized ahead of
+# `tool_input` — the property the first-match extraction depends on.
+run_suggest_as() {
+    local sb="$1" transcript="$2" agent="$3"
+    shift 3
+    printf '{"session_id":"s1","transcript_path":"%s","agent_id":"%s"}' "$transcript" "$agent" \
+        | env -u PROJECT_OS_COMPACT_NUDGE_PCT -u PROJECT_OS_COMPACT_NUDGE_BYTES \
+              CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 \
+              CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75 \
+              "$@" bash "$sb/.claude/hooks/compact-suggest.sh" 2>/dev/null
+}
+
 echo "=== Compaction Hook Behaviour ==="
 echo ""
 
@@ -468,6 +482,91 @@ assert_contains "context_noUsageRecord_fallsBackToByteGrowth" \
 assert_contains "context_byteFallback_usesUnmeasuredWording" \
     "$OUT" "approaching its auto-compaction threshold"
 assert_not_contains "context_byteFallback_claimsNoPercentage" "$OUT" "Context is at"
+
+# context_mainThreadAgentId_nudgesThroughSidechainTail
+# THE CASE THE TAIL HEURISTIC GOT WRONG. The main thread's own PostToolUse for
+# a completed `Task` fires while the sub-agent's last turn is still the newest
+# usage-bearing record, so tail inference reads "sub-agent mid-run" and drops a
+# genuine main-thread firing. `agent_id` equal to the session id says otherwise,
+# and the nudge is delivered to the one context that can act on it.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 150000 0 0
+append_sidechain_run "$SB/transcript.jsonl" 5 500
+OUT=$(run_suggest_as "$SB" "$SB/transcript.jsonl" s1)
+assert_contains "context_mainThreadAgentId_nudgesThroughSidechainTail" \
+    "$OUT" "Context is at 75% of the 200000-token window"
+
+# context_mainThreadAgentId_escalatesWindowPastSidechainRun
+# The scan loop stopped as soon as it saw a sidechain tail, which was right only
+# while that tail decided delivery. Once identity is known, a sidechain tail is
+# precisely the case needing the WIDER window: 200 sub-agent records bury the
+# main thread's number past the 60-line read, and the 600-line read finds it.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 150000 0 0
+append_sidechain_run "$SB/transcript.jsonl" 200 500
+OUT=$(run_suggest_as "$SB" "$SB/transcript.jsonl" s1)
+assert_contains "context_mainThreadAgentId_escalatesWindowPastSidechainRun" \
+    "$OUT" "Context is at 75% of the 200000-token window"
+
+# context_subagentAgentId_defersEvenWithMainThreadTailNewest
+# The other direction, and the one inference cannot reach at all: a sub-agent's
+# first tool call, before it has produced any turn of its own, leaves the main
+# thread's record newest. The tail says "main thread"; the payload says the
+# caller is a sub-agent, which can neither run /tools:handoff nor be compacted.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 150000 0 0
+OUT=$(run_suggest_as "$SB" "$SB/transcript.jsonl" agent_abc123)
+assert_eq "context_subagentAgentId_defersEvenWithMainThreadTailNewest" "$OUT" ""
+
+# context_subagentAgentId_leavesNudgeMarkerUnspent
+# Deferral is only worth anything if the cycle's one nudge survives it. The
+# marker is keyed on the session id, which a sub-agent firing shares.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 150000 0 0
+run_suggest_as "$SB" "$SB/transcript.jsonl" agent_abc123 >/dev/null
+assert_file_absent "context_subagentAgentId_leavesNudgeMarkerUnspent" \
+    "$SB/.claude/logs/.compact-nudged-s1"
+
+# context_subagentAgentId_byteProxyDoesNotOverrideTheDefer
+# The identity exit sits above both signals, so the byte fallback cannot smuggle
+# the nudge into a sub-agent's context when the token read comes up empty.
+SB="$(new_sandbox)"
+make_transcript "$SB/transcript.jsonl" 500
+OUT=$(run_suggest_as "$SB" "$SB/transcript.jsonl" agent_abc123 PROJECT_OS_COMPACT_NUDGE_BYTES=100)
+assert_eq "context_subagentAgentId_byteProxyDoesNotOverrideTheDefer" "$OUT" ""
+
+# context_mainThreadAgentId_byteProxyStillFires
+# ...and does not suppress it on the main thread, where the same payload minus
+# the sub-agent id must behave exactly as an agent_id-less one does.
+SB="$(new_sandbox)"
+make_transcript "$SB/transcript.jsonl" 500
+OUT=$(run_suggest_as "$SB" "$SB/transcript.jsonl" s1 PROJECT_OS_COMPACT_NUDGE_BYTES=100)
+assert_contains "context_mainThreadAgentId_byteProxyStillFires" \
+    "$OUT" "approaching its auto-compaction threshold"
+
+# context_noAgentIdInPayload_fallsBackToTailHeuristic
+# An absent key means an older CLI, not a main thread. Reading absence as "main"
+# would retire the sidechain guard silently, so absence keeps the old inference:
+# sidechain tail newest, defer.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 150000 0 0
+append_sidechain_run "$SB/transcript.jsonl" 5 500
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
+assert_eq "context_noAgentIdInPayload_fallsBackToTailHeuristic" "$OUT" ""
+
+# context_subagentAgentId_recordsHandoffClaim
+# The identity exit is placed BELOW the ownership claim on purpose: a sub-agent
+# that writes a handoff has still written it, and the claim is what keeps every
+# other session's fallback glob off it. Silencing the nudge must not silence the
+# bookkeeping.
+SB="$(new_sandbox)"
+make_transcript "$SB/transcript.jsonl" 50
+printf '{"session_id":"s1","transcript_path":"%s","agent_id":"agent_abc123","tool_name":"Write","tool_input":{"file_path":"%s"}}' \
+    "$SB/transcript.jsonl" "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
+    | bash "$SB/.claude/hooks/compact-suggest.sh" >/dev/null 2>&1
+RECORDED=$(cat "$SB/.claude/logs/.compact-handoff-s1" 2>/dev/null || true)
+assert_eq "context_subagentAgentId_recordsHandoffClaim" \
+    "$RECORDED" "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
 
 echo ""
 
@@ -842,6 +941,71 @@ OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_contains "ownership_newestOwnClaimDeleted_fallsBackToSurvivingEarlierOne" \
     "$OUT" "SURVIVING instruction"
+
+# ownership_ownHandoffOlderThanAgeWindow_notForwardedWithoutCycleMarker
+# Freshness applied to the glob but not to the owned branch, so before this
+# session's first compaction — no cycle marker yet — ANY owned handoff was
+# forwarded regardless of age. A session that wrote a handoff hours ago and has
+# been working since would hand the summarizer an instruction describing work
+# that is already finished. The age window now governs both branches.
+SB="$(new_sandbox)"
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "OWN ANCIENT instruction"
+touch -d '90 minutes ago' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml"
+printf '%s\n' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
+    > "$SB/.claude/logs/.compact-handoff-s1"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_not_contains "ownership_ownHandoffOlderThanAgeWindow_notForwardedWithoutCycleMarker" \
+    "$OUT" "OWN ANCIENT instruction"
+
+# ownership_ownHandoffWithinAgeWindow_forwardedWithoutCycleMarker
+# The window is a filter, not a second claim requirement: the ordinary first
+# compaction of a session that just wrote its handoff still forwards it.
+SB="$(new_sandbox)"
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "OWN FRESH instruction"
+printf '%s\n' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
+    > "$SB/.claude/logs/.compact-handoff-s1"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "ownership_ownHandoffWithinAgeWindow_forwardedWithoutCycleMarker" \
+    "$OUT" "OWN FRESH instruction"
+
+# ownership_ownHandoffOlderThanAgeWindow_stillForwardedWhenNewerThanCycleMarker
+# Where a cycle marker exists it remains the authority, and it is the stricter
+# signal: "written since the last compaction" is what freshness actually means.
+# A long-running session compacting a second time must not lose a handoff merely
+# for having been written more than the window ago.
+SB="$(new_sandbox)"
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "OWN POST-CYCLE instruction"
+touch -d '90 minutes ago' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml"
+touch "$SB/.claude/logs/.compact-cycle-s1"
+touch -d '150 minutes ago' "$SB/.claude/logs/.compact-cycle-s1"
+printf '%s\n' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
+    > "$SB/.claude/logs/.compact-handoff-s1"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "ownership_ownHandoffOlderThanAgeWindow_stillForwardedWhenNewerThanCycleMarker" \
+    "$OUT" "OWN POST-CYCLE instruction"
+
+# ownership_staleOwnHandoffAfterFreshOne_fallsBackToTheFreshOne
+# The loop keeps the LAST accepted record, so an unfiltered stale entry does not
+# merely add a candidate — it displaces a good one. Claims are appended in write
+# order, and a session that re-ran /tools:handoff on an old path would end up
+# forwarding the stale body over the fresh one.
+SB="$(new_sandbox)"
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "OWN RECENT instruction"
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "OWN OUTDATED instruction"
+touch -d '90 minutes ago' "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
+printf '%s\n%s\n' \
+    "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
+    "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
+    > "$SB/.claude/logs/.compact-handoff-s1"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "ownership_staleOwnHandoffAfterFreshOne_fallsBackToTheFreshOne" \
+    "$OUT" "OWN RECENT instruction"
+assert_not_contains "ownership_staleOwnHandoffAfterFreshOne_outdatedNotForwarded" \
+    "$OUT" "OWN OUTDATED instruction"
 
 # ── Filename collision resistance ───────────────────────────────────────────
 # Ownership tracking cannot disambiguate two sessions that wrote the SAME path,
