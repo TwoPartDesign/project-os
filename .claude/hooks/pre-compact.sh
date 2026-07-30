@@ -232,7 +232,14 @@ if [ -z "$RECENT" ]; then
     # git status --porcelain, not git diff --name-only: the latter reports
     # neither staged nor untracked files, so a session that staged all its work
     # recorded an empty modified_files exactly when it had most to lose.
-    CHANGED_RAW=$(git -C "$PROJECT_ROOT" status --porcelain 2>/dev/null || true)
+    #
+    # --untracked-files=all because the default collapses a wholly untracked
+    # directory to a single `?? dir/` entry. A session that built a new feature
+    # under a new directory is precisely the one with the most to preserve, and
+    # it would have handed the next session a directory name instead of the
+    # files it just wrote. Ignored paths stay excluded either way, so this
+    # expands what is already reported rather than widening the set.
+    CHANGED_RAW=$(git -C "$PROJECT_ROOT" status --porcelain --untracked-files=all 2>/dev/null || true)
 
     IN_PROGRESS_YAML=""
     TASK_LIST=""

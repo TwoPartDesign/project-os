@@ -320,6 +320,21 @@ and the instruction channel made it unnecessary for verification.
    mis-forwarding — the other session's handoff was destroyed whether or not
    compaction followed.
 
+10. ~~The token scan took the first `"usage"` key in a record, and read any
+    record; the checkpoint's file list collapsed untracked directories.~~
+    **Resolved (round 7): two structural guards and one reproduced gap.**
+    `message.content` serializes before `message.usage`, so a `tool_use` payload
+    carrying its own `usage` object would be measured instead of the context —
+    and being small, would silence the nudge. The scan now walks to the last
+    `"usage"` key and only reads `type:assistant` records, which also shuts out a
+    user record's `toolUseResult` (arbitrary JSON from an MCP server or a file
+    read). Neither shape appears in the transcript that motivated the finding —
+    recorded as such in the hook comment — but the failure is silent when it
+    happens. Separately, `git status --porcelain` reports a wholly untracked
+    directory as one `?? dir/` entry, so a session that had just built a new
+    feature handed the next one a directory name instead of its files;
+    `--untracked-files=all` fixes it without reporting anything gitignored.
+
 **Still open:**
 
 Nothing. The nudge threshold is the last item that required real-session

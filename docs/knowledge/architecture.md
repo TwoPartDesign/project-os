@@ -153,7 +153,12 @@ stop, so the chain steers it instead — three stages, two of them hooks:
    `.claude/logs/.compact-nudged-<session_id>`. Transcript-byte growth
    (`PROJECT_OS_COMPACT_NUDGE_BYTES`) is a fallback for when no `usage` record
    parses — it is not the primary signal, because the transcript retains discarded
-   history and so diverges from real context after every compaction. Independently
+   history and so diverges from real context after every compaction. The scan reads
+   the *last* `"usage":` key of a `type:assistant` record, not the first: a record
+   serializes `message.content` before `message.usage`, so a `tool_use` input that
+   carried its own `usage` object would be measured instead of the context, and a
+   user record's `toolUseResult` could supply a number from outside the session
+   entirely. Independently
    of the nudge — before the once-per-cycle exit, because the handoff is written
    *after* the nudge asks for it — every call checks `tool_input.file_path` against
    `*/.claude/sessions/handoff-*.yaml` and appends a match to
@@ -185,7 +190,10 @@ stop, so the chain steers it instead — three stages, two of them hooks:
    `newCustomInstructions` and merges it into the compaction's custom instructions,
    so this text steers what the summarizer keeps. It also runs `system-map.ts
    check` read-only and appends a drift caveat, writes a filesystem-derived
-   checkpoint (10-min debounce), and opens the next cycle — touching the cycle
+   checkpoint (10-min debounce; its `modified_files` come from `git status
+   --porcelain --untracked-files=all`, because the default collapses a wholly
+   untracked directory to one `?? dir/` entry and a session that just built a new
+   feature is the one with the most to preserve), and opens the next cycle — touching the cycle
    marker (after discovery, never before) and clearing the nudged marker so stage 1
    can fire again.
 

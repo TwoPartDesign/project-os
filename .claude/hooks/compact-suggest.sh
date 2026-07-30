@@ -112,8 +112,18 @@ NUDGED_FILE="$LOG_DIR/.compact-nudged-$SESSION_ID"
 #     same transcript. `isSidechain` records are skipped so a subagent's
 #     context is never mistaken for the main thread's.
 #   - The field names recur inside the `iterations` array, and could also
-#     appear in assistant prose. Matching starts at the `"usage"` key and takes
-#     the first occurrence of each field, which is the top-level one.
+#     appear in assistant prose. Matching starts at a `"usage":` key and takes
+#     the first occurrence of each field within it.
+#   - Which `"usage":` key matters. `message.content` is serialized before
+#     `message.usage`, so a tool_use input carrying its own `usage` object would
+#     be found first by a leftmost search, and the hook would measure a tool
+#     payload instead of the context. The scan therefore walks to the LAST
+#     `"usage":` in the record. Records are also required to be `type:assistant`,
+#     which keeps a `toolUseResult` body on a user record — arbitrary JSON from
+#     an MCP server or a file read — from supplying a number at all. Both are
+#     structural guards: no record in the transcript that motivated them
+#     actually carried two `usage` keys, but the failure is silent when it does
+#     happen, suppressing the one nudge that had to fire.
 CONTEXT_TOKENS=$(tail -n 60 "$TRANSCRIPT" 2>/dev/null | awk '
     function firstnum(s, key,   m) {
         if (match(s, "\"" key "\":[ ]*[0-9]+")) {
@@ -124,8 +134,18 @@ CONTEXT_TOKENS=$(tail -n 60 "$TRANSCRIPT" 2>/dev/null | awk '
         return 0
     }
     /"isSidechain"[ ]*:[ ]*true/ { next }
+    !/"type"[ ]*:[ ]*"assistant"/ { next }
     {
-        p = index($0, "\"usage\"")
+        # Walk to the last "usage": key. base counts characters already
+        # consumed, so p ends up as its absolute offset in the original line.
+        s = $0
+        base = 0
+        p = 0
+        while ((i = index(s, "\"usage\":")) > 0) {
+            p = base + i
+            base = base + i + 7
+            s = substr(s, i + 8)
+        }
         if (p == 0) next
         u = substr($0, p)
         t = firstnum(u, "input_tokens") \

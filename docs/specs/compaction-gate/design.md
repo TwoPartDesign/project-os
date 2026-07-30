@@ -189,7 +189,7 @@ feature: 2,897,308 bytes of transcript against 106,432 tokens of context — 27
 bytes per token where ~4 is typical, and the nudge fired at roughly 53% of the
 window rather than the intended 60%.
 
-Three details in the implementation:
+Five details in the implementation:
 
 - **Only the tail is read.** This runs on every tool call; `tail -n 60` seeks
   from the end instead of walking a multi-megabyte file.
@@ -201,6 +201,25 @@ Three details in the implementation:
   the `iterations` array and could appear in assistant prose, so the scan takes
   the first occurrence of each field *after* `"usage"`, which is the top-level
   one.
+- **The scan walks to the *last* `"usage"` key, not the first.** A record
+  serializes `message.content` before `message.usage` — confirmed on this
+  session's transcript, where the first `tool_use` sits at offset 200 and
+  `"usage":` at 457 — so a tool payload carrying its own `usage` object would be
+  found first by a leftmost search, and the hook would measure the payload
+  instead of the context. Since a tool payload's numbers are small, the nudge
+  would simply not fire.
+- **Only `type:assistant` records are measured.** A user record's
+  `toolUseResult` is arbitrary JSON from outside the session — an MCP response,
+  a file read of another transcript — and could supply a number from nowhere.
+  All 635 records carrying a `usage` object in the motivating transcript are
+  tagged `type:assistant`, so the filter costs nothing.
+
+  Both guards are structural: no record in that transcript actually carried two
+  `usage` keys, and first-based and last-based extraction agreed on 125936. They
+  were added because the failure is silent when it does occur, suppressing
+  exactly the nudge that had to fire. Raised in review on this PR; the ordering
+  premise was confirmed by probe before the change, and the absence of a live
+  reproduction is recorded in the hook comment rather than papered over.
 
 The threshold is derived rather than asserted. `NUDGE_PCT` defaults to
 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE − 15` (floored at 20), so at the shipped 75% it
@@ -380,7 +399,7 @@ directly — no pipes, no `$()`-wrapped programs, no YAML dependency.
 | `.claude/hooks/_common.sh` | Added `session_id_from_json()`, `json_string_field()` |
 | `.claude/hooks/session-end-cleanup.sh` | Removes `.compact-base-*` / `.compact-nudged-*` / `.compact-cycle-*` / `.compact-handoff-*` for the session; 7-day prune of all four |
 | `.claude/commands/tools/handoff.md` | `compact_instruction` mandatory; new "How `compact_instruction` is used" section; note that auto-checkpoints cannot record rationale |
-| `tests/compaction-hooks.sh` | New — 100 assertions across sandboxed project roots |
+| `tests/compaction-hooks.sh` | New — 107 assertions across sandboxed project roots |
 | `docs/knowledge/architecture.md` | Both hook rows updated; new "Compaction Handoff Chain" subsection |
 | `docs/knowledge/decisions.md` | ADR: steer the summarizer, do not block compaction |
 | `docs/knowledge/patterns.md` | "Verify the Channel Before Designing the Gate"; "Test Behaviour in a Copied Project Root" |
@@ -484,7 +503,7 @@ was already being paid — worth knowing, not a reason to change course.
 
 ## Testing Strategy
 
-`tests/compaction-hooks.sh` — 100 assertions, all passing. Per
+`tests/compaction-hooks.sh` — 107 assertions, all passing. Per
 `.claude/rules/tests.md` each case builds its own state and asserts specific
 values, not truthiness.
 
@@ -728,3 +747,34 @@ unavailable for the reason recorded twice above: the model has no reliable way
 to learn its own session id. Collision *resistance* was achievable where
 collision *impossibility* was not, and it is enough here, because the failure it
 prevents needs two writes in the same second with the same 15-bit token.
+
+**RESOLVED (round 7) — the usage scan could read a tool payload, or a foreign
+JSON body.** Raised in review against the round-6c commit. `message.content` is
+serialized before `message.usage`, so the leftmost `"usage"` in a record is not
+necessarily the message's: a `tool_use` input carrying its own `usage` object
+would be measured instead of the context, and because tool payloads carry small
+numbers, the hook would go quiet at exactly the pressure it exists to report.
+The adjacent hole is a user record's `toolUseResult` — arbitrary JSON from an
+MCP server or a file read — supplying a number from outside the session.
+
+Probed before changing anything, and the honest result is that neither occurs in
+the transcript that motivated the finding: 0 of 1571 records carry more than one
+`"usage"` key, and first-based and last-based extraction agree on 125936. The
+*ordering premise* does hold — `content@181 tool_use@200 usage@457` — and
+`type:assistant` is present on 635 of 635 records carrying a usage object, so
+both guards are free. They shipped as structural hardening, with the absence of
+a live reproduction recorded in the hook comment rather than implied away. The
+two new tests fail against the pre-fix hook: the nested-payload case goes silent
+at 75%, and the user-record case nudges at a fabricated 95%.
+
+**RESOLVED (round 7) — `--untracked-files=all` for the checkpoint's file list.**
+Second finding in the same review, and a genuine gap left by the round-4 fix
+above. `git status --porcelain` collapses a wholly untracked directory to a
+single `?? dir/` entry, so a session that built a new feature under a new
+directory — the session with the most to preserve — handed the next one a
+directory name instead of the files it had just written. Reproduced directly in
+this repo before the change. Ignored paths stay excluded at either setting, so
+this expands what was already reported rather than widening the set; a
+`.gitignore` assertion pins that. The sandboxes the other checkpoint tests use
+are bare `mktemp` directories where git reports nothing at all, so the new test
+`git init`s its sandbox and is the only one that exercises `modified_files`.

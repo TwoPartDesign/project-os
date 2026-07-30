@@ -138,6 +138,24 @@ sidechain_usage_line() {
         "$1"
 }
 
+# nested_usage_line <tool_payload_tokens> <real_input_tokens>
+# An assistant record whose tool_use input happens to carry its own "usage"
+# object. JSON serialization puts message.content — and therefore the tool
+# payload — ahead of message.usage, so a leftmost search finds the wrong one.
+nested_usage_line() {
+    printf '{"type":"assistant","isSidechain":false,"message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"usage":{"input_tokens":%s,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}],"usage":{"input_tokens":%s,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":42}}}\n' \
+        "$1" "$2"
+}
+
+# user_usage_line <input_tokens>
+# A user record whose toolUseResult body carries a usage object — the shape an
+# MCP server response or a file read of a transcript would produce. It is not a
+# turn the model was fed, so it must never be measured as one.
+user_usage_line() {
+    printf '{"type":"user","isSidechain":false,"message":{"role":"user","content":"tool result"},"toolUseResult":{"usage":{"input_tokens":%s,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' \
+        "$1"
+}
+
 # make_token_transcript <path> <input_tokens> <cache_read> <cache_creation>
 make_token_transcript() {
     printf '{"type":"user","message":{"role":"user","content":"hello"}}\n' > "$1"
@@ -302,6 +320,28 @@ sidechain_usage_line 500 >> "$SB/transcript.jsonl"
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
 assert_contains "context_sidechainAfterMainThread_mainThreadStillMeasured" \
     "$OUT" "Context is at 65% of the 200000-token window"
+
+# context_usageKeyInsideToolInput_measuresMessageUsageNotToolPayload
+# The record's tool_use input carries a decoy usage object of 5 tokens, and
+# message.usage — serialized after it — carries the real 150000 (75%). A
+# leftmost search reads 5, computes 0%, and stays silent at exactly the moment
+# the nudge is most needed.
+SB="$(new_sandbox)"
+printf '{"type":"user","message":{"role":"user","content":"hello"}}\n' > "$SB/transcript.jsonl"
+nested_usage_line 5 150000 >> "$SB/transcript.jsonl"
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
+assert_contains "context_usageKeyInsideToolInput_measuresMessageUsageNotToolPayload" \
+    "$OUT" "Context is at 75% of the 200000-token window"
+
+# context_userRecordWithUsageBody_ignored
+# A user record's toolUseResult is arbitrary JSON from outside the session. Here
+# the main thread sits at 100000 (50%, quiet) and a tool result reports 190000;
+# measuring the user record would nudge on a number the model was never fed.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 100000 0 0
+user_usage_line 190000 >> "$SB/transcript.jsonl"
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
+assert_eq "context_userRecordWithUsageBody_ignored" "$OUT" ""
 
 # context_largeTranscriptSmallContext_staysSilent
 # The regression that motivated the token signal. The transcript keeps every
@@ -874,6 +914,41 @@ if [ -n "$CP" ]; then
     assert_contains "checkpoint_reviewMarkerOnly_phaseIsReview" "$BODY" 'phase: "review"'
 else
     bad "checkpoint_reviewMarkerInEarlierSection_featureStillDerived — no checkpoint written"
+fi
+
+# checkpoint_untrackedDirectory_recordsIndividualFiles
+# `git status --porcelain` collapses a wholly untracked directory to a single
+# `?? dir/` entry. A session that built a new feature under a new directory is
+# exactly the one with the most to preserve, and it handed the next session a
+# directory name instead of the files it had just written. This sandbox is a
+# real repo — the others are bare mktemp dirs where git reports nothing at all,
+# so this is the only checkpoint test that exercises modified_files.
+SB="$(new_sandbox)"
+git init -q "$SB" >/dev/null 2>&1
+printf 'ignored-out/\n' > "$SB/.gitignore"
+mkdir -p "$SB/newfeature/nested" "$SB/ignored-out"
+printf 'alpha\n' > "$SB/newfeature/nested/alpha.txt"
+printf 'beta\n' > "$SB/newfeature/beta.txt"
+printf 'z\n' > "$SB/ignored-out/secret.txt"
+printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
+CP=$(find "$SB/.claude/sessions" -name 'auto-checkpoint-*.yaml' -type f 2>/dev/null | head -1)
+if [ -n "$CP" ]; then
+    BODY=$(cat "$CP")
+    assert_contains "checkpoint_untrackedDirectory_recordsNestedFile" \
+        "$BODY" 'path: "newfeature/nested/alpha.txt"'
+    assert_contains "checkpoint_untrackedDirectory_recordsSiblingFile" \
+        "$BODY" 'path: "newfeature/beta.txt"'
+    assert_not_contains "checkpoint_untrackedDirectory_doesNotRecordBareDirectory" \
+        "$BODY" 'path: "newfeature/"'
+    assert_contains "checkpoint_untrackedFile_classifiedAsCreated" \
+        "$BODY" 'change_type: created'
+    # Expanding untracked directories must not also start reporting ignored
+    # paths — build output and caches are excluded at both -u settings.
+    assert_not_contains "checkpoint_gitignoredPath_stillExcluded" \
+        "$BODY" "ignored-out/secret.txt"
+else
+    bad "checkpoint_untrackedDirectory_recordsIndividualFiles — no checkpoint written"
 fi
 
 # checkpoint_recentCheckpointExists_debouncedButStillForwardsInstruction
