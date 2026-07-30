@@ -33,6 +33,25 @@
 set -euo pipefail
 trap 'exit 0' ERR  # Advisory hook — never surface errors to Claude Code
 
+# Every measurement and every parse in this hook is byte-oriented, and two of
+# them are silently locale-dependent without this pin.
+#
+# `${#INPUT}` is the sharper one. Bash counts CHARACTERS under a multibyte
+# locale and BYTES under C, so the pending-payload estimate below — whose
+# divisor is calibrated in bytes — undercounts by the UTF-8 encoding width the
+# moment the hook inherits a UTF-8 locale: a CJK-heavy tool result measures at a
+# third of its size. The hook must not depend on what the caller's environment
+# happens to set. (This container inherits no locale at all, so `${#INPUT}`
+# already returns bytes here and the bug is latent rather than live — but
+# `C.utf8` is present and would trigger it, and LANG=C.UTF-8 is the default in
+# most Debian-derived images.)
+#
+# The transcript scan is the other: its awk reduces records to a skeleton by
+# stripping escapes and string bodies, which is defined on bytes. Under a UTF-8
+# locale that work is re-interpreted as characters, and an invalid sequence
+# anywhere in a multi-megabyte transcript becomes the parser's problem.
+export LC_ALL=C
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_common.sh"
 
@@ -98,8 +117,7 @@ TRANSCRIPT=$(json_string_field "$INPUT" transcript_path)
 # (At the time that was compounded by the ownership branch in pre-compact.sh
 # skipping the age window whenever no cycle marker existed; both branches share
 # one window now, but the claim gate is what keeps a reader out of the record in
-# the first place.) A write that failed still claims nothing that matters —
-# pre-compact.sh skips claimed paths that do not exist.
+# the first place.)
 #
 # THE CLAIM RUNS ON PreToolUse AS WELL AS PostToolUse, and that is the point.
 # Recorded only after the write, the claim trails the artifact it describes: for
@@ -112,10 +130,34 @@ TRANSCRIPT=$(json_string_field "$INPUT" transcript_path)
 # backstop for a write this hook did not see the start of. Both passes collapse
 # against the last line, so claiming twice costs nothing.
 #
+# BUT A PreToolUse CLAIM IS A RESERVATION, NOT A FACT, and nothing clears it.
+# The tool it anticipates may be denied at the permission prompt or fail on its
+# own terms (an `Edit` whose `old_string` does not match), and PostToolUse never
+# fires to say so — there is no event this hook could roll the claim back from.
+# For a file being CREATED that costs nothing: the path never comes into
+# existence and both readers in pre-compact.sh skip a claimed path that is not
+# there. For a file that ALREADY EXISTS it is a fresh instance of the leak this
+# record exists to prevent — an attempted edit of another session's handoff
+# claims that session's file permanently, and because the file does exist, the
+# ownership branch accepts it and forwards a foreign compact_instruction to this
+# session's summarizer. Reproduced end to end through both real hooks.
+#
+# So the reservation is taken only for a path that does not yet exist, which is
+# exactly the set with the race in it. An existing file has no unclaimed window
+# to close: it was either claimed when this session created it, or it belongs to
+# someone else and an attempt on it is not authorship. A successful write to
+# either still claims through the PostToolUse pass, unchanged.
+#
 # `tool_name` is a top-level key serialized ahead of `tool_input`, so the
 # first-match extraction cannot be beaten by a file whose contents happen to
 # contain the string `"tool_name"`. That is the same ordering argument the
 # transcript scan below relies on, running in the opposite direction.
+# `hook_event_name` is read here rather than at the exit below because the claim
+# itself is conditioned on it. It is part of the payload prefix, ahead of
+# `tool_input`, so first-match extraction of it cannot be beaten by file
+# contents — the same ordering argument as `tool_name` and `agent_id`.
+HOOK_EVENT=$(json_string_field "$INPUT" hook_event_name)
+
 TOOL_NAME=$(json_string_field "$INPUT" tool_name)
 WRITTEN_PATH=""
 case "$TOOL_NAME" in
@@ -123,6 +165,14 @@ case "$TOOL_NAME" in
         WRITTEN_PATH=$(json_string_field "$INPUT" file_path)
         ;;
 esac
+
+# -e rather than -f: a path occupied by a directory or a symlink is not one this
+# session is about to bring into existence either, and the point of the test is
+# "is there already something here that a claim would be a claim ON".
+if [ "$HOOK_EVENT" = "PreToolUse" ] && [ -e "$WRITTEN_PATH" ]; then
+    WRITTEN_PATH=""
+fi
+
 case "$WRITTEN_PATH" in
     */.claude/sessions/handoff-*.yaml)
         OWN_RECORD="$LOG_DIR/.compact-handoff-$SESSION_ID"
@@ -140,10 +190,7 @@ esac
 #
 # Exiting 0 and printing nothing is load-bearing on this path — PreToolUse is
 # the one event where a hook can deny the tool call, and an advisory hook must
-# never do that. `hook_event_name` is part of the payload prefix, ahead of
-# `tool_input`, so first-match extraction of it cannot be beaten by file
-# contents — the same ordering argument as `tool_name` and `agent_id`.
-HOOK_EVENT=$(json_string_field "$INPUT" hook_event_name)
+# never do that.
 if [ "$HOOK_EVENT" = "PreToolUse" ]; then
     exit 0
 fi
@@ -378,6 +425,11 @@ fi
 # is measured rather than just `tool_response` because the remaining fields are
 # a few hundred bytes against a result large enough to matter, and extracting
 # one JSON field in bash would cost more than that error.
+#
+# `${#INPUT}` is bytes here only because LC_ALL is pinned to C at the top of the
+# file; under an inherited UTF-8 locale bash would count characters and the
+# divisor — calibrated in bytes — would be applied to the wrong unit. See the
+# pin for why that is not left to the environment.
 PENDING_TOKENS=$(( ${#INPUT} / 4 ))
 
 if [ -n "$CONTEXT_TOKENS" ] && [ "$CONTEXT_TOKENS" -gt 0 ]; then

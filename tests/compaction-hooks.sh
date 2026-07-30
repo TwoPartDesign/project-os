@@ -23,6 +23,7 @@ REAL_HOOKS="$PROJECT_ROOT/.claude/hooks"
 
 PASS=0
 FAIL=0
+SKIP=0
 ERRORS=""
 SANDBOXES=()
 
@@ -37,6 +38,14 @@ trap cleanup EXIT
 ok() {
     PASS=$((PASS + 1))
     echo "  PASS: $1"
+}
+
+# An assertion the machine cannot run — a missing locale, not a passing test.
+# Counted apart from PASS so a skipped assertion can never be mistaken for a
+# satisfied one in the totals.
+skip() {
+    SKIP=$((SKIP + 1))
+    echo "  SKIP: $1"
 }
 
 bad() {
@@ -299,6 +308,21 @@ run_suggest_pre() {
               CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 \
               CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75 \
               bash "$sb/.claude/hooks/compact-suggest.sh" 2>/dev/null
+}
+
+# run_suggest_body <sandbox> <transcript> <tool_response> [VAR=VAL ...]
+# Like run_suggest_padded, but the caller supplies the payload body verbatim
+# instead of a byte count. The locale tests need a body whose character count
+# and byte count differ, which a run of ASCII filler cannot produce.
+run_suggest_body() {
+    local sb="$1" transcript="$2" body="$3"
+    shift 3
+    printf '{"session_id":"s1","transcript_path":"%s","hook_event_name":"PostToolUse","tool_name":"Read","tool_response":"%s"}' \
+        "$transcript" "$body" \
+        | env -u PROJECT_OS_COMPACT_NUDGE_PCT -u PROJECT_OS_COMPACT_NUDGE_BYTES \
+              CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 \
+              CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75 \
+              "$@" bash "$sb/.claude/hooks/compact-suggest.sh" 2>/dev/null
 }
 
 echo "=== Compaction Hook Behaviour ==="
@@ -1096,6 +1120,143 @@ RECORDED=$(cat "$SB/.claude/logs/.compact-handoff-s1" 2>/dev/null || true)
 assert_eq "preToolUse_thenPostToolUse_sameHandoffClaimedOnce" \
     "$RECORDED" "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
 
+# ── The PreToolUse claim is a reservation, so it may only reserve ───────────
+# PostToolUse records a fact: the write happened. PreToolUse records an
+# intention, and nothing can retract it — the tool may be denied at the
+# permission prompt or fail on its own terms, and no hook event fires to say
+# so. For a path being CREATED an unretractable claim is harmless: the file
+# never appears, and both readers in pre-compact.sh skip a claimed path that is
+# not there. For a path that ALREADY EXISTS it is the leak this record exists
+# to prevent, so the claim is taken only where the file does not yet exist —
+# which is exactly the set that has the publication race in it.
+
+# preToolUse_editOfExistingForeignHandoff_claimsNothing
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "ANOTHER SESSION instruction"
+run_suggest_pre "$SB" "$SB/transcript.jsonl" Edit \
+    "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" >/dev/null
+assert_file_absent "preToolUse_editOfExistingForeignHandoff_claimsNothing" \
+    "$SB/.claude/logs/.compact-handoff-s1"
+
+# preToolUse_editOfExistingForeignHandoff_instructionNotForwarded
+# The end-to-end consequence, asserted through both real hooks rather than
+# through the record alone: s2 attempts an edit of a handoff it did not write,
+# the edit never lands, and s2 then compacts. A claim recorded on intent would
+# make the ownership branch accept a file that genuinely exists and hand s2 the
+# other session's instruction.
+#
+# s1 must claim the handoff for this to test what it says it tests. An
+# UNCLAIMED handoff is forwarded to s2 by the glob fallback anyway — that is
+# the documented pre-existing behaviour for a handoff no session attributes to
+# itself, and asserting against it would fail for a reason that has nothing to
+# do with the pre-claim.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "ANOTHER SESSION instruction"
+printf '{"session_id":"s1","transcript_path":"%s","hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"%s"}}' \
+    "$SB/transcript.jsonl" "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
+    | env -u PROJECT_OS_COMPACT_NUDGE_PCT -u PROJECT_OS_COMPACT_NUDGE_BYTES \
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75 \
+          bash "$SB/.claude/hooks/compact-suggest.sh" >/dev/null 2>&1
+printf '{"session_id":"s2","transcript_path":"%s","hook_event_name":"PreToolUse","tool_name":"Edit","tool_input":{"file_path":"%s"}}' \
+    "$SB/transcript.jsonl" "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
+    | env -u PROJECT_OS_COMPACT_NUDGE_PCT -u PROJECT_OS_COMPACT_NUDGE_BYTES \
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75 \
+          bash "$SB/.claude/hooks/compact-suggest.sh" >/dev/null 2>&1
+assert_file_absent "preToolUse_failedForeignEdit_leavesNoClaimRecord" \
+    "$SB/.claude/logs/.compact-handoff-s2"
+OUT=$(printf '{"session_id":"s2","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_not_contains "preToolUse_editOfExistingForeignHandoff_instructionNotForwarded" \
+    "$OUT" "ANOTHER SESSION instruction"
+
+# preToolUse_writeToAbsentPath_stillClaims
+# The existence gate must not swallow the case the pre-claim was added for. A
+# handoff being created for the first time has no file at its path yet, so the
+# round-11 behaviour is unchanged — asserted here with `Edit` because the tool
+# name is not what decides it.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+run_suggest_pre "$SB" "$SB/transcript.jsonl" Edit \
+    "$SB/.claude/sessions/handoff-2026-07-30-1500.yaml" >/dev/null
+RECORDED=$(cat "$SB/.claude/logs/.compact-handoff-s1" 2>/dev/null || true)
+assert_eq "preToolUse_writeToAbsentPath_stillClaims" \
+    "$RECORDED" "$SB/.claude/sessions/handoff-2026-07-30-1500.yaml"
+
+# preToolUse_pathOccupiedByDirectory_claimsNothing
+# The gate is `-e`, not `-f`. A path already occupied by a directory is not one
+# this session is about to bring into existence either, and the question the
+# test asks is "is there already something here that a claim would be a claim
+# ON" — a distinction `-f` would get wrong in the direction that claims.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+mkdir -p "$SB/.claude/sessions/handoff-2026-07-30-1600.yaml"
+run_suggest_pre "$SB" "$SB/transcript.jsonl" Write \
+    "$SB/.claude/sessions/handoff-2026-07-30-1600.yaml" >/dev/null
+assert_file_absent "preToolUse_pathOccupiedByDirectory_claimsNothing" \
+    "$SB/.claude/logs/.compact-handoff-s1"
+
+# preToolUse_ownPublishedHandoffEdited_claimSurvives
+# The other side of the gate: a session revising its own handoff gets no new
+# claim, and needs none — it claimed the path when it created the file. The
+# record must still name it, or the ownership branch would fall through to the
+# glob fallback for a session that did everything right.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+run_suggest_pre "$SB" "$SB/transcript.jsonl" Write \
+    "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" >/dev/null
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "OWN REVISED instruction"
+run_suggest_pre "$SB" "$SB/transcript.jsonl" Edit \
+    "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" >/dev/null
+RECORDED=$(cat "$SB/.claude/logs/.compact-handoff-s1" 2>/dev/null || true)
+assert_eq "preToolUse_ownPublishedHandoffEdited_claimSurvives" \
+    "$RECORDED" "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "preToolUse_ownPublishedHandoffEdited_instructionStillForwarded" \
+    "$OUT" "OWN REVISED instruction"
+
+# ── The pending-payload estimate is measured in bytes, not characters ───────
+# `${#INPUT}` counts CHARACTERS under a multibyte locale and BYTES under C, and
+# the divisor below it is calibrated in bytes. A hook that inherits its locale
+# from the caller therefore measures a CJK-heavy tool result at a third of its
+# size — so compact-suggest.sh pins `LC_ALL=C` rather than trusting the
+# environment. `C.utf8` is present on most Debian-derived images and is the
+# default there; where it is absent there is nothing to regress against.
+CJK_BODY=$(printf '\346\227\245%.0s' $(seq 1 4000))
+CJK_BYTES=$(printf '%s' "$CJK_BODY" | LC_ALL=C wc -c | tr -d ' ')
+
+# locale_cjkFixture_isThreeBytesPerCharacter
+# The fixture is the experiment: if it ever stops being 4000 characters at 3
+# bytes each, both assertions below would pass for the wrong reason.
+assert_eq "locale_cjkFixture_isThreeBytesPerCharacter" "$CJK_BYTES" "12000"
+
+if locale -a 2>/dev/null | grep -qx 'C.utf8'; then
+    # A base of 118000 tokens against a 200000-token window is 59% — one point
+    # under the 60% nudge line (75 - 15). Measured as bytes the pending payload
+    # adds ~3000 tokens and crosses it; measured as characters it adds ~1000 and
+    # does not. The two readings of the same payload land on opposite sides.
+
+    # locale_utf8EnvironmentWithCjkPayload_measuredInBytesAndNudges
+    SB="$(new_sandbox)"
+    make_token_transcript "$SB/transcript.jsonl" 118000 0 0
+    OUT=$(run_suggest_body "$SB" "$SB/transcript.jsonl" "$CJK_BODY" LC_ALL=C.utf8)
+    assert_contains "locale_utf8EnvironmentWithCjkPayload_measuredInBytesAndNudges" \
+        "$OUT" "Context is at 60% of the 200000-token window"
+
+    # locale_utf8EnvironmentWithoutPayload_staysBelowTheLine
+    # The control. Without it the assertion above would also pass if the base
+    # alone were over the line, which would test nothing about the payload.
+    SB="$(new_sandbox)"
+    make_token_transcript "$SB/transcript.jsonl" 118000 0 0
+    OUT=$(run_suggest_body "$SB" "$SB/transcript.jsonl" "" LC_ALL=C.utf8)
+    assert_eq "locale_utf8EnvironmentWithoutPayload_staysBelowTheLine" "$OUT" ""
+else
+    skip "locale_utf8EnvironmentWithCjkPayload_measuredInBytesAndNudges — no C.utf8 locale"
+    skip "locale_utf8EnvironmentWithoutPayload_staysBelowTheLine — no C.utf8 locale"
+fi
+
 # postToolUse_explicitEventName_stillNudges
 # The early exit keys on the event name, and every real payload carries one —
 # including the PostToolUse payloads the nudge depends on. Testing only the
@@ -1764,6 +1925,7 @@ echo ""
 echo "=== Results ==="
 TOTAL=$((PASS + FAIL))
 echo "  $PASS/$TOTAL passed"
+[ "$SKIP" -gt 0 ] && echo "  $SKIP skipped (unavailable on this machine)"
 
 if [ "$FAIL" -gt 0 ]; then
     echo ""
