@@ -1121,3 +1121,56 @@ the pre-claim. The remaining eleven pin properties the fixes must not break —
 escaped decoys stay immune, a small payload does not perturb the measurement, a
 read of a handoff still claims nothing, and the `PreToolUse` pass neither emits
 nor spends the once-per-cycle marker.
+
+## Liveness Verification
+
+Every assertion in `tests/compaction-hooks.sh` runs against a synthetic payload
+and a hand-built transcript fixture. That proves the branches, not that the
+chain works — a suite of 168 unit assertions can be green while the three
+stages fail to hand off to each other on real input. After the round-13 review
+the whole chain was therefore run end to end in a sandboxed project copy
+against this project's own **live** session transcript: 4036 records,
+20,199,340 bytes.
+
+**The measurement matches an independently computed ground truth.** The hook
+reported 54% of a 200000-token window. Recomputing the same quantity in Python
+— walk the transcript, take the newest non-sidechain assistant record, sum
+`input_tokens + cache_read_input_tokens + cache_creation_input_tokens` — gives
+113,422 tokens, or 57%, against a transcript that had grown by a few records in
+between. The byte proxy over the same file would have been off by orders of
+magnitude at 20 MB, which is the failure this branch exists to replace.
+
+That real `usage` object is also a **much richer shape than any fixture**: it
+carries nested `cache_creation` and `iterations` sub-objects, and the entries
+in `iterations` have their own `input_tokens` and `cache_read_input_tokens`
+keys. The depth-2 rule is what keeps the skeleton walker on `message.usage`
+rather than on a nested iteration, and this is the first evidence that the
+richer shape occurs in practice rather than only in the adversarial fixtures.
+
+**The three stages hand off to each other.** A `PreToolUse` firing claimed the
+handoff path and printed nothing, exiting 0 as an advisory hook on the one
+event that can deny a tool call must. `pre-compact.sh` then returned that
+handoff's `compact_instruction` verbatim on stdout, together with the pointer
+to the handoff file. A second `PreCompact` firing in the same cycle returned
+the instruction no longer — the cycle marker had been consumed — which is the
+freshness rule working rather than a wall-clock window approximating it.
+
+**The ROADMAP derivation and `yaml_escape` were verified positively, not by
+absence.** The first pass produced `phase: ad-hoc`, `feature: none`,
+`in_progress: (none)` — the exact signature of the pre-existing bug this design
+fixes. It was not a regression: this project's ROADMAP currently holds zero
+`[-]` markers, so `none` was the correct answer. Rerunning against a ROADMAP
+seeded with two in-progress tasks — one of them in a *later* `## Feature:`
+section, the case the cross-section fix addresses — produced `phase: build`,
+the correct feature name, and **both** descriptions. Seeding one of them with
+`Fix the C:\path parser and the "quoted" tab<TAB>here` under a feature heading
+of `compaction-gate "quoted" \backslash` produced a document that `yaml.safe_load`
+parses, round-tripping both strings byte-for-byte, with the `|` block scalar
+keeping its literal backslash and literal tab as designed.
+
+**One known defect reproduced live, and is already filed.** The sandbox has no
+`scripts/system-map.ts`, so the check exits nonzero for *absence* and the hook
+forwards the drift caveat as though the map were stale. That is `#T147` — the
+hook gates on any nonzero exit where the script exits 3 for drift and 1 for
+error. The real repository reports `map: fresh` at exit 0, so the caveat is
+correct there; the false positive needs a missing or broken script to surface.
