@@ -54,7 +54,7 @@
 - `h_tool_failure_log` — `.claude/hooks/tool-failure-log.sh` (1 dependent)
 
 ### lib
-- `l_common` — `.claude/hooks/_common.sh` (12 dependents)
+- `l_common` — `.claude/hooks/_common.sh` (13 dependents)
 - `l_dashboard_render` — `scripts/lib/dashboard-render.ts` (5 dependents)
 - `l_json` — `scripts/lib/json.sh` (2 dependents)
 - `l_policy` — `scripts/lib/policy.ts` (10 dependents)
@@ -91,6 +91,7 @@
 - `s_update_project` — `scripts/update-project.sh` (1 dependent)
 - `s_validate_freshness` — `scripts/validate-freshness.sh` (0 dependents)
 - `s_validate_roadmap` — `scripts/validate-roadmap.sh` (4 dependents)
+- `s_compaction_hooks` — `tests/compaction-hooks.sh` (0 dependents)
 - `s_critical_rules_test` — `tests/critical-rules.test.ts` (0 dependents)
 - `s_dashboard_render_test` — `tests/dashboard-render.test.ts` (0 dependents)
 - `s_dashboard_smoke` — `tests/dashboard-smoke.sh` (0 dependents)
@@ -176,6 +177,7 @@
 - `cfg_settings` --wires--> `h_session_start_maintain`
 - `cfg_settings` --wires--> `h_session_start_setup`
 - `cfg_settings` --wires--> `h_tool_failure_log`
+- `h_compact_suggest` --sources--> `l_common`
 - `h_log_activity` --sources--> `l_common`
 - `h_output_index` --sources--> `l_common`
 - `h_post_tool_use` --sources--> `l_common`
@@ -206,10 +208,10 @@
 
 ## Findings
 
-- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 3773 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 8435 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 6383 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 9941 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 3985 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/patterns.md — docs/knowledge/patterns.md is approximately 3620 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/patterns.md — docs/knowledge/patterns.md is approximately 4534 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/windows-bash-scanner.md — docs/knowledge/windows-bash-scanner.md is approximately 2678 tokens, exceeding the 2500-token warn threshold.
 - MEDIUM orphan-script s_audit_context — Script scripts/audit-context.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_context_filter — Script scripts/context-filter.sh has no incoming references and is not in the orphan allowlist.

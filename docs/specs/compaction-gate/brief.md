@@ -1,0 +1,472 @@
+# Brief: Compaction Gate
+Created: 2026-07-29
+Updated: 2026-07-30
+Status: IMPLEMENTED
+
+> **Naming note.** "Gate" is a historical name. The design started as a blocking
+> gate and became a non-blocking handoff chain once CLI verification showed a
+> block reason cannot reach Claude on the auto-compaction path. The directory
+> name is kept so links and the ROADMAP entry stay stable; nothing in the
+> shipped implementation blocks anything.
+
+## Problem
+
+When auto-compaction fires, the session's working context is replaced by a
+summary. Everything not written to disk before that moment is gone — and the
+things most worth keeping are exactly the things a shell script cannot
+reconstruct: *why* a decision was made, which alternatives were rejected, where
+precisely a half-finished edit stopped, which gotcha cost forty minutes.
+
+Project OS already has a `PreCompact` hook (`.claude/hooks/pre-compact.sh`), but
+it is a passive checkpointer. Because hooks are shell commands with no model
+access, everything it writes is derived from the filesystem:
+
+- `phase` — from the presence of `[-]` / `[~]` markers in ROADMAP.md
+- `feature` — first ROADMAP section containing such a marker
+- `in_progress` — the `[-]` task lines, verbatim
+- `modified_files` — `git diff --name-only`, every entry annotated with the
+  literal string `"uncommitted change"`
+
+The fields that carry the irreplaceable context are hardcoded empty:
+`completed: []`, `decisions: []`, `blockers: []`, and a `context_notes` block
+whose entire content is a sentence about the hook itself. The
+`compact_instruction` — the one field designed to steer the summarizer — is a
+single interpolated line, `"Working on <feature>. In-progress tasks: <list>."`,
+and nothing ever feeds it to the compactor. The hook's `additionalContext`
+output advertises the checkpoint's *path*, not its contents.
+
+The result: a checkpoint that reliably records what any later `git status` would
+have told you, and reliably loses everything else.
+
+Five secondary defects compound it:
+
+1. **The 75% threshold is inert.** `settings.json` sets
+   `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "75"`, but that override is read only on
+   the proactive compaction path, which is itself gated behind
+   `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Without the second variable the first does
+   nothing and compaction fires at the model's hard context limit. `#T20` already
+   asked someone to "verify/remove" this variable; it was never resolved, and the
+   2026-07-11 staleness audit (`docs/audits/2026-07-11-staleness-audit.md:52`)
+   flags it again.
+
+2. **No headroom by construction.** A requirement that real work be done
+   *before* compacting only functions if there is context left to do that work
+   in. Firing at the hard limit leaves none.
+
+3. **Map staleness is invisible across the compaction boundary.** `docs/maps/`
+   is healed at commit time, from the git index. Mid-build that map is
+   *expected* to be behind the working tree — drift is normal there, not a
+   defect, and healing it from a hook would be wrong (the index is the map's
+   source of authority, `system-map.ts:686-687`). The actual problem is that
+   nothing tells the post-compaction session which state it is in. `CLAUDE.md`
+   instructs consulting the system map before changing wiring, and a summarized
+   session will follow that instruction with no way to know the map predates the
+   work it is about to modify.
+
+4. **The early-warning signal is a bad proxy and its documentation is stale.**
+   `compact-suggest.sh` counts *tool invocations*, warning at 20 and 35, and its
+   comment still refers to "the 50% auto-compact" — a threshold that has not
+   been configured since the value became 75. Tool count is uncorrelated with
+   context size: one `Read` of a large file outweighs fifty `Bash` calls.
+
+5. **The checkpoint's ROADMAP parsing never matched.** Found while building the
+   behaviour tests: `pre-compact.sh` anchored its markers as `^\s*\[-\]`, but
+   ROADMAP tasks are markdown list items (`- [-] Task #T1`), so the marker is
+   never at line start. Every auto-checkpoint ever written recorded
+   `phase: "ad-hoc"`, `feature: "none"`, and `in_progress: (none)` regardless of
+   what was actually in flight — the one part of the checkpoint that was supposed
+   to work, silently didn't.
+
+## Proposed Solution
+
+Do not gate compaction. **Steer it**, in three stages, using two channels
+verified against the shipped CLI.
+
+The original proposal — block `PreCompact` (exit 2) until a fresh handoff exists
+— was dropped after verification. Blocking is possible, but on the auto path the
+block reason reaches only a debug log and a fixed-string notification that omits
+it (suppressed entirely when `isAutoCompact`); the reactive and precomputed
+paths never consult it at all. A block would defer compaction without telling
+anyone why. See design § CLI Verification.
+
+What ships instead:
+
+1. **Ask early, via PostToolUse.** `compact-suggest.sh` is rewritten. It reads
+   the current context size out of the transcript's `usage` records
+   (`input_tokens + cache_read_input_tokens + cache_creation_input_tokens`) and,
+   when that passes a percentage of the declared window, injects
+   `hookSpecificOutput.additionalContext` — the one channel that reaches Claude's
+   context — instructing it to run `/tools:handoff` *now*, with a task-tuned
+   `compact_instruction`. One nudge per compaction cycle, tracked by a
+   per-session marker in `.claude/logs/`.
+
+2. **Claude writes the handoff.** The only stage that can capture decisions and
+   rationale, because only the model has them. `/tools:handoff` is updated to
+   make `compact_instruction` mandatory and to explain that it is written *to the
+   summarizer*, not to a human reader.
+
+3. **Forward it, via PreCompact stdout.** `pre-compact.sh` reads the newest
+   handoff written since the last compaction, extracts its `compact_instruction`
+   block scalar, and prints it on stdout. The runtime collects PreCompact stdout
+   into `newCustomInstructions` and merges it into the compaction's own custom
+   instructions — so the text the model authored becomes guidance the summarizer
+   actually receives. The hook also runs `system-map.ts check` read-only and
+   appends a drift caveat, keeps writing its filesystem-derived checkpoint as a
+   fallback, and resets the nudge baseline so stage 1 can fire again next cycle.
+
+Headroom comes from setting both threshold variables:
+`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "75"` alongside
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000"`, which activates the proactive path
+that makes the percentage effective. 75% of a declared window leaves roughly a
+quarter of the context to write the handoff in.
+
+No escape hatch is needed, because nothing blocks. That is the design's main
+advantage over the original: a session can never be wedged at its context
+ceiling by its own governance layer, because the governance layer only ever
+talks.
+
+## Success Criteria
+
+- [x] Auto-compaction triggers against a declared window rather than the model's
+      hard context limit — both env vars set, not just the percentage
+- [x] Rising context pressure injects an instruction into Claude's context to
+      write a handoff, exactly once per compaction cycle
+- [x] The `compact_instruction` authored in that handoff reaches the compaction
+      summarizer — emitted on `pre-compact.sh` stdout, which the runtime forwards
+      as `newCustomInstructions`
+- [x] An unfilled template placeholder is treated as no instruction at all
+- [x] A handoff written before the last compaction is ignored — it describes
+      work that has already been summarized away, not the state being compacted
+      away now
+- [x] `pre-compact.sh` stdout is plain text on every path; it never emits a JSON
+      envelope, which the runtime would forward verbatim as instruction text
+- [x] When `node scripts/system-map.ts check` reports drift, the compaction
+      instructions carry that caveat; the hook writes nothing under `docs/maps/`
+      on any path
+- [x] Compaction is never blocked or deferred by this feature — no wedge is
+      possible by construction
+- [x] The filesystem-derived checkpoint still gets written, and now records the
+      real phase/feature/in-progress task instead of `ad-hoc`/`none`
+- [x] Marker files are removed by `session-end-cleanup.sh` and pruned after 7
+      days for sessions that crashed
+- [x] `compact-suggest.sh` no longer claims a 50% threshold or counts tool calls
+- [x] `tests/compaction-hooks.sh` covers nudge-once-per-cycle, baseline reset,
+      instruction extraction and placeholder rejection, freshness, containment
+      (both the escaping symlink and the in-scope-sibling symlink), `session_id`
+      traversal sanitation, checkpoint debounce, and malformed stdin
+
+## Constraints
+
+**Hard**
+
+- Hooks are shell commands. They cannot invoke the model, so no hook can
+  author a detailed handoff itself. This is the constraint the whole design
+  routes around, not one it can relax.
+- ~~`PreCompact` receives `custom_instructions` as **input only**.~~
+  **Retracted** — verified false against the shipped CLI. A `PreCompact` hook's
+  stdout becomes `newCustomInstructions` and is appended to the user's own
+  instructions for that compaction. The drafted message has a native channel;
+  see design § CLI Verification.
+- ~~The gate must never be able to permanently prevent compaction.~~
+  **Moot** — nothing blocks. Retained as a note on why the blocking design was
+  the riskier one even before verification killed it.
+- A blocking `PreCompact` cannot explain itself on the auto path. Verified, and
+  the reason the architecture inverted. Any future proposal to block must first
+  disprove this.
+- `pre-compact.sh` stdout is forwarded verbatim to the summarizer as
+  instructions. Plain text only; print nothing when there is nothing to say.
+- `.claude/rules/bash.md` — no pipes, no `$()` in commands, no bare `cd`,
+  scripts in files. Applies to anything the hooks instruct Claude to run.
+- Must not regress the existing auto-checkpoint: sessions that compact without
+  a rich handoff still need the filesystem-derived YAML they get today.
+- Portability: hooks run on Windows/Git Bash as well as Linux/macOS. No
+  `find -printf`; handoff filenames sort chronologically, so `sort | tail -1`
+  substitutes.
+
+**Soft**
+
+- Prefer extending `pre-compact.sh` over adding a second `PreCompact` hook —
+  two hooks on one event with independent exit codes is harder to reason about.
+- Prefer reusing `/tools:handoff`'s existing YAML schema over inventing a
+  feature-specific document format.
+- The existing 10-minute checkpoint debounce is a reasonable default. It now
+  gates the *file write only* — instruction forwarding happens on every
+  compaction, or a second compaction within ten minutes loses its guidance.
+
+## Non-Goals
+
+- Changing how the compaction summarizer works. We can only influence it
+  through the instructions it receives.
+- Replacing `/tools:handoff`. This feature *invokes* it; it does not
+  reimplement it.
+- Auto-running `/tools:dream`. `.claude/plans/cryptic-napping-sonnet.md:56`
+  already decided that firing consolidation on PreCompact is "too expensive and
+  too eager" — that decision stands.
+- ~~Gating *manual* `/compact`.~~ **Superseded.** Since nothing blocks, the
+  matcher is `*`: a manual `/compact` also gets its checkpoint and forwards its
+  instruction. The original non-goal existed to avoid second-guessing an
+  explicit user request — an advisory hook does not second-guess anything.
+- Measuring real context-token usage inside the hook. The hook has no access to
+  it; the threshold is the harness's job.
+
+## Research Findings
+
+**`PreCompact` can block — but not usefully on the auto path.** The hooks
+reference's exit-code table lists `PreCompact | Yes | Blocks compaction`. Binary
+inspection of the shipped CLI qualified this: manual `/compact` genuinely aborts,
+but auto-compaction routes the block reason to a debug log and a reason-less
+notification, and the reactive/precomputed paths never read it. A blocked
+auto-compaction *is* retried later — verified — so the session is not wedged;
+it simply keeps running uncompacted with no one told why.
+
+**The threshold variables.** `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` sets "the
+percentage (1-100) of the auto-compaction window at which auto-compaction
+triggers", and "can only lower the threshold, so values above the default have
+no effect". Critically, it "only causes earlier compaction when Claude Code
+compacts proactively: when `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is set, in cloud
+sessions, and on Sonnet 4.6 and Opus 4.6 without extended context... In other
+cases, such as a local session on Opus 4.8, auto-compaction triggers when the
+conversation reaches the model's context limit."
+
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW` "set[s] the context capacity in tokens used
+for auto-compaction calculations", defaulting to the model's window, and
+"`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` is applied as a percentage of this value."
+Setting it "decouples the compaction threshold from the status line's
+`used_percentage`, which always uses the model's full context window" — a real
+usability cost, accepted and documented.
+
+**Configuring any PreCompact hook disables precompute reuse** (`miss_hook`), so
+the proactive path recomputes rather than reusing a cached summary. Accepted:
+correctness of the handoff chain over a saved recomputation.
+
+**Internal prior art.** `pre-compact.sh` already establishes the file layout,
+the YAML schema, and the debounce pattern. `compact-suggest.sh` and
+`session-end-cleanup.sh` already establish a per-session marker convention in
+`.claude/logs/` — `session_id` extracted from stdin JSON, sanitized with
+`tr -cd '[:alnum:]_-'`, cleaned on `SessionEnd`, pruned at 7 days. The
+implementation reuses that convention and promotes the extraction into
+`_common.sh` (`session_id_from_json`, `json_string_field`) rather than
+triplicating it.
+
+**The advisory convention survives.** Every hook in `.claude/hooks/` opens with
+`set -euo pipefail; trap 'exit 0' ERR` and is documented as "advisory — never
+surfaces errors to Claude Code". The blocking design would have broken that
+pattern and needed a recorded decision; the shipped design does not break it.
+
+**Unadopted events.** The staleness audit
+(`docs/audits/2026-07-11-staleness-audit.md:73`) lists `PostCompact` among hook
+events Project OS has not adopted. Still unadopted — it cannot enforce anything,
+and the instruction channel made it unnecessary for verification.
+
+## Open Questions
+
+1. ~~What value for `CLAUDE_CODE_AUTO_COMPACT_WINDOW`?~~ **Resolved: 200000.**
+   The status-line decoupling cost is accepted and noted in the README.
+2. ~~What exactly counts as a "fresh" handoff?~~ **Resolved:** written within
+   `PROJECT_OS_HANDOFF_MAX_AGE_MIN` (default 30) of the compaction. Wall-clock
+   age is coarse but is the only signal available to a shell hook; the env var
+   exists so it can be tuned without an edit.
+3. ~~Does the gate block on system-map drift, or heal it itself?~~ **Resolved:
+   neither.** Healing reads the working tree while the map's authority is the
+   git index, and mid-build drift is expected rather than actionable. The hook
+   runs `check` read-only and forwards the verdict as a caveat. See design
+   Architecture Decision 3.
+4. ~~Exit code 2 with stderr, or exit 0 with `{"decision":"block",...}`?~~
+   **Moot** — nothing blocks.
+5. ~~Should the gate ever block when there are no uncommitted changes and no
+   in-progress tasks?~~ **Moot** for the same reason. The nudge does fire in a
+   read-only research session; the cost is one ignorable instruction, and a
+   research session's *findings* are exactly the kind of thing worth handing off.
+6. ~~Where does the auto-checkpoint YAML fit once a rich handoff exists?~~
+   **Resolved: still written.** It is cheap, it is the fallback when no handoff
+   was written, and its `context_notes` now states explicitly which case applies.
+
+7. ~~`PROJECT_OS_COMPACT_NUDGE_BYTES` (default 1,200,000) is an uncalibrated
+   proxy.~~ **Resolved: the proxy was removed rather than calibrated.** The
+   premise behind it — that hooks receive no token count — was wrong. Every
+   assistant record in the transcript carries a `usage` object whose
+   `input_tokens + cache_read_input_tokens + cache_creation_input_tokens` is the
+   real context size, in the same unit as the window. Bytes were also not a
+   conservative approximation: the transcript keeps every discarded turn, so it
+   diverges further from real context after each compaction. Measured live at
+   2,897,308 bytes against 106,432 tokens. The nudge now fires at a percentage
+   of the declared window, derived as `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE − 15`.
+   Bytes remain only as a fallback for a transcript format change.
+
+8. ~~Handoff discovery globbed `.claude/sessions/` project-wide with no reference
+   to the session id, so two sessions sharing a checkout could steer each other's
+   compaction.~~ **Resolved (round 6): authorship is recorded, not declared.**
+   Raised in PR review and reproduced against the round-5 hook. The handoff
+   document cannot carry its own session id — the model writing it has no
+   reliable way to learn one — but `compact-suggest.sh`'s PostToolUse payload
+   carries `session_id` and `tool_input.file_path` together, so it appends to
+   `.compact-handoff-<session_id>`. `pre-compact.sh` prefers that record and
+   falls back to the newest handoff *no other session has claimed*. The record
+   is append-only, one line per handoff: a follow-up review round found that
+   keeping only the newest left a session's earlier handoffs looking
+   unattributed, so the other session's fallback forwarded one of those instead
+   — the same leak one handoff further back.
+
+9. ~~Handoff filenames were minute-granular, so two sessions running
+   `/tools:handoff` in the same minute wrote the same path — one body
+   overwriting the other, and both ownership records truthfully claiming it.~~
+   **Resolved (round 6c): the names are collision-resistant.** The third finding
+   of the same review, and the one no claim tracking could reach: claims name
+   paths, and here the two paths were equal. `/tools:handoff` now generates
+   `handoff-YYYY-MM-DD-HHMMSS-$RANDOM.yaml`. The token trails the timestamp so
+   the `sort`-based newest-handoff selection is unaffected, and that sort is
+   pinned to `LC_ALL=C` so a UTF-8 locale's punctuation collation cannot rank a
+   legacy `-HHMM.yaml` above a later suffixed name. Silent data loss, not just
+   mis-forwarding — the other session's handoff was destroyed whether or not
+   compaction followed.
+
+10. ~~The token scan took the first `"usage"` key in a record, and read any
+    record; the checkpoint's file list collapsed untracked directories.~~
+    **Resolved (round 7): two structural guards and one reproduced gap.**
+    `message.content` serializes before `message.usage`, so a `tool_use` payload
+    carrying its own `usage` object would be measured instead of the context —
+    and being small, would silence the nudge. The scan now walks to the last
+    `"usage"` key and only reads `type:assistant` records, which also shuts out a
+    user record's `toolUseResult` (arbitrary JSON from an MCP server or a file
+    read). Neither shape appears in the transcript that motivated the finding —
+    recorded as such in the hook comment — but the failure is silent when it
+    happens. Separately, `git status --porcelain` reports a wholly untracked
+    directory as one `?? dir/` entry, so a session that had just built a new
+    feature handed the next one a directory name instead of its files;
+    `--untracked-files=all` fixes it without reporting anything gitignored.
+
+11. ~~A `Read` of a handoff claimed ownership of it; the token scan lost the
+    main thread during a sub-agent run; and one accented filename could make
+    the whole checkpoint invalid YAML.~~ **Resolved (round 8): three findings
+    from a review of the #T122 commit, each confirmed before it was fixed.**
+    (a) Ownership was recorded from `tool_input.file_path` regardless of tool,
+    and `Read` carries that field too — so `/tools:catchup`, whose whole job is
+    to read the previous session's handoff, made the reader claim the author's
+    file. That is worse than tracking nothing: the ownership branch bypasses the
+    age window entirely, so the reader forwards a stale instruction written for
+    someone else's task, while the claim hides that handoff from every other
+    session's fallback. Claims are now gated on a write tool. (b) The token scan
+    read a fixed 60-line tail, which assumes a main-thread assistant record sits
+    near the end; during a sub-agent invocation it does not, and the hook fell
+    through to a byte proxy that is wrong in both directions — worse, a
+    byte-proxy nudge raised mid-sidechain lands in the *sub-agent's* context and
+    still spends the once-per-cycle marker. The window now escalates 60 → 600 →
+    4000 lines, widening only when the cheap read comes up empty, so the normal
+    case pays exactly what it paid before. (c) The checkpoint's path list used
+    plain `--porcelain`, which C-quotes anything outside ASCII: `café.txt`
+    becomes `"caf\303\251.txt"`, and `\3` is not a legal escape inside a
+    double-quoted YAML scalar — so one accented filename cost the session every
+    other field in the checkpoint. `-z` disables quoting entirely (`quotePath=false`
+    is not enough — it still escapes `"`, `\`, newline and tab), read through
+    process substitution because `$( )` drops NUL bytes, with renames handled as
+    the two records `-z` actually emits. Six of the eleven new assertions
+    verified to fail against the pre-fix hooks; the other five pin behaviour the
+    rewrites could have broken.
+
+12. ~~The nudge could still be delivered into a sub-agent's context; one
+    backslash in a ROADMAP line made the whole checkpoint invalid YAML; and
+    SessionEnd deleted the one marker other sessions read.~~ **Resolved
+    (round 9): three findings from a review of the round-8 commit.**
+    (a) Round 8 named the mis-delivery — "a byte-proxy nudge raised
+    mid-sidechain lands in the *sub-agent's* context and still spends the
+    once-per-cycle marker" — and then only widened the scan window, which made
+    the hook *better* at finding a main-thread number to nudge on while a
+    sub-agent was running, and so made the mis-delivery more reliable rather
+    than less. `additionalContext` is delivered to whichever agent made the
+    tool call; a sub-agent can neither write a handoff nor be compacted, and
+    the marker it spends was the main thread's one nudge for the cycle. The
+    scan now reports whether the newest `usage`-bearing record is a sidechain
+    one, and the hook exits before nudging — and before the byte fallback —
+    when it is. This reverses a round-8 assertion (`context_sidechainRunLonger
+    ThanScanWindow_stillMeasuresMainThread`) that was defended in review: the
+    number is still measured correctly, but measuring it is not a reason to
+    deliver on it. Two bounds were stated here and both were later corrected in
+    round 10: the "one turn of delay" for the main thread's own PostToolUse on
+    the completed `Task` turned out not to be a bounded delay at all, and the
+    open question of whether sub-agent firings share the main session's id
+    (unanswerable from a transcript containing no sidechain records) was
+    settled — they do.
+    (b) The checkpoint escaped `"` in ROADMAP-derived values but not `\`, and
+    `\s` is not a legal escape in a double-quoted YAML scalar — the same class
+    of bug as round 8's C-quoting, reached by a different route. Reproduced
+    against the pre-fix hook: `while scanning a double-quoted scalar ... found
+    unknown escape character 's'`, aborting the *document*, so a task titled
+    `Fix the C:\path parser` cost the next session the objective, the task list
+    and the handoff pointer. A single `yaml_escape` helper now handles
+    backslash first, then quote, tab and newline, and every double-quoted
+    scalar built from data the hook did not author goes through it — including
+    the feature heading, which was not flagged. The `|` block scalars are
+    deliberately left raw; escaping there would put literal backslashes into
+    the summarizer's instructions.
+    (c) SessionEnd deleted `.compact-handoff-<session_id>` along with the
+    session-private markers. That record is the only one read *across*
+    sessions: deleting it un-claims this session's handoffs the instant it
+    exits, so a concurrent session's fallback glob forwards a
+    `compact_instruction` written for someone else's task. The handoff outlives
+    the session, so the record of who wrote it has to as well; the 7-day prune
+    already covered it, and a stale claim is the safe failure. Six of the
+    fourteen new assertions verified to fail against the pre-fix hooks.
+
+13. ~~The delivery gate threw away the main thread's own nudge after a sub-agent
+    finished, and an owned handoff skipped the age window before the first
+    compaction.~~ **Resolved (round 10): two findings from a review of the
+    round-9 commit.**
+    (a) Round 9 inferred the speaker from the transcript tail, which cannot tell
+    a sub-agent's own tool call from the main thread's `PostToolUse` for the
+    *completed* `Task` — the sub-agent's last turn is newest in both cases. Round
+    9 wrote that consequence down and accepted it as one turn of delay; that was
+    wrong, because there may be no further turn. If the resumed turn ends without
+    another tool call, or auto-compaction fires first, the cycle's nudge is lost
+    with nothing to recover it. The gate now compares the payload's `agent_id`
+    against `session_id`, which is what "main thread" actually means, and reading
+    the shipped CLI's payload assembly answered round 9's open question at the
+    same time: sub-agent firings do share the session id, so the marker spend was
+    the serious half of the original bug. The tail heuristic survives only for
+    payloads carrying no `agent_id` at all.
+    (b) The ownership branch accepted a claimed handoff at any age when no cycle
+    marker existed, while the glob fallback applied the 30-minute window. Two
+    reachable paths — a first compaction hours after the handoff was written, and
+    a session resuming after `SessionEnd`. The second is a regression from
+    round 9's own retention fix, which kept the claim past `SessionEnd` while the
+    cycle marker still dies with the session. Both branches now share one window
+    and one tool; a cycle marker, when present, still governs. Eight of the
+    thirteen new assertions verified to fail against the pre-fix hooks.
+
+14. ~~The nudge measured a context that excluded the result it was firing on,
+    identified assistant records by substring, and claimed handoff ownership
+    after publishing the handoff.~~ **Resolved (round 11): three findings from a
+    review of the round-10 commit.**
+    (a) `PostToolUse` fires before the model's next request, so the newest
+    `usage` record describes the request that *asked for* the tool and the result
+    now in context goes unmeasured for a turn. The 15-point gap between the nudge
+    line and the compaction line absorbs an ordinary turn but not one large read
+    that crosses the whole gap in a single step — and the cycle's nudge is then
+    never owed while it could still be delivered, the same loss round 10 fixed by
+    another route. `${#INPUT} / 4` is now added in the token branch only. It is a
+    proxy, and it under-estimates JSON and code on purpose: it narrows the gap
+    without ever inflating the number the hook nudges on.
+    (b) The `type:assistant` guard was a substring test against a line that nests
+    unescaped JSON — `toolUseResult` is a structured object in 687 of 2958
+    records — so a tool payload could be measured as the session's context.
+    Probing also ruled out a prefix-scan shortcut (`message` precedes the
+    top-level `type` in all 1185 assistant records, max offset 33108) and made
+    the strict fix free (all 1185 `usage` keys sit at depth 2). Records are now
+    reduced to a brace/bracket skeleton and read by depth. As with round 6's
+    guard, no instance occurs in the measured transcript: this prevents a wrong
+    number reported confidently, which is worse than no number.
+    (c) The ownership claim ran after the `Write`, leaving a window in which the
+    handoff exists and belongs to nobody — the round-5 leak reached by timing.
+    Inverted rather than synchronized: the hook is registered on `PreToolUse` for
+    the write tools, where it claims and exits without emitting (that is the one
+    event where a hook can deny a tool call), with the `PostToolUse` pass kept as
+    a backstop. This round also added the suite's first assertions against
+    `.claude/settings.json` itself, because the claim block works on a
+    `PreToolUse` payload whether or not it is registered for that event — the
+    whole pre-claim could have been dead in production with the suite green.
+    Seven of the eighteen new assertions verified to fail against the pre-fix
+    hooks and pre-fix settings.
+
+**Still open:**
+
+Nothing. The nudge threshold is the last item that required real-session
+observation, and it no longer does — it is measured, not estimated.

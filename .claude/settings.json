@@ -78,7 +78,8 @@
   },
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
-    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "75"
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "75",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "200000"
   },
   "project_os": {
     "parallel": {
@@ -119,6 +120,17 @@
     }
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \".claude/hooks/compact-suggest.sh\""
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "mcp__context7__.*",
@@ -172,7 +184,7 @@
     ],
     "PreCompact": [
       {
-        "matcher": "auto",
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",

@@ -169,6 +169,7 @@ Configured in `.claude/settings.json` via `"model"` and `CLAUDE_CODE_SUBAGENT_MO
 ## Tips
 
 - **Session state is auto-saved** before context compaction via the PreCompact hook. Manual `/tools:handoff` captures richer context for end-of-session or cross-agent handoffs. Resume either with `/tools:catchup`.
+- **Compaction is steered, not just survived.** Auto-compaction fires at 75% of the context window. As pressure builds, a PostToolUse hook asks Claude to write a handoff *while it still has the context to write one*; the PreCompact hook then forwards that handoff's `compact_instruction` to the compaction summarizer, so what survives compaction is chosen deliberately. See "Compaction Handoff Chain" in `docs/knowledge/architecture.md`.
 - **`/clear` between unrelated tasks.** Fresh context = better performance.
 - **The knowledge vault compounds.** Document decisions and root causes as you go.
 - **`/pm:approve` after planning** to promote drafts before building.

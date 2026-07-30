@@ -102,6 +102,30 @@ rotate_log() {
     return 0
 }
 
+# Extract and sanitize session_id from hook stdin JSON.
+# The value lands in filenames under .claude/logs/, so it is restricted to
+# [[:alnum:]_-]: a session_id of "../../etc/passwd" becomes "etcpasswd" rather
+# than escaping the log directory.
+# Usage: sid=$(session_id_from_json "$INPUT")
+# Returns: sanitized id, or "default" when absent
+session_id_from_json() {
+    local input="$1"
+    local sid
+    sid=$(echo "$input" | grep -oE '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"session_id"[^"]*"//;s/".*//' | head -1 || true)
+    sid=$(echo "$sid" | tr -cd '[:alnum:]_-')
+    echo "${sid:-default}"
+}
+
+# Extract a string field from hook stdin JSON without a JSON parser.
+# Only safe for fields whose values contain no escaped quotes — the hook
+# payload fields used here (transcript_path, trigger) are all simple scalars.
+# Usage: val=$(json_string_field "$INPUT" transcript_path)
+json_string_field() {
+    local input="$1"
+    local key="$2"
+    echo "$input" | grep -oE "\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | sed "s/.*\"$key\"[^\"]*\"//;s/\".*//" | head -1 || true
+}
+
 # Get project root (useful for referencing project-relative paths in hooks)
 # Usage: root=$(get_project_root)
 get_project_root() {

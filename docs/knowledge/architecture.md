@@ -46,17 +46,17 @@ User ──→ Workflow Commands ──→ Orchestrator ──→ Sub-agents (is
 | Hook | Purpose |
 |------|---------|
 | `_common.sh` | Shared utilities: path resolution, validation, JSON extraction |
-| `compact-suggest.sh` | PostToolUse — warn when tool-call count suggests context is filling |
+| `compact-suggest.sh` | PostToolUse — when the transcript's newest `usage` record, plus a byte-proxy estimate of the tool result that just landed, puts context past `NUDGE_PCT` of the window (default 60%), inject `additionalContext` telling Claude to run `/tools:handoff` with a `compact_instruction`; one nudge per compaction cycle. Records are read structurally, not textually: each is reduced to a brace/bracket skeleton, so `type:assistant` counts only at the record's own depth and only a `message.usage` object is measured — a `usage` buried in a tool payload cannot be mistaken for the session's context. Deferred entirely when the payload's `agent_id` differs from its `session_id` (a sub-agent firing), because `additionalContext` lands in the *calling* agent's context and a sub-agent can neither write a handoff nor be compacted; a payload with no `agent_id` at all falls back to deferring on a sidechain transcript tail. **Also registered on PreToolUse** for `Write\|Edit\|MultiEdit\|NotebookEdit`, where it records handoff authorship and stops — never emitting, since PreToolUse is the one event where a hook can deny the tool call. A write to `.claude/sessions/handoff-*.yaml` is appended to `.compact-handoff-<session_id>` (one path per line, so a session that writes several in a cycle claims all of them) so `pre-compact.sh` can tell this session's handoffs from a concurrent session's; claiming before the write means the claim can never trail the artifact it describes, and the PostToolUse pass repeats the claim as a backstop, collapsing against the last line |
 | `log-activity.sh` | Append structured JSONL events to the activity log |
 | `notify-phase-change.sh` | Terminal/desktop notification on phase transitions |
 | `output-index.sh` | PostToolUse advisory — index large tool outputs, hint via additionalContext |
 | `post-mcp-validate.sh` | PostToolUse — validate Context7 MCP output (exit 2 / additionalContext contract) |
 | `post-tool-use.sh` | Auto-format files after Write/Edit |
 | `post-write-session.sh` | Scrub secrets from `.claude/sessions/` files after write |
-| `pre-compact.sh` | PreCompact — auto-generate session handoff YAML (10-min debounce) |
+| `pre-compact.sh` | PreCompact (`*` — auto and manual) — print the `compact_instruction` of the newest handoff written since the last compaction on stdout, which the runtime forwards to the compaction summarizer; also writes a filesystem-derived checkpoint YAML (10-min debounce), opens the next compaction cycle and re-arms the nudge. Advisory: never blocks |
 | `session-start-setup.sh` | SessionStart — idempotent activation fallback: runs `setup.sh --check` so a cloned project installs its git hooks on first session |
 | `session-start-maintain.sh` | SessionStart — auto-runs the maintenance loop once per `auto_run_hours` (policy, default 24h); drafts-only, debounced on ledger age, skips worktrees |
-| `session-end-cleanup.sh` | SessionEnd — remove per-session counters, rotate append-only logs |
+| `session-end-cleanup.sh` | SessionEnd — remove per-session counters and the session-private compaction markers (`.compact-base-*`, `.compact-nudged-*`, `.compact-cycle-*`); deliberately **keeps** `.compact-handoff-*`, the one marker concurrent sessions read, and lets the 7-day prune collect it; rotate append-only logs |
 | `tool-failure-log.sh` | Log tool failures (timestamp + tool name only) |
 
 ### Scripts (`scripts/`)
@@ -135,6 +135,122 @@ Project OS includes an FTS5-based knowledge index for efficient context manageme
 - **Advisory hook**: `.claude/hooks/output-index.sh` — indexes large tool outputs and persists extracted observations to `observation_meta` table
 - **Auto-checkpoint hook**: `.claude/hooks/pre-compact.sh` — PreCompact hook auto-saves session state before context compaction (10-min debounce)
 - **SKILL**: `.claude/skills/context-filter/SKILL.md` — teaches proactive routing for large content
+
+### Compaction Handoff Chain
+
+Auto-compaction fires at 75% of the context window (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75`;
+the threshold is inert unless `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is also set, which
+activates the proactive trigger path). Compaction is not something a hook can usefully
+stop, so the chain steers it instead — three stages, two of them hooks:
+
+1. **`compact-suggest.sh` (PostToolUse)** — measures the current context size from
+   the transcript's newest non-sidechain `usage` record
+   (`input_tokens + cache_read_input_tokens + cache_creation_input_tokens`) and,
+   once it passes `PROJECT_OS_COMPACT_NUDGE_PCT` of the window (default
+   `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE − 15`, i.e. 60%), injects
+   `hookSpecificOutput.additionalContext` into Claude's context: *write the handoff
+   now, with a `compact_instruction`*. One nudge per cycle, tracked by
+   `.claude/logs/.compact-nudged-<session_id>`. Transcript-byte growth
+   (`PROJECT_OS_COMPACT_NUDGE_BYTES`) is a fallback for when no `usage` record
+   parses — it is not the primary signal, because the transcript retains discarded
+   history and so diverges from real context after every compaction. The scan reads
+   the `message.usage` key of a `type:assistant` record, identified by nesting
+   depth rather than by position or by a substring test. A record serializes
+   `message.content` before `message.usage`, so taking the first `"usage":` key
+   would measure a `tool_use` input that carried one; and because `toolUseResult`
+   holds unescaped nested JSON, a whole-line search for the record type matches
+   tool payloads too, which could supply a number from outside the session
+   entirely. The scan therefore reduces each record to a brace/bracket skeleton
+   and accepts the type key only at the record's own depth and the `usage` key
+   only one level inside `message`. A record whose only `usage` object lives
+   deeper is skipped rather than measured. Whatever the scan reports is then
+   topped up by `${#INPUT} / 4` for the tool result that just landed: PostToolUse
+   fires before the model's next request, so the newest `usage` record describes
+   the request that *asked for* the tool and the result itself is unmeasured for
+   one more turn — long enough for a single large read to cross the whole gap
+   between the nudge line and the compaction line. That top-up is a proxy and
+   runs short by design (4 bytes/token under-estimates JSON and code), so it
+   narrows the gap without ever inflating it. The tail window escalates 60 → 600
+   → 4000 lines, widening only when
+   the cheap read comes up empty: a fixed 60 assumed a `usage`-bearing record was
+   always near the end, which a long run of tool-result records — none of which
+   carries a `usage` object at all — pushes out of reach, silently dropping the
+   hook to the byte proxy. Delivery is gated separately from measurement:
+   `additionalContext` reaches whichever agent made the tool call, so a nudge
+   raised during a sub-agent's run lands on an agent that cannot write a handoff
+   and will not be compacted, while still spending the one nudge the main thread
+   was owed. The gate compares the payload's `agent_id` against its `session_id`
+   — the main thread's tool-use context carries `agentId == <session id>`, a
+   sub-agent a distinct one — and exits on a mismatch, before the byte fallback,
+   without writing the marker. Preferred over `agent_type == "main"` because that
+   default is configurable in the CLI, so the literal string is not guaranteed.
+   A payload carrying no `agent_id` at all (an older CLI) falls back to the
+   transcript tail: newest `usage`-bearing record is a sidechain one → defer.
+   That inference is strictly weaker, since it cannot separate a sub-agent's own
+   call from the main thread's `PostToolUse` for the *completed* `Task`, and
+   dropping the latter can lose the cycle's nudge outright. Independently
+   of the nudge — before the once-per-cycle exit, because the handoff is written
+   *after* the nudge asks for it — every call checks `tool_input.file_path` on a
+   **write** payload (`Write`, `Edit`, `MultiEdit`, `NotebookEdit` — `Read`
+   carries the same field, so an ungated branch made `/tools:catchup` claim the
+   handoff it was reading) against
+   `*/.claude/sessions/handoff-*.yaml` and appends a match to
+   `.claude/logs/.compact-handoff-<session_id>`. This hook's payload is the only
+   place the session id and the written path appear together, so it is the only
+   component that can attribute a handoff to its author. The record is append-only
+   because a session can write several handoffs in one cycle; keeping only the
+   newest would leave the earlier ones looking unattributed to a concurrent
+   session. Repeated writes to the same path collapse against the last line.
+   The same hook is registered on **PreToolUse** for those four tools as well,
+   and on that path it records the claim and exits immediately — no measurement,
+   no output. Claiming after the write leaves a window in which the file exists
+   and belongs to nobody, and a concurrent session compacting inside it forwards
+   a `compact_instruction` written for someone else's task; claiming first
+   removes the window rather than narrowing it, and the PostToolUse pass remains
+   as a backstop for a write this session did not see the start of. Printing
+   nothing on the PreToolUse path is deliberate: it is the one event where a hook
+   can deny a tool call, and an advisory hook must never be able to block a
+   write.
+2. **Claude runs `/tools:handoff`** — the only stage that can author decisions and
+   rationale, because only the model has them. The hooks cannot.
+3. **`pre-compact.sh` (PreCompact, matcher `*`)** — reads this session's handoff:
+   the last line of `.compact-handoff-<session_id>` naming a file newer than the
+   cycle marker, else the newest *unclaimed* `handoff-*.yaml` written since the
+   last compaction (`-newer .claude/logs/.compact-cycle-<session_id>`; a 30-minute
+   window bootstraps a session's first compaction — on **both** branches, since
+   the claim now outlives `SessionEnd` while the cycle marker does not, and an
+   unwindowed owned branch would let a resumed session forward a handoff of any
+   age). "Unclaimed" means no *other*
+   session's `.compact-handoff-*` record names it on any line — that keeps the glob fallback
+   from handing one session's instruction to another session's summarizer, while
+   still forwarding a handoff written by some means this hook chain cannot see.
+   Ownership can only distinguish handoffs that are distinct files, so
+   `/tools:handoff` names them `handoff-YYYY-MM-DD-HHMMSS-<token>.yaml`: at the
+   former minute granularity two sessions writing in the same minute produced one
+   path, which no amount of claim tracking can disentangle. The token follows the
+   full timestamp so byte order stays chronological, and the candidate `sort` is
+   pinned to `LC_ALL=C` because a UTF-8 locale's weak punctuation collation would
+   invert a legacy `-HHMM.yaml` against a later suffixed name.
+   It then extracts the `compact_instruction` block scalar,
+   and prints it on **stdout**. The runtime collects PreCompact stdout into
+   `newCustomInstructions` and merges it into the compaction's custom instructions,
+   so this text steers what the summarizer keeps. It also runs `system-map.ts
+   check` read-only and appends a drift caveat, writes a filesystem-derived
+   checkpoint (10-min debounce; its `modified_files` come from `git status
+   --porcelain -z --untracked-files=all`, because the default collapses a wholly
+   untracked directory to one `?? dir/` entry and a session that just built a new
+   feature is the one with the most to preserve, and because without `-z` git
+   C-quotes non-ASCII paths — `"caf\303\251.txt"` — whose octal escapes are
+   illegal in a double-quoted YAML scalar and made the entire checkpoint
+   unparseable), and opens the next cycle — touching the cycle
+   marker (after discovery, never before) and clearing the nudged marker so stage 1
+   can fire again.
+
+Why `pre-compact.sh` does not block: exit 2 defers compaction, but on the auto path
+the block reason reaches only a debug log and a fixed-string notification that omits
+it — never Claude — so the gate would stall the session without saying why. See
+`docs/knowledge/decisions.md` and `docs/specs/compaction-gate/design.md`. Behaviour
+is pinned by `tests/compaction-hooks.sh`.
 
 ### Recency-Weighted Search
 
