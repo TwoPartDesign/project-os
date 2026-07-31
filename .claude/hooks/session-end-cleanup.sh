@@ -29,15 +29,20 @@ if [ -n "$SESSION_ID" ]; then
 
     # .compact-handoff-* is deliberately NOT removed here. It is the one marker
     # read ACROSS sessions: it records which session authored which handoff, and
-    # pre-compact.sh consults every session's record — not just its own — to
-    # decide whether an unclaimed handoff is safe to forward. Deleting it at
-    # SessionEnd un-claims this session's handoffs the moment it exits, so a
-    # concurrent session's fallback glob picks up the newest file on disk and
-    # forwards a compact_instruction written for someone else's task. The
-    # handoff itself outlives the session; the record of who wrote it has to
-    # outlive it too. The 7-day prune below is what eventually collects it, and
-    # a stale claim is the safe failure: it only excludes a handoff from the
-    # fallback glob, and a handoff that old fails the freshness filter anyway.
+    # since #T144 it is the ENTIRE basis on which pre-compact.sh decides whether
+    # a handoff may steer a compaction summary — there is no discovery fallback
+    # behind it any more. Deleting it at SessionEnd un-claims this session's
+    # handoffs the moment it exits, and the handoff outlives the session that
+    # wrote it: a resumed or concurrent session compacting afterwards would find
+    # nothing claimed and forward nothing, silently losing the instruction. The
+    # handoff outlives the session; the record of who wrote it has to outlive it
+    # too.
+    #
+    # The 7-day prune below is what eventually collects it, and that expiry is
+    # now a real cost rather than a free one — a pruned claim means a handoff
+    # that stops being forwarded. It is accepted because the alternative is an
+    # unbounded log directory, and because the loss is announced: pre-compact.sh
+    # names the unclaimed file in the checkpoint and says it was not forwarded.
 fi
 
 # Prune stale markers from sessions that never cleaned up (>7 days old)

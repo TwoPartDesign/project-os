@@ -98,6 +98,7 @@
 - `s_detect_stack_test` — `tests/detect-stack.test.ts` (0 dependents)
 - `s_dream_accept_smoke` — `tests/dream-accept-smoke.sh` (0 dependents)
 - `s_entropy_threshold_test` — `tests/entropy-threshold.test.ts` (0 dependents)
+- `s_hook_smoke_negctl` — `tests/hook-smoke-negctl.sh` (0 dependents)
 - `s_hook_smoke` — `tests/hook-smoke.sh` (0 dependents)
 - `s_knowledge_index_test` — `tests/knowledge-index.test.ts` (0 dependents)
 - `s_maintain_draft_test` — `tests/maintain-draft.test.ts` (0 dependents)
