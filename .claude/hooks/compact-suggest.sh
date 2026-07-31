@@ -33,6 +33,23 @@
 set -euo pipefail
 trap 'exit 0' ERR  # Advisory hook — never surface errors to Claude Code
 
+# ── Kill switch ─────────────────────────────────────────────────────────────
+# This hook runs on every tool call, on two separate events. If it ever
+# misbehaves — a pathological transcript, a nudge firing in a loop — the only
+# other way to stop it is editing settings.json, which is a poor thing to have
+# to do from inside the session that is already going wrong. An env var can be
+# set for a single run without touching tracked configuration.
+#
+# Written as an `if` rather than `[ … ] && exit 0`. Both are correct here —
+# bash exempts a command in a non-final position of an && list from `set -e`
+# and from the ERR trap, so the unset case falls through either way (verified,
+# not assumed). The `if` is used because the exemption is a subtlety a reader
+# has to recall to be sure, and a guard whose safety depends on remembering a
+# `set -e` corner case is one edit away from not having it.
+if [ -n "${PROJECT_OS_COMPACT_DISABLE:-}" ]; then
+    exit 0
+fi
+
 # Every measurement and every parse in this hook is byte-oriented, and two of
 # them are silently locale-dependent without this pin.
 #
@@ -55,7 +72,8 @@ export LC_ALL=C
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_common.sh"
 
-LOG_DIR="$(get_project_root)/.claude/logs"
+PROJECT_ROOT="$(get_project_root)"
+LOG_DIR="$PROJECT_ROOT/.claude/logs"
 mkdir -p "$LOG_DIR"
 
 # The window auto-compaction measures against, and the percentage of it at
@@ -158,11 +176,17 @@ TRANSCRIPT=$(json_string_field "$INPUT" transcript_path)
 # contents — the same ordering argument as `tool_name` and `agent_id`.
 HOOK_EVENT=$(json_string_field "$INPUT" hook_event_name)
 
+# The payload path is canonicalized before anything looks at it. It arrives in
+# the OS's own spelling — on Windows `C:\Users\...`, still JSON-escaped to
+# `C:\\Users\\...` — and every use below is a forward-slash comparison: the
+# `case` glob, the `-e` test, and the record line that pre-compact.sh will later
+# match against `find` output. Left raw, none of them match on Windows and the
+# whole ownership feature is inert without ever reporting a failure.
 TOOL_NAME=$(json_string_field "$INPUT" tool_name)
 WRITTEN_PATH=""
 case "$TOOL_NAME" in
     Write|Edit|MultiEdit|NotebookEdit)
-        WRITTEN_PATH=$(json_string_field "$INPUT" file_path)
+        WRITTEN_PATH=$(canonicalize_payload_path "$(json_string_field "$INPUT" file_path)")
         ;;
 esac
 
@@ -173,8 +197,17 @@ if [ "$HOOK_EVENT" = "PreToolUse" ] && [ -e "$WRITTEN_PATH" ]; then
     WRITTEN_PATH=""
 fi
 
+# Anchored to THIS project root, not to a trailing `*/.claude/sessions/` glob.
+# The record is consumed by pre-compact.sh as a path to read, and the unanchored
+# pattern accepted any path anywhere on the filesystem that happened to end that
+# way — so a write to another checkout, or to a directory a tool was pointed at,
+# entered this session's record as a claim. Containment belongs at the point the
+# claim is MADE: downstream the record is just a list of paths, and one bad line
+# in it is enough to steer forwarding away from a real handoff.
+# "$PROJECT_ROOT" is quoted so its own contents cannot act as a pattern; the
+# trailing `*` is not, and still globs.
 case "$WRITTEN_PATH" in
-    */.claude/sessions/handoff-*.yaml)
+    "$PROJECT_ROOT"/.claude/sessions/handoff-*.yaml)
         OWN_RECORD="$LOG_DIR/.compact-handoff-$SESSION_ID"
         LAST_CLAIM=$(tail -n 1 "$OWN_RECORD" 2>/dev/null || true)
         if [ "$LAST_CLAIM" != "$WRITTEN_PATH" ]; then
@@ -461,11 +494,19 @@ else
     SIGNAL="This session is approaching its auto-compaction threshold."
 fi
 
-touch "$NUDGED_FILE"
-
+# EMIT FIRST, SPEND THE MARKER AFTER. The marker is this session's single nudge
+# for the compaction cycle, and nothing re-issues one that was owed and never
+# sent — the logic has no notion of a debt. Touched first, any failure between
+# the two lines (a closed stdout, a full disk, the ERR trap firing on something
+# unrelated) consumes the nudge without delivering it, and the cycle is lost
+# exactly as if the hook had never run. Ordered this way the worst case is a
+# nudge delivered twice, which costs a few hundred tokens and nothing else.
+#
 # $SIGNAL is emitted inside a JSON string literal with no escaping step, so
 # every branch above must build it from digits and plain words only — no double
 # quotes, backslashes or newlines.
 printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"Context pressure: %s Run /tools:handoff now, while the full context is still available, and give it a compact_instruction tuned to the current task — the PreCompact hook forwards that instruction to the compaction summarizer. A handoff written after compaction cannot recover what compaction discarded."}}\n' "$SIGNAL"
+
+touch "$NUDGED_FILE"
 
 exit 0

@@ -9,10 +9,19 @@ resolve_project_path() {
     local file="$1"
     local project_root
 
-    # Calculate project root relative to this script
+    # Calculate project root relative to this script.
+    #
+    # `pwd -P`, not bare `pwd`. Bare `pwd` reports the *logical* path — the one
+    # you walked in through, symlinks preserved — while the candidate below is
+    # canonicalized with `realpath`, which is *physical*. For any checkout
+    # reached through a symlink the two spellings name the same directory and
+    # never compare equal, so the containment test at the bottom of this
+    # function rejects every legitimate file and the feature disables itself
+    # with no error on stdout or stderr. Reachable on macOS (`/tmp` and `/var`
+    # are symlinks), symlinked home directories, and symlinked worktrees.
     local script_dir
-    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    project_root="$(cd "$script_dir/../.." && pwd)"
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+    project_root="$(cd "$script_dir/../.." && pwd -P)"
 
     # Exit early if file doesn't exist or is empty
     [ -z "$file" ] && return 1
@@ -39,6 +48,65 @@ resolve_project_path() {
     fi
 
     echo "$resolved"
+}
+
+# Canonicalize a path taken from a hook payload into the spelling the shell
+# itself produces, so it can be compared against `find` output, against
+# `$(pwd)`-derived roots, and against forward-slash globs.
+#
+# TWO CONVERSIONS, AND BOTH ARE LOAD-BEARING ON WINDOWS.
+#
+# First, separators. The runtime delivers `file_path` as a native OS path, so on
+# Windows it is `C:\Users\...`, and because json_string_field returns the raw
+# JSON value each separator arrives still escaped — a literal `\\`. Every glob
+# and every path comparison in these hooks is written with forward slashes, so
+# an unconverted payload path matches nothing at all. That failure is silent:
+# the guard does not error, it simply never fires, and the feature behind it
+# looks implemented while doing nothing. Verified against a live transcript —
+# 30 of 30 `file_path` values were backslash paths.
+#
+# Second, the drive letter. Converting separators alone still leaves
+# `C:/Users/...`, while under MSYS/Git Bash `$(pwd)` yields `/c/Users/...`. The
+# two spellings name the same file and never compare equal, so a claim recorded
+# in one form is invisible to a reader that built its candidates in the other —
+# which is the same silent-mismatch bug one layer down. The directory is
+# therefore resolved through the shell and the basename re-appended. The
+# basename is kept rather than resolving the whole path because a PreToolUse
+# claim names a file that does not exist yet; its directory does.
+#
+# Usage: p=$(canonicalize_payload_path "$raw")
+canonicalize_payload_path() {
+    local p="$1" dir base
+    [ -n "$p" ] || return 0
+
+    p="${p//\\//}"     # separators: \ -> /
+    p="${p//\/\///}"   # collapse the // a JSON-escaped \\ leaves behind
+
+    # A bare filename has no directory to resolve through.
+    case "$p" in
+        */*) ;;
+        *) printf '%s' "$p"; return 0 ;;
+    esac
+
+    dir="${p%/*}"
+    base="${p##*/}"
+    [ -n "$dir" ] || dir="/"
+
+    # A directory that cannot be entered is left as-is rather than dropped:
+    # separator conversion alone is still strictly better than the raw value,
+    # and the callers all re-check containment for themselves.
+    # `pwd -P` for the same reason resolve_project_path uses it: the result is
+    # compared against roots and against `realpath`-canonicalized candidates,
+    # all of which are physical. A logical answer here would reintroduce the
+    # mismatch on a symlinked checkout.
+    if dir=$(cd "$dir" 2>/dev/null && pwd -P); then
+        case "$dir" in
+            */) printf '%s%s' "$dir" "$base" ;;
+            *)  printf '%s/%s' "$dir" "$base" ;;
+        esac
+    else
+        printf '%s' "$p"
+    fi
 }
 
 # Extract file_path from JSON input (via stdin or argument)
@@ -129,7 +197,9 @@ json_string_field() {
 # Get project root (useful for referencing project-relative paths in hooks)
 # Usage: root=$(get_project_root)
 get_project_root() {
+    # Physical, so this agrees with resolve_project_path's realpath'd candidates
+    # and with canonicalize_payload_path. All three must produce one spelling.
     local script_dir
-    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    ( cd "$script_dir/../.." && pwd )
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+    ( cd "$script_dir/../.." && pwd -P )
 }

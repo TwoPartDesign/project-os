@@ -1532,6 +1532,47 @@ OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_not_contains "containment_symlinkToInScopeSibling_alsoRejected" "$OUT" "SIBLING instruction"
 
+# containment_projectReachedThroughSymlink_stillForwards
+# The other direction, and the one that actually bit: containment must not
+# reject a file for the way the PROJECT was reached. The root is derived from
+# BASH_SOURCE, so invoking the hook through a symlinked checkout yields a
+# LOGICAL root under bare `pwd`, while resolve_project_path canonicalizes the
+# candidate with realpath — PHYSICAL. Same directory, two spellings, never
+# equal, so the `!= "$project_root"/*` test rejected every legitimate handoff
+# and the feature disabled itself with nothing on stdout or stderr. `pwd -P` on
+# both roots is the fix. No fixture reached this before because every sandbox
+# is entered by its physical path, where the two spellings coincide.
+#
+# The indirection is created, then PROVED to be indirection before the
+# assertion is trusted. Without Developer Mode Git Bash's `ln -s` silently
+# degrades to a copy, and a copied directory is a physical path that passes
+# here no matter which `pwd` the hook uses — a vacuous pass, worse than an
+# honest skip. A Windows directory junction is the fallback: `mklink /J` needs
+# no elevation and MSYS resolves it, measured here as logical `.../link/sub`
+# versus physical `.../real/sub`. The `pwd` != `pwd -P` check below is the
+# actual gate — whichever mechanism produced it, if the two agree there is no
+# symlink in the path and the case cannot discriminate.
+SB="$(new_sandbox)"
+write_handoff "$SB" "handoff-2026-07-30-1300.yaml" "THROUGH SYMLINK instruction"
+LINKDIR="$(mktemp -d)"
+SANDBOXES+=("$LINKDIR")
+LINK="$LINKDIR/link"
+ln -s "$SB" "$LINK" 2>/dev/null || true
+if [ ! -L "$LINK" ] && command -v cygpath >/dev/null 2>&1; then
+    rm -rf "$LINK"
+    cmd //c mklink //J "$(cygpath -w "$LINK")" "$(cygpath -w "$SB")" >/dev/null 2>&1 || true
+fi
+LOGICAL=$(cd "$LINK" 2>/dev/null && pwd)
+PHYSICAL=$(cd "$LINK" 2>/dev/null && pwd -P)
+if [ -n "$LOGICAL" ] && [ "$LOGICAL" != "$PHYSICAL" ]; then
+    OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+        | bash "$LINK/.claude/hooks/pre-compact.sh" 2>/dev/null)
+    assert_contains "containment_projectReachedThroughSymlink_stillForwards" \
+        "$OUT" "THROUGH SYMLINK instruction"
+else
+    skip "containment_projectReachedThroughSymlink_stillForwards (no usable symlink or junction)"
+fi
+
 # ── Cycle handshake ─────────────────────────────────────────────────────────
 # pre-compact.sh must reset the nudge state so the next cycle can nudge again.
 
@@ -1872,6 +1913,251 @@ echo ""
 # not the hook is registered for that event, so the entire pre-claim can be
 # dead in production with the unit tests still green. These read the real
 # settings.json.
+echo "payload paths in the OS's own spelling:"
+
+# The runtime delivers `file_path` as a native OS path, and json_string_field
+# returns the RAW JSON value — so on Windows every separator arrives as a
+# literal `\\`, two characters, not one. Every fixture in this file above this
+# point uses POSIX paths, which is why the whole ownership feature could be
+# completely inert on Windows with 165 assertions passing. These tests use the
+# spelling the platform actually sends.
+
+# windowsPayload_jsonEscapedBackslashes_claimed
+# The real shape: `C:\\Users\\...`. This is what a live transcript contains —
+# 30 of 30 file_path values, measured.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+TARGET="$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
+run_suggest_pre "$SB" "$SB/transcript.jsonl" Write "${TARGET//\//\\\\}" >/dev/null
+RECORDED=$(cat "$SB/.claude/logs/.compact-handoff-s1" 2>/dev/null || true)
+assert_eq "windowsPayload_jsonEscapedBackslashes_claimed" "$RECORDED" "$TARGET"
+
+# windowsPayload_singleBackslashes_claimed
+# The same path with unescaped separators, for a payload that reaches the hook
+# through anything that has already unescaped it once.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+TARGET="$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
+run_suggest_pre "$SB" "$SB/transcript.jsonl" Write "${TARGET//\//\\}" >/dev/null
+RECORDED=$(cat "$SB/.claude/logs/.compact-handoff-s1" 2>/dev/null || true)
+assert_eq "windowsPayload_singleBackslashes_claimed" "$RECORDED" "$TARGET"
+
+# windowsPayload_claimRecordedInReadableSpelling_forwardedEndToEnd
+# The claim is only worth writing if pre-compact.sh can act on it. A record
+# written in one spelling and read against candidates built in another is the
+# same silent mismatch one layer down, so the two hooks are exercised together.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+TARGET="$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
+run_suggest_pre "$SB" "$SB/transcript.jsonl" Write "${TARGET//\//\\\\}" >/dev/null
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "WINDOWS CLAIMED instruction"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "windowsPayload_claimRecordedInReadableSpelling_forwardedEndToEnd" \
+    "$OUT" "WINDOWS CLAIMED instruction"
+
+# windowsPayload_foreignBackslashClaim_excludesFromGlobFallback
+# The other direction: a claim s2 recorded from a backslash payload must still
+# exclude that handoff from s1's fallback. If canonicalization stopped at the
+# claim and the exclusion compared raw strings, s1 would forward s2's work.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+TARGET="$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
+printf '{"session_id":"s2","transcript_path":"%s","hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"%s"}}' \
+    "$SB/transcript.jsonl" "${TARGET//\//\\\\}" \
+    | bash "$SB/.claude/hooks/compact-suggest.sh" >/dev/null 2>&1
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "FOREIGN WINDOWS instruction"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_not_contains "windowsPayload_foreignBackslashClaim_excludesFromGlobFallback" \
+    "$OUT" "FOREIGN WINDOWS instruction"
+
+echo ""
+echo "ownership record framing:"
+
+# ownershipRecord_finalLineUnterminated_stillRead
+# `while read -r` returns non-zero at EOF and the loop exits with the value it
+# just assigned unexamined, so a final line with no trailing newline is
+# silently discarded — and that line is the newest claim, the one that matters.
+# The record is appended to by a hook that can be killed mid-write, so the
+# state is reachable.
+#
+# A second, NEWER unclaimed handoff is present on purpose. With only the
+# claimed one in the directory the discovery fallback quietly forwards the same
+# file the dropped claim pointed at, and the assertion passes against the
+# broken loop — measured. Here the two paths disagree: the claim selects 1400,
+# the fallback selects 1500, and only one of them can be in the output.
+SB="$(new_sandbox)"
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "UNTERMINATED CLAIM instruction"
+write_handoff "$SB" "handoff-2026-07-30-1500.yaml" "FALLBACK PICK instruction"
+printf '%s' "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
+    > "$SB/.claude/logs/.compact-handoff-s1"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "ownershipRecord_finalLineUnterminated_stillRead" \
+    "$OUT" "UNTERMINATED CLAIM instruction"
+assert_not_contains "ownershipRecord_finalLineUnterminated_claimBeatsFallback" \
+    "$OUT" "FALLBACK PICK instruction"
+
+# ownershipRecord_foreignFinalLineUnterminated_stillExcluded
+# THE LEAK, end to end. The dropped line is a claim that fails to exclude, so
+# s1's fallback treats s2's handoff as unattributed and forwards s2's
+# instruction to s1's summarizer — the exact failure ownership tracking exists
+# to prevent, reintroduced by a missing four characters in a read loop.
+SB="$(new_sandbox)"
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "FOREIGN UNTERMINATED instruction"
+printf '%s' "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
+    > "$SB/.claude/logs/.compact-handoff-s2"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_not_contains "ownershipRecord_foreignFinalLineUnterminated_stillExcluded" \
+    "$OUT" "FOREIGN UNTERMINATED instruction"
+
+# ownershipRecord_crlfLineEndings_stillRead
+# A trailing carriage return makes the path fail every -f test and every
+# newline-framed comparison while looking correct in any output that prints it.
+# Same two-handoff setup as above, and for the same reason: the fallback would
+# otherwise cover for the claim and the assertion would prove nothing.
+SB="$(new_sandbox)"
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "CRLF CLAIM instruction"
+write_handoff "$SB" "handoff-2026-07-30-1500.yaml" "CRLF FALLBACK instruction"
+printf '%s\r\n' "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
+    > "$SB/.claude/logs/.compact-handoff-s1"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "ownershipRecord_crlfLineEndings_stillRead" \
+    "$OUT" "CRLF CLAIM instruction"
+assert_not_contains "ownershipRecord_crlfLineEndings_claimBeatsFallback" \
+    "$OUT" "CRLF FALLBACK instruction"
+
+# ownershipRecord_outOfProjectClaim_doesNotStarveDiscovery
+# Containment ran once, below the loop, on whatever value the loop settled on —
+# so an out-of-root claim was accepted inside the loop and nulled afterwards,
+# and the discovery fallback, gated on HANDOFF still being empty, never ran.
+# One bad line disabled forwarding for every remaining compaction of the
+# session. The rejection must be a skip, not a verdict.
+SB="$(new_sandbox)"
+OUTSIDE="$(mktemp -d)"
+SANDBOXES+=("$OUTSIDE")
+printf 'compact_instruction: |\n  OUT OF ROOT instruction\n' \
+    > "$OUTSIDE/handoff-2026-07-30-1400.yaml"
+write_handoff "$SB" "handoff-2026-07-30-1500.yaml" "REAL OWN instruction"
+printf '%s\n' "$OUTSIDE/handoff-2026-07-30-1400.yaml" \
+    > "$SB/.claude/logs/.compact-handoff-s1"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "ownershipRecord_outOfProjectClaim_doesNotStarveDiscovery" \
+    "$OUT" "REAL OWN instruction"
+assert_not_contains "ownershipRecord_outOfProjectClaim_stillRejected" \
+    "$OUT" "OUT OF ROOT instruction"
+
+# claim_handoffShapedPathInAnotherProject_notClaimed
+# Containment at the point the claim is MADE. The pattern used to be an
+# unanchored `*/.claude/sessions/handoff-*.yaml`, which any checkout on the
+# machine satisfies — so writing a handoff in a second project put a foreign
+# path into this session's record, where it is just a path to read.
+SB="$(new_sandbox)"
+OTHER="$(mktemp -d)"
+SANDBOXES+=("$OTHER")
+mkdir -p "$OTHER/.claude/sessions"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+run_suggest_pre "$SB" "$SB/transcript.jsonl" Write \
+    "$OTHER/.claude/sessions/handoff-2026-07-30-1400.yaml" >/dev/null
+assert_file_absent "claim_handoffShapedPathInAnotherProject_notClaimed" \
+    "$SB/.claude/logs/.compact-handoff-s1"
+
+echo ""
+echo "markers spent only after delivery:"
+
+# nudge_deliverySucceeded_markerSpent
+# The control. Without it the assertion below passes on any hook that never
+# nudges at all.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 150000 0 0
+run_suggest "$SB" "$SB/transcript.jsonl" >/dev/null
+assert_file_exists "nudge_deliverySucceeded_markerSpent" \
+    "$SB/.claude/logs/.compact-nudged-s1"
+
+# nudge_deliveryFailed_markerLeftUnspent
+# The marker is the session's single nudge for the cycle and nothing re-issues
+# one that was owed and never sent. Spent before the write, any failure in
+# between costs the nudge outright; spent after, the worst case is a duplicate.
+# stdout is closed, so the emitting printf fails.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 150000 0 0
+run_suggest "$SB" "$SB/transcript.jsonl" >&- 2>/dev/null || true
+assert_file_absent "nudge_deliveryFailed_markerLeftUnspent" \
+    "$SB/.claude/logs/.compact-nudged-s1"
+
+# preCompact_forwardingFailed_cycleNotRetired
+# Touching the cycle marker closes the current cycle: the forwarded handoff
+# stops being fresh and the nudge marker is cleared. Done before the forwarding
+# printf, an abort in between retires the cycle without the instruction ever
+# reaching the summarizer, and nothing revisits it.
+SB="$(new_sandbox)"
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "FORWARD ME instruction"
+touch "$SB/.claude/logs/.compact-nudged-s1"
+printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" >&- 2>/dev/null || true
+assert_file_exists "preCompact_forwardingFailed_cycleNotRetired" \
+    "$SB/.claude/logs/.compact-nudged-s1"
+
+# preCompact_forwardingSucceeded_cycleRetired
+# The control for the above: on the ordinary path the cycle does close.
+SB="$(new_sandbox)"
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "FORWARD ME instruction"
+touch "$SB/.claude/logs/.compact-nudged-s1"
+printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
+assert_file_absent "preCompact_forwardingSucceeded_cycleRetired" \
+    "$SB/.claude/logs/.compact-nudged-s1"
+
+echo ""
+echo "kill switch:"
+
+# killSwitch_compactSuggest_emitsNothing
+# These hooks run on every tool call and on every compaction. Without a switch
+# the only way to stop a misbehaving one is editing settings.json, from inside
+# the session that is already going wrong.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 150000 0 0
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl" PROJECT_OS_COMPACT_DISABLE=1)
+assert_eq "killSwitch_compactSuggest_emitsNothing" "$OUT" ""
+assert_file_absent "killSwitch_compactSuggest_leavesMarkerUnspent" \
+    "$SB/.claude/logs/.compact-nudged-s1"
+
+# killSwitch_compactSuggest_claimsNothing
+# Disabled means disabled: the claim runs ahead of everything else in the hook,
+# so a switch checked further down would still write to the record.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+printf '{"session_id":"s1","transcript_path":"%s","hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"%s"}}' \
+    "$SB/transcript.jsonl" "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
+    | PROJECT_OS_COMPACT_DISABLE=1 bash "$SB/.claude/hooks/compact-suggest.sh" >/dev/null 2>&1
+assert_file_absent "killSwitch_compactSuggest_claimsNothing" \
+    "$SB/.claude/logs/.compact-handoff-s1"
+
+# killSwitch_preCompact_forwardsNothing
+# One variable covers both hooks. Disabling half the gate — forwarding without
+# nudging, or the reverse — is a state nobody wants to debug.
+SB="$(new_sandbox)"
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "DISABLED instruction"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | PROJECT_OS_COMPACT_DISABLE=1 bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_eq "killSwitch_preCompact_forwardsNothing" "$OUT" ""
+
+# killSwitch_unset_hooksStillRun
+# The control the three assertions above need: a hook that exits early
+# unconditionally satisfies every one of them. This pins the other direction —
+# unset means the gate runs normally — so "disabled" stays a property of the
+# variable rather than of the guard.
+SB="$(new_sandbox)"
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "ENABLED instruction"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | env -u PROJECT_OS_COMPACT_DISABLE bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "killSwitch_unset_hooksStillRun" "$OUT" "ENABLED instruction"
+
+echo ""
 echo "hook registration (.claude/settings.json):"
 
 SB="$(new_sandbox)"
@@ -1918,6 +2204,40 @@ assert_eq "wiring_preToolUseMatcher_equalsTheClaimToolList" \
 # both still depend on the catch-all PostToolUse registration.
 assert_eq "wiring_compactSuggest_stillRegisteredOnPostToolUse" \
     "$(matchers_for PostToolUse)" ".*"
+
+# wiring_everyRegistration_declaresATimeout
+# compact-suggest.sh runs on EVERY tool call and reads the whole transcript to
+# do it; pre-compact.sh runs while the session is already blocked. An
+# unbounded hook that hangs — a transcript on a slow volume, a wedged `find` —
+# hangs the session with it, and the hook is registered on `.*`, so there is no
+# tool call left to interrupt it with. The timeout is what makes the kill
+# switch reachable in the first place: it degrades a hang into a skipped hook.
+# Asserted per registration, since one registration acquiring a bound says
+# nothing about the other.
+printf '%s\n' \
+    'const fs = require("fs");' \
+    'const settings = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));' \
+    'const [, , , needle] = process.argv;' \
+    'const out = [];' \
+    'for (const event of Object.keys(settings.hooks || {})) {' \
+    '  for (const entry of settings.hooks[event] || []) {' \
+    '    for (const hook of entry.hooks || []) {' \
+    '      if (typeof hook.command === "string" && hook.command.includes(needle)) {' \
+    '        out.push(event + "=" + (typeof hook.timeout === "number" && hook.timeout > 0 ? "bounded" : "UNBOUNDED"));' \
+    '      }' \
+    '    }' \
+    '  }' \
+    '}' \
+    'process.stdout.write(out.join(","));' \
+    > "$SB/scripts/hook-timeouts.js"
+
+assert_eq "wiring_everyCompactSuggestRegistration_declaresATimeout" \
+    "$(node "$SB/scripts/hook-timeouts.js" "$PROJECT_ROOT/.claude/settings.json" compact-suggest.sh 2>/dev/null)" \
+    "PreToolUse=bounded,PostToolUse=bounded"
+
+assert_eq "wiring_preCompactRegistration_declaresATimeout" \
+    "$(node "$SB/scripts/hook-timeouts.js" "$PROJECT_ROOT/.claude/settings.json" pre-compact.sh 2>/dev/null)" \
+    "PreCompact=bounded"
 
 echo ""
 

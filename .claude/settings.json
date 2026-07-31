@@ -126,7 +126,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/compact-suggest.sh\""
+            "command": "bash \".claude/hooks/compact-suggest.sh\"",
+            "timeout": 15
           }
         ]
       }
@@ -177,7 +178,8 @@
           },
           {
             "type": "command",
-            "command": "bash \".claude/hooks/compact-suggest.sh\""
+            "command": "bash \".claude/hooks/compact-suggest.sh\"",
+            "timeout": 15
           }
         ]
       }

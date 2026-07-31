@@ -26,8 +26,28 @@
 set -euo pipefail
 trap 'exit 0' ERR
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# ── Kill switch ─────────────────────────────────────────────────────────────
+# Shared with compact-suggest.sh, deliberately: the two hooks are one feature,
+# and disabling half of it — forwarding without nudging, or the reverse — is a
+# state nobody wants to debug. One variable turns the whole gate off for a
+# single run without editing tracked configuration.
+#
+# Written as an `if` rather than `[ … ] && exit 0`. Both are correct here —
+# bash exempts a command in a non-final position of an && list from `set -e`
+# and from the ERR trap, so the unset case falls through either way (verified,
+# not assumed). The `if` is used because the exemption is a subtlety a reader
+# has to recall to be sure, and a guard whose safety depends on remembering a
+# `set -e` corner case is one edit away from not having it.
+if [ -n "${PROJECT_OS_COMPACT_DISABLE:-}" ]; then
+    exit 0
+fi
+
+# `pwd -P`: PROJECT_ROOT below is prefix-compared against paths that came back
+# from resolve_project_path, which canonicalizes with realpath. A logical root
+# and a physical candidate never compare equal on a checkout reached through a
+# symlink, and the whole feature then silently declines every handoff.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
 
 source "$SCRIPT_DIR/_common.sh"
 
@@ -121,11 +141,37 @@ OWNED_FILE="$LOG_DIR/.compact-handoff-$SESSION_ID"
 # deliberately keeping the cross-session ownership record. Claims outliving
 # markers is what makes the second case possible, so the retention fix that
 # introduced it is the reason this branch now has to check age for itself.
+#
+# `read -r … || [ -n "$OWNED" ]` because a plain `read` loop DISCARDS a final
+# line with no trailing newline: read returns non-zero at EOF and the loop exits
+# with the value it just assigned unexamined. The record is appended to by a
+# hook that can be killed mid-write, so an unterminated last line is reachable —
+# and it is the newest claim, the one that matters most. The same shape guards
+# the foreign-record loop below, where dropping a line means failing to exclude
+# another session's handoff and forwarding its instruction here.
+#
+# `\r` is stripped for the same class of reason: the record can be written by a
+# hook whose stdout was redirected through a Windows text-mode filter, and a
+# trailing carriage return makes the path fail every `-f` test and every
+# newline-framed comparison while looking correct in any output.
 HANDOFF=""
 if [ -f "$OWNED_FILE" ]; then
-    while IFS= read -r OWNED; do
+    while IFS= read -r OWNED || [ -n "$OWNED" ]; do
+        OWNED="${OWNED%$'\r'}"
         [ -n "$OWNED" ] || continue
-        [ -f "$OWNED" ] || continue
+        # Containment BEFORE the path can become the answer, not after it
+        # already is. This check used to live below the loop, applied once to
+        # whatever value the loop settled on — so a single claim pointing
+        # outside the project root was accepted here and nulled there, and the
+        # discovery fallback, which is gated on HANDOFF still being empty,
+        # never ran. One bad line starved forwarding permanently, for every
+        # future compaction of the session. Skipping it here lets discovery
+        # proceed exactly as if the claim had never been recorded.
+        #
+        # resolve_project_path subsumes the `-f` test it replaces: it requires a
+        # regular file, resolves symlinks, and rejects anything that lands
+        # outside the root.
+        OWNED=$(resolve_project_path "$OWNED") || continue
         if [ -f "$CYCLE_FILE" ]; then
             [ "$OWNED" -nt "$CYCLE_FILE" ] || continue
         else
@@ -163,7 +209,8 @@ if [ -z "$HANDOFF" ]; then
         case "$OWNERSHIP_RECORD" in
             */".compact-handoff-$SESSION_ID") continue ;;
         esac
-        while IFS= read -r OTHER; do
+        while IFS= read -r OTHER || [ -n "$OTHER" ]; do
+            OTHER="${OTHER%$'\r'}"
             [ -n "$OTHER" ] || continue
             CLAIMED="$CLAIMED$OTHER"$'\n'
         done < "$OWNERSHIP_RECORD"
@@ -181,16 +228,6 @@ fi
 if [ -n "$HANDOFF" ]; then
     HANDOFF=$(resolve_project_path "$HANDOFF") || HANDOFF=""
 fi
-
-# ── Open the next compaction cycle ──────────────────────────────────────────
-# Each cycle earns one nudge and accepts handoffs written after this point.
-# The cycle marker is touched only here, never by compact-suggest.sh, so
-# nothing can move the boundary mid-cycle.
-touch "$CYCLE_FILE" 2>/dev/null || true
-if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
-    wc -c < "$TRANSCRIPT" > "$LOG_DIR/.compact-base-$SESSION_ID" 2>/dev/null || true
-fi
-rm -f "$LOG_DIR/.compact-nudged-$SESSION_ID"
 
 # ── Extract its compact_instruction block scalar ────────────────────────────
 # awk reads the file directly — no pipe from another command.
@@ -413,5 +450,24 @@ if [ -n "$COMPACT_INSTRUCTION" ]; then
 elif [ "$MAP_DRIFTED" -eq 1 ]; then
     printf 'The system map at docs/maps/ is drifted: it describes committed state, not the working tree. Re-read hook and command wiring from source before trusting it.\n'
 fi
+
+# ── Open the next compaction cycle ──────────────────────────────────────────
+# Each cycle earns one nudge and accepts handoffs written after this point.
+# The cycle marker is touched only here, never by compact-suggest.sh, so
+# nothing can move the boundary mid-cycle.
+#
+# LAST, not before the forwarding above. Touching the marker closes the current
+# cycle: the handoff just forwarded stops being "fresh", and the nudge marker is
+# cleared. Done first, an abort in between — the hook's 30-second timeout, a
+# failed write, the ERR trap — retires the cycle without the instruction ever
+# reaching the summarizer, and nothing revisits it. Done last, the failure mode
+# inverts to re-forwarding the same instruction at the next compaction, which
+# is a duplicate rather than a loss. The discovery above already read
+# CYCLE_FILE's old mtime, so ordering it after changes nothing it depends on.
+touch "$CYCLE_FILE" 2>/dev/null || true
+if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
+    wc -c < "$TRANSCRIPT" > "$LOG_DIR/.compact-base-$SESSION_ID" 2>/dev/null || true
+fi
+rm -f "$LOG_DIR/.compact-nudged-$SESSION_ID"
 
 exit 0
