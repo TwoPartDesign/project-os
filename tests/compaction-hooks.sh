@@ -229,6 +229,18 @@ escaped_decoy_usage_line() {
         "$1" "$2"
 }
 
+# odd_escaped_quote_brace_line <tokens>
+# An assistant record whose prose contains ONE escaped quote immediately before
+# a brace — `the model said \"} and stopped`. The count is what matters: with an
+# even number of escaped quotes the string collapse still pairs them off by
+# accident, which is why the decoy fixture above cannot reach this. An odd one
+# leaves the collapse straddling the real terminator, so a brace that lives
+# inside a string is read as structure and every depth after it is off by one.
+odd_escaped_quote_brace_line() {
+    printf '{"type":"assistant","isSidechain":false,"message":{"role":"assistant","content":"the model said \\"} and stopped","usage":{"input_tokens":%s,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":42}}}\n' \
+        "$1"
+}
+
 # nested_sidechain_flag_line <tokens>
 # A main-thread assistant record whose tool_use input carries "isSidechain":true
 # — a payload that DESCRIBES a sub-agent rather than a sub-agent turn. Read
@@ -611,6 +623,23 @@ printf '{"type":"user","message":{"role":"user","content":"hello"}}\n' > "$SB/tr
 escaped_decoy_usage_line 5 150000 >> "$SB/transcript.jsonl"
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
 assert_contains "context_escapedDecoyInStringValue_measuresTheRealUsageKey" \
+    "$OUT" "Context is at 75% of the 200000-token window"
+
+# context_oddEscapedQuoteBeforeBrace_stillMeasuresTheRecord
+# The escape-stripping line in skeleton() had no coverage: delete it and the
+# suite stayed green, because the decoy fixture above carries a BALANCED pair of
+# escaped quotes — the collapse mispairs them twice and lands back in step. One
+# escaped quote next to a brace is ordinary assistant prose and is not balanced:
+# without the strip, the collapse consumes the real string terminator, the brace
+# inside the string is counted as structure, and every depth after it is off by
+# one, so message.usage no longer sits at depth 2 and the record is discarded.
+# 150000 is 75% — silence here is the nudge suppressed at the moment it is due,
+# and there is no fallback that recovers it.
+SB="$(new_sandbox)"
+printf '{"type":"user","message":{"role":"user","content":"hello"}}\n' > "$SB/transcript.jsonl"
+odd_escaped_quote_brace_line 150000 >> "$SB/transcript.jsonl"
+OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
+assert_contains "context_oddEscapedQuoteBeforeBrace_stillMeasuresTheRecord" \
     "$OUT" "Context is at 75% of the 200000-token window"
 
 # context_nestedSidechainFlagInToolInput_notTreatedAsSubagentTurn
@@ -1135,13 +1164,99 @@ assert_eq "preToolUse_thenPostToolUse_sameHandoffClaimedOnce" \
 # which is exactly the set that has the publication race in it.
 
 # preToolUse_editOfExistingForeignHandoff_claimsNothing
+# "Foreign" is now established by the fixture rather than assumed from the file
+# merely existing. The gate asks about OWNERSHIP, and ownership is what the
+# records hold: s2 has this path on record, so s1 declines. The earlier version
+# of this case planted no record at all and therefore tested the third state —
+# exists and unclaimed — under a name describing the second, which is why the
+# leak below it went unnoticed.
 SB="$(new_sandbox)"
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "ANOTHER SESSION instruction"
+printf '%s\n' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
+    > "$SB/.claude/logs/.compact-handoff-s2"
 run_suggest_pre "$SB" "$SB/transcript.jsonl" Edit \
     "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" >/dev/null
 assert_file_absent "preToolUse_editOfExistingForeignHandoff_claimsNothing" \
     "$SB/.claude/logs/.compact-handoff-s1"
+
+# preToolUse_existingUnclaimedHandoff_claimed
+# The third state round 12's comment did not enumerate: the file exists and NO
+# session has it on record. Declining there meant a session overwriting an
+# unclaimed handoff took no reservation at all, so a concurrent session
+# compacting before the PostToolUse backstop received an instruction written for
+# somebody else. Reachable without any adversary: a handoff predating the
+# feature, a cleaned `.claude/logs/` (gitignored, so ordinary housekeeping
+# empties it), or a record pruned while its handoff was still being revised.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "UNCLAIMED PRIOR instruction"
+run_suggest_pre "$SB" "$SB/transcript.jsonl" Edit \
+    "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" >/dev/null
+RECORDED=$(cat "$SB/.claude/logs/.compact-handoff-s1" 2>/dev/null || true)
+assert_eq "preToolUse_existingUnclaimedHandoff_claimed" \
+    "$RECORDED" "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml"
+
+# preToolUse_existingUnclaimedHandoff_notForwardedToTheOtherSession
+# The same fix stated as the consequence it exists for. s1 reserves the handoff
+# it is about to overwrite; s2 compacts in the window before s1's write lands,
+# and must not be handed s1's material.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "S1 FRESH instruction"
+run_suggest_pre "$SB" "$SB/transcript.jsonl" Edit \
+    "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" >/dev/null
+OUT=$(printf '{"session_id":"s2","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_not_contains "preToolUse_existingUnclaimedHandoff_notForwardedToTheOtherSession" \
+    "$OUT" "S1 FRESH instruction"
+
+# preToolUse_danglingSymlinkAtHandoffPath_claimsNothing
+# `-e` FOLLOWS symlinks, so a dangling one answers false and the name looked
+# free — the one case the gate's own comment named and its test never reached.
+# The name is occupied whether or not the target exists.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+ln -s "$SB/.claude/sessions/nothing-here.yaml" \
+    "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" 2>/dev/null || true
+if [ -L "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" ]; then
+    run_suggest_pre "$SB" "$SB/transcript.jsonl" Write \
+        "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" >/dev/null
+    assert_file_absent "preToolUse_danglingSymlinkAtHandoffPath_claimsNothing" \
+        "$SB/.claude/logs/.compact-handoff-s1"
+else
+    # Windows without Developer Mode: `ln -s` degrades to a copy, which is a
+    # regular file and tests the opposite of the intended case.
+    skip "preToolUse_danglingSymlinkAtHandoffPath_claimsNothing — no real symlink available"
+fi
+
+# ownership_repeatClaimOnSamePath_refreshesRecordMtime
+# The duplicate-suppression branch skipped the append to avoid a duplicate line,
+# and in doing so skipped the only thing that kept the record ALIVE: retention
+# is pruned on the record's mtime. A session revising one handoff for longer
+# than the retention window had its live record deleted by another session's
+# cleanup, after which the ownership gate declined to re-claim — the state above
+# reached by a route with no other session and no adversary in it at all.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+run_suggest_pre "$SB" "$SB/transcript.jsonl" Write \
+    "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" >/dev/null
+touch -d '8 days ago' "$SB/.claude/logs/.compact-handoff-s1"
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "OWN instruction"
+run_suggest_pre "$SB" "$SB/transcript.jsonl" Edit \
+    "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" >/dev/null
+REFRESHED=$(find "$SB/.claude/logs" -maxdepth 1 -name '.compact-handoff-s1' -mmin -5 2>/dev/null | head -1 || true)
+if [ -n "$REFRESHED" ]; then
+    ok "ownership_repeatClaimOnSamePath_refreshesRecordMtime"
+else
+    bad "ownership_repeatClaimOnSamePath_refreshesRecordMtime — record mtime still 8 days old"
+fi
+
+# ownership_repeatClaimOnSamePath_stillWritesOneLine
+# The control for it: refreshing the mtime must not reintroduce the duplicate
+# line the suppression was added to avoid.
+LINES=$(grep -c . "$SB/.claude/logs/.compact-handoff-s1" 2>/dev/null || true)
+assert_eq "ownership_repeatClaimOnSamePath_stillWritesOneLine" "$LINES" "1"
 
 # preToolUse_editOfExistingForeignHandoff_instructionNotForwarded
 # The end-to-end consequence, asserted through both real hooks rather than
@@ -1835,6 +1950,72 @@ COUNT=$(find "$SB/.claude/sessions" -name 'auto-checkpoint-*.yaml' -type f 2>/de
 COUNT=$(echo "$COUNT" | tr -cd '0-9')
 assert_eq "checkpoint_debounced_writesNoSecondFile" "$COUNT" "1"
 
+# checkpoint_preExistingHardLinkAtPath_targetNotTruncated
+# The checkpoint path is guessable to the minute, and a truncating redirect
+# writes THROUGH whatever object already holds that name. This is the same
+# mechanism as the symlink exploit below, in the form Windows can actually
+# execute: a second name for one inode. `>` truncates the inode, so the other
+# name sees the checkpoint; rename replaces the directory entry, so it does not.
+# Verifying only the symlink form would leave the fix unverified on the machine
+# this suite most often runs on.
+SB="$(new_sandbox)"
+VICTIM="$SB/victim.yaml"
+printf 'ORIGINAL CONTENT\n' > "$VICTIM"
+CP_NAME="auto-checkpoint-$(date +%Y-%m-%d-%H%M).yaml"
+if ln "$VICTIM" "$SB/.claude/sessions/$CP_NAME" 2>/dev/null; then
+    # Age it past CHECKPOINT_DEBOUNCE_MIN. A planted file is a regular file, so
+    # `find -type f -mmin -10` would otherwise match it, the debounce would fire,
+    # and the hook would never reach the write — the assertion would pass for a
+    # reason that has nothing to do with the fix. Ageing is also the realistic
+    # case: a file arriving by checkout carries its checkout time, not the time
+    # of the compaction that lands on its minute.
+    touch -d '2 hours ago' "$SB/.claude/sessions/$CP_NAME"
+    printf '{"session_id":"s1","trigger":"auto"}' \
+        | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
+    assert_eq "checkpoint_preExistingHardLinkAtPath_targetNotTruncated" \
+        "$(cat "$VICTIM")" "ORIGINAL CONTENT"
+    assert_contains "checkpoint_preExistingHardLinkAtPath_checkpointStillWritten" \
+        "$(cat "$SB/.claude/sessions/$CP_NAME" 2>/dev/null || true)" "auto-generated by the PreCompact hook"
+else
+    skip "checkpoint_preExistingHardLinkAtPath_targetNotTruncated — hard links unavailable"
+    skip "checkpoint_preExistingHardLinkAtPath_checkpointStillWritten — hard links unavailable"
+fi
+
+# checkpoint_preExistingSymlinkAtPath_targetNotOverwritten
+# The exploit as reported: a branch commits `.claude/sessions/auto-checkpoint-
+# <minute>.yaml` as a TRACKED symlink — git tracks symlinks, and `.gitignore`
+# does not suppress checkout of a tracked path — and the first compaction
+# truncates and overwrites the target, with partly attacker-chosen content. Two
+# properties, not one: the target must survive, and the checkpoint must still be
+# written, because refusing to write would let one planted file suppress
+# checkpointing for that minute.
+SB="$(new_sandbox)"
+VICTIM="$SB/victim.yaml"
+printf 'ORIGINAL CONTENT\n' > "$VICTIM"
+CP_NAME="auto-checkpoint-$(date +%Y-%m-%d-%H%M).yaml"
+ln -s "$VICTIM" "$SB/.claude/sessions/$CP_NAME" 2>/dev/null || true
+if [ -L "$SB/.claude/sessions/$CP_NAME" ]; then
+    printf '{"session_id":"s1","trigger":"auto"}' \
+        | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
+    assert_eq "checkpoint_preExistingSymlinkAtPath_targetNotOverwritten" \
+        "$(cat "$VICTIM")" "ORIGINAL CONTENT"
+    assert_contains "checkpoint_preExistingSymlinkAtPath_checkpointStillWritten" \
+        "$(cat "$SB/.claude/sessions/$CP_NAME" 2>/dev/null || true)" "auto-generated by the PreCompact hook"
+else
+    skip "checkpoint_preExistingSymlinkAtPath_targetNotOverwritten — no real symlink available"
+    skip "checkpoint_preExistingSymlinkAtPath_checkpointStillWritten — no real symlink available"
+fi
+
+# checkpoint_normalWrite_leavesNoTempFile
+# The rename is an implementation detail the sessions directory must not show:
+# a stray `.auto-checkpoint-*.tmp` would be read by nothing and cleaned by
+# nothing.
+SB="$(new_sandbox)"
+printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
+LEFTOVER=$(find "$SB/.claude/sessions" -maxdepth 1 -name '.auto-checkpoint-*.tmp' 2>/dev/null | head -1 || true)
+assert_eq "checkpoint_normalWrite_leavesNoTempFile" "$LEFTOVER" ""
+
 echo ""
 
 # ── Malformed input ─────────────────────────────────────────────────────────
@@ -1896,6 +2077,21 @@ printf '{"session_id":"s1","reason":"exit"}' \
     | bash "$SB/.claude/hooks/session-end-cleanup.sh" >/dev/null 2>&1
 assert_file_absent "cleanup_staleHandoffOwnershipRecord_prunedAfterSevenDays" \
     "$SB/.claude/logs/.compact-handoff-s9"
+
+# cleanup_recentHandoffOwnershipRecord_survivesThePrune
+# The lower bound the assertion above does not provide. Retention only had a
+# ceiling pinned, so shortening `-mtime +7` to `-mtime +1` shipped green — and
+# shortening retention is exactly what re-opens the existing-but-unclaimed hole:
+# the record disappears while its handoff is still live, and every session that
+# then touches that path is in the third state. A record two days old belongs to
+# a session that may still be running.
+SB="$(new_sandbox)"
+touch "$SB/.claude/logs/.compact-handoff-s8"
+touch -d '2 days ago' "$SB/.claude/logs/.compact-handoff-s8" 2>/dev/null || true
+printf '{"session_id":"s1","reason":"exit"}' \
+    | bash "$SB/.claude/hooks/session-end-cleanup.sh" >/dev/null 2>&1
+assert_file_exists "cleanup_recentHandoffOwnershipRecord_survivesThePrune" \
+    "$SB/.claude/logs/.compact-handoff-s8"
 
 # cleanup_otherSessionMarkers_leftIntact
 SB="$(new_sandbox)"
@@ -2160,6 +2356,127 @@ write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "ENABLED instruction"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | env -u PROJECT_OS_COMPACT_DISABLE bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_contains "killSwitch_unset_hooksStillRun" "$OUT" "ENABLED instruction"
+
+echo ""
+echo "compact_instruction scalar forms:"
+
+# handoff_flowScalarInstruction_forwarded
+# `compact_instruction: "one line"` is valid YAML and is what a hand-edited
+# handoff most often contains. The key line was matched and then skipped, so the
+# value ON it was never read — no error, just an empty instruction.
+SB="$(new_sandbox)"
+{
+    printf 'timestamp: "2026-07-30T00:00:00Z"\n'
+    printf 'phase: "build"\n'
+    printf 'compact_instruction: "Finish the parser rewrite before anything else"\n'
+} > "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "handoff_flowScalarInstruction_forwarded" \
+    "$OUT" "Finish the parser rewrite before anything else"
+assert_not_contains "handoff_flowScalarInstruction_quotesNotForwarded" \
+    "$OUT" '"Finish the parser'
+
+# handoff_flowScalarInstruction_checkpointDoesNotClaimNoHandoff
+# The same defect with a second face. The checkpoint note keys off the parsed
+# instruction, so a handoff whose instruction failed to parse was reported as no
+# handoff at all — while the file sat in the same directory, unmentioned.
+CP=$(find "$SB/.claude/sessions" -name 'auto-checkpoint-*.yaml' -type f 2>/dev/null | head -1)
+if [ -n "$CP" ]; then
+    assert_contains "handoff_flowScalarInstruction_checkpointDoesNotClaimNoHandoff" \
+        "$(cat "$CP")" "Rich handoff available"
+else
+    bad "handoff_flowScalarInstruction_checkpointDoesNotClaimNoHandoff — no checkpoint written"
+fi
+
+# handoff_blockScalarIndentedFour_indentFullyStripped
+# `sub(/^  /, "")` removed exactly two spaces. Four-space indentation is equally
+# valid YAML and is what most formatters emit, so the forwarded instruction
+# arrived with two spaces on every line — a markdown code block, read by the
+# summarizer as literal text rather than direction.
+SB="$(new_sandbox)"
+{
+    printf 'phase: "build"\n'
+    printf 'compact_instruction: |\n'
+    printf '    Rewrite the tokenizer first\n'
+    printf '    Then the parser\n'
+} > "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "handoff_blockScalarIndentedFour_contentForwarded" \
+    "$OUT" "Rewrite the tokenizer first"
+assert_not_contains "handoff_blockScalarIndentedFour_indentFullyStripped" \
+    "$OUT" "  Rewrite the tokenizer first"
+
+# handoff_blockScalarRelativeIndent_preserved
+# Stripping the block indent must be measured, not maximal: indentation BELOW
+# the block base is the author structuring their instruction, and flattening it
+# loses the structure the two-space version happened to keep.
+SB="$(new_sandbox)"
+{
+    printf 'phase: "build"\n'
+    printf 'compact_instruction: |\n'
+    printf '  Preserve verbatim:\n'
+    printf '    - the retry cap\n'
+} > "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "handoff_blockScalarRelativeIndent_preserved" \
+    "$OUT" "  - the retry cap"
+
+# handoff_duplicateInstructionKey_firstWinsNotConcatenated
+# Two blocks were captured into one value, producing an instruction belonging to
+# neither — two objectives joined mid-thought, with nothing marking the seam.
+# The first occurrence wins: deterministic, and it cannot invent a sentence the
+# author did not write.
+SB="$(new_sandbox)"
+{
+    printf 'phase: "build"\n'
+    printf 'compact_instruction: |\n'
+    printf '  FIRSTBLOCK directive\n'
+    printf 'feature: "sandbox-feature"\n'
+    printf 'compact_instruction: |\n'
+    printf '  SECONDBLOCK directive\n'
+} > "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "handoff_duplicateInstructionKey_firstWins" \
+    "$OUT" "FIRSTBLOCK directive"
+assert_not_contains "handoff_duplicateInstructionKey_notConcatenated" \
+    "$OUT" "SECONDBLOCK directive"
+
+# handoff_presentButNoInstruction_checkpointNamesTheFile
+# Three states, not two. "No handoff exists" and "a handoff exists and carries
+# no instruction" were the same sentence, so the one a reader can act on was
+# reported as the one they cannot.
+SB="$(new_sandbox)"
+{
+    printf 'phase: "build"\n'
+    printf 'feature: "sandbox-feature"\n'
+} > "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
+printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
+CP=$(find "$SB/.claude/sessions" -name 'auto-checkpoint-*.yaml' -type f 2>/dev/null | head -1)
+if [ -n "$CP" ]; then
+    assert_contains "handoff_presentButNoInstruction_checkpointNamesTheFile" \
+        "$(cat "$CP")" "carries no compact_instruction"
+else
+    bad "handoff_presentButNoInstruction_checkpointNamesTheFile — no checkpoint written"
+fi
+
+# handoff_absent_checkpointStillSaysNoHandoff
+# The control for the three-state note: the original sentence must still be
+# reachable, or the distinction above just renamed the only case.
+SB="$(new_sandbox)"
+printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
+CP=$(find "$SB/.claude/sessions" -name 'auto-checkpoint-*.yaml' -type f 2>/dev/null | head -1)
+if [ -n "$CP" ]; then
+    assert_contains "handoff_absent_checkpointStillSaysNoHandoff" \
+        "$(cat "$CP")" "No fresh handoff was written"
+else
+    bad "handoff_absent_checkpointStillSaysNoHandoff — no checkpoint written"
+fi
 
 echo ""
 echo "environment validation (reject, don't scrub):"

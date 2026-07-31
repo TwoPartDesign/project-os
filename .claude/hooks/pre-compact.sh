@@ -272,14 +272,62 @@ if [ -n "$HANDOFF" ]; then
     HANDOFF=$(resolve_project_path "$HANDOFF") || HANDOFF=""
 fi
 
-# ── Extract its compact_instruction block scalar ────────────────────────────
+# ── Extract its compact_instruction scalar ──────────────────────────────────
 # awk reads the file directly — no pipe from another command.
+#
+# (No apostrophes in this program — it is a single-quoted bash string, and one
+# would terminate it mid-awk. \047 is the apostrophe where the program needs it.)
+#
+# Three things the previous four-line version got wrong, all of them silent:
+#
+# 1. A FLOW SCALAR was discarded. `compact_instruction: "one line"` is valid
+#    YAML and is what a hand-edited handoff most often contains, but the key
+#    line was matched and then `next`-ed, so the value on it was never read.
+#    The result was not an error — it was an empty instruction, which reads
+#    downstream as "this session wrote no handoff" and produced a checkpoint
+#    note saying so while the handoff sat next to it.
+# 2. `sub(/^  /, "")` stripped EXACTLY two spaces. A block scalar indented four
+#    (equally valid, and what most YAML formatters emit) kept two spaces on
+#    every line, so the forwarded instruction arrived as a code block.
+# 3. A duplicated key CONCATENATED. Both blocks were captured into one value,
+#    producing text belonging to neither. The first occurrence now wins and the
+#    rest are ignored — deterministic, and the one reading that can never
+#    invent a sentence the author did not write.
+#
+# The indent is taken from the first content line and removed from all of them,
+# so any consistent indentation works and relative indentation inside the block
+# survives.
 COMPACT_INSTRUCTION=""
 if [ -n "$HANDOFF" ]; then
     COMPACT_INSTRUCTION=$(awk '
-        /^compact_instruction:/ { grab = 1; next }
-        grab && /^[^[:space:]]/ { grab = 0 }
-        grab { sub(/^  /, ""); print }
+        /^compact_instruction:/ {
+            if (grab || done) { grab = 0; done = 1; next }
+            rest = $0
+            sub(/^compact_instruction:[[:space:]]*/, "", rest)
+            sub(/[[:space:]]+$/, "", rest)
+            # `|`, `>` and their chomping and indentation indicators introduce a
+            # block; anything else on the line IS the value.
+            if (rest != "" && rest !~ /^[|>][0-9+-]*$/) {
+                if (rest ~ /^".*"$/ || rest ~ /^\047.*\047$/) {
+                    rest = substr(rest, 2, length(rest) - 2)
+                }
+                print rest
+                done = 1
+                next
+            }
+            grab = 1
+            indent = -1
+            next
+        }
+        grab && /^[^[:space:]]/ { grab = 0; done = 1 }
+        grab {
+            if ($0 ~ /^[[:space:]]*$/) { print ""; next }
+            if (indent < 0) {
+                match($0, /^[[:space:]]*/)
+                indent = RLENGTH
+            }
+            print substr($0, indent + 1)
+        }
     ' "$HANDOFF" 2>/dev/null || true)
 fi
 
@@ -450,12 +498,52 @@ if [ -z "$RECENT" ]; then
 "
     done < <(git -C "$PROJECT_ROOT" status --porcelain -z --untracked-files=all 2>/dev/null || true)
 
+    # Three states, not two. Keying the note on COMPACT_INSTRUCTION alone
+    # collapsed "no handoff exists" into the same sentence as "a handoff exists
+    # and its instruction did not parse" — so the one failure a reader could act
+    # on was reported as the one they cannot, and the file sitting right there
+    # went unmentioned. Whoever reads the checkpoint is the person who can open
+    # it; name it.
     if [ -n "$COMPACT_INSTRUCTION" ]; then
         HANDOFF_NOTE="Rich handoff available at ${HANDOFF#"$PROJECT_ROOT/"}"
+    elif [ -n "$HANDOFF" ]; then
+        HANDOFF_NOTE="A handoff exists at ${HANDOFF#"$PROJECT_ROOT/"} but carries no compact_instruction; read it directly."
     else
         HANDOFF_NOTE="No fresh handoff was written before this compaction; decisions and rationale from this session were not captured."
     fi
 
+    # rename(2), not a truncating redirect at the final path.
+    #
+    # `>` FOLLOWS a symlink sitting at its target, and this target is guessable
+    # to the minute. A branch that commits `.claude/sessions/auto-checkpoint-
+    # <minute>.yaml` as a tracked symlink — git tracks symlinks, and `.gitignore`
+    # does not suppress checkout of a tracked path — had the first compaction
+    # truncate and overwrite whatever it pointed at, with partly attacker-chosen
+    # content: a ROADMAP heading reached a file outside `.claude/`. Every READ in
+    # this hook goes through resolve_project_path; this write went through
+    # nothing. The debounce that would otherwise have noticed a pre-existing
+    # object uses `find -type f`, which does not match symlinks at all, so the
+    # single guard in front of the write was blind to exactly the object that
+    # defeats it.
+    #
+    # Writing to a temp name in the same directory and renaming over the target
+    # closes it without a check-then-write race: rename does not follow a symlink
+    # in its final component, so a planted link is REPLACED rather than followed,
+    # and the checkpoint is still written. Refusing outright was the other
+    # option and is worse — it lets anyone who can add one file suppress
+    # checkpointing for that minute, which is the silent-decline failure this
+    # feature keeps having to fix. Same directory, so the rename is same-
+    # filesystem and therefore atomic.
+    #
+    # `-type f` in the debounce is left alone deliberately. Now that the write
+    # cannot follow a link, a symlink at the checkpoint path is not a checkpoint
+    # this session wrote, and treating it as one would let a planted link
+    # satisfy the debounce and suppress the real write — trading the overwrite
+    # for the suppression.
+    CHECKPOINT_TMP="$SESSIONS_DIR/.auto-checkpoint-$$.tmp"
+    # Unlinks a stale temp, or a link planted at the temp name; `rm` removes the
+    # link itself and never the target.
+    rm -f "$CHECKPOINT_TMP"
     {
         printf 'timestamp: "%s"\n' "$TIMESTAMP_ISO"
         printf 'phase: "%s"\n' "$PHASE"
@@ -499,7 +587,16 @@ if [ -z "$RECENT" ]; then
         # from `read -r` lines, so neither can contain a newline to break it.
         printf 'compact_instruction: |\n'
         printf '  Working on %s. In-progress tasks: %s.\n' "$FEATURE" "$TASK_LIST"
-    } > "$CHECKPOINT_FILE"
+    } > "$CHECKPOINT_TMP"
+    # Explicit `if`: a bare `mv` that fails would fire the ERR trap and exit 0
+    # from a script whose ACTUAL job — forwarding the instruction to the
+    # summarizer — is still below this block. A checkpoint that cannot be
+    # written is worth losing; the forwarding is not.
+    if mv -f "$CHECKPOINT_TMP" "$CHECKPOINT_FILE" 2>/dev/null; then
+        :
+    else
+        rm -f "$CHECKPOINT_TMP"
+    fi
 fi
 
 # ── Contribute to the compaction instructions ───────────────────────────────

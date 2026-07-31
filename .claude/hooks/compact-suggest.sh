@@ -244,11 +244,48 @@ case "$TOOL_NAME" in
         ;;
 esac
 
-# -e rather than -f: a path occupied by a directory or a symlink is not one this
-# session is about to bring into existence either, and the point of the test is
-# "is there already something here that a claim would be a claim ON".
-if [ "$HOOK_EVENT" = "PreToolUse" ] && [ -e "$WRITTEN_PATH" ]; then
-    WRITTEN_PATH=""
+# Is this path recorded by some session OTHER than this one?
+#
+# The gate below used to ask only "does it exist", justified by "an existing file
+# was either claimed when this session created it, or it belongs to someone
+# else". There is a third case — it exists and NOBODY has claimed it — and it is
+# reachable by at least three routes: a handoff predating this feature, a cleaned
+# `.claude/logs/` (gitignored, so it is emptied by ordinary housekeeping), and
+# the prune below, whose seven-day window used to expire the record of a handoff
+# a session was still actively revising. In that state this session declined to
+# reserve a file it was about to overwrite, and another session compacting first
+# received an instruction written for this one — reproduced end to end.
+#
+# So the question is not existence, it is ownership, and ownership is what the
+# records answer. Unclaimed-and-existing is claimed here: a PreToolUse write to a
+# path IS this session taking it. Claimed-by-another is still declined, which is
+# the part of round 12's reasoning that was right.
+claimed_by_another_session() {
+    local p="$1" rec
+    for rec in "$LOG_DIR"/.compact-handoff-*; do
+        if [ ! -f "$rec" ]; then continue; fi
+        if [ "$rec" = "$LOG_DIR/.compact-handoff-$SESSION_ID" ]; then continue; fi
+        if grep -Fxq -- "$p" "$rec" 2>/dev/null; then return 0; fi
+    done
+    return 1
+}
+
+# `-e` alone is not "is there something here": it FOLLOWS symlinks, so a
+# dangling link answers false — the one case the gate's own comment named and
+# its test missed. `-L` covers it. Together they mean "the name is occupied",
+# which is the question being asked.
+#
+# Occupied by something that is not a regular file — a directory, a dangling
+# link — is still declined outright, unchanged. Those are not handoffs this
+# session is about to publish, and nothing downstream could forward them; the
+# ownership question only arises for a real file.
+if [ "$HOOK_EVENT" = "PreToolUse" ] \
+    && { [ -e "$WRITTEN_PATH" ] || [ -L "$WRITTEN_PATH" ]; }; then
+    if [ ! -f "$WRITTEN_PATH" ] || [ -L "$WRITTEN_PATH" ]; then
+        WRITTEN_PATH=""
+    elif claimed_by_another_session "$WRITTEN_PATH"; then
+        WRITTEN_PATH=""
+    fi
 fi
 
 # Anchored to THIS project root, not to a trailing `*/.claude/sessions/` glob.
@@ -266,6 +303,16 @@ case "$WRITTEN_PATH" in
         LAST_CLAIM=$(tail -n 1 "$OWN_RECORD" 2>/dev/null || true)
         if [ "$LAST_CLAIM" != "$WRITTEN_PATH" ]; then
             printf '%s\n' "$WRITTEN_PATH" >> "$OWN_RECORD" 2>/dev/null || true
+        else
+            # A repeat claim on the same path is still a claim being RENEWED,
+            # and the record's mtime is what session-end-cleanup.sh prunes on.
+            # Skipping the append to avoid a duplicate line also skipped the
+            # only thing that kept the record alive, so a session that spent
+            # more than seven days revising one handoff had its live record
+            # deleted by another session's prune — and the ownership gate above
+            # then declined to re-claim, which is precisely the third case it
+            # now handles. Touch on every claim, append only on a new one.
+            touch "$OWN_RECORD" 2>/dev/null || true
         fi
         ;;
 esac
