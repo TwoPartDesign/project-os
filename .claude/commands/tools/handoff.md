@@ -27,24 +27,33 @@ those survive compaction.
 
 ## How `compact_instruction` is used
 
-`pre-compact.sh` reads the newest handoff written in the last 30 minutes, extracts
-its `compact_instruction` block, and prints it on stdout. The runtime forwards
-PreCompact stdout to the compaction summarizer as custom instructions — so this
-field is what steers what compaction keeps.
+`pre-compact.sh` reads the newest handoff **this session claimed** since its last
+compaction, extracts the `compact_instruction` block, and prints it on stdout.
+The runtime forwards PreCompact stdout to the compaction summarizer as custom
+instructions — so this field is what steers what compaction keeps.
+
+"Claimed" is literal: `compact-suggest.sh` records the write in
+`.claude/logs/.compact-handoff-<session_id>`, and the only handoffs
+`pre-compact.sh` will read are the ones listed there. A handoff nobody claimed is
+named in the checkpoint and never opened. See "Freshness" below.
 
 This makes `compact_instruction` **mandatory**, not decorative:
 
 - Write it as instructions **to the summarizer**, not notes to a human. "Preserve
-  the exact awk extraction in pre-compact.sh:78-82 and the reason `git diff` was
-  rejected for `git status --porcelain`" — not "worked on hooks today".
+  the exact awk extraction in pre-compact.sh:328-357 and the reason `git diff`
+  was rejected for `git status --porcelain`" — not "worked on hooks today".
 - Name the files, functions, and line ranges that must survive verbatim.
 - Name what is safe to drop (exploration that went nowhere, superseded attempts).
 - Leaving the template placeholder text in place is treated as absent — the hook
   rejects it and the summarizer gets no guidance.
-- Freshness is judged per compaction cycle: a handoff written before this
+- **Freshness** is judged per compaction cycle: a handoff written before this
   session's last compaction is ignored, however recently. The 30-minute age
   window (`PROJECT_OS_HANDOFF_MAX_AGE_MIN`) applies only to a session's first
   compaction, when there is no cycle marker to compare against yet.
+- **Ownership** is required, with no fallback. Writing the file from this session
+  is what claims it; a handoff copied in, restored from a backup, or left behind
+  by a session whose claim record was pruned is not forwarded. Write a fresh one
+  rather than reusing an old file if you want it to steer compaction.
 
 ## Create Handoff File
 

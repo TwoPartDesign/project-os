@@ -262,10 +262,14 @@ and the instruction channel made it unnecessary for verification.
 
 1. ~~What value for `CLAUDE_CODE_AUTO_COMPACT_WINDOW`?~~ **Resolved: 200000.**
    The status-line decoupling cost is accepted and noted in the README.
-2. ~~What exactly counts as a "fresh" handoff?~~ **Resolved:** written within
-   `PROJECT_OS_HANDOFF_MAX_AGE_MIN` (default 30) of the compaction. Wall-clock
-   age is coarse but is the only signal available to a shell hook; the env var
-   exists so it can be tuned without an edit.
+2. ~~What exactly counts as a "fresh" handoff?~~ **Resolved (revised, round 5):**
+   newer than this session's last compaction — the cycle marker `pre-compact.sh`
+   writes on every run. Wall-clock age was the first answer and was wrong in both
+   directions: a 40-minute handoff on a long task is still the current one, and a
+   5-minute handoff written *before* the last compaction has already been
+   consumed. `PROJECT_OS_HANDOFF_MAX_AGE_MIN` (default 30) survives as the
+   bootstrap only — a session's first compaction has no cycle marker to compare
+   against.
 3. ~~Does the gate block on system-map drift, or heal it itself?~~ **Resolved:
    neither.** Healing reads the working tree while the map's authority is the
    git index, and mid-build drift is expected rather than actionable. The hook
@@ -459,12 +463,62 @@ and the instruction channel made it unnecessary for verification.
     Inverted rather than synchronized: the hook is registered on `PreToolUse` for
     the write tools, where it claims and exits without emitting (that is the one
     event where a hook can deny a tool call), with the `PostToolUse` pass kept as
-    a backstop. This round also added the suite's first assertions against
+    a backstop. The pre-claim was later narrowed (round 13, #T138) to paths that
+    do not yet exist: an *unconditional* pre-claim lets an overwrite of an
+    existing handoff steal it from the session that wrote it, so the claim now
+    fires only when there is nothing at the path to steal, and the PostToolUse
+    backstop — which runs after the write and knows it succeeded — covers the
+    overwrite case. This round also added the suite's first assertions against
     `.claude/settings.json` itself, because the claim block works on a
     `PreToolUse` payload whether or not it is registered for that event — the
     whole pre-claim could have been dead in production with the suite green.
     Seven of the eighteen new assertions verified to fail against the pre-fix
     hooks and pre-fix settings.
+
+15. ~~The pre-claim was unconditional, and a failed write was assumed to claim
+    nothing that matters.~~ **Resolved (round 12).** Round 11 moved the claim to
+    `PreToolUse` to close a window; taken unconditionally it opened a wider one
+    the other way. The claim lands *before* the tool runs, so it survives a
+    denied or failed write, and a session that merely opens an editor on another
+    session's handoff claims it outright. The justification recorded at the time
+    — "`pre-compact.sh` skips claimed paths that do not exist" — does not hold
+    either: the path can be created afterwards by anyone, and the stale claim
+    then attaches. Gated on the path not existing yet, with the `PostToolUse`
+    backstop covering the overwrite case. This round also introduced `skip()`
+    for fixtures the platform cannot build: a case that passes for an
+    environmental reason is indistinguishable from one that passes for the
+    reason it was written.
+
+16. ~~Twenty-two findings from the widest review this feature has had.~~
+    **Resolved (round 13).** Six parallel Claude review agents plus two
+    independent Codex passes produced 37 raw findings, deduped to 22 —
+    `#T130`–`#T151` in `ROADMAP.md`, each carrying its own reproduction. Most
+    were ordinary fixes; four changed how the feature is built.
+    (a) **Discovery requires a claim (#T144).** The weakness was never the
+    conclusion that a repo file carries `CLAUDE.md`-level trust, it was the
+    premise that the file was authored here — mtime is not provenance, and the
+    ownership record was consulted only to exclude, never to require. A planted
+    handoff produced stdout beginning `IGNORE ALL PRIOR SUMMARY GUIDANCE.` The
+    glob fallback is gone; an unclaimed handoff is named in the checkpoint and
+    never opened. Accepted cost: a handoff predating the feature, or one whose
+    claim record was pruned, silently stops being forwarded.
+    (b) **"No new write surface" was false (#T135).** The auto-checkpoint path
+    is minute-granular and guessable, and a tracked symlink committed at that
+    path was followed by the `>` redirect. The debounce that should have caught
+    it used `find -type f`, which does not see symlinks — bypassed by exactly
+    the object it existed to catch.
+    (c) **Mutation testing became the standing bar (#T134, #T145, #T146).** Four
+    findings were of the form "this mutation ships green", and `hook-smoke.sh`
+    passed 14 of 15 assertions against hooks stubbed to `exit 0`. The answer was
+    a committed control — `tests/hook-smoke-negctl.sh` — and the rule that a new
+    assertion is not done until it has been observed to fail.
+    (d) **Reject, do not scrub (#T133, #T140).** `tr -cd '0-9'` on a threshold
+    never rejects; it rewrites a malformed value into a *different valid* one.
+    `0.75` became octal `075`, moving the nudge line from 60 to 46 while the
+    ownership claim kept recording normally, so nothing looked broken.
+    Two findings closed by owner decision rather than code: `#T151` (working-tree
+    script execution accepted repo-wide and documented in `decisions.md`) and
+    `#T148`'s framing (bound the payload read rather than set hook timeouts).
 
 **Still open:**
 

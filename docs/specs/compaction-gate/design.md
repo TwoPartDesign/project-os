@@ -1,6 +1,6 @@
 # Design: Compaction Handoff Chain
 Created: 2026-07-29
-Revised: 2026-07-30 (round 6 — handoff discovery correlated with the authoring session)
+Revised: 2026-07-30 (round 13 — handoff discovery requires an ownership claim; payload reads bounded)
 Status: IMPLEMENTED
 Brief: ./brief.md
 
@@ -132,28 +132,42 @@ that can stall a session.
 ### The three stages
 
 ```
+0. PreToolUse — compact-suggest.sh    (Write|Edit|MultiEdit|NotebookEdit)
+   tool_input.file_path is under $PROJECT_ROOT/.claude/sessions/
+   and matches handoff-*.yaml, and NOTHING EXISTS THERE YET (! -e && ! -L)
+     → append it to .compact-handoff-<sid>, then exit
+   never measures, never emits: PreToolUse is the one event where a hook
+   can deny the tool call, and an advisory hook must not be able to
+
 1. PostToolUse — compact-suggest.sh          (every tool call, matcher ".*")
    newest non-sidechain usage record in the transcript tail:
      tokens = input + cache_read + cache_creation
-   tokens × 100 / WINDOW ≥ NUDGE_PCT  (default 75 − 15 = 60),
+   (tokens + PENDING_TOKENS) × 100 / WINDOW ≥ NUDGE_PCT,
+   where PENDING_TOKENS = payload bytes / 4, the result that just
+   landed and is not in the transcript yet   (default 75 − 15 = 60),
    and this cycle has not nudged yet
      → touch .compact-nudged-<sid>
      → additionalContext: "context is at N%; run /tools:handoff now,
                            with a compact_instruction"
-   independently of all of the above, on every call:
-   tool_input.file_path matches */.claude/sessions/handoff-*.yaml
+   independently of all of the above, on every call (the backstop for a
+   write stage 0 declined, and for one it never saw the start of):
+   tool_input.file_path matches the same anchored pattern
      → append it to .compact-handoff-<sid>   (who wrote which handoffs;
-                                              one path per line, deduped
-                                              against the last line)
+                                              one path per line; a repeat
+                                              claim on the last line is a
+                                              touch, not an append, because
+                                              the 7-day prune reads mtime)
 
-2. The model writes .claude/sessions/handoff-<ts>.yaml
+2. The model writes .claude/sessions/handoff-<ts>-<token>.yaml
    (the one step no hook can perform)
 
 3. PreCompact — pre-compact.sh               (matcher "*", auto and manual)
-     → last line of .compact-handoff-<sid> naming a file newer than the
-       cycle marker, else newest handoff-*.yaml no OTHER session's record
-       claims on ANY line, -newer .compact-cycle-<sid>,
-       -type f, resolve_project_path         (BEFORE the marker is reset)
+     → newest line of .compact-handoff-<sid> naming a file that is not a
+       symlink, resolves inside the project, and is newer than the cycle
+       marker (or, with no cycle marker yet, younger than
+       HANDOFF_MAX_AGE_MIN)                  (BEFORE the marker is reset)
+       NO glob fallback and NO env override — an unclaimed candidate is
+       named in the checkpoint by basename and never opened
      → touch .compact-cycle-<sid>            (open the next cycle)
      → reset .compact-base-<sid> to the current transcript size
      → rm .compact-nudged-<sid>              (re-arm stage 1 for the next cycle)
@@ -189,7 +203,7 @@ feature: 2,897,308 bytes of transcript against 106,432 tokens of context — 27
 bytes per token where ~4 is typical, and the nudge fired at roughly 53% of the
 window rather than the intended 60%.
 
-Seven details in the implementation:
+Five details in the implementation:
 
 - **Only the tail is read, and the window escalates 60 → 600 → 4000 lines.**
   This runs on every tool call, so the first read has to be cheap: `tail -n 60`
@@ -247,29 +261,49 @@ Seven details in the implementation:
   sidechain tail once identity is known — that tail is exactly the case needing
   the *wider* window, since the main thread's number sits behind a whole
   sub-agent run's worth of records.
-- **Matching starts at the `"usage"` key.** The same field names recur inside
-  the `iterations` array and could appear in assistant prose, so the scan takes
-  the first occurrence of each field *after* `"usage"`, which is the top-level
-  one.
-- **The scan walks to the *last* `"usage"` key, not the first.** A record
-  serializes `message.content` before `message.usage` — confirmed on this
-  session's transcript, where the first `tool_use` sits at offset 200 and
-  `"usage":` at 457 — so a tool payload carrying its own `usage` object would be
-  found first by a leftmost search, and the hook would measure the payload
-  instead of the context. Since a tool payload's numbers are small, the nudge
-  would simply not fire.
-- **Only `type:assistant` records are measured.** A user record's
-  `toolUseResult` is arbitrary JSON from outside the session — an MCP response,
-  a file read of another transcript — and could supply a number from nowhere.
-  All 635 records carrying a `usage` object in the motivating transcript are
-  tagged `type:assistant`, so the filter costs nothing.
+- **Records are read by structure, not by substring.** Rounds 7–11 selected the
+  `usage` object textually: take the *last* `"usage":` in the line, on the
+  premise that `message.content` serializes before `message.usage` and a tool
+  payload's own `usage` would therefore be found first by a leftmost search. Both
+  halves of that were wrong. `toolUseResult` is serialized as a structured object
+  whose JSON is *not* escaped, so a tool result carrying a `usage` object
+  contributes a second key **later** in the same line — and last-wins selected
+  exactly that one. Substring matching also cannot tell a record's own
+  `"type":"assistant"` from the same string quoted inside a payload.
 
-  Both guards are structural: no record in that transcript actually carried two
-  `usage` keys, and first-based and last-based extraction agreed on 125936. They
-  were added because the failure is silent when it does occur, suppressing
-  exactly the nudge that had to fire. Raised in review on this PR; the ordering
-  premise was confirmed by probe before the change, and the absence of a live
-  reproduction is recorded in the hook comment rather than papered over.
+  The shipped reader takes a brace/bracket skeleton of the line: the three keys
+  that matter are replaced by one-character sentinels, escape sequences are
+  dropped *first* (so a `\"` inside a value cannot terminate a string), then all
+  remaining string bodies are collapsed. One pass over the skeleton tracks depth,
+  so `type:assistant` and `isSidechain` count only at the record's own depth 1,
+  and only a **depth-2** `usage` — which is what `message.usage` is — is
+  eligible. The *first* such key wins, because the record's own precedes any
+  nested one. The original line is then walked to the n-th `"usage":` to read the
+  numbers, which is why the sentinel pattern is byte-identical to the string
+  `index()` searches for: any whitespace tolerance in one and not the other would
+  let the two counts drift apart silently.
+
+  Probing paid for the strictness up front: all 1185 assistant records in the
+  measured transcript put `usage` at depth 2, so the depth test is free, and a
+  prefix-scan shortcut was ruled out (`message` precedes the top-level `type` in
+  every one of them, max offset 33108). As with round 6's guard, no instance of
+  the failure occurs in that transcript — the point is that when it does occur it
+  is silent, and a confidently reported wrong number is worse than no number.
+- **The tool result that just landed is added in, as `PENDING_TOKENS`.** The
+  transcript lags by one turn: a `PostToolUse` payload arrives before the result
+  is sent to the model, so the newest `usage` record describes the request that
+  *asked* for this tool and counts nothing of what came back. Usually the next
+  tool call absorbs it. It matters when a single result spans the whole 15-point
+  gap between the nudge line and the compaction line — the hook stays silent, the
+  next request tips past the threshold, and auto-compaction runs before any
+  further `PostToolUse` can fire. So the comparison is
+  `(CONTEXT_TOKENS + PENDING_TOKENS) × 100 / WINDOW`, with
+  `PENDING_TOKENS = ${#INPUT} / 4`. It is a proxy, deliberately biased short:
+  four bytes per token is a prose figure and an under-estimate for the JSON and
+  source these payloads carry, so the correction narrows the gap without claiming
+  to close it. `${#INPUT}` counts *bytes* only because `LC_ALL` is pinned to `C`
+  at the top of the hook — under an inherited UTF-8 locale bash counts characters
+  and the byte-calibrated divisor would be applied to the wrong unit.
 
 The threshold is derived rather than asserted. `NUDGE_PCT` defaults to
 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE − 15` (floored at 20), so at the shipped 75% it
@@ -312,11 +346,15 @@ The cycle marker is deliberately separate from `.compact-base-<sid>`.
 smaller than the recorded one, and a shared file would let that reset move a
 cycle boundary mid-cycle. Only `pre-compact.sh` writes `.compact-cycle-<sid>`.
 
-Filenames are `handoff-YYYY-MM-DD-HHMM.yaml`, so lexical order is chronological
-and `sort | tail -1` selects the newest — chosen over `find -printf`, which is
-GNU-only and absent on the platforms this must survive.
+Filenames are `handoff-YYYY-MM-DD-HHMMSS-<token>.yaml` (see "Ownership
+presupposes distinct files" below), so lexical order is chronological and the
+last qualifying line of the ownership record is the newest — the candidate `sort`
+is pinned to `LC_ALL=C`, and `find -printf` was rejected as GNU-only.
 
-Symlinks are excluded (`-type f`) and the winning path passes through
+Symlinks are refused outright — `[ ! -L "$OWNED" ] || continue`, spelled that way
+because bash exempts a failing command in a non-final position of an `&&` list
+from `set -e`, and `[ -L … ] && continue` would exit the hook silently under
+`trap 'exit 0' ERR`. The surviving path then passes through
 `resolve_project_path()` before being read, so a handoff symlinked outside the
 project cannot pipe external file content into the compaction instructions.
 
@@ -332,7 +370,8 @@ against the round-5 hook, which forwarded the foreign instruction.
 `compact-suggest.sh` is the only place the two facts meet — its PostToolUse
 payload carries `session_id` and `tool_input.file_path` together. It records the
 path of any handoff it observes being written to `.compact-handoff-<sid>`, and
-`pre-compact.sh` consults that record before the glob.
+that record is — since round 13 — the *only* thing `pre-compact.sh` consults.
+There is no glob.
 
 Six details:
 
@@ -346,9 +385,21 @@ Six details:
   forwarded instructions written for someone
   else's task however stale, while the claim simultaneously hid that handoff
   from every other session's fallback glob. The gate is a tool-name allowlist —
-  `Write`, `Edit`, `MultiEdit`, `NotebookEdit`. A write that failed still claims
-  nothing that matters, because `pre-compact.sh` skips claimed paths that do not
-  exist. `tool_name` is a top-level key serialized ahead of `tool_input`, so the
+  `Write`, `Edit`, `MultiEdit`, `NotebookEdit`.
+
+  This paragraph used to end "a write that failed still claims nothing that
+  matters, because `pre-compact.sh` skips claimed paths that do not exist."
+  Round 12 disproved it. The claim is written at `PreToolUse`, *before* the tool
+  runs, so a denied or failed write leaves a claim on a path that may be created
+  later by somebody else — at which point the stale claim makes it this session's
+  handoff. That is what narrowed the pre-claim to paths that do not yet exist
+  (#T138, stage 0 above) and left the overwrite case to the `PostToolUse`
+  backstop, which runs after the write and therefore knows whether it happened.
+  The non-existence check does not make a failed pre-claim harmless — it makes
+  the *window* the same one the pre-claim was introduced to close, rather than a
+  wider one.
+
+  `tool_name` is a top-level key serialized ahead of `tool_input`, so the
   first-match extraction cannot be beaten by file contents containing the string
   — the same ordering argument the transcript scan uses, running the other way.
 
@@ -367,12 +418,14 @@ Six details:
   Recording after that early exit would miss every real handoff.
 - **The record is append-only — one line per handoff, not one line per
   session.** A session can write several handoffs in a cycle. Keeping only the
-  newest leaves the earlier ones looking unattributed, and the *other* session's
-  glob fallback then picks the older one up and forwards it — the same leak, one
-  handoff further back. Found in review on this PR after the first ownership fix
-  shipped, and reproduced end to end through the real hooks before changing
-  anything. Repeated writes to the same path are collapsed against the last
-  line, so a handoff revised ten times costs one line rather than ten.
+  newest leaves the earlier ones looking unattributed, and at the time the
+  *other* session's glob fallback then picked the older one up and forwarded it —
+  the same leak, one handoff further back. Found in review on this PR after the
+  first ownership fix shipped, and reproduced end to end through the real hooks
+  before changing anything. Repeated writes to the same path are collapsed
+  against the last line, so a handoff revised ten times costs one line rather
+  than ten — and the collapse is a `touch` of the record, not a no-op, because
+  the 7-day prune that eventually collects it reads the file's mtime (#T139).
 - **Ownership does not override freshness.** A handoff this session wrote before
   the last compaction has already been summarized away; a line is used only when
   it names a file newer than the cycle marker. Lines are read in order and the
@@ -380,8 +433,8 @@ Six details:
   surviving earlier one rather than blanking the record.
 
   Where there is no cycle marker — a session's first compaction — the branch
-  applies the same `HANDOFF_MAX_AGE_MIN` window the glob fallback uses, rather
-  than accepting the claim at any age. Until round 10 it did the latter, and the
+  applies the `HANDOFF_MAX_AGE_MIN` window rather than accepting the claim at any
+  age. Until round 10 it did the latter, and the
   asymmetry was reachable two ways: a session that wrote a handoff and then
   worked for hours before its first compaction, and a session resuming after
   `SessionEnd`. The second path is a regression introduced by round 9 itself,
@@ -394,24 +447,91 @@ Six details:
   signal: "written since the last compaction" is what freshness actually means,
   so a long-running session's second compaction does not lose a handoff merely
   for being older than the window.
-- **The glob fallback excludes handoffs other sessions claimed — on any line.**
-  Every session in the checkout writes its record into the same log directory,
-  so a foreign handoff is identifiable even when this session wrote none. Claims
-  are matched as whole newline-framed lines, so a same-named file under a longer
-  directory prefix cannot suppress the local one.
+- **A claim is required (round 13, #T144). There is no fallback and no escape
+  hatch.** Rounds 6–12 kept a glob fallback: with no claim of its own, the hook
+  took the newest `handoff-*.yaml` that no *other* session's record named. That
+  is a much weaker property than it reads as. "Nobody else claimed it" is
+  satisfied by any file that simply appears at the path — a restored backup, a
+  merge artifact, a file a sibling checkout wrote, a handoff committed by an
+  untrusted repo — and what the winner buys is the ability to write the
+  compaction summarizer's instructions. Steering the model is the wrong thing to
+  hand to the absence of a competing claim.
 
-The glob is kept rather than replaced: a handoff nobody claimed — written before
-this feature existed, or by a means the PostToolUse hook cannot observe — is
-forwarded exactly as before. Removing it would make the whole chain depend on
-`compact-suggest.sh` being registered, turning a missing hook registration into
-silent total failure instead of a narrower one.
+  So discovery now reads `.compact-handoff-<session_id>` and nothing else. No
+  `PROJECT_OS_*` variable re-enables the old path either, and that omission is
+  deliberate: a variable that restores forwarding from unclaimed files is a
+  variable an untrusted repo can set in its own `settings.json`, and the
+  requirement would be advisory again — recoverable by exactly the party it
+  exists to stop.
 
-Residual: a handoff written by a tool call the hook cannot see (a `Bash`
-heredoc, say) is unattributable and still reachable by the fallback. That is the
-pre-existing behaviour, not a new exposure.
+**The accepted cost, stated rather than mitigated.** A handoff that predates this
+feature, or one whose claim record was pruned by the 7-day sweep or lost with a
+cleaned `.claude/logs`, silently stops being forwarded — which is the same
+silent-decline failure mode #T130 had just fixed. That is the trade the owner
+took: a decline that loses one cycle's steering, over a mechanism that can be
+steered by a file nobody in this session wrote.
+
+What keeps it from being *silent* is the note-only path. When a fresh unclaimed
+`handoff-*.yaml` exists, `pre-compact.sh` records it in the checkpoint's
+`context_notes` as `UNCLAIMED_HANDOFF` — **basename only, and the file is never
+opened**. The basename is charset-guarded (`case … *[!A-Za-z0-9._-]*) continue`)
+because it is interpolated into a `context_notes: |` block scalar, where an
+unescaped character forges YAML structure in a file `/tools:catchup` parses. A
+name is enough to tell the reader which file was declined; the contents are the
+thing being refused, so they stay unread.
+
+Residual: a handoff written by a tool call the hook cannot see (a `Bash` heredoc,
+say) is no longer reachable at all. Under the fallback it was forwarded
+unattributed; now it is declined with a note. That is the intended direction of
+the change.
+
 `tests/compaction-hooks.sh` covers both an escaping symlink and an in-scope one,
 per `.claude/rules/tests.md` — the in-scope case is there so that a future
-relaxation to `-type f -o -type l` fails loudly.
+relaxation of the `[ ! -L ]` refusal fails loudly.
+
+### The cost of reading the payload (round 13, #T148)
+
+`INPUT=$(cat)` was the single most expensive line in these hooks, and the profile
+was not where it was assumed to be. Measured here with a 20 MB `PostToolUse`
+payload: the slurp alone is **2806 ms**, while `cat >/dev/null` over the same
+bytes is **88 ms**. Bash command substitution assembles its result byte-wise at
+roughly 7 MB/s. The parsing that followed was not the problem; getting the bytes
+into a variable was. Every hook paid it on every tool call, growing linearly with
+output the hooks mostly discard.
+
+Three different fixes, because the three hooks read different parts of the
+payload — the shape of the data decides, not a preference for consistency:
+
+- **`_common.sh` gains `read_hook_payload`.** It sets `INPUT` to at most 256 KiB
+  (`PROJECT_OS_HOOK_PAYLOAD_BYTES` overrides; a non-numeric or non-positive value
+  is rejected back to the default rather than scrubbed) and sets
+  `HOOK_PAYLOAD_TRUNCATED` when anything followed. It **assigns rather than
+  echoes**: `INPUT=$(read_hook_payload)` would run the body in a subshell, where
+  the truncation flag dies with it. A bounded read must also **drain the
+  remainder** or the writer takes `EPIPE`, so the `wc -c` that detects truncation
+  is the drain — one pass doing both. Used by `post-tool-use.sh` and
+  `compact-suggest.sh`, whose keys (`session_id`, `transcript_path`, `tool_name`)
+  are top-level and serialized ahead of `tool_input`.
+- **`tool-failure-log.sh` is deliberately *not* bounded**, and that is now
+  load-bearing rather than incidental. `is_error` lives in `tool_response`, which
+  is serialized **last**, so a prefix window is exactly the wrong end of the
+  payload — bounding it would stop logging failures in proportion to how much
+  output the failing tool produced. It streams through a single `grep` that keeps
+  only the two facts the hook is allowed to know. Mutant 3 in
+  `hook-smoke-negctl.sh` is precisely the tidying pass that would undo this.
+- **`output-index.sh` writes stdin straight to its temp file.** It never needed
+  the payload in a variable, and it is the hook that exists *because* outputs are
+  large — so it was paying the slurp most often.
+
+The bound has one blind spot: `file_path` lives inside `tool_input`, so a large
+enough write can push it outside the window. Both hooks that read it say so on
+stderr rather than degrading quietly. A formatter that skips exactly the largest
+files, silently, is the failure `post-tool-use.sh` already carries a fix for.
+
+20 MB payload, before → after: `tool-failure-log.sh` 3669 → 238 ms,
+`compact-suggest.sh` 4896 → 1352 ms, `post-tool-use.sh` 4682 → 319 ms. Cost is
+now flat in payload size — 2 MB is indistinguishable from 20 MB — which was the
+point, since payload size is influenced by whatever the tool fetched.
 
 ### The stdout contract
 
@@ -476,12 +596,15 @@ directly — no pipes, no `$()`-wrapped programs, no YAML dependency.
 | File | Change |
 |---|---|
 | `.claude/settings.json` | `CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000"` added; `PreCompact` matcher `"auto"` → `"*"` so manual `/compact` also checkpoints and forwards its instruction |
-| `.claude/hooks/pre-compact.sh` | Rewritten: stdout contract, handoff discovery + extraction, read-only map check, cycle marker + nudge re-arm; checkpoint retained as the debounced tail. ROADMAP marker patterns fixed; feature derivation fixed (round 5); ownership record preferred over the glob, foreign claims excluded from it (round 6) |
-| `.claude/hooks/compact-suggest.sh` | Rewritten: measured context-token threshold with byte growth as fallback, one nudge per compaction cycle, `additionalContext` payload; records handoff authorship ahead of the cycle exit (round 6) |
-| `.claude/hooks/_common.sh` | Added `session_id_from_json()`, `json_string_field()` |
+| `.claude/hooks/pre-compact.sh` | Rewritten: stdout contract, handoff discovery + extraction, read-only map check, cycle marker + nudge re-arm; checkpoint retained as the debounced tail. ROADMAP marker patterns fixed; feature derivation fixed (round 5); ownership record preferred over the glob, foreign claims excluded from it (round 6); glob removed entirely — a claim is now required, unclaimed candidates noted by basename only (round 13, #T144); checkpoint write refuses a symlink target (round 13, #T135) |
+| `.claude/hooks/compact-suggest.sh` | Rewritten: measured context-token threshold with byte growth as fallback, one nudge per compaction cycle, `additionalContext` payload; records handoff authorship ahead of the cycle exit (round 6); PreToolUse pre-claim added, gated on the path not already existing (round 13, #T138); measured-token reader replaced by a depth-tracking skeleton scan (round 13, #T141/#T142); payload read bounded (round 13, #T148) |
+| `.claude/hooks/_common.sh` | Added `session_id_from_json()`, `json_string_field()`; `read_hook_payload()` (round 13, #T148) |
+| `.claude/hooks/tool-failure-log.sh`, `output-index.sh` | Payload reads changed (round 13, #T148) — see below |
 | `.claude/hooks/session-end-cleanup.sh` | Removes the session-private `.compact-base-*` / `.compact-nudged-*` / `.compact-cycle-*`; deliberately **keeps** `.compact-handoff-*`, which concurrent sessions read, and lets the 7-day prune collect it. 7-day prune of all four |
 | `.claude/commands/tools/handoff.md` | `compact_instruction` mandatory; new "How `compact_instruction` is used" section; note that auto-checkpoints cannot record rationale |
-| `tests/compaction-hooks.sh` | New — 118 assertions across sandboxed project roots |
+| `tests/compaction-hooks.sh` | New — 231 assertions across sandboxed project roots (228 PASS / 3 SKIP on Windows) |
+| `tests/hook-smoke.sh` | Rewritten (round 13, #T145) — sandboxed via `PROJECT_OS_TEST_HOOKS`, asserts effects rather than exit codes; 57 assertions |
+| `tests/hook-smoke-negctl.sh` | New (round 13, #T145) — five mutants, the negative control for the above |
 | `docs/knowledge/architecture.md` | Both hook rows updated; new "Compaction Handoff Chain" subsection |
 | `docs/knowledge/decisions.md` | ADR: steer the summarizer, do not block compaction |
 | `docs/knowledge/patterns.md` | "Verify the Channel Before Designing the Gate"; "Test Behaviour in a Copied Project Root" |
@@ -585,8 +708,17 @@ was already being paid — worth knowing, not a reason to change course.
 
 ## Testing Strategy
 
-`tests/compaction-hooks.sh` — 158 assertions, all passing. Per
-`.claude/rules/tests.md` each case builds its own state and asserts specific
+`tests/compaction-hooks.sh` — 231 assertions: **228 PASS / 3 SKIP** on this
+machine. The three are Windows fixture artifacts, not findings, and are named so
+they are never mistaken for regressions: `containment_symlinkEscapingProject_
+rejected` and `containment_symlinkToInScopeSibling_alsoRejected` (`ln -s`
+degrades to a plain copy without Developer Mode, so the fixture cannot be built)
+and `checkpoint_pathWithBackslashAndQuote_bothEscapedForYaml` (the filename is
+illegal on NTFS). Any symlink case checks `[ -L "$path" ]` after creating the
+fixture and calls `skip()` — never `ok()` — when the platform silently copied
+instead.
+
+Per `.claude/rules/tests.md` each case builds its own state and asserts specific
 values, not truthiness.
 
 **Wiring.** Almost every case invokes a hook directly, which means almost none
@@ -638,12 +770,14 @@ Groups:
   session; a write to any other path records nothing; the record is written even
   when the nudge already fired this cycle (the case that matters, since the
   handoff always follows the nudge); a concurrent session's *newer* handoff loses
-  to this session's own; a foreign handoff is not reachable through the glob
-  fallback either, but an *unclaimed* one still is; exclusion skips to the next
-  candidate rather than abandoning the search; a claim on a path that merely ends
-  with the same filename does not suppress the local handoff; ownership does not
-  exempt a handoff from the cycle boundary; a record pointing outside the project
-  is rejected by the same containment guard as the glob result.
+  to this session's own; an *unclaimed* handoff is not forwarded at all, however
+  fresh (round 13, #T144), though the checkpoint still names it and says it was
+  not forwarded; a foreign session's claim is skipped to the next candidate
+  rather than abandoning the search; a claim on a path that merely ends with the
+  same filename does not suppress the local handoff; ownership does not exempt a
+  handoff from the cycle boundary; a claimed path pointing outside the project is
+  rejected by the containment guard, and a claimed path that is a symlink is
+  refused before the guard ever runs.
 - **containment** — a handoff symlinked outside the project is rejected, *and* a
   symlink to an in-scope sibling is rejected too. The second case exists so a
   future switch to `-type f -o -type l` fails here.
@@ -662,7 +796,44 @@ Groups:
 - **session-end-cleanup** — removes this session's markers including the cycle
   marker and the ownership record, leaves other sessions' intact.
 
-`tests/hook-smoke.sh` still passes 15/15 — no regression.
+**`tests/hook-smoke.sh` — 57/57, and rewritten to be worth counting (round 13,
+#T145).** Its previous 15 assertions checked exit codes against five hooks that
+all run `set -euo pipefail` with `trap 'exit 0' ERR`. A hook that promises to
+exit 0 whatever happens cannot fail an exit-code assertion, and the negative
+control proved it: **14 of the 15 passed against hooks replaced by `exit 0`**.
+The suite was reporting on hooks it was not exercising.
+
+It now runs each hook in a sandboxed project root — `REAL_HOOKS=
+"${PROJECT_OS_TEST_HOOKS:-$PROJECT_ROOT/.claude/hooks}"`, the same seam
+`tests/compaction-hooks.sh` uses — and asserts *effects*: what was written, what
+was logged, what reached stderr. `tests/hook-smoke-negctl.sh` is the control that
+keeps it honest, and it is committed rather than run once and thrown away, since
+the property it protects decays the moment someone adds an assertion without
+checking it can fail. Five mutants, each expected to kill a named set:
+
+1. every hook stubbed to `exit 0` — 18 killed. The survivors are the `_exitsZero`
+   liveness checks and the negative assertions (`_writesNothing`,
+   `_doesNotIndex`), which a hook that does nothing trivially satisfies; a
+   negative assertion carries weight only beside its positive twin.
+2. `post-tool-use.sh` taking the payload path unconverted — kills exactly
+   `postToolUse_backslashPayloadPath_stillResolved`.
+3. `tool-failure-log.sh` switched to the bounded read (the tidying pass a future
+   reader would write) — kills exactly
+   `toolFailureLog_isErrorBeyondPayloadBound_stillLogged`.
+4. `read_hook_payload` without its drain — kills
+   `postToolUse_payloadPastBound_exitsZero` (141: SIGPIPE under `pipefail`) *and*
+   the truncation notice, two victims because one `wc -c` serves both.
+5. the truncation notice deleted — kills exactly
+   `postToolUse_filePathBeyondBound_saysSoOnStderr`.
+
+Each mutant guards that its own edit applied, and each guard greps the **code
+line**, not the identifier: the shipped fixes carry comments containing the same
+strings, and matching the bare name reported an applied mutant as unapplied.
+That cost time twice (mutants 2 and 4) and is why it is written down here.
+
+The standing bar this establishes: **every new assertion is run against a
+deliberately unfixed copy and confirmed to fail there.** A test that passes on
+both sides is vacuous until proven otherwise.
 
 Not automatable here, and left to observation in real sessions: that
 auto-compaction actually fires near 75% of the configured window. The nudge
@@ -674,9 +845,14 @@ the same unit.
 - **Path traversal via `session_id`.** Marker filenames embed a value from hook
   stdin. Sanitized to `[[:alnum:]_-]` by `session_id_from_json()`; tested,
   including that nothing is written outside the log directory.
-- **Symlink escape via handoff discovery.** `find -type f` plus
+- **Symlink escape via handoff discovery.** An explicit `[ ! -L ]` refusal plus
   `resolve_project_path()` containment; both the escaping and the in-bounds
   symlink case are tested.
+- **A handoff nobody wrote.** Discovery accepts only paths this session claimed
+  (#T144). Neither a file that merely appears in `.claude/sessions/` nor an
+  environment variable can put text in front of the compaction summarizer; an
+  unclaimed candidate is named by basename in the checkpoint and never opened,
+  and that basename is charset-guarded before it enters a YAML block scalar.
 - **Untrusted text into the compaction instructions.** `compact_instruction` is
   free text that becomes summarizer guidance. It is author-written in a repo
   file, the same trust level as `CLAUDE.md`, and only that one field is
@@ -685,9 +861,19 @@ the same unit.
 - **No JSON injection surface.** Neither hook interpolates variable text into a
   JSON payload — `PreCompact` emits plain text, `PostToolUse` emits a fixed
   string. This is why `json_escape()` was dropped rather than written.
-- **No new write surface.** Writes are confined to `.claude/logs/` and
+- **Write surface.** Writes are confined to `.claude/logs/` and
   `.claude/sessions/`, both already written by shipped hooks. Nothing under
   `docs/maps/` is touched.
+
+  This bullet used to read "**No** new write surface", and round 13 (#T135)
+  refuted it. The auto-checkpoint is a *new file* in `.claude/sessions/`, written
+  by `pre-compact.sh` on a path derived from a timestamp — and if something
+  already occupies that path as a symlink, the redirect follows it and writes
+  through, outside both directories. "The directory was already written to" is
+  not the same claim as "no new write surface", and conflating the two is how the
+  hole survived twelve rounds of review. The checkpoint write now refuses a
+  symlink target. The general form is in `patterns.md`: an existing write
+  *location* does not license an unexamined new write *path*.
 
 ## Risks
 
@@ -827,8 +1013,8 @@ the worse half of the bug and is real whether or not compaction ever runs.
 
 The fix is in the naming, not the hooks: seconds plus a `$RANDOM` token, placed
 after the timestamp so the `sort`-based "newest" selection is undisturbed. Every
-consumer of the name globs (`handoff-*.yaml`, or `handoff-2026-02-*.yaml` in
-`archive-sessions.sh`), so a longer suffix is transparent to all of them; the
+consumer matches the name by glob (`handoff-*.yaml`, or `handoff-2026-02-*.yaml`
+in `archive-sessions.sh`), so a longer suffix is transparent to all of them; the
 one real coupling was the ordering assumption, which is now pinned to `LC_ALL=C`
 and covered by tests for variable-width tokens and for legacy names mixed with
 suffixed ones.
@@ -980,6 +1166,11 @@ thing that collects it, which is the safe direction: a stale claim merely
 excludes a handoff from the fallback glob, and a handoff that old fails the
 freshness filter regardless.
 
+That last sentence stopped being true in round 13. With the glob removed (#T144),
+losing a claim no longer demotes a handoff to the fallback path — it removes the
+only path. Retention is now the whole of discovery, which is why shortening the
+7-day prune is called out below as the change that would silently break this.
+
 **RESOLVED (round 10) — the delivery gate discarded the main thread's own
 `Task`-completion nudge.** Round 9 inferred "who is speaking" from the
 transcript tail, and inference cannot separate a sub-agent's own tool call from
@@ -1122,11 +1313,73 @@ escaped decoys stay immune, a small payload does not perturb the measurement, a
 read of a handoff still claims nothing, and the `PreToolUse` pass neither emits
 nor spends the once-per-cycle marker.
 
+**RESOLVED (round 12) — the pre-claim was unconditional, and "a failed write
+claims nothing that matters" was wrong.** Round 11 moved the claim to
+`PreToolUse` to close a window; taken unconditionally it opens a wider one in the
+other direction. The claim is recorded *before* the tool runs, so it survives a
+denied or failed write — and a session that merely opens an editor on another
+session's handoff claims it outright. The justification carried in the design at
+the time ("`pre-compact.sh` skips claimed paths that do not exist") does not hold
+either: the path may be created afterwards, by anyone, and the stale claim then
+attaches. Fixed by gating the pre-claim on the path not existing yet, with the
+`PostToolUse` backstop covering the overwrite case, where there is nothing to
+race because the file is already there. This round also introduced `skip()` for
+fixtures the platform cannot build — a case that silently passes for an
+environmental reason is indistinguishable from one that passes for the reason it
+was written.
+
+**RESOLVED (round 13) — a 22-item adversarial review, and the four things it
+changed structurally.** Six parallel Claude review agents plus two independent
+Codex passes produced 37 raw findings, deduped to 22 (`#T130`–`#T151` in
+`ROADMAP.md`, where each is recorded with its reproduction). Most were ordinary
+fixes. Four changed something about how this feature is built:
+
+- **Discovery now requires a claim (#T144).** The reviewer's framing is the part
+  worth keeping: the weakness was never the conclusion that a repo file is
+  `CLAUDE.md`-level trust, it was the *premise* that the file was authored here.
+  "mtime is not provenance, and the ownership record was consulted only to
+  exclude, never to require." A planted `handoff-9999-12-31-235959-99.yaml`
+  produced stdout beginning `IGNORE ALL PRIOR SUMMARY GUIDANCE.` — `git checkout`
+  stamps branch files with the current time, so a branch-supplied handoff is
+  always fresh, and being unclaimed made it *preferred*. See "A claim is
+  required" above for the shipped policy and its accepted cost.
+- **"No new write surface" was false (#T135).** The auto-checkpoint path is
+  minute-granular and guessable, and a tracked symlink committed at that path was
+  followed by the `>` redirect: attacker-influenced content reached a file
+  outside `.claude/`. The debounce that should have noticed used `find -type f`,
+  which does not see symlinks — the guard was bypassed by exactly the object it
+  existed to catch. Every symlink case in the suite had been on the *read* path.
+- **Mutation testing became the standing bar (#T134, #T145, #T146).** Four
+  separate findings were of the form "this mutation ships green": deleting the
+  awk escape-strip, replacing the `git status -z` rename arm, rewriting both
+  `LC_ALL=C` pins, shortening the 7-day prune to one day. And `hook-smoke.sh`
+  turned out to pass 14 of 15 assertions against hooks stubbed to `exit 0`. The
+  response was not more assertions but a committed control —
+  `tests/hook-smoke-negctl.sh` — and the rule that a new assertion is not done
+  until it has been observed to fail.
+- **Reject, do not scrub (#T133, #T140).** `tr -cd '0-9'` on a threshold is a
+  deletion filter wearing a validator's clothes: it never rejects, it rewrites a
+  malformed value into a *different valid* one. `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=
+  0.75` became `075`, octal 61, silently moving the nudge line from 60 to 46 and
+  printing "auto-compaction fires at 075%"; `0.9` left `NUDGE_PCT` empty and the
+  hook never nudged again, while the ownership claim kept recording normally so
+  nothing looked broken from outside. `case "$V" in ''|*[!0-9]*) V=default;; esac`
+  everywhere instead.
+
+Two findings were closed by decision rather than by code. `#T151` — that
+`pre-compact.sh` executes `scripts/system-map.ts` from the working tree, on a
+timer the user does not control — is a *new instance* of a boundary this repo
+already crosses in four other hooks, so it is accepted repo-wide and documented
+in `decisions.md`; fixing one hook while four keep the door open would be
+theatre. `#T148`'s payload bound was implemented, but the reachability of a
+payload large enough to matter was never established, which is why it was P3 and
+why the fix is a bound rather than a rewrite.
+
 ## Liveness Verification
 
 Every assertion in `tests/compaction-hooks.sh` runs against a synthetic payload
 and a hand-built transcript fixture. That proves the branches, not that the
-chain works — a suite of 168 unit assertions can be green while the three
+chain works — a suite of 231 unit assertions can be green while the three
 stages fail to hand off to each other on real input. After the round-13 review
 the whole chain was therefore run end to end in a sandboxed project copy
 against this project's own **live** session transcript: 4036 records,

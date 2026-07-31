@@ -46,14 +46,14 @@ User ──→ Workflow Commands ──→ Orchestrator ──→ Sub-agents (is
 | Hook | Purpose |
 |------|---------|
 | `_common.sh` | Shared utilities: path resolution, validation, JSON extraction |
-| `compact-suggest.sh` | PostToolUse — when the transcript's newest `usage` record, plus a byte-proxy estimate of the tool result that just landed, puts context past `NUDGE_PCT` of the window (default 60%), inject `additionalContext` telling Claude to run `/tools:handoff` with a `compact_instruction`; one nudge per compaction cycle. Records are read structurally, not textually: each is reduced to a brace/bracket skeleton, so `type:assistant` counts only at the record's own depth and only a `message.usage` object is measured — a `usage` buried in a tool payload cannot be mistaken for the session's context. Deferred entirely when the payload's `agent_id` differs from its `session_id` (a sub-agent firing), because `additionalContext` lands in the *calling* agent's context and a sub-agent can neither write a handoff nor be compacted; a payload with no `agent_id` at all falls back to deferring on a sidechain transcript tail. **Also registered on PreToolUse** for `Write\|Edit\|MultiEdit\|NotebookEdit`, where it records handoff authorship and stops — never emitting, since PreToolUse is the one event where a hook can deny the tool call. A write to `.claude/sessions/handoff-*.yaml` is appended to `.compact-handoff-<session_id>` (one path per line, so a session that writes several in a cycle claims all of them) so `pre-compact.sh` can tell this session's handoffs from a concurrent session's; claiming before the write means the claim can never trail the artifact it describes, and the PostToolUse pass repeats the claim as a backstop, collapsing against the last line |
+| `compact-suggest.sh` | PostToolUse — when the transcript's newest `usage` record, plus a byte-proxy estimate of the tool result that just landed, puts context past `NUDGE_PCT` of the window (default 60%), inject `additionalContext` telling Claude to run `/tools:handoff` with a `compact_instruction`; one nudge per compaction cycle. Records are read structurally, not textually: each is reduced to a brace/bracket skeleton, so `type:assistant` counts only at the record's own depth and only a `message.usage` object is measured — a `usage` buried in a tool payload cannot be mistaken for the session's context. Deferred entirely when the payload's `agent_id` differs from its `session_id` (a sub-agent firing), because `additionalContext` lands in the *calling* agent's context and a sub-agent can neither write a handoff nor be compacted; a payload with no `agent_id` at all falls back to deferring on a sidechain transcript tail. **Also registered on PreToolUse** for `Write\|Edit\|MultiEdit\|NotebookEdit`, where it records handoff authorship and stops — never emitting, since PreToolUse is the one event where a hook can deny the tool call. A write to `.claude/sessions/handoff-*.yaml` is appended to `.compact-handoff-<session_id>` (one path per line, so a session that writes several in a cycle claims all of them) so `pre-compact.sh` can tell this session's handoffs from a concurrent session's; claiming before the write means the claim can never trail the artifact it describes, and the PostToolUse pass repeats the claim as a backstop, collapsing against the last line. The PreToolUse claim is **conditional on the path not already existing** — an unconditional pre-claim would let any session steal an existing handoff by opening an editor on it, so occupancy (`-e` or `-L`, the second closing dangling symlinks) defers to the PostToolUse pass, which runs after the write and therefore knows it succeeded |
 | `log-activity.sh` | Append structured JSONL events to the activity log |
 | `notify-phase-change.sh` | Terminal/desktop notification on phase transitions |
 | `output-index.sh` | PostToolUse advisory — index large tool outputs, hint via additionalContext |
 | `post-mcp-validate.sh` | PostToolUse — validate Context7 MCP output (exit 2 / additionalContext contract) |
 | `post-tool-use.sh` | Auto-format files after Write/Edit |
 | `post-write-session.sh` | Scrub secrets from `.claude/sessions/` files after write |
-| `pre-compact.sh` | PreCompact (`*` — auto and manual) — print the `compact_instruction` of the newest handoff written since the last compaction on stdout, which the runtime forwards to the compaction summarizer; also writes a filesystem-derived checkpoint YAML (10-min debounce), opens the next compaction cycle and re-arms the nudge. Advisory: never blocks |
+| `pre-compact.sh` | PreCompact (`*` — auto and manual) — print the `compact_instruction` of the newest handoff **this session claimed** since the last compaction on stdout, which the runtime forwards to the compaction summarizer; also writes a filesystem-derived checkpoint YAML (10-min debounce), opens the next compaction cycle and re-arms the nudge. Candidates come only from `.compact-handoff-<session_id>`: there is no glob fallback and no environment override, so an unclaimed handoff is named in the checkpoint and never opened. Advisory: never blocks |
 | `session-start-setup.sh` | SessionStart — idempotent activation fallback: runs `setup.sh --check` so a cloned project installs its git hooks on first session |
 | `session-start-maintain.sh` | SessionStart — auto-runs the maintenance loop once per `auto_run_hours` (policy, default 24h); drafts-only, debounced on ledger age, skips worktrees |
 | `session-end-cleanup.sh` | SessionEnd — remove per-session counters and the session-private compaction markers (`.compact-base-*`, `.compact-nudged-*`, `.compact-cycle-*`); deliberately **keeps** `.compact-handoff-*`, the one marker concurrent sessions read, and lets the 7-day prune collect it; rotate append-only logs |
@@ -211,19 +211,42 @@ stop, so the chain steers it instead — three stages, two of them hooks:
    nothing on the PreToolUse path is deliberate: it is the one event where a hook
    can deny a tool call, and an advisory hook must never be able to block a
    write.
+
+   The pre-claim fires **only when nothing exists at the path yet** (`-e` fails
+   *and* `-L` fails — the second catches a dangling symlink, which `-e` reports
+   as absent). An unconditional pre-claim reopens the hole it was added to close,
+   from the other side: any session that so much as opens an editor on another
+   session's handoff would claim it before writing a byte, and could then steer
+   compaction with a file it did not author. Where the path is occupied there is
+   nothing to race — the PostToolUse pass runs after the write, knows it
+   succeeded, and claims then.
 2. **Claude runs `/tools:handoff`** — the only stage that can author decisions and
    rationale, because only the model has them. The hooks cannot.
-3. **`pre-compact.sh` (PreCompact, matcher `*`)** — reads this session's handoff:
-   the last line of `.compact-handoff-<session_id>` naming a file newer than the
-   cycle marker, else the newest *unclaimed* `handoff-*.yaml` written since the
-   last compaction (`-newer .claude/logs/.compact-cycle-<session_id>`; a 30-minute
-   window bootstraps a session's first compaction — on **both** branches, since
-   the claim now outlives `SessionEnd` while the cycle marker does not, and an
-   unwindowed owned branch would let a resumed session forward a handoff of any
-   age). "Unclaimed" means no *other*
-   session's `.compact-handoff-*` record names it on any line — that keeps the glob fallback
-   from handing one session's instruction to another session's summarizer, while
-   still forwarding a handoff written by some means this hook chain cannot see.
+3. **`pre-compact.sh` (PreCompact, matcher `*`)** — reads this session's handoff,
+   and **only** this session's: the newest line of `.compact-handoff-<session_id>`
+   naming a file newer than the cycle marker
+   (`-newer .claude/logs/.compact-cycle-<session_id>`; a 30-minute window
+   bootstraps a session's first compaction, since the claim outlives `SessionEnd`
+   while the cycle marker does not, and an unwindowed owned branch would let a
+   resumed session forward a handoff of any age). Each candidate is refused if it
+   is a symlink and re-resolved through `resolve_project_path` before it is
+   opened.
+
+   There is **no discovery fallback and no environment override** (#T144). An
+   earlier version fell back to globbing `handoff-*.yaml` and accepting any file
+   no *other* session had claimed, which is a different and much weaker property:
+   it forwards whatever appears at that path, and "no one else claimed it" is
+   satisfied by a file dropped in by anything — a restored backup, a merge, a
+   sibling checkout, a repo the user did not write. Steering compaction is
+   steering the model, so the bar is a claim, not the absence of a competing one.
+   The accepted cost is stated rather than mitigated: a handoff predating the
+   feature, or one whose claim record was pruned by the 7-day sweep or a cleaned
+   `.claude/logs`, silently stops being forwarded. An unclaimed candidate is
+   therefore **named in the checkpoint and never opened** — basename only, never
+   the path, and charset-guarded (`*[!A-Za-z0-9._-]*` rejected) because it is
+   interpolated into a `context_notes:` block scalar. That note is what makes the
+   decline audible instead of silent.
+
    Ownership can only distinguish handoffs that are distinct files, so
    `/tools:handoff` names them `handoff-YYYY-MM-DD-HHMMSS-<token>.yaml`: at the
    former minute granularity two sessions writing in the same minute produced one

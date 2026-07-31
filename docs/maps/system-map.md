@@ -210,7 +210,7 @@
 
 ## Findings
 
-- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 6383 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 6871 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 10785 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 3985 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/patterns.md — docs/knowledge/patterns.md is approximately 4534 tokens, exceeding the 2500-token warn threshold.
