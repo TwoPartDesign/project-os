@@ -75,12 +75,55 @@ CHECKPOINT_DEBOUNCE_MIN=10
 # hazard from a source the reader controls even more directly — a task
 # description reading `- [-] Fix the C:\path parser #T1` ends the scalar's
 # escape sequence at `\p` and takes the document with it.
+#
+# TAB AND NEWLINE ARE NOT THE CONTROL CHARACTERS THAT REACH HERE. They were the
+# two that got named, but a double-quoted YAML scalar forbids the whole C0 range
+# (YAML 1.2 §5.7: only x09, x0A and x0D are permitted anywhere in a stream, and
+# a literal x0A/x0D still terminates a single-line scalar). `git status -z`
+# hands back raw bytes and a filename may legally contain any of them on POSIX;
+# a ROADMAP line may contain any of them too. The one that actually shows up is
+# CARRIAGE RETURN, which was missing outright — ROADMAP.md is CRLF in this very
+# repository, so every value sliced out of it carries a trailing \r into a
+# double-quoted scalar and breaks the document. Below x20 there is no
+# single-character escape for most of the range, so the general case has to be
+# \uXXXX; \t and \r keep their short forms because they are the common ones and
+# the short form is what a human reading the checkpoint expects.
+#
+# Pure bash, no subprocess. This runs once per entry in the `git status` loop,
+# so a `sed` pipeline here would be a fork per changed file for a function whose
+# whole job is a fixed set of substitutions. `${v//…}` cannot express a byte
+# RANGE, hence the explicit list — it is long, but it is a closed set that will
+# never grow, and it costs no process.
+#
+# Backslash first, so the escapes introduced after it are not re-escaped. The
+# rest are order-independent: each pattern is a single byte that no other
+# expansion here produces.
 yaml_escape() {
     local v="$1"
     v="${v//\\/\\\\}"
     v="${v//\"/\\\"}"
     v="${v//$'\t'/\\t}"
     v="${v//$'\n'/\\n}"
+    v="${v//$'\r'/\\r}"
+    # No NUL arm. A bash variable cannot hold a NUL byte — the value is
+    # truncated at it long before this function sees one — and `$'\x00'` is the
+    # EMPTY STRING, so `${v//$'\x00'/…}` would match between every character and
+    # interleave the replacement through the whole value.
+    v="${v//$'\x01'/\\u0001}"
+    v="${v//$'\x02'/\\u0002}"; v="${v//$'\x03'/\\u0003}"
+    v="${v//$'\x04'/\\u0004}"; v="${v//$'\x05'/\\u0005}"
+    v="${v//$'\x06'/\\u0006}"; v="${v//$'\x07'/\\a}"
+    v="${v//$'\x08'/\\b}";     v="${v//$'\x0b'/\\v}"
+    v="${v//$'\x0c'/\\f}";     v="${v//$'\x0e'/\\u000e}"
+    v="${v//$'\x0f'/\\u000f}"; v="${v//$'\x10'/\\u0010}"
+    v="${v//$'\x11'/\\u0011}"; v="${v//$'\x12'/\\u0012}"
+    v="${v//$'\x13'/\\u0013}"; v="${v//$'\x14'/\\u0014}"
+    v="${v//$'\x15'/\\u0015}"; v="${v//$'\x16'/\\u0016}"
+    v="${v//$'\x17'/\\u0017}"; v="${v//$'\x18'/\\u0018}"
+    v="${v//$'\x19'/\\u0019}"; v="${v//$'\x1a'/\\u001a}"
+    v="${v//$'\x1b'/\\e}";     v="${v//$'\x1c'/\\u001c}"
+    v="${v//$'\x1d'/\\u001d}"; v="${v//$'\x1e'/\\u001e}"
+    v="${v//$'\x1f'/\\u001f}"; v="${v//$'\x7f'/\\u007f}"
     printf '%s' "$v"
 }
 
@@ -250,9 +293,24 @@ esac
 # drift. It writes nothing without --heal, and healing here would be wrong:
 # the map's source of authority is the git index, and mid-build drift is
 # expected rather than actionable.
+#
+# Gate on exit code 3 SPECIFICALLY, not on "nonzero". `check` uses 3 for drift
+# and 1 for its own failure — a missing .maps.lock, an unparseable one, a Node
+# that starts but throws. Treating every nonzero as drift reports "the system
+# map is stale" for a checker that never got far enough to have an opinion,
+# which sends the summarizer looking for a divergence that does not exist and
+# hides the real fault (the checker is broken) behind a plausible one. An
+# unreadable checker is not evidence about the map, so it is reported as
+# neither drifted nor clean.
 MAP_DRIFTED=0
 if node_available "system map drift check" 2>/dev/null; then
-    if ! (cd "$PROJECT_ROOT" && node scripts/system-map.ts check >/dev/null 2>&1); then
+    MAP_RC=0
+    (cd "$PROJECT_ROOT" && node scripts/system-map.ts check >/dev/null 2>&1) || MAP_RC=$?
+    # `if`, not `[ … ] && MAP_DRIFTED=1`: an && list whose left side fails is
+    # the last command of this block, and leaving a compound statement with a
+    # nonzero status under `set -e` plus an ERR trap is not worth the two saved
+    # characters.
+    if [ "$MAP_RC" -eq 3 ]; then
         MAP_DRIFTED=1
     fi
 fi
@@ -377,12 +435,18 @@ if [ -z "$RECENT" ]; then
             A*)    ctype="created" ;;
             *)     ctype="modified" ;;
         esac
-        # -z hands back raw bytes, which is the point — but raw bytes include
-        # the four characters a double-quoted scalar reserves.
+        # -z hands back raw bytes, which is the point — and raw bytes are not
+        # limited to the handful of characters a double-quoted scalar reserves.
+        # A POSIX filename may contain any byte except `/` and NUL, so the whole
+        # C0 range is in scope; yaml_escape covers it. (`st` goes through the
+        # same function: it is two bytes of `git status` output, which is not
+        # attacker-controlled today, but it is interpolated into a quoted scalar
+        # exactly like the path is and there is no reason for the two to differ.)
         SAFE_PATH=$(yaml_escape "$fpath")
+        SAFE_ST=$(yaml_escape "$st")
         MODIFIED_FILES_YAML="${MODIFIED_FILES_YAML}  - path: \"${SAFE_PATH}\"
     change_type: ${ctype}
-    summary: \"uncommitted change (git status ${st})\"
+    summary: \"uncommitted change (git status ${SAFE_ST})\"
 "
     done < <(git -C "$PROJECT_ROOT" status --porcelain -z --untracked-files=all 2>/dev/null || true)
 
@@ -469,5 +533,12 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
     wc -c < "$TRANSCRIPT" > "$LOG_DIR/.compact-base-$SESSION_ID" 2>/dev/null || true
 fi
 rm -f "$LOG_DIR/.compact-nudged-$SESSION_ID"
+# The nudge CLAIM as well as the marker. compact-suggest.sh arbitrates
+# concurrent firings by creating this directory and releases it itself when the
+# emit fails, but a firing killed between the two leaves it behind, and a
+# leftover claim silences the nudge for every later cycle. Retiring the cycle is
+# the one moment that is unambiguously safe to clear it: no firing of this
+# session's hook is mid-emit while the runtime is blocked in PreCompact.
+rmdir "$LOG_DIR/.compact-nudging-$SESSION_ID" 2>/dev/null || true
 
 exit 0

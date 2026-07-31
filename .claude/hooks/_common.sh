@@ -37,10 +37,17 @@ resolve_project_path() {
     # If resolution produced empty string, fail
     [ -z "$resolved" ] && return 1
 
-    # Reject path traversal (explicit defense against ..)
-    case "$resolved" in
-        *..* ) return 1 ;;
-    esac
+    # There is deliberately no `case "$resolved" in *..*) return 1` here. It
+    # read as defence in depth and was neither: `$resolved` is the OUTPUT of
+    # `realpath`, which has already collapsed every `..` component, so the
+    # pattern cannot match a traversal attempt — the containment check below is
+    # what actually stops one, and it stops it on the canonical path where the
+    # question is decidable. What the pattern DID match is a literal `..` in a
+    # legitimate name: a checkout at `~/src/my..project`, or any file whose
+    # basename contains two dots in a row, was rejected outright, and the
+    # callers read a rejection as "not ours" and silently skip it. A guard that
+    # can only produce false negatives is worse than no guard, because it is
+    # counted as coverage.
 
     # Verify resolved path is inside project root
     if [[ "$resolved" != "$project_root"/* ]]; then

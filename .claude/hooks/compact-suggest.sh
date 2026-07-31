@@ -79,29 +79,70 @@ mkdir -p "$LOG_DIR"
 # The window auto-compaction measures against, and the percentage of it at
 # which compaction fires. Both are read from the same env vars the runtime
 # uses, so the nudge tracks the trigger instead of guessing at it.
-WINDOW=$(printf '%s' "${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-200000}" | tr -cd '0-9')
-[ -n "$WINDOW" ] && [ "$WINDOW" -gt 0 ] 2>/dev/null || WINDOW=200000
+# Reject, do not scrub. `tr -cd '0-9'` deletes the characters that make a value
+# wrong and keeps the digits that surround them, which turns malformed input
+# into a plausible-looking number instead of a rejected one:
+#   0.9  -> 09   — a leading zero, which `$((…))` reads as OCTAL. `09` is not a
+#                  valid octal literal, so the arithmetic below ABORTS the hook.
+#   1e6  -> 16   — a 16-token window. Every nudge fires, every turn.
+#   -5   -> 5    — the sign is deleted and the negation is silently inverted.
+# None of these is a number the caller asked for, and each fails somewhere far
+# from the assignment. A value that is not a plain non-negative integer is not
+# repairable; the only safe reading of it is "unset", so it falls back to the
+# default the same way an absent variable does.
+#
+# `10#` on every arithmetic use of these below, so a caller who legitimately
+# writes `075` gets 75 rather than 61.
+posint_or_default() {
+    case "$1" in
+        ''|*[!0-9]*) printf '%s' "$2"; return ;;
+    esac
+    if [ "$((10#$1))" -gt 0 ] 2>/dev/null; then
+        printf '%s' "$((10#$1))"
+    else
+        printf '%s' "$2"
+    fi
+}
 
-COMPACT_PCT=$(printf '%s' "${CLAUDE_AUTOCOMPACT_PCT_OVERRIDE:-75}" | tr -cd '0-9')
-[ -n "$COMPACT_PCT" ] && [ "$COMPACT_PCT" -gt 0 ] 2>/dev/null || COMPACT_PCT=75
+WINDOW=$(posint_or_default "${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}" 200000)
+COMPACT_PCT=$(posint_or_default "${CLAUDE_AUTOCOMPACT_PCT_OVERRIDE:-}" 75)
+# A percentage at or above 100 never triggers, which would make the derived
+# nudge threshold meaningless rather than merely generous.
+[ "$COMPACT_PCT" -lt 100 ] || COMPACT_PCT=75
 
 # Nudge with 15 points of headroom below the compaction threshold — at a 200k
 # window that is ~30k tokens, ample for a handoff turn. Derived from the
 # trigger rather than asserted, so raising the threshold moves the nudge with
 # it. Overridable for sessions that want more or less runway.
-NUDGE_PCT="${PROJECT_OS_COMPACT_NUDGE_PCT:-}"
-if [ -z "$NUDGE_PCT" ]; then
-    NUDGE_PCT=$((COMPACT_PCT - 15))
-    [ "$NUDGE_PCT" -ge 20 ] || NUDGE_PCT=20
-fi
+#
+# The override goes through the same validation as the runtime's own vars — it
+# was previously taken verbatim, so `PROJECT_OS_COMPACT_NUDGE_PCT=abc` reached
+# the `-ge` comparison as a non-numeric and, under `set -e`, killed the hook on
+# every tool call for the rest of the session. A value at or above COMPACT_PCT
+# is not a nudge at all (the compaction it is warning about has already fired),
+# so it is rejected rather than clamped: clamping would silently deliver
+# behaviour the caller did not ask for.
+DERIVED_NUDGE_PCT=$((COMPACT_PCT - 15))
+[ "$DERIVED_NUDGE_PCT" -ge 20 ] || DERIVED_NUDGE_PCT=20
+NUDGE_PCT=$(posint_or_default "${PROJECT_OS_COMPACT_NUDGE_PCT:-}" "$DERIVED_NUDGE_PCT")
+[ "$NUDGE_PCT" -lt "$COMPACT_PCT" ] || NUDGE_PCT="$DERIVED_NUDGE_PCT"
 
 # Fallback only: transcript-byte growth since the last compaction, used when
 # no usage record can be read (e.g. a transcript format change).
-NUDGE_BYTES="${PROJECT_OS_COMPACT_NUDGE_BYTES:-1200000}"
+NUDGE_BYTES=$(posint_or_default "${PROJECT_OS_COMPACT_NUDGE_BYTES:-}" 1200000)
 
 INPUT=$(cat 2>/dev/null || true)
-SESSION_ID=$(session_id_from_json "$INPUT")
-TRANSCRIPT=$(json_string_field "$INPUT" transcript_path)
+
+# Every top-level key this hook reads — `session_id`, `transcript_path`,
+# `hook_event_name`, `tool_name`, `agent_id` — is serialized ahead of
+# `tool_input`. Extracting from the truncated prefix rather than the whole
+# payload makes that a structural fact instead of an assumption; see the long
+# note at the `agent_id` read for the failure it prevents. `%%` is a bash string
+# operation on a variable already in memory, so this costs no re-read.
+PAYLOAD_PREFIX="${INPUT%%\"tool_input\"*}"
+
+SESSION_ID=$(session_id_from_json "$PAYLOAD_PREFIX")
+TRANSCRIPT=$(json_string_field "$PAYLOAD_PREFIX" transcript_path)
 
 # ── Record which session authored a handoff ─────────────────────────────────
 # Handoff filenames carry a timestamp but no session identifier, so two Claude
@@ -174,7 +215,20 @@ TRANSCRIPT=$(json_string_field "$INPUT" transcript_path)
 # itself is conditioned on it. It is part of the payload prefix, ahead of
 # `tool_input`, so first-match extraction of it cannot be beaten by file
 # contents — the same ordering argument as `tool_name` and `agent_id`.
-HOOK_EVENT=$(json_string_field "$INPUT" hook_event_name)
+#
+# ANCHORED, not merely argued. The ordering claim above is correct about where
+# these keys sit, but first-match extraction over the WHOLE payload only wins
+# the race when a genuine key exists to be found first. When one is ABSENT the
+# argument collapses: nothing shadows a later occurrence, and the first match is
+# then whatever the tool payload happens to contain. `tool_response` is
+# serialized as a structured object whose nested JSON is not escaped, so a file
+# whose contents include `"agent_id":"..."` is read as this firing's agent id on
+# any CLI old enough not to send one — and since it will not equal the session
+# id, the hook exits silently on every tool call for the rest of the session.
+# Truncating at `"tool_input"` makes the prefix a fact rather than an
+# expectation. If the key is absent from the prefix it is absent, full stop.
+# PAYLOAD_PREFIX is computed once, just below the `cat`.
+HOOK_EVENT=$(json_string_field "$PAYLOAD_PREFIX" hook_event_name)
 
 # The payload path is canonicalized before anything looks at it. It arrives in
 # the OS's own spelling — on Windows `C:\Users\...`, still JSON-escaped to
@@ -182,7 +236,7 @@ HOOK_EVENT=$(json_string_field "$INPUT" hook_event_name)
 # `case` glob, the `-e` test, and the record line that pre-compact.sh will later
 # match against `find` output. Left raw, none of them match on Windows and the
 # whole ownership feature is inert without ever reporting a failure.
-TOOL_NAME=$(json_string_field "$INPUT" tool_name)
+TOOL_NAME=$(json_string_field "$PAYLOAD_PREFIX" tool_name)
 WRITTEN_PATH=""
 case "$TOOL_NAME" in
     Write|Edit|MultiEdit|NotebookEdit)
@@ -249,7 +303,7 @@ fi
 # cannot be beaten by file contents — the same ordering argument as `tool_name`
 # above. Sanitized the same way `session_id` is, so the two sides are
 # comparable rather than merely similar.
-AGENT_ID=$(json_string_field "$INPUT" agent_id | tr -cd '[:alnum:]_-')
+AGENT_ID=$(json_string_field "$PAYLOAD_PREFIX" agent_id | tr -cd '[:alnum:]_-')
 
 # An empty `agent_id` means the payload predates the field, NOT that this is
 # the main thread — reading absence as "main" would silently retire the guard
@@ -345,7 +399,17 @@ USAGE_AWK='
             else if (c == "}" || c == "]") { depth-- }
             else if (c == "\001") { if (depth == 1) is_asst = 1 }
             else if (c == "\002") { if (depth == 1) is_side = 1 }
-            else if (c == "\003") { nusage++; if (depth == 2) want = nusage }
+            # FIRST depth-2 usage key, not the last. An assistant record can
+            # carry more than one — `toolUseResult` is serialized as a
+            # structured object whose own JSON is not escaped, so a tool result
+            # that itself contains a `usage` object contributes a second depth-2
+            # key later in the same line. Unconditional assignment kept whichever
+            # came last, which is the tool payload rather than message.usage, and
+            # the hook then measured the wrong number with no way to tell.
+            # message.usage belongs to the record itself and is the earlier one.
+            # (No apostrophes in this program — it is a single-quoted bash
+            # string, and one would terminate it mid-awk.)
+            else if (c == "\003") { nusage++; if (depth == 2 && want == 0) want = nusage }
         }
         # Not this record type, or every usage key in it is nested deeper than
         # message.usage. Either way there is nothing here worth measuring.
@@ -505,8 +569,30 @@ fi
 # $SIGNAL is emitted inside a JSON string literal with no escaping step, so
 # every branch above must build it from digits and plain words only — no double
 # quotes, backslashes or newlines.
-printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"Context pressure: %s Run /tools:handoff now, while the full context is still available, and give it a compact_instruction tuned to the current task — the PreCompact hook forwards that instruction to the compaction summarizer. A handoff written after compaction cannot recover what compaction discarded."}}\n' "$SIGNAL"
+# …but "spend after" alone is not mutual exclusion. `[ -f "$NUDGED_FILE" ]` above
+# is a read, `touch` below is the act, and the whole measurement path sits
+# between them: parallel tool calls all fire this hook, all find no marker, and
+# all emit. Three concurrent firings produced three nudges on every trial.
+#
+# `mkdir` is the arbitration — it is atomic and it FAILS for the loser, which
+# `touch`, `>`, and `[ -f ]` do not. Taken here rather than at the check above
+# so that everything B4 established still holds: no marker is spent by a firing
+# that measured its way to an early `exit 0`, and the claim is one statement
+# away from delivery instead of a whole measurement path away.
+#
+# The remaining sliver — a claim taken and the emit then failing (closed stdout,
+# full disk) — is what B4 refused to accept, so it is released rather than left
+# holding: `rmdir` puts the cycle's nudge back on offer for a later tool call.
+# A firing killed outright between the two leaves the directory behind; that is
+# the one unrecoverable case, and pre-compact.sh clears it with the marker at
+# the end of the cycle.
+NUDGE_CLAIM="$LOG_DIR/.compact-nudging-$SESSION_ID"
+mkdir "$NUDGE_CLAIM" 2>/dev/null || exit 0
 
-touch "$NUDGED_FILE"
+if printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"Context pressure: %s Run /tools:handoff now, while the full context is still available, and give it a compact_instruction tuned to the current task — the PreCompact hook forwards that instruction to the compaction summarizer. A handoff written after compaction cannot recover what compaction discarded."}}\n' "$SIGNAL"; then
+    touch "$NUDGED_FILE"
+else
+    rmdir "$NUDGE_CLAIM" 2>/dev/null || true
+fi
 
 exit 0

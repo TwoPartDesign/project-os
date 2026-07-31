@@ -222,3 +222,61 @@ Beyond the eligibility test itself: every successful auto-apply lands as a **sep
 **Rationale**: A hook cannot write a handoff — only the model holds the decisions and rationale worth preserving, and `pre-compact.sh` can see nothing but ROADMAP markers and `git status`. So the honest design is: ask the model early enough that it still has the context to answer, then carry its answer forward to the summarizer. Both halves use channels verified against the shipped runtime rather than inferred from documentation — and the same discipline, applied a second time, is what removed the byte proxy: the claim that hooks are not given a token count turned out to be another unverified assumption about what a channel carries. Both the trigger and the nudge are now measured against the same window in the same unit, so neither needs calibration. Handoff freshness is scoped to the compaction cycle (`-newer` a marker touched at each compaction) rather than to a wall-clock window, which removes the last tuned constant and makes each handoff single-use.
 
 **Note**: configuring any PreCompact hook disables the runtime's precompute reuse (`miss_hook`), so the proactive path recomputes each time. Accepted — correctness of the handoff chain over a saved recomputation.
+
+---
+
+## 2026-07-30 — Hooks Execute Working-Tree Scripts, Repo-Wide (Accepted Boundary)
+
+**Decision**: Project OS hooks invoke scripts from the **working tree**, not from a
+verified or pinned copy, and this is accepted as a known property rather than
+treated as a defect to fix. Five hooks reach outside themselves this way:
+
+| Hook | What it executes from the working tree |
+|---|---|
+| `.claude/hooks/pre-compact.sh` | `node scripts/system-map.ts check` |
+| `.claude/hooks/session-start-setup.sh` | `bash scripts/setup.sh --check` |
+| `.claude/hooks/session-start-maintain.sh` | `bash scripts/maintain.sh` |
+| `.claude/hooks/post-write-session.sh` | `bash scripts/scrub-secrets.sh` |
+| `.claude/hooks/output-index.sh` | `node scripts/knowledge-index.ts` (config, `index`, `index-observations`) and `node scripts/observation-parser.ts` |
+
+**What this means concretely**: opening an untrusted clone of a Project OS
+repository in Claude Code runs that clone's `scripts/` — `setup.sh` and
+`maintain.sh` fire on `SessionStart`, before the operator has read a single
+file, and `system-map.ts` fires at every compaction. An attacker who controls
+the repository controls those scripts. `.claude/settings.json` travels with a
+clone, so the wiring arrives with the payload. Nothing in the chain checks a
+signature, a hash, or an allowlist; `.claude/manifest.json` records hashes for
+*update* reconciliation, not for execution gating, and is itself part of the
+clone.
+
+**Alternatives Considered**:
+- **Hash-pin every invoked script against `manifest.json` before executing it**
+  — rejected: the manifest ships inside the same clone, so a hostile repo
+  updates both halves and the check certifies its own payload. Real pinning
+  needs an out-of-band trust root, which a template distributed by `git clone`
+  does not have.
+- **Refuse to run the `SessionStart` hooks until the operator marks a checkout
+  trusted** — rejected as misplaced. The trust decision is "should this
+  repository run code on my machine", and the platform already owns it: the
+  same clone can ship `.claude/settings.json` hook entries, a `package.json`
+  `postinstall`, a git hook, or an MCP server definition. A gate on five
+  Project OS scripts leaves every one of those open while implying the
+  question has been answered.
+- **Move the invoked scripts under `.claude/` and treat that tree as
+  privileged** — rejected: relocation is not a boundary. The directory is as
+  clone-controlled as `scripts/` is.
+
+**Rationale**: The boundary that matters is *cloning an untrusted repository and
+opening it in an agent runtime*, and it sits above Project OS. Mitigating one
+of its many expressions would buy no security while creating the impression
+that the class is handled — the failure mode recorded in
+`patterns.md` → *"Mitigate Against the Platform's Real Surface, Not Its
+Defaults"*. Project OS is a governance layer for a solo developer working in
+repositories they own; within that model, executing the working tree is the
+intended behaviour, because the working tree is what the operator is editing
+and wants the hooks to reflect.
+
+**Consequence, stated so it is not rediscovered as a finding**: do not open an
+untrusted Project OS clone in Claude Code. There is no in-repo control that
+makes doing so safe, and none of the five hooks above should acquire one on the
+theory that it adds defence in depth.

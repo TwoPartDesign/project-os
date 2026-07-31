@@ -19,7 +19,11 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-REAL_HOOKS="$PROJECT_ROOT/.claude/hooks"
+# Overridable so the suite can be pointed at a deliberately-unfixed copy of the
+# hooks (`git show <ref>:.claude/hooks/...` into a directory) and each new
+# assertion confirmed to FAIL there. An assertion that has never been observed
+# failing is not evidence; it is decoration.
+REAL_HOOKS="${PROJECT_OS_TEST_HOOKS:-$PROJECT_ROOT/.claude/hooks}"
 
 PASS=0
 FAIL=0
@@ -2156,6 +2160,280 @@ write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "ENABLED instruction"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | env -u PROJECT_OS_COMPACT_DISABLE bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_contains "killSwitch_unset_hooksStillRun" "$OUT" "ENABLED instruction"
+
+echo ""
+echo "environment validation (reject, don't scrub):"
+
+# The four tunables were read through `tr -cd '0-9'`, which does not validate a
+# value — it DELETES the characters that make it wrong and keeps the digits
+# around them. Every case below arrived as a plausible number on the other side,
+# so nothing downstream could tell it had been mangled. Rejection restores the
+# only safe reading of a malformed tunable: the operator did not successfully
+# set one, so use the default.
+
+# env_windowInExponentNotation_rejectedNotScrubbed
+# `1e6` scrubbed to `16`. A 16-token window puts every session past every
+# threshold, so the hook nudged on the first tool call of a fresh session and on
+# every one after it — the failure presents as the feature being far too eager,
+# never as a bad environment variable.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/t.jsonl" 1000 0 0
+OUT=$(run_suggest "$SB" "$SB/t.jsonl" CLAUDE_CODE_AUTO_COMPACT_WINDOW=1e6)
+assert_not_contains "env_windowInExponentNotation_rejectedNotScrubbed" \
+    "$OUT" "Context pressure"
+
+# env_windowNegative_rejectedNotStrippedOfSign
+# `-5` scrubbed to `5`: the sign is what made it invalid, and it is exactly what
+# `tr -cd` removes. A five-token window is the same runaway as above.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/t.jsonl" 1000 0 0
+OUT=$(run_suggest "$SB" "$SB/t.jsonl" CLAUDE_CODE_AUTO_COMPACT_WINDOW=-5)
+assert_not_contains "env_windowNegative_rejectedNotStrippedOfSign" \
+    "$OUT" "Context pressure"
+
+# env_compactPctWithDecimalPoint_rejectedNotScrubbedToOctal
+# `0.9` scrubbed to `09`, and `09` is not a valid octal literal, so the very
+# next `$((COMPACT_PCT - 15))` aborted the hook under `set -e`. The nudge did
+# not fire wrongly — it stopped existing, silently, for the whole session.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/t.jsonl" 130000 0 0
+OUT=$(run_suggest "$SB" "$SB/t.jsonl" CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=0.9)
+assert_contains "env_compactPctWithDecimalPoint_rejectedNotScrubbedToOctal" \
+    "$OUT" "Context pressure"
+
+# env_nudgePctNegative_rejectedNotStrippedOfSign
+# `-5` scrubbed to `5` set the nudge threshold to 5% of the window: a nudge on
+# essentially every tool call, spending the cycle's single nudge at the moment
+# it is least useful.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/t.jsonl" 20000 0 0
+OUT=$(run_suggest "$SB" "$SB/t.jsonl" PROJECT_OS_COMPACT_NUDGE_PCT=-5)
+assert_not_contains "env_nudgePctNegative_rejectedNotStrippedOfSign" \
+    "$OUT" "Context pressure"
+
+# env_nudgeBytesInExponentNotation_fallsBackInsteadOfDisablingTheFallback
+# The byte-growth fallback, reached when no usage record parses. This one was
+# not scrubbed at all — it went straight into `[ "$DELTA" -ge "$NUDGE_BYTES" ]`,
+# where a non-numeric operand makes the test ERROR, and the `|| exit 0` beside it
+# reads that error as "below threshold". A typo in one environment variable
+# turned the entire fallback off, silently, for every session that inherited it.
+# 2 MB of growth is unambiguously past any sane threshold and must still nudge.
+SB="$(new_sandbox)"
+head -c 2000000 /dev/zero 2>/dev/null | tr '\0' 'x' > "$SB/t.jsonl"
+OUT=$(run_suggest "$SB" "$SB/t.jsonl" PROJECT_OS_COMPACT_NUDGE_BYTES=1e3)
+assert_contains "env_nudgeBytesInExponentNotation_fallsBackInsteadOfDisablingTheFallback" \
+    "$OUT" "Context pressure"
+
+# env_validOverridesStillHonoured
+# The control the five assertions above need: rejecting everything satisfies all
+# of them. A well-formed override must still take effect, or "validation" is
+# indistinguishable from "ignore the environment".
+SB="$(new_sandbox)"
+make_token_transcript "$SB/t.jsonl" 20000 0 0
+OUT=$(run_suggest "$SB" "$SB/t.jsonl" PROJECT_OS_COMPACT_NUDGE_PCT=5)
+assert_contains "env_validOverridesStillHonoured" "$OUT" "Context pressure"
+
+echo ""
+echo "payload-field extraction (prefix-bounded):"
+
+# tokens_recordWithTwoDepth2UsageKeys_firstOneWins
+# `toolUseResult` is a structured object whose nested JSON is NOT escaped, so a
+# tool result that itself reports usage contributes a second depth-2 `usage` key
+# to the same record. The walk took the LAST one, which is the tool's accounting
+# of its own call — a few hundred tokens — and reported it as the size of the
+# conversation. The real measurement is `message.usage`, and it is the earlier
+# of the two.
+SB="$(new_sandbox)"
+printf '{"type":"user","message":{"role":"user","content":"hello"}}\n' > "$SB/t.jsonl"
+printf '{"type":"assistant","isSidechain":false,"message":{"role":"assistant","usage":{"input_tokens":130000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":42}},"toolUseResult":{"usage":{"input_tokens":10,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":1}}}\n' \
+    >> "$SB/t.jsonl"
+OUT=$(run_suggest "$SB" "$SB/t.jsonl")
+assert_contains "tokens_recordWithTwoDepth2UsageKeys_firstOneWins" \
+    "$OUT" "Context is at 65%"
+
+# agentId_appearingOnlyInsideToolResponse_notReadAsThisFiring
+# The old extraction searched the whole payload and relied on "the real keys
+# come first". That holds only while the key EXISTS: when the runtime sends no
+# `agent_id`, nothing shadows an occurrence later in the payload, and a
+# STRUCTURED tool result carrying its own `agent_id` field — a Task result is
+# exactly that — was read as this firing's identity. It never equals
+# `session_id`, so the sub-agent guard exited, and kept exiting for the rest of
+# the session on every payload of the same shape.
+#
+# The occurrence has to be unescaped to matter, which is why this fixture uses an
+# object rather than a quoted string: inside a JSON string the runtime writes
+# `\"agent_id\"`, and the backslash already defeats the naive extraction. A
+# nested object is where the raw key survives.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/t.jsonl" 130000 0 0
+OUT=$(printf '{"session_id":"s1","transcript_path":"%s","hook_event_name":"PostToolUse","tool_name":"Read","tool_input":{"file_path":"%s"},"tool_response":{"agent_id":"agentevil","content":"result body"}}' \
+        "$SB/t.jsonl" "$SB/t.jsonl" \
+    | env -u PROJECT_OS_COMPACT_NUDGE_PCT -u PROJECT_OS_COMPACT_NUDGE_BYTES \
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 \
+          CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75 \
+          bash "$SB/.claude/hooks/compact-suggest.sh" 2>/dev/null)
+assert_contains "agentId_appearingOnlyInsideToolResponse_notReadAsThisFiring" \
+    "$OUT" "Context pressure"
+
+# agentId_realSubAgentFiring_stillSuppressed
+# The control for the assertion above: bounding the search must not disable the
+# sub-agent guard. A genuine `agent_id`, which the runtime serializes ahead of
+# `tool_input`, is inside the prefix and still suppresses the nudge.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/t.jsonl" 130000 0 0
+OUT=$(run_suggest_as "$SB" "$SB/t.jsonl" "subagent7")
+assert_not_contains "agentId_realSubAgentFiring_stillSuppressed" \
+    "$OUT" "Context pressure"
+
+echo ""
+echo "nudge mutual exclusion:"
+
+# nudge_threeConcurrentFirings_emitsExactlyOne
+# `[ -f "$NUDGED_FILE" ]` is a read and `touch` is the act, with the entire
+# measurement path between them. Parallel tool calls all fire this hook, all
+# find no marker, and all emit — three concurrent firings produced three nudges
+# on every trial. `mkdir` is the arbitration because it is atomic and it FAILS
+# for the loser, which `touch`, `>` and `[ -f ]` do not.
+SB="$(new_sandbox)"
+make_token_transcript "$SB/t.jsonl" 130000 0 0
+for i in 1 2 3; do
+    run_suggest "$SB" "$SB/t.jsonl" > "$SB/concurrent-$i.out" &
+done
+wait
+NUDGE_COUNT=0
+for i in 1 2 3; do
+    case "$(cat "$SB/concurrent-$i.out" 2>/dev/null)" in
+        *"Context pressure"*) NUDGE_COUNT=$((NUDGE_COUNT + 1)) ;;
+    esac
+done
+assert_eq "nudge_threeConcurrentFirings_emitsExactlyOne" "$NUDGE_COUNT" "1"
+
+# nudge_claimDirectory_clearedByPreCompact
+# The claim outlives a firing killed between `mkdir` and delivery. Left behind,
+# it suppresses every future nudge in the session — a fail-closed leak. The end
+# of the compaction cycle is where it is cleared, alongside the spent marker.
+SB="$(new_sandbox)"
+mkdir -p "$SB/.claude/logs/.compact-nudging-s1"
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "instruction body"
+printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
+if [ -d "$SB/.claude/logs/.compact-nudging-s1" ]; then
+    bad "nudge_claimDirectory_clearedByPreCompact — claim survived the cycle"
+else
+    ok "nudge_claimDirectory_clearedByPreCompact"
+fi
+
+echo ""
+echo "system-map drift (exit code 3 specifically):"
+
+# map_checkerFailsToRun_notReportedAsDrift
+# `system-map.ts check` uses exit 3 for "the map is stale" and 1 for "the
+# checker itself failed" — a syntax error, a missing dependency, a throw.
+# Gating on "nonzero" turned a checker that never formed an opinion into a
+# confident claim that the map is wrong, which sends the reader to re-derive
+# hook wiring from source for nothing.
+SB="$(new_sandbox)"
+printf 'process.exit(1);\n' > "$SB/scripts/system-map.ts"
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "instruction body"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_not_contains "map_checkerFailsToRun_notReportedAsDrift" "$OUT" "drifted"
+
+# map_checkerReportsDrift_stillSurfaced
+# The control: exit 3 must still reach the reader, or the fix above is just a
+# way of never mentioning drift.
+SB="$(new_sandbox)"
+drift_the_map "$SB"
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "instruction body"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "map_checkerReportsDrift_stillSurfaced" "$OUT" "drifted"
+
+echo ""
+echo "checkpoint YAML escaping (C0 control characters):"
+
+# checkpoint_roadmapTextWithControlChars_escapedNotEmittedRaw
+# A double-quoted YAML scalar admits no raw C0 byte, not just `"` and `\`. The
+# comment above the escaper claimed the four characters it handled were "the
+# four a double-quoted scalar reserves", which is false and is why nobody looked
+# for the rest. `\r` is the arm that fires in practice: ROADMAP.md is CRLF here,
+# so every description carries one.
+SB="$(new_sandbox)"
+{
+    printf '# ROADMAP\n\n'
+    printf '## Feature: control-chars\n\n'
+    printf -- '- [-] Alpha\rBeta gamma #T907\n'
+    printf -- '- [-] Delta\x1bEpsilon zeta #T908\n'
+    printf -- '- [-] Eta\x01Theta iota #T909\n'
+} > "$SB/ROADMAP.md"
+printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
+CP=$(find "$SB/.claude/sessions" -name 'auto-checkpoint-*.yaml' -type f 2>/dev/null | head -1)
+if [ -n "$CP" ]; then
+    BODY=$(cat "$CP")
+    assert_contains "checkpoint_carriageReturnInRoadmap_escapedForYaml" \
+        "$BODY" 'description: "Alpha\rBeta gamma"'
+    assert_contains "checkpoint_escapeCharInRoadmap_escapedForYaml" \
+        "$BODY" 'description: "Delta\eEpsilon zeta"'
+    # A C0 byte with no short mnemonic takes the \uXXXX form. Built from a
+    # variable rather than written inline so the expectation cannot itself be
+    # decoded into the raw byte it is asserting the absence of.
+    BS='\'
+    assert_contains "checkpoint_genericC0InRoadmap_escapedAsUnicodeForYaml" \
+        "$BODY" "description: \"Eta${BS}u0001Theta iota\""
+    # The escaping exists so the value cannot end the scalar, so the property is
+    # "no raw control byte survives into a double-quoted region", independent of
+    # which arm produced the escape. Scoped to those lines deliberately: the
+    # block scalar below keeps ROADMAP text verbatim by design, which
+    # checkpoint_blockScalar_keepsRoadmapTextRaw pins.
+    DESC_LINES=$(grep 'description: "' "$CP" 2>/dev/null || true)
+    case "$DESC_LINES" in
+        *$'\r'*|*$'\033'*|*$'\001'*)
+            bad "checkpoint_controlChars_noRawByteSurvivesIntoQuotedScalar — raw control byte in a quoted scalar" ;;
+        *)  ok "checkpoint_controlChars_noRawByteSurvivesIntoQuotedScalar" ;;
+    esac
+    assert_contains "checkpoint_controlCharsInRoadmap_laterFieldsStillWritten" \
+        "$BODY" "compact_instruction:"
+else
+    bad "checkpoint_roadmapTextWithControlChars_escapedNotEmittedRaw — no checkpoint written"
+fi
+
+echo ""
+echo "_common.sh path containment:"
+
+# containment_pathWithDoubledDotInDirectoryName_accepted
+# `case "$resolved" in *..*) return 1` ran on the OUTPUT of `realpath`, which has
+# already collapsed every `..` component — so it could not match a traversal
+# attempt, only a legitimate name. A checkout at `~/src/my..project` had every
+# file rejected, and the callers read a rejection as "not ours" and silently
+# skipped it. A guard that can only produce false negatives is worse than none,
+# because it is counted as coverage.
+SB="$(new_sandbox)"
+DOTROOT="$SB/my..project"
+mkdir -p "$DOTROOT/.claude/hooks" "$DOTROOT/docs"
+cp "$REAL_HOOKS/_common.sh" "$DOTROOT/.claude/hooks/"
+printf 'content\n' > "$DOTROOT/docs/note.md"
+RESOLVED=$(
+    source "$DOTROOT/.claude/hooks/_common.sh"
+    resolve_project_path "$DOTROOT/docs/note.md" 2>/dev/null
+)
+if [ -n "$RESOLVED" ]; then
+    ok "containment_pathWithDoubledDotInDirectoryName_accepted"
+else
+    bad "containment_pathWithDoubledDotInDirectoryName_accepted — legitimate path rejected"
+fi
+
+# containment_traversalOutsideProject_stillRejected
+# The control: the containment test on the canonical path is what actually stops
+# an escape, and removing the `..` pattern must not have removed that.
+OUTSIDE=$(mktemp -d)
+SANDBOXES+=("$OUTSIDE")
+printf 'secret\n' > "$OUTSIDE/target.md"
+RESOLVED=$(
+    source "$DOTROOT/.claude/hooks/_common.sh"
+    resolve_project_path "$DOTROOT/docs/../../../$(basename "$OUTSIDE")/target.md" 2>/dev/null
+)
+assert_eq "containment_traversalOutsideProject_stillRejected" "$RESOLVED" ""
 
 echo ""
 echo "hook registration (.claude/settings.json):"

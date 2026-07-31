@@ -179,6 +179,7 @@ flowchart LR
   h_session_end_cleanup -->|sources| l_common
   h_tool_failure_log -->|sources| l_common
   l_policy -->|imports| l_project_root
+  s_compaction_hooks -->|sources| l_common
   s_dashboard -->|sources| l_json
   s_dashboard_render_test -->|imports| l_dashboard_render
   s_dashboard_server -->|imports| l_dashboard_render
