@@ -201,6 +201,53 @@ json_string_field() {
     echo "$input" | grep -oE "\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | sed "s/.*\"$key\"[^\"]*\"//;s/\".*//" | head -1 || true
 }
 
+# Read the hook payload from stdin, bounded.
+#
+# Sets INPUT to at most $1 bytes (default 256 KiB, overridable per-run with
+# PROJECT_OS_HOOK_PAYLOAD_BYTES) and HOOK_PAYLOAD_TRUNCATED to 1 if anything
+# followed. Assigns rather than echoes, because `INPUT=$(read_hook_payload)`
+# would run the body in a subshell where the truncation flag dies with it.
+#
+# `INPUT=$(cat)` is the single most expensive thing these hooks do. Measured on
+# this machine with a 20 MB PostToolUse payload: the slurp alone is 2.8s, while
+# `cat >/dev/null` over the same bytes is 88ms — bash command substitution
+# assembles the result byte-wise at roughly 7 MB/s. Every scan the hook then
+# performs adds a few hundred ms on top of that, so the read, not the parsing,
+# is what makes a large tool result cost seconds of hook time. Bounding it takes
+# the same payload to ~110ms. compact-suggest.sh and tool-failure-log.sh both
+# match `.*`, so this ran on every tool call.
+#
+# THE DRAIN IS NOT OPTIONAL. Stopping at $1 bytes leaves the rest of the payload
+# in the pipe; exiting without consuming it hands the writer EPIPE on a hook the
+# runtime had no reason to think failed. `wc -c` drains to EOF and reports what
+# it swallowed, which is also how truncation is detected — one cheap pass doing
+# both. Its output is discarded except for the count, so the bytes past the
+# bound cost nothing to hold.
+#
+# The bound is safe for the top-level keys these hooks read — session_id,
+# transcript_path, hook_event_name, tool_name are all serialized ahead of
+# tool_input — but NOT unconditionally safe for tool_input.file_path, which sits
+# inside the object that carries a written file's entire contents. A large
+# enough write can push it past the window. That is why the flag exists rather
+# than the bound being applied silently: a caller that needed a key and did not
+# find one can check whether the payload was cut and say so.
+read_hook_payload() {
+    local max="${1:-${PROJECT_OS_HOOK_PAYLOAD_BYTES:-262144}}"
+    case "$max" in ''|*[!0-9]*) max=262144 ;; esac
+    [ "$max" -gt 0 ] || max=262144
+
+    INPUT=$(head -c "$max" 2>/dev/null || true)
+
+    local rest
+    rest=$(wc -c 2>/dev/null || echo 0)
+    rest="${rest//[^0-9]/}"
+    if [ "${rest:-0}" -gt 0 ]; then
+        HOOK_PAYLOAD_TRUNCATED=1
+    else
+        HOOK_PAYLOAD_TRUNCATED=0
+    fi
+}
+
 # Get project root (useful for referencing project-relative paths in hooks)
 # Usage: root=$(get_project_root)
 get_project_root() {

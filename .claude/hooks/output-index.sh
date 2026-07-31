@@ -24,12 +24,17 @@ if ! node_available "large-output indexing (knowledge-index.ts)"; then
     exit 0
 fi
 
-INPUT=$(cat)
-
-# Write input to temp file so node can read it (heredoc consumes stdin)
+# Write input to temp file so node can read it (heredoc consumes stdin).
+#
+# Straight from stdin to the file — this hook never needs the payload in a bash
+# variable, and `INPUT=$(cat)` would be the most expensive line in it. Command
+# substitution assembles its result byte-wise at roughly 7 MB/s here, so a 20 MB
+# payload cost 2.8s to slurp and then be written straight back out; the redirect
+# does the same job in 88ms. This is the hook that exists BECAUSE outputs get
+# large, so it is the one that was paying that most often.
 INPUT_FILE=$(mktemp)
 EXTRACT_FILE=$(mktemp)
-printf '%s' "$INPUT" > "$INPUT_FILE"
+cat > "$INPUT_FILE"
 trap "rm -f '$INPUT_FILE' '$EXTRACT_FILE'" EXIT
 
 INPUT_PATH="$INPUT_FILE" node > "$EXTRACT_FILE" 2>/dev/null << 'EXTRACT_SCRIPT' || exit 0

@@ -6,17 +6,31 @@
 set -euo pipefail
 trap 'exit 0' ERR  # Advisory hook — never surface errors to Claude Code
 
-INPUT=$(cat)
+# This hook cannot bound its read the way the others do. `is_error` lives in
+# tool_response, which is serialized LAST, so a prefix window is exactly the
+# wrong end of the payload — bounding it would stop logging failures in
+# proportion to how much output the failing tool produced.
+#
+# So it never slurps. One grep streams stdin and keeps only the two facts this
+# hook is allowed to know, which reduces a 20 MB payload from a 2.8s bash
+# command substitution to a single linear scan whose result is a few dozen
+# bytes. The extractions below then run over that, not over the payload.
+#
+# Semantics are unchanged on purpose: `is_error` still matches anywhere in the
+# payload (it has always been able to match a tool's own output text — that is
+# pre-existing and out of scope here), and tool_name still takes the first
+# match, which is sound because it is a top-level key ahead of tool_input.
+FACTS=$(grep -aoE '"(tool_name|is_error)"[[:space:]]*:[[:space:]]*("[^"]*"|true|false)' 2>/dev/null || true)
 
 # Check for error indicators in the response (minimal string matching)
 IS_ERROR=false
-if echo "$INPUT" | grep -qE '"is_error"\s*:\s*true'; then
+if printf '%s\n' "$FACTS" | grep -qE '"is_error"[[:space:]]*:[[:space:]]*true'; then
     IS_ERROR=true
 fi
 
 if [ "$IS_ERROR" = "true" ]; then
     # Extract tool name only — never log content/output
-    TOOL_NAME=$(echo "$INPUT" | grep -oE '"tool_name"\s*:\s*"[^"]*"' | sed 's/.*"tool_name"[^"]*"//;s/".*//' || true)
+    TOOL_NAME=$(printf '%s\n' "$FACTS" | grep -oE '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"tool_name"[^"]*"//;s/".*//' || true)
     # Sanitize: allow only alphanumeric, underscore, hyphen to prevent log injection
     TOOL_NAME=$(echo "${TOOL_NAME:-unknown}" | tr -cd '[:alnum:]_-')
 

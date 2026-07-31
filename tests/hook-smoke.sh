@@ -292,6 +292,25 @@ assert_contains "toolFailureLog_punctuationInToolName_strippedNotEscaped" \
 assert_eq "toolFailureLog_punctuationInToolName_stillOneLine" 1 \
     "$(printf '%s\n' "$LOGGED" | grep -c 'FAIL tool=')"
 
+# #T148 bounded the payload read in the other hooks. This one deliberately does
+# NOT bound it, and this is the assertion that keeps that decision from being
+# tidied away by someone applying read_hook_payload uniformly. `is_error` is in
+# tool_response, which is serialized last, so a prefix window would drop
+# failures in proportion to how much output the failing tool produced — the
+# loudest failures would be the ones that stopped being recorded.
+#
+# The bound is forced down to 64 bytes rather than padding the payload to
+# 256 KiB: same discrimination, no megabyte fixture. Any implementation that
+# honours the bound here sees a payload that ends before `is_error` and logs
+# nothing.
+SB=$(new_sandbox)
+FILLER=$(head -c 4096 /dev/zero | tr '\0' 'x')
+run_hook "$SB" tool-failure-log.sh \
+    "{\"tool_name\":\"Bash\",\"tool_response\":{\"content\":\"$FILLER\",\"is_error\":true}}" \
+    PROJECT_OS_HOOK_PAYLOAD_BYTES=64
+assert_contains "toolFailureLog_isErrorBeyondPayloadBound_stillLogged" \
+    "$(cat "$SB/.claude/logs/tool-failures.log" 2>/dev/null || true)" "FAIL tool=Bash"
+
 echo ""
 
 # ── post-tool-use.sh ────────────────────────────────────────────────────────
@@ -339,6 +358,44 @@ rm -rf "$SB/.claude/logs"
 run_hook "$SB" post-tool-use.sh "$EMPTY_INPUT"
 assert_eq "postToolUse_emptyJson_exitsZero" 0 "$HOOK_EXIT"
 assert_file_absent "postToolUse_emptyJson_noSideEffect" "$SB/.claude/logs"
+
+# #T148: the payload read is bounded, and the bound has a blind spot — file_path
+# lives inside tool_input, the object that also carries a written file's entire
+# contents, so a large enough write can push it past the window. The hook then
+# formats nothing. That is a defensible cost only if it is audible, so it says
+# so on stderr; a formatter that skips exactly the largest files in silence is
+# the failure this hook already carries one fix for.
+SB=$(new_sandbox)
+printf 'x\n' > "$SB/note.md"
+rm -rf "$SB/.claude/logs"
+run_hook "$SB" post-tool-use.sh \
+    "{\"tool_name\":\"Write\",\"arguments\":{\"file_path\":\"$SB/note.md\"}}" \
+    PROJECT_OS_HOOK_PAYLOAD_BYTES=16
+assert_contains "postToolUse_filePathBeyondBound_saysSoOnStderr" \
+    "$HOOK_ERR" "not formatting"
+assert_file_absent "postToolUse_filePathBeyondBound_noSideEffect" "$SB/.claude/logs"
+
+# The other half of the same bound: a payload far larger than the window still
+# works when the key is inside it, which is the ordinary case.
+#
+# This is also the drain assertion, and the filler is 256 KB for that reason
+# rather than for the file_path test above. The hook stops reading at 256 bytes;
+# if it then exited without consuming the rest, the writer takes EPIPE. A few KB
+# would not prove anything — the pipe buffer would swallow it and the writer
+# would never notice — so the filler has to exceed the buffer. The suite runs
+# under `set -o pipefail` and run_hook feeds the payload through a pipe, so a
+# writer killed by SIGPIPE surfaces as HOOK_EXIT 141: the exitsZero assertion
+# below is what fails when the drain is removed.
+SB=$(new_sandbox)
+printf 'x\n' > "$SB/note.md"
+rm -rf "$SB/.claude/logs"
+TAIL_FILLER=$(head -c 262144 /dev/zero | tr '\0' 'x')
+run_hook "$SB" post-tool-use.sh \
+    "{\"tool_name\":\"Write\",\"arguments\":{\"file_path\":\"$SB/note.md\"},\"output\":\"$TAIL_FILLER\"}" \
+    PROJECT_OS_HOOK_PAYLOAD_BYTES=256
+assert_eq "postToolUse_payloadPastBound_exitsZero" 0 "$HOOK_EXIT"
+assert_file_exists "postToolUse_payloadPastBound_keyInWindow_stillResolved" \
+    "$SB/.claude/logs"
 
 echo ""
 

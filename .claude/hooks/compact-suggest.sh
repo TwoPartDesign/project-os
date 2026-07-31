@@ -131,7 +131,7 @@ NUDGE_PCT=$(posint_or_default "${PROJECT_OS_COMPACT_NUDGE_PCT:-}" "$DERIVED_NUDG
 # no usage record can be read (e.g. a transcript format change).
 NUDGE_BYTES=$(posint_or_default "${PROJECT_OS_COMPACT_NUDGE_BYTES:-}" 1200000)
 
-INPUT=$(cat 2>/dev/null || true)
+read_hook_payload
 
 # Every top-level key this hook reads — `session_id`, `transcript_path`,
 # `hook_event_name`, `tool_name`, `agent_id` — is serialized ahead of
@@ -241,6 +241,15 @@ WRITTEN_PATH=""
 case "$TOOL_NAME" in
     Write|Edit|MultiEdit|NotebookEdit)
         WRITTEN_PATH=$(canonicalize_payload_path "$(json_string_field "$INPUT" file_path)")
+        # file_path is the one key this hook reads from INSIDE tool_input, and
+        # tool_input is the object carrying a written file's whole contents — so
+        # it is the one key the payload bound can cut off. Losing it means the
+        # write is not claimed, and an unclaimed handoff is one pre-compact.sh
+        # declines to forward. That is a decline with a cause worth naming; the
+        # rest of this file exists because the same class of failure was silent.
+        if [ -z "$WRITTEN_PATH" ] && [ "${HOOK_PAYLOAD_TRUNCATED:-0}" = "1" ]; then
+            echo "compact-suggest: payload exceeded ${PROJECT_OS_HOOK_PAYLOAD_BYTES:-262144} bytes and carried no file_path in that window — this write is not claimed" >&2
+        fi
         ;;
 esac
 
