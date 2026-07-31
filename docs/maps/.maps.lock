@@ -83,7 +83,7 @@
     "scripts/update-project.sh": "05bb501e1b3973c0e67b58b39f89c0b91ad413244a0c45d1ace1bc7cbfaffbd7",
     "scripts/validate-freshness.sh": "8dc557bd4e85b52858044ea12d9263f78941ef0dac36cc514f822ed425212274",
     "scripts/validate-roadmap.sh": "4bec58920f220f0666fef73557b2b5bb735b373ad38b21a56e4a74c6dc72e08f",
-    "tests/compaction-hooks.sh": "b3a3659c320e6e3d713a12eebda2f880f3ae1f0a5044e21c6b413c4eb01ebcbf",
+    "tests/compaction-hooks.sh": "7bba738fcb92e1099a9a321cfc5dc4bcd433c734d56b936e0688e283c26d6c4a",
     "tests/critical-rules.test.ts": "7761b205042f3b85fbdb572270c05f6d559ae506ceebb73050785cdf79f4fee8",
     "tests/dashboard-render.test.ts": "78e1adbc90c152718eb327e895b70423392d01b7b969ee0b493f4d892f9adfb2",
     "tests/dashboard-smoke.sh": "160409ecdd8e6abd1be584ad2cd4307773d90f666c28df36c85c5913c642bf4e",

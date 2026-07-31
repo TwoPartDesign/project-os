@@ -88,11 +88,32 @@ assert_eq() {
 }
 
 # ── Sandbox ─────────────────────────────────────────────────────────────────
-# Echoes the sandbox root. The caller uses $SB/.claude/hooks/<hook>.sh.
+# Sets $SB to a fresh sandbox root. The caller uses $SB/.claude/hooks/<hook>.sh.
+#
+# It also clears the four globals the tests share for hook output — SB, OUT, CP,
+# BODY. .claude/rules/tests.md forbids shared mutable state between test cases,
+# and this file is a linear script of ~150 cases that all write those same four
+# names, which is exactly the thing the rule is about. The hazard is specific: a
+# case that forgets to assign OUT (or reads BODY on a path where the checkpoint
+# was never parsed) silently asserts against the PREVIOUS case's output and
+# passes for a reason that has nothing to do with it.
+#
+# Clearing them here is what makes the deviation safe rather than merely
+# declared. Every case opens with new_sandbox — that is the case boundary — so
+# a stale read now sees an empty string and the assertion fails loudly instead
+# of inheriting a plausible value. The alternative, one function per case with
+# locals, is a mechanical rewrite of 2600 lines whose only gain over this is
+# style; the failure mode it removes is the one already removed here.
+#
+# This is why new_sandbox assigns instead of echoing: `new_sandbox` runs
+# the body in a subshell, where clearing the parent's globals does nothing.
 new_sandbox() {
     local sb
     sb="$(mktemp -d)"
     SANDBOXES+=("$sb")
+    OUT=""
+    CP=""
+    BODY=""
 
     mkdir -p "$sb/.claude/hooks" "$sb/.claude/sessions" "$sb/.claude/logs" "$sb/scripts"
     cp "$REAL_HOOKS/_common.sh" "$REAL_HOOKS/compact-suggest.sh" \
@@ -106,7 +127,7 @@ new_sandbox() {
     printf '# ROADMAP\n\n## Feature: sandbox-feature\n\n- [-] Sandbox task in progress #T900\n' \
         > "$sb/ROADMAP.md"
 
-    echo "$sb"
+    SB="$sb"
 }
 
 drift_the_map() {
@@ -366,7 +387,7 @@ echo ""
 echo "compact-suggest.sh:"
 
 # nudge_transcriptGrowthOverThreshold_emitsAdditionalContext
-SB="$(new_sandbox)"
+new_sandbox
 make_transcript "$SB/transcript.jsonl" 500
 OUT=$(printf '{"session_id":"s1","transcript_path":"%s"}' "$SB/transcript.jsonl" \
     | PROJECT_OS_COMPACT_NUDGE_BYTES=100 bash "$SB/.claude/hooks/compact-suggest.sh" 2>/dev/null)
@@ -376,14 +397,14 @@ assert_contains "nudge_message_namesHandoffCommand" "$OUT" "/tools:handoff"
 assert_contains "nudge_message_namesCompactInstructionField" "$OUT" "compact_instruction"
 
 # nudge_growthUnderThreshold_staysSilent
-SB="$(new_sandbox)"
+new_sandbox
 make_transcript "$SB/transcript.jsonl" 50
 OUT=$(printf '{"session_id":"s1","transcript_path":"%s"}' "$SB/transcript.jsonl" \
     | PROJECT_OS_COMPACT_NUDGE_BYTES=100000 bash "$SB/.claude/hooks/compact-suggest.sh" 2>/dev/null)
 assert_eq "nudge_growthUnderThreshold_staysSilent" "$OUT" ""
 
 # nudge_secondCallSameCycle_staysSilent  (one nudge per compaction cycle)
-SB="$(new_sandbox)"
+new_sandbox
 make_transcript "$SB/transcript.jsonl" 500
 PAYLOAD=$(printf '{"session_id":"s1","transcript_path":"%s"}' "$SB/transcript.jsonl")
 echo "$PAYLOAD" | PROJECT_OS_COMPACT_NUDGE_BYTES=100 bash "$SB/.claude/hooks/compact-suggest.sh" >/dev/null 2>&1
@@ -392,7 +413,7 @@ assert_eq "nudge_secondCallSameCycle_staysSilent" "$OUT" ""
 assert_file_exists "nudge_firstCall_writesNudgedMarker" "$SB/.claude/logs/.compact-nudged-s1"
 
 # nudge_transcriptSmallerThanBaseline_resetsBaselineWithoutNudging
-SB="$(new_sandbox)"
+new_sandbox
 printf '99999\n' > "$SB/.claude/logs/.compact-base-s1"
 make_transcript "$SB/transcript.jsonl" 500
 OUT=$(printf '{"session_id":"s1","transcript_path":"%s"}' "$SB/transcript.jsonl" \
@@ -402,7 +423,7 @@ NEW_BASE=$(tr -cd '0-9' < "$SB/.claude/logs/.compact-base-s1")
 assert_eq "nudge_transcriptSmallerThanBaseline_rewritesBaseline" "$NEW_BASE" "500"
 
 # nudge_missingTranscript_staysSilent
-SB="$(new_sandbox)"
+new_sandbox
 OUT=$(printf '{"session_id":"s1","transcript_path":"%s/nope.jsonl"}' "$SB" \
     | PROJECT_OS_COMPACT_NUDGE_BYTES=1 bash "$SB/.claude/hooks/compact-suggest.sh" 2>/dev/null)
 assert_eq "nudge_missingTranscript_staysSilent" "$OUT" ""
@@ -410,14 +431,28 @@ assert_eq "nudge_missingTranscript_staysSilent" "$OUT" ""
 # nudge_traversalSessionId_sanitizedIntoLogDir
 # "../../etc/passwd" must become "etcpasswd" — a marker inside .claude/logs/,
 # not a write that escapes it.
-SB="$(new_sandbox)"
+new_sandbox
 make_transcript "$SB/transcript.jsonl" 500
 printf '{"session_id":"../../etc/passwd","transcript_path":"%s"}' "$SB/transcript.jsonl" \
     | PROJECT_OS_COMPACT_NUDGE_BYTES=100 bash "$SB/.claude/hooks/compact-suggest.sh" >/dev/null 2>&1
 assert_file_exists "sessionId_traversal_sanitizedToLogDir" \
     "$SB/.claude/logs/.compact-nudged-etcpasswd"
-ESCAPED=$(find "$SB" -name '.compact-nudged-*' -not -path "$SB/.claude/logs/*" 2>/dev/null | head -1)
-assert_eq "sessionId_traversal_wroteNothingOutsideLogDir" "$ESCAPED" ""
+# There was a second assertion here — a `find "$SB" -not -path "$SB/.claude/logs/*"`
+# for a stray marker — and it is deleted rather than kept, because it could not
+# fail. It searched the SANDBOX for a write whose whole point is to land outside
+# it, so no mutant could put anything where it was looking.
+#
+# The containment it was reaching for is structural, not behavioural, and is
+# worth stating once here instead of asserting badly. The id is always a SUFFIX:
+# every marker is `$LOG_DIR/.compact-<kind>-$SESSION_ID`. A traversal therefore
+# has to pass through a first component named `.compact-nudged-..` (or
+# `.compact-nudged-x`, or `.compact-nudged-` for an absolute id), and no such
+# directory exists — `touch` and `mkdir` both fail at the syscall, and the hook
+# writes nothing at all. So any weakening of the sanitizer shows up as a marker
+# that is missing or differently named, which is exactly what the assertion
+# above catches. One live assertion beats one live and one ornamental.
+FIRST_COMPONENT=$(find "$SB/.claude/logs" -mindepth 2 2>/dev/null | head -1)
+assert_eq "sessionId_traversal_noNestedPathUnderLogDir" "$FIRST_COMPONENT" ""
 
 echo ""
 
@@ -429,7 +464,7 @@ echo "compact-suggest.sh context signal:"
 
 # context_atNudgeThreshold_nudgesWithMeasuredPercentage
 # 130000 / 200000 = 65%; the derived nudge point is 75 - 15 = 60%.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 130000 0 0
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
 assert_contains "context_atNudgeThreshold_nudges" "$OUT" '"hookEventName":"PostToolUse"'
@@ -438,7 +473,7 @@ assert_contains "context_nudge_reportsMeasuredPercentage" \
 assert_contains "context_nudge_reportsCompactionThreshold" "$OUT" "auto-compaction fires at 75%"
 
 # context_belowNudgeThreshold_staysSilent — 100000 / 200000 = 50%, under 60%.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 100000 0 0
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
 assert_eq "context_belowNudgeThreshold_staysSilent" "$OUT" ""
@@ -447,7 +482,7 @@ assert_eq "context_belowNudgeThreshold_staysSilent" "$OUT" ""
 # input alone is 1000 (0%); with the two cache fields it is 130000 (65%). The
 # cache fields carry nearly the whole context on a warm session, so omitting
 # them would read as an almost-empty window.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 120000 9000
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
 assert_contains "context_cacheTokensCountedTowardTotal" \
@@ -455,13 +490,13 @@ assert_contains "context_cacheTokensCountedTowardTotal" \
 
 # context_compactPctOverride_movesNudgePointWithIt
 # At a 95% compaction threshold the nudge point derives to 80%, so 65% is quiet.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 130000 0 0
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl" CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=95)
 assert_eq "context_compactPctOverride_movesNudgePointWithIt" "$OUT" ""
 
 # context_explicitNudgePct_overridesDerivation — 50% nudges when the floor is 40.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 100000 0 0
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl" PROJECT_OS_COMPACT_NUDGE_PCT=40)
 assert_contains "context_explicitNudgePct_overridesDerivation" \
@@ -469,7 +504,7 @@ assert_contains "context_explicitNudgePct_overridesDerivation" \
 
 # context_largerWindow_lowersMeasuredPercentage
 # The same 130000 tokens are 65% of 200k but 32% of 400k — under the threshold.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 130000 0 0
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl" CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000)
 assert_eq "context_largerWindow_lowersMeasuredPercentage" "$OUT" ""
@@ -478,7 +513,7 @@ assert_eq "context_largerWindow_lowersMeasuredPercentage" "$OUT" ""
 # A sub-agent turn writes its own usage into the same transcript. Here the main
 # thread is at 20% and the sub-agent at 95%; reading the newest record blindly
 # would nudge on the sub-agent's number.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 40000 0 0
 sidechain_usage_line 190000 >> "$SB/transcript.jsonl"
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
@@ -491,7 +526,7 @@ assert_eq "context_sidechainRecord_notMistakenForMainThread" "$OUT" ""
 # agent that made the call, so nudging here talks to an agent that can neither
 # write a handoff nor be compacted. Deferring costs one turn; delivering to the
 # wrong agent costs the whole cycle.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 130000 0 0
 sidechain_usage_line 500 >> "$SB/transcript.jsonl"
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
@@ -502,7 +537,7 @@ assert_eq "context_newestRecordIsSidechain_defersInsteadOfNudging" "$OUT" ""
 # compaction cycle, so a nudge emitted into a sub-agent does not merely go to
 # the wrong reader — it burns the marker, and the main thread is silently
 # skipped for the rest of the cycle. Deferring must not write the marker.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 130000 0 0
 sidechain_usage_line 500 >> "$SB/transcript.jsonl"
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
@@ -513,7 +548,7 @@ assert_file_absent "context_newestRecordIsSidechain_leavesNudgeMarkerUnspent" \
 # The gate has to be checked before the byte fallback, not after it. With the
 # byte threshold forced down to 1000 the fallback would fire on any transcript;
 # silence proves the defer is reached first.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 130000 0 0
 sidechain_usage_line 500 >> "$SB/transcript.jsonl"
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl" PROJECT_OS_COMPACT_NUDGE_BYTES=1000)
@@ -524,7 +559,7 @@ assert_eq "context_newestRecordIsSidechain_byteProxyDoesNotOverrideTheDefer" "$O
 # earlier main-thread record, but once the main thread takes a turn again it is
 # the newest and the nudge fires — and on the main thread's number, not the
 # sub-agent's 500. Skipping sidechains must not discard the main-thread record.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 150000 0 0
 append_sidechain_run "$SB/transcript.jsonl" 200 500
 usage_line 150000 0 0 >> "$SB/transcript.jsonl"
@@ -538,7 +573,7 @@ assert_contains "context_sidechainRunThenMainThreadTurn_nudgesOnceTheMainThreadR
 # so a fixed 60-line tail returns nothing and the hook falls through to the byte
 # proxy — silent here, because 200 short records are nowhere near 1.2 MB, at 75%
 # of the window. Widening to 600 finds the real number.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 150000 0 0
 append_toolresult_run "$SB/transcript.jsonl" 200
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
@@ -552,12 +587,12 @@ assert_contains "context_longNonAssistantTail_escalatesWindowToFindMainThread" \
 # well under the 1.2 MB byte threshold, so the default run is silent; forcing
 # the threshold down proves it is the byte branch — not the token branch — that
 # produced the silence.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 150000 0 0
 append_toolresult_run "$SB/transcript.jsonl" 4100
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
 assert_eq "context_nonAssistantTailBeyondLargestWindow_fallsBackToBytes" "$OUT" ""
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 150000 0 0
 append_toolresult_run "$SB/transcript.jsonl" 4100
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl" PROJECT_OS_COMPACT_NUDGE_BYTES=1000)
@@ -570,7 +605,7 @@ assert_contains "context_nonAssistantTailBeyondLargestWindow_byteProxyMessageNot
 # "1000000" — a fivefold overreading that nudges at a real 50%. Observed live
 # during this change, which is why it is pinned: 50% is under the 60% nudge
 # point, so correct handling is silence.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 100000 0 0
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
 assert_eq "context_twoFieldScanOutput_notFusedIntoOneNumber" "$OUT" ""
@@ -580,7 +615,7 @@ assert_eq "context_twoFieldScanOutput_notFusedIntoOneNumber" "$OUT" ""
 # message.usage — serialized after it — carries the real 150000 (75%). A
 # leftmost search reads 5, computes 0%, and stays silent at exactly the moment
 # the nudge is most needed.
-SB="$(new_sandbox)"
+new_sandbox
 printf '{"type":"user","message":{"role":"user","content":"hello"}}\n' > "$SB/transcript.jsonl"
 nested_usage_line 5 150000 >> "$SB/transcript.jsonl"
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
@@ -591,7 +626,7 @@ assert_contains "context_usageKeyInsideToolInput_measuresMessageUsageNotToolPayl
 # A user record's toolUseResult is arbitrary JSON from outside the session. Here
 # the main thread sits at 100000 (50%, quiet) and a tool result reports 190000;
 # measuring the user record would nudge on a number the model was never fed.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 100000 0 0
 user_usage_line 190000 >> "$SB/transcript.jsonl"
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
@@ -611,7 +646,7 @@ assert_eq "context_userRecordWithUsageBody_ignored" "$OUT" ""
 # `"type":"assistant"` and a usage object satisfies the very guard that existed
 # to exclude it. The main thread sits at 50% and is quiet; measuring the tool
 # result reports 95% and nudges on a number the model was never fed.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 100000 0 0
 toolresult_assistant_line 190000 >> "$SB/transcript.jsonl"
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
@@ -623,7 +658,7 @@ assert_eq "context_toolResultCarryingAssistantType_ignored" "$OUT" ""
 # a tool_use input. Taking the last — or the only — usage key measures the
 # payload. Depth is what distinguishes them, so a record with nothing at depth 2
 # has nothing to contribute and must fall through to the earlier record.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 100000 0 0
 deep_usage_only_line 190000 >> "$SB/transcript.jsonl"
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
@@ -636,7 +671,7 @@ assert_eq "context_usageOnlyDeeperThanMessage_recordSkippedEntirely" "$OUT" ""
 # is still the one measured. Reducing the record to a skeleton must not lose
 # that key: 150000 is 75%, and silence here would be the nudge suppressed at
 # exactly the moment it is most needed.
-SB="$(new_sandbox)"
+new_sandbox
 printf '{"type":"user","message":{"role":"user","content":"hello"}}\n' > "$SB/transcript.jsonl"
 escaped_decoy_usage_line 5 150000 >> "$SB/transcript.jsonl"
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
@@ -653,7 +688,7 @@ assert_contains "context_escapedDecoyInStringValue_measuresTheRealUsageKey" \
 # one, so message.usage no longer sits at depth 2 and the record is discarded.
 # 150000 is 75% — silence here is the nudge suppressed at the moment it is due,
 # and there is no fallback that recovers it.
-SB="$(new_sandbox)"
+new_sandbox
 printf '{"type":"user","message":{"role":"user","content":"hello"}}\n' > "$SB/transcript.jsonl"
 odd_escaped_quote_brace_line 150000 >> "$SB/transcript.jsonl"
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
@@ -665,7 +700,7 @@ assert_contains "context_oddEscapedQuoteBeforeBrace_stillMeasuresTheRecord" \
 # input that happens to carry the flag describes a sub-agent; it does not make
 # the record one, and discarding the record's number costs the whole nudge —
 # the byte fallback it drops through to is nowhere near its threshold here.
-SB="$(new_sandbox)"
+new_sandbox
 printf '{"type":"user","message":{"role":"user","content":"hello"}}\n' > "$SB/transcript.jsonl"
 nested_sidechain_flag_line 150000 >> "$SB/transcript.jsonl"
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
@@ -683,7 +718,7 @@ assert_contains "context_nestedSidechainFlagInToolInput_notTreatedAsSubagentTurn
 # 118000 tokens is 59% — one point under the nudge line. A 40 KB result is
 # ~10000 tokens at the conventional four bytes each, which puts the next request
 # at 64% and inside the window where a handoff can still be written.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 118000 0 0
 OUT=$(run_suggest_padded "$SB" "$SB/transcript.jsonl" 40000)
 assert_contains "context_largePendingToolResult_countedTowardPressure" \
@@ -692,7 +727,7 @@ assert_contains "context_largePendingToolResult_countedTowardPressure" \
 # context_smallPayload_doesNotPerturbTheMeasurement
 # The correction is bounded by the payload it measures, so an ordinary tool call
 # moves the reading by tens of tokens, not thousands. The same 59% stays quiet.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 118000 0 0
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
 assert_eq "context_smallPayload_doesNotPerturbTheMeasurement" "$OUT" ""
@@ -702,7 +737,7 @@ assert_eq "context_smallPayload_doesNotPerturbTheMeasurement" "$OUT" ""
 # discarded turn, so after a compaction it is large while the context is small.
 # 400 KB of transcript against 20% context must not nudge, even with the byte
 # fallback threshold set low enough to fire.
-SB="$(new_sandbox)"
+new_sandbox
 make_padded_token_transcript "$SB/transcript.jsonl" 400000 40000
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl" PROJECT_OS_COMPACT_NUDGE_BYTES=100)
 assert_eq "context_largeTranscriptSmallContext_staysSilent" "$OUT" ""
@@ -710,7 +745,7 @@ assert_eq "context_largeTranscriptSmallContext_staysSilent" "$OUT" ""
 # context_noUsageRecord_fallsBackToByteGrowth
 # The fallback must still fire, and must not claim a percentage it never
 # measured.
-SB="$(new_sandbox)"
+new_sandbox
 make_transcript "$SB/transcript.jsonl" 500
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl" PROJECT_OS_COMPACT_NUDGE_BYTES=100)
 assert_contains "context_noUsageRecord_fallsBackToByteGrowth" \
@@ -725,7 +760,7 @@ assert_not_contains "context_byteFallback_claimsNoPercentage" "$OUT" "Context is
 # usage-bearing record, so tail inference reads "sub-agent mid-run" and drops a
 # genuine main-thread firing. `agent_id` equal to the session id says otherwise,
 # and the nudge is delivered to the one context that can act on it.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 150000 0 0
 append_sidechain_run "$SB/transcript.jsonl" 5 500
 OUT=$(run_suggest_as "$SB" "$SB/transcript.jsonl" s1)
@@ -737,7 +772,7 @@ assert_contains "context_mainThreadAgentId_nudgesThroughSidechainTail" \
 # while that tail decided delivery. Once identity is known, a sidechain tail is
 # precisely the case needing the WIDER window: 200 sub-agent records bury the
 # main thread's number past the 60-line read, and the 600-line read finds it.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 150000 0 0
 append_sidechain_run "$SB/transcript.jsonl" 200 500
 OUT=$(run_suggest_as "$SB" "$SB/transcript.jsonl" s1)
@@ -749,7 +784,7 @@ assert_contains "context_mainThreadAgentId_escalatesWindowPastSidechainRun" \
 # first tool call, before it has produced any turn of its own, leaves the main
 # thread's record newest. The tail says "main thread"; the payload says the
 # caller is a sub-agent, which can neither run /tools:handoff nor be compacted.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 150000 0 0
 OUT=$(run_suggest_as "$SB" "$SB/transcript.jsonl" agent_abc123)
 assert_eq "context_subagentAgentId_defersEvenWithMainThreadTailNewest" "$OUT" ""
@@ -757,7 +792,7 @@ assert_eq "context_subagentAgentId_defersEvenWithMainThreadTailNewest" "$OUT" ""
 # context_subagentAgentId_leavesNudgeMarkerUnspent
 # Deferral is only worth anything if the cycle's one nudge survives it. The
 # marker is keyed on the session id, which a sub-agent firing shares.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 150000 0 0
 run_suggest_as "$SB" "$SB/transcript.jsonl" agent_abc123 >/dev/null
 assert_file_absent "context_subagentAgentId_leavesNudgeMarkerUnspent" \
@@ -766,7 +801,7 @@ assert_file_absent "context_subagentAgentId_leavesNudgeMarkerUnspent" \
 # context_subagentAgentId_byteProxyDoesNotOverrideTheDefer
 # The identity exit sits above both signals, so the byte fallback cannot smuggle
 # the nudge into a sub-agent's context when the token read comes up empty.
-SB="$(new_sandbox)"
+new_sandbox
 make_transcript "$SB/transcript.jsonl" 500
 OUT=$(run_suggest_as "$SB" "$SB/transcript.jsonl" agent_abc123 PROJECT_OS_COMPACT_NUDGE_BYTES=100)
 assert_eq "context_subagentAgentId_byteProxyDoesNotOverrideTheDefer" "$OUT" ""
@@ -774,7 +809,7 @@ assert_eq "context_subagentAgentId_byteProxyDoesNotOverrideTheDefer" "$OUT" ""
 # context_mainThreadAgentId_byteProxyStillFires
 # ...and does not suppress it on the main thread, where the same payload minus
 # the sub-agent id must behave exactly as an agent_id-less one does.
-SB="$(new_sandbox)"
+new_sandbox
 make_transcript "$SB/transcript.jsonl" 500
 OUT=$(run_suggest_as "$SB" "$SB/transcript.jsonl" s1 PROJECT_OS_COMPACT_NUDGE_BYTES=100)
 assert_contains "context_mainThreadAgentId_byteProxyStillFires" \
@@ -784,7 +819,7 @@ assert_contains "context_mainThreadAgentId_byteProxyStillFires" \
 # An absent key means an older CLI, not a main thread. Reading absence as "main"
 # would retire the sidechain guard silently, so absence keeps the old inference:
 # sidechain tail newest, defer.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 150000 0 0
 append_sidechain_run "$SB/transcript.jsonl" 5 500
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl")
@@ -795,7 +830,7 @@ assert_eq "context_noAgentIdInPayload_fallsBackToTailHeuristic" "$OUT" ""
 # that writes a handoff has still written it, and the claim is what keeps every
 # other session's fallback glob off it. Silencing the nudge must not silence the
 # bookkeeping.
-SB="$(new_sandbox)"
+new_sandbox
 make_transcript "$SB/transcript.jsonl" 50
 printf '{"session_id":"s1","transcript_path":"%s","agent_id":"agent_abc123","tool_name":"Write","tool_input":{"file_path":"%s"}}' \
     "$SB/transcript.jsonl" "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
@@ -810,7 +845,7 @@ echo ""
 echo "pre-compact.sh:"
 
 # forward_freshHandoff_printsInstructionAsPlainText
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" \
     "Preserve the awk extraction in pre-compact.sh:78-82.
 Safe to drop: the abandoned flock counter."
@@ -831,7 +866,7 @@ assert_not_contains "forward_stdout_isPlainTextNotJson" "$OUT" "hookSpecificOutp
 # The record is append-ordered, so "newest" is the last claim still standing —
 # a recorded fact rather than an inference from the filename. Claimed in the
 # order they were written, which is what compact-suggest.sh does.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-0900.yaml" "OLDER instruction"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "NEWER instruction"
 claim_handoff "$SB" s1 "handoff-2026-07-30-0900.yaml" "handoff-2026-07-30-1400.yaml"
@@ -841,7 +876,7 @@ assert_contains "forward_multipleHandoffs_usesLastClaimed" "$OUT" "NEWER instruc
 assert_not_contains "forward_multipleHandoffs_ignoresOlder" "$OUT" "OLDER instruction"
 
 # forward_unfilledPlaceholder_treatedAsAbsent
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" \
     "[A /compact instruction tuned to the current task, e.g.:
  \"Focus on the auth middleware refactor in src/middleware/auth.ts.\"]"
@@ -852,7 +887,7 @@ assert_eq "forward_unfilledPlaceholder_treatedAsAbsent" "$OUT" ""
 
 # forward_staleHandoff_ignored — first compaction of a session, so freshness
 # falls back to the age window and a two-hour-old handoff is out of scope.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "STALE instruction"
 claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
 touch -d '2 hours ago' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml"
@@ -868,7 +903,7 @@ assert_eq "forward_staleHandoff_ignored" "$OUT" ""
 # freshness_handoffWrittenThisCycleButOldByClock_stillForwarded
 # Three hours into a cycle, an hour-old handoff is still the one describing the
 # work being compacted. The age window alone would have discarded it.
-SB="$(new_sandbox)"
+new_sandbox
 touch -d '3 hours ago' "$SB/.claude/logs/.compact-cycle-s1"
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "SLOW SESSION instruction"
 claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
@@ -881,7 +916,7 @@ assert_contains "freshness_handoffWrittenThisCycleButOldByClock_stillForwarded" 
 # freshness_handoffPredatingCycleMarker_ignoredEvenWhenRecent
 # Written five minutes ago — well inside the age window — but before the last
 # compaction, so it describes context that has already been summarized away.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "PREVIOUS CYCLE instruction"
 claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
 touch -d '5 minutes ago' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml"
@@ -896,7 +931,7 @@ assert_not_contains "freshness_handoffPredatingCycleMarker_ignoredEvenWhenRecent
 # every handoff would look older than the current cycle and nothing would ever
 # be forwarded. Asserted with a marker that already exists, so the reset is a
 # real overwrite rather than a first write.
-SB="$(new_sandbox)"
+new_sandbox
 touch -d '1 hour ago' "$SB/.claude/logs/.compact-cycle-s1"
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "ORDERING instruction"
 claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
@@ -914,7 +949,7 @@ assert_contains "freshness_cycleMarkerReadBeforeItIsReset" "$OUT" "ORDERING inst
 # ownership_writeOfHandoff_recordsAuthoringSession
 # The record must be written even though this call produces no nudge — the
 # handoff is written in response to a nudge that has already fired.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "OWNED instruction"
 printf '{"session_id":"s1","transcript_path":"%s","tool_name":"Write","tool_input":{"file_path":"%s"}}' \
@@ -931,7 +966,7 @@ assert_eq "ownership_record_namesTheHandoffPath" \
 # ownership_recordWrittenAfterNudgeAlreadyFired
 # The once-per-cycle exit sits early in the hook. Recording must happen before
 # it, or the write that follows a nudge — i.e. every real handoff — is missed.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 touch "$SB/.claude/logs/.compact-nudged-s1"
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "AFTER NUDGE instruction"
@@ -944,7 +979,7 @@ assert_file_exists "ownership_recordWrittenAfterNudgeAlreadyFired" \
     "$SB/.claude/logs/.compact-handoff-s1"
 
 # ownership_writeOfUnrelatedFile_recordsNothing
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 printf '{"session_id":"s1","transcript_path":"%s","tool_name":"Write","tool_input":{"file_path":"%s"}}' \
     "$SB/transcript.jsonl" "$SB/ROADMAP.md" \
@@ -958,7 +993,7 @@ assert_file_absent "ownership_writeOfUnrelatedFile_recordsNothing" \
 # A Read payload carries tool_input.file_path exactly like a Write one. Without
 # a tool_name gate, /tools:catchup — whose entire job is to read the previous
 # session's handoff — made the reader claim the author's file.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "FOREIGN instruction"
 printf '{"session_id":"s1","transcript_path":"%s","tool_name":"Read","tool_input":{"file_path":"%s"}}' \
@@ -976,7 +1011,7 @@ assert_file_absent "ownership_readOfHandoff_recordsNothing" \
 # branch also skipped the age window, which made even an ancient handoff
 # eligible; both branches share one window now, but the tool-name gate is what
 # keeps a reader out of the record in the first place.)
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "SESSION TWO instruction"
 printf '%s\n' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
@@ -994,7 +1029,7 @@ assert_not_contains "ownership_readOfForeignHandoff_notForwardedToTheReader" \
 # ownership_editOfHandoff_stillRecords
 # The gate is a tool-name allowlist, so it has to keep admitting the write tools
 # a handoff is actually revised with, not just the one that creates it.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "REVISED instruction"
 printf '{"session_id":"s1","transcript_path":"%s","tool_name":"MultiEdit","tool_input":{"file_path":"%s"}}' \
@@ -1010,7 +1045,7 @@ assert_eq "ownership_editOfHandoff_stillRecords" \
 # THE BUG THIS CLOSES. Session s2 wrote the newer handoff; s1 is the one
 # compacting. Lexical order alone would hand s2's instruction to s1's
 # summarizer, replacing the context s1 needs preserved.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "SESSION ONE instruction"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "SESSION TWO instruction"
 printf '%s\n' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
@@ -1027,7 +1062,7 @@ assert_not_contains "ownership_concurrentSessionHandoff_notForwarded" \
 # ownership_foreignHandoff_notForwarded
 # s1 wrote no handoff at all, so its record does not exist. Another session's
 # claimed handoff is not a substitute for one.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "FOREIGN instruction"
 printf '%s\n' "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
     > "$SB/.claude/logs/.compact-handoff-s2"
@@ -1047,7 +1082,7 @@ assert_not_contains "ownership_foreignHandoff_notForwarded" \
 # present, fresh by mtime, unclaimed, and its `compact_instruction` becomes
 # instructions to the summarizer. Freshness is an mtime, and an mtime is not a
 # provenance. A claim is the only evidence a session on this machine wrote it.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "UNCLAIMED instruction"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
@@ -1079,7 +1114,7 @@ fi
 # UNCLAIMED file when the newest one belonged to someone else. There is no
 # fallback to assert now; what survives from it is the property that actually
 # mattered — a newer foreign handoff never displaces this session's own.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "OWN OLDER instruction"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "FOREIGN NEWER instruction"
 claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
@@ -1100,7 +1135,7 @@ assert_not_contains "ownership_ownClaimAlongsideNewerForeignHandoff_ignoresForei
 # name — the same name under a longer directory prefix, i.e. a second checkout —
 # must not stop s1 claiming its own, because a handoff it cannot claim is now a
 # handoff that will never be forwarded.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "PREFIX COLLISION instruction"
 printf '%s\n' "/other/checkout$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
     > "$SB/.claude/logs/.compact-handoff-s2"
@@ -1119,7 +1154,7 @@ assert_contains "ownership_foreignClaimOnPrefixCollidingPath_ownHandoffStillForw
 # ownership_ownRecordFromPreviousCycle_notReforwarded
 # Ownership is not a licence to ignore freshness: a handoff this session wrote
 # before the last compaction has already been summarized away.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "OWN STALE instruction"
 touch -d '5 minutes ago' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml"
 printf '%s\n' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
@@ -1133,7 +1168,7 @@ assert_not_contains "ownership_ownRecordFromPreviousCycle_notReforwarded" \
 # ownership_recordPointingOutsideProject_rejected
 # The record is a path read from disk and fed to the same containment guard as
 # the glob result.
-SB="$(new_sandbox)"
+new_sandbox
 OUTSIDE="$(mktemp -d)"
 SANDBOXES+=("$OUTSIDE")
 printf 'compact_instruction: |\n  ESCAPED VIA RECORD instruction\n' \
@@ -1154,7 +1189,7 @@ assert_not_contains "ownership_recordPointingOutsideProject_rejected" \
 # preToolUse_handoffWrite_claimsBeforeTheFileExists
 # The claim is on record while the path still points at nothing — which is the
 # whole point, and is why pre-compact.sh skips claimed paths that do not exist.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 run_suggest_pre "$SB" "$SB/transcript.jsonl" Write \
     "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" >/dev/null
@@ -1173,7 +1208,7 @@ assert_file_absent "preToolUse_claimRecorded_whileFileStillAbsent" \
 # un-compact anything. The strict rule closes the same window from the other
 # side; the ordering is still asserted because the strict rule is what makes an
 # unrecorded claim fatal rather than merely risky.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 run_suggest_pre "$SB" "$SB/transcript.jsonl" Write \
     "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" >/dev/null
@@ -1189,7 +1224,7 @@ assert_not_contains "preToolUse_claimPrecedesPublication_foreignSessionDoesNotFo
 # say in any case: the tool has not run, so no result can be accounted for. The
 # context here is at 75%, far past the nudge line, which is exactly when a stray
 # byte on stdout would be most likely.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 150000 0 0
 RC=0
 OUT=$(run_suggest_pre "$SB" "$SB/transcript.jsonl" Write \
@@ -1203,7 +1238,7 @@ assert_file_absent "preToolUse_pass_leavesNudgeMarkerUnspent" \
 # The tool-name gate governs both passes. Claiming earlier must not mean
 # claiming more widely: /tools:catchup reads the previous session's handoff, and
 # a claim from that read is worse than no ownership tracking at all.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "FOREIGN instruction"
 run_suggest_pre "$SB" "$SB/transcript.jsonl" Read \
@@ -1215,7 +1250,7 @@ assert_file_absent "preToolUse_readOfHandoff_claimsNothing" \
 # The PostToolUse pass is kept as the backstop for a write the PreToolUse hook
 # did not see the start of, so the ordinary path runs both. Both collapse
 # against the last line, so claiming twice costs one line, not two.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 run_suggest_pre "$SB" "$SB/transcript.jsonl" Write \
     "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" >/dev/null
@@ -1246,7 +1281,7 @@ assert_eq "preToolUse_thenPostToolUse_sameHandoffClaimedOnce" \
 # of this case planted no record at all and therefore tested the third state —
 # exists and unclaimed — under a name describing the second, which is why the
 # leak below it went unnoticed.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "ANOTHER SESSION instruction"
 printf '%s\n' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
@@ -1264,7 +1299,7 @@ assert_file_absent "preToolUse_editOfExistingForeignHandoff_claimsNothing" \
 # somebody else. Reachable without any adversary: a handoff predating the
 # feature, a cleaned `.claude/logs/` (gitignored, so ordinary housekeeping
 # empties it), or a record pruned while its handoff was still being revised.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "UNCLAIMED PRIOR instruction"
 run_suggest_pre "$SB" "$SB/transcript.jsonl" Edit \
@@ -1277,7 +1312,7 @@ assert_eq "preToolUse_existingUnclaimedHandoff_claimed" \
 # The same fix stated as the consequence it exists for. s1 reserves the handoff
 # it is about to overwrite; s2 compacts in the window before s1's write lands,
 # and must not be handed s1's material.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "S1 FRESH instruction"
 run_suggest_pre "$SB" "$SB/transcript.jsonl" Edit \
@@ -1291,7 +1326,7 @@ assert_not_contains "preToolUse_existingUnclaimedHandoff_notForwardedToTheOtherS
 # `-e` FOLLOWS symlinks, so a dangling one answers false and the name looked
 # free — the one case the gate's own comment named and its test never reached.
 # The name is occupied whether or not the target exists.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 ln -s "$SB/.claude/sessions/nothing-here.yaml" \
     "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" 2>/dev/null || true
@@ -1313,7 +1348,7 @@ fi
 # than the retention window had its live record deleted by another session's
 # cleanup, after which the ownership gate declined to re-claim — the state above
 # reached by a route with no other session and no adversary in it at all.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 run_suggest_pre "$SB" "$SB/transcript.jsonl" Write \
     "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" >/dev/null
@@ -1345,7 +1380,7 @@ assert_eq "ownership_repeatClaimOnSamePath_stillWritesOneLine" "$LINES" "1"
 # about #T144. With no claim at all the instruction would not reach s2 either,
 # but for the unrelated reason that nothing unclaimed is ever forwarded — the
 # test would pass without exercising the gate it names.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "ANOTHER SESSION instruction"
 printf '{"session_id":"s1","transcript_path":"%s","hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"%s"}}' \
@@ -1370,7 +1405,7 @@ assert_not_contains "preToolUse_editOfExistingForeignHandoff_instructionNotForwa
 # handoff being created for the first time has no file at its path yet, so the
 # round-11 behaviour is unchanged — asserted here with `Edit` because the tool
 # name is not what decides it.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 run_suggest_pre "$SB" "$SB/transcript.jsonl" Edit \
     "$SB/.claude/sessions/handoff-2026-07-30-1500.yaml" >/dev/null
@@ -1383,7 +1418,7 @@ assert_eq "preToolUse_writeToAbsentPath_stillClaims" \
 # this session is about to bring into existence either, and the question the
 # test asks is "is there already something here that a claim would be a claim
 # ON" — a distinction `-f` would get wrong in the direction that claims.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 mkdir -p "$SB/.claude/sessions/handoff-2026-07-30-1600.yaml"
 run_suggest_pre "$SB" "$SB/transcript.jsonl" Write \
@@ -1397,7 +1432,7 @@ assert_file_absent "preToolUse_pathOccupiedByDirectory_claimsNothing" \
 # record must still name it, because since #T144 the record is the only route
 # by which a handoff is forwarded at all: losing the claim on the second write
 # would silently stop forwarding for a session that did everything right.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 run_suggest_pre "$SB" "$SB/transcript.jsonl" Write \
     "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" >/dev/null
@@ -1434,7 +1469,7 @@ if locale -a 2>/dev/null | grep -qx 'C.utf8'; then
     # does not. The two readings of the same payload land on opposite sides.
 
     # locale_utf8EnvironmentWithCjkPayload_measuredInBytesAndNudges
-    SB="$(new_sandbox)"
+    new_sandbox
     make_token_transcript "$SB/transcript.jsonl" 118000 0 0
     OUT=$(run_suggest_body "$SB" "$SB/transcript.jsonl" "$CJK_BODY" LC_ALL=C.utf8)
     assert_contains "locale_utf8EnvironmentWithCjkPayload_measuredInBytesAndNudges" \
@@ -1443,7 +1478,7 @@ if locale -a 2>/dev/null | grep -qx 'C.utf8'; then
     # locale_utf8EnvironmentWithoutPayload_staysBelowTheLine
     # The control. Without it the assertion above would also pass if the base
     # alone were over the line, which would test nothing about the payload.
-    SB="$(new_sandbox)"
+    new_sandbox
     make_token_transcript "$SB/transcript.jsonl" 118000 0 0
     OUT=$(run_suggest_body "$SB" "$SB/transcript.jsonl" "" LC_ALL=C.utf8)
     assert_eq "locale_utf8EnvironmentWithoutPayload_staysBelowTheLine" "$OUT" ""
@@ -1456,7 +1491,7 @@ fi
 # The early exit keys on the event name, and every real payload carries one —
 # including the PostToolUse payloads the nudge depends on. Testing only the
 # absent-key case would leave the live path unasserted.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 130000 0 0
 OUT=$(printf '{"session_id":"s1","transcript_path":"%s","hook_event_name":"PostToolUse","tool_name":"Read"}' \
     "$SB/transcript.jsonl" \
@@ -1473,7 +1508,7 @@ assert_contains "postToolUse_explicitEventName_stillNudges" \
 # pick them up.
 
 # ownership_secondHandoffWrite_appendsRatherThanReplaces
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "FIRST instruction"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "SECOND instruction"
@@ -1492,7 +1527,7 @@ $SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
 
 # ownership_repeatedWriteOfSameHandoff_recordedOnce
 # A handoff revised in place must not grow the record one line per edit.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "REVISED instruction"
 for _ in 1 2 3; do
@@ -1513,7 +1548,7 @@ assert_eq "ownership_repeatedWriteOfSameHandoff_recordedOnce" \
 # fallback, so this now holds for the broader reason that s1 has no record at
 # all; kept because the property is the one that matters and a future fallback
 # would have to satisfy it.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "FOREIGN FIRST instruction"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "FOREIGN SECOND instruction"
 printf '%s\n%s\n' \
@@ -1530,7 +1565,7 @@ assert_not_contains "ownership_newerOfTwoForeignHandoffs_notForwarded" \
 # ownership_multipleOwnHandoffs_newestForwarded
 # The mirror case: reading only the record's first line would forward this
 # session's stale handoff instead of the one it just wrote.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "OWN EARLIER instruction"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "OWN LATER instruction"
 printf '%s\n%s\n' \
@@ -1546,7 +1581,7 @@ assert_not_contains "ownership_multipleOwnHandoffs_earlierNotForwarded" \
 
 # ownership_newestOwnClaimDeleted_fallsBackToSurvivingEarlierOne
 # A claimed path that no longer exists must not blank out the whole record.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "SURVIVING instruction"
 printf '%s\n%s\n' \
     "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
@@ -1563,7 +1598,7 @@ assert_contains "ownership_newestOwnClaimDeleted_fallsBackToSurvivingEarlierOne"
 # forwarded regardless of age. A session that wrote a handoff hours ago and has
 # been working since would hand the summarizer an instruction describing work
 # that is already finished. The age window now governs both branches.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "OWN ANCIENT instruction"
 touch -d '90 minutes ago' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml"
 printf '%s\n' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
@@ -1576,7 +1611,7 @@ assert_not_contains "ownership_ownHandoffOlderThanAgeWindow_notForwardedWithoutC
 # ownership_ownHandoffWithinAgeWindow_forwardedWithoutCycleMarker
 # The window is a filter, not a second claim requirement: the ordinary first
 # compaction of a session that just wrote its handoff still forwards it.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "OWN FRESH instruction"
 printf '%s\n' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
     > "$SB/.claude/logs/.compact-handoff-s1"
@@ -1590,7 +1625,7 @@ assert_contains "ownership_ownHandoffWithinAgeWindow_forwardedWithoutCycleMarker
 # signal: "written since the last compaction" is what freshness actually means.
 # A long-running session compacting a second time must not lose a handoff merely
 # for having been written more than the window ago.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "OWN POST-CYCLE instruction"
 touch -d '90 minutes ago' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml"
 touch "$SB/.claude/logs/.compact-cycle-s1"
@@ -1607,7 +1642,7 @@ assert_contains "ownership_ownHandoffOlderThanAgeWindow_stillForwardedWhenNewerT
 # merely add a candidate — it displaces a good one. Claims are appended in write
 # order, and a session that re-ran /tools:handoff on an old path would end up
 # forwarding the stale body over the fresh one.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "OWN RECENT instruction"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "OWN OUTDATED instruction"
 touch -d '90 minutes ago' "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
@@ -1639,7 +1674,7 @@ assert_not_contains "ownership_staleOwnHandoffAfterFreshOne_outdatedNotForwarded
 # name. Both tests were removed rather than left passing against nothing.
 
 # naming_twoSessionsSameMinute_eachForwardsItsOwnHandoff
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-140012-9021.yaml" "SESSION ONE same-minute instruction"
 write_handoff "$SB" "handoff-2026-07-30-140044-317.yaml" "SESSION TWO same-minute instruction"
 printf '%s\n' "$SB/.claude/sessions/handoff-2026-07-30-140012-9021.yaml" \
@@ -1659,7 +1694,7 @@ assert_not_contains "naming_twoSessionsSameMinute_doesNotForwardTheOtherSession"
 # earlier is claimed LAST, so name order and record order disagree — and the
 # record has to win, or something is still ordering by filename. Under the
 # deleted glob this forwarded the 1400 body; it must now forward the 1200 one.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "CLAIMED LAST instruction"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "CLAIMED FIRST instruction"
 claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml" "handoff-2026-07-30-1200.yaml"
@@ -1671,20 +1706,20 @@ assert_not_contains "naming_recordOrderBeatsFilenameOrder_earlierClaimNotForward
     "$OUT" "CLAIMED FIRST instruction"
 
 # forward_noHandoff_cleanMap_printsNothing
-SB="$(new_sandbox)"
+new_sandbox
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_eq "forward_noHandoff_cleanMap_printsNothing" "$OUT" ""
 
 # forward_driftedMap_noHandoff_printsCaveatOnly
-SB="$(new_sandbox)"
+new_sandbox
 drift_the_map "$SB"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_contains "forward_driftedMap_noHandoff_printsCaveat" "$OUT" "system map at docs/maps/ is drifted"
 
 # forward_driftedMap_withHandoff_printsBoth
-SB="$(new_sandbox)"
+new_sandbox
 drift_the_map "$SB"
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "Keep the pressure-baseline reset."
 claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
@@ -1707,7 +1742,7 @@ assert_contains "forward_driftedMap_withHandoff_printsCaveat" "$OUT" "system map
 # defence, for a record that arrived some other way.
 
 # containment_symlinkEscapingProject_rejected
-SB="$(new_sandbox)"
+new_sandbox
 OUTSIDE="$(mktemp -d)"
 SANDBOXES+=("$OUTSIDE")
 mkdir -p "$OUTSIDE/.claude/sessions"
@@ -1726,7 +1761,7 @@ assert_not_contains "containment_symlinkEscapingProject_rejected" "$OUT" "ESCAPE
 # that resolve somewhere acceptable", and the deleted glob got that free from
 # `find -type f`. The explicit `[ ! -L ]` in the ownership loop is what keeps it;
 # this fails if that line is ever removed as redundant.
-SB="$(new_sandbox)"
+new_sandbox
 mkdir -p "$SB/docs"
 write_handoff "$SB" "../../docs/planted.yaml" "SIBLING instruction"
 ln -s "$SB/docs/planted.yaml" "$SB/.claude/sessions/handoff-2026-07-30-1300.yaml"
@@ -1755,7 +1790,7 @@ assert_not_contains "containment_symlinkToInScopeSibling_alsoRejected" "$OUT" "S
 # versus physical `.../real/sub`. The `pwd` != `pwd -P` check below is the
 # actual gate — whichever mechanism produced it, if the two agree there is no
 # symlink in the path and the case cannot discriminate.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1300.yaml" "THROUGH SYMLINK instruction"
 claim_handoff "$SB" s1 "handoff-2026-07-30-1300.yaml"
 LINKDIR="$(mktemp -d)"
@@ -1781,7 +1816,7 @@ fi
 # pre-compact.sh must reset the nudge state so the next cycle can nudge again.
 
 # cycle_preCompact_clearsNudgedMarkerAndResetsBaseline
-SB="$(new_sandbox)"
+new_sandbox
 make_transcript "$SB/transcript.jsonl" 500
 touch "$SB/.claude/logs/.compact-nudged-s1"
 printf '0\n' > "$SB/.claude/logs/.compact-base-s1"
@@ -1804,7 +1839,7 @@ assert_contains "cycle_afterReset_newGrowth_nudgesAgain" "$OUT" '"hookEventName"
 # cycle_handoffConsumedOnce_notReforwardedNextCompaction
 # The marker the first compaction opens must sit after the handoff it just
 # read, or the same instruction would be replayed into every later compaction.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "ONE SHOT instruction"
 claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
 FIRST=$(printf '{"session_id":"s1","trigger":"auto"}' \
@@ -1821,7 +1856,7 @@ echo ""
 echo "pre-compact.sh checkpoint:"
 
 # checkpoint_noRecentCheckpoint_writesFileWithRoadmapPhase
-SB="$(new_sandbox)"
+new_sandbox
 printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
 CP=$(find "$SB/.claude/sessions" -name 'auto-checkpoint-*.yaml' -type f 2>/dev/null | head -1)
@@ -1842,7 +1877,7 @@ fi
 # print it at the next heading, but reset that flag on every `## Feature:`
 # line. A later feature section with no in-progress task therefore erased the
 # earlier one's match, and the checkpoint recorded feature "none".
-SB="$(new_sandbox)"
+new_sandbox
 {
     printf '# ROADMAP\n\n'
     printf '## Feature: early-feature\n\n'
@@ -1870,7 +1905,7 @@ fi
 # sequence at an illegal character and made the WHOLE checkpoint unparseable —
 # taking the objective, the handoff pointer and every other field with it. A
 # Windows path or a regex in a task title is all it takes.
-SB="$(new_sandbox)"
+new_sandbox
 {
     printf '# ROADMAP\n\n'
     printf '## Feature: parse C:\\shellout paths\n\n'
@@ -1899,7 +1934,7 @@ fi
 
 # checkpoint_noInProgressTask_featureIsNone
 # The derivation must not name a feature merely because a heading exists.
-SB="$(new_sandbox)"
+new_sandbox
 printf '# ROADMAP\n\n## Feature: idle-feature\n\n- [ ] Not started #T903\n' > "$SB/ROADMAP.md"
 printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
@@ -1912,7 +1947,7 @@ fi
 
 # checkpoint_reviewMarkerInEarlierSection_featureStillDerived
 # [~] (review) counts as in-progress for feature derivation, same as [-].
-SB="$(new_sandbox)"
+new_sandbox
 {
     printf '# ROADMAP\n\n'
     printf '## Feature: review-feature\n\n'
@@ -1939,7 +1974,7 @@ fi
 # directory name instead of the files it had just written. This sandbox is a
 # real repo — the others are bare mktemp dirs where git reports nothing at all,
 # so this is the only checkpoint test that exercises modified_files.
-SB="$(new_sandbox)"
+new_sandbox
 git init -q "$SB" >/dev/null 2>&1
 printf 'ignored-out/\n' > "$SB/.gitignore"
 mkdir -p "$SB/newfeature/nested" "$SB/ignored-out"
@@ -1974,7 +2009,7 @@ fi
 # double-quoted YAML scalar — so one accented filename made the whole checkpoint
 # unparseable, costing the session every other field in it. Untracked paths are
 # the likeliest to carry a human-typed name, so expanding them walked into it.
-SB="$(new_sandbox)"
+new_sandbox
 git init -q "$SB" >/dev/null 2>&1
 # Pinned rather than inherited: core.quotePath defaults to true, but a machine
 # whose global config turns it off would quietly make this test pass against the
@@ -2004,7 +2039,7 @@ fi
 # one `old -> new` string. Leaving the origin unread made it the next entry, its
 # status bytes taken from whatever its own filename started with, so a rename
 # produced a phantom second file with an invented change_type.
-SB="$(new_sandbox)"
+new_sandbox
 git init -q "$SB" >/dev/null 2>&1
 printf 'contents\n' > "$SB/before.txt"
 git -C "$SB" add before.txt >/dev/null 2>&1
@@ -2017,8 +2052,25 @@ if [ -n "$CP" ]; then
     BODY=$(cat "$CP")
     assert_contains "checkpoint_renamedPath_recordsDestination" \
         "$BODY" 'path: "after.txt"'
-    assert_not_contains "checkpoint_renamedPath_doesNotAlsoRecordOrigin" \
-        "$BODY" 'before.txt'
+    # NOT `assert_not_contains … before.txt`. That assertion was here and it was
+    # vacuous: the unfixed loop does not record the origin under its own name, it
+    # records the origin record as a fresh ENTRY — `${entry:0:2}` takes "be" as
+    # the status bytes and `${entry:3}` takes "ore.txt" as the path. So the
+    # string "before.txt" is absent from the mutant's output too, and the
+    # assertion passed on both sides.
+    #
+    # Counting entries is what discriminates, because the defect is arithmetical:
+    # one rename must produce one record, whatever the phantom ends up being
+    # called. Scoped to `.txt` rather than counting every entry — the sandbox is
+    # a fresh git repo, so the scaffold it was built with (.claude/, scripts/,
+    # ROADMAP.md, the transcript) is all untracked and all legitimately listed.
+    # A bare total would be a number that changes whenever new_sandbox does.
+    ENTRY_COUNT=$(printf '%s\n' "$BODY" | grep -c '^  - path: ".*\.txt"')
+    assert_eq "checkpoint_renamedPath_recordsExactlyOneTxtEntry" "$ENTRY_COUNT" "1"
+    # And the phantom by name, so a future regression that mangles the origin
+    # differently still has something pointed at it.
+    assert_not_contains "checkpoint_renamedPath_noPhantomFromOriginRecord" \
+        "$BODY" 'ore.txt"'
 else
     bad "checkpoint_renamedPath_recordsDestinationOnly — no checkpoint written"
 fi
@@ -2026,7 +2078,7 @@ fi
 # checkpoint_recentCheckpointExists_debouncedButStillForwardsInstruction
 # The debounce must gate the file write only. Instruction forwarding has to
 # happen on every compaction or a second compaction loses its guidance.
-SB="$(new_sandbox)"
+new_sandbox
 touch "$SB/.claude/sessions/auto-checkpoint-2026-07-30-1200.yaml"
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "Debounce must not gate stdout."
 claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
@@ -2045,7 +2097,7 @@ assert_eq "checkpoint_debounced_writesNoSecondFile" "$COUNT" "1"
 # name sees the checkpoint; rename replaces the directory entry, so it does not.
 # Verifying only the symlink form would leave the fix unverified on the machine
 # this suite most often runs on.
-SB="$(new_sandbox)"
+new_sandbox
 VICTIM="$SB/victim.yaml"
 printf 'ORIGINAL CONTENT\n' > "$VICTIM"
 CP_NAME="auto-checkpoint-$(date +%Y-%m-%d-%H%M).yaml"
@@ -2076,7 +2128,7 @@ fi
 # properties, not one: the target must survive, and the checkpoint must still be
 # written, because refusing to write would let one planted file suppress
 # checkpointing for that minute.
-SB="$(new_sandbox)"
+new_sandbox
 VICTIM="$SB/victim.yaml"
 printf 'ORIGINAL CONTENT\n' > "$VICTIM"
 CP_NAME="auto-checkpoint-$(date +%Y-%m-%d-%H%M).yaml"
@@ -2097,7 +2149,7 @@ fi
 # The rename is an implementation detail the sessions directory must not show:
 # a stray `.auto-checkpoint-*.tmp` would be read by nothing and cleaned by
 # nothing.
-SB="$(new_sandbox)"
+new_sandbox
 printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
 LEFTOVER=$(find "$SB/.claude/sessions" -maxdepth 1 -name '.auto-checkpoint-*.tmp' 2>/dev/null | head -1 || true)
@@ -2117,7 +2169,7 @@ for CASE in 'empty:{}' 'notJson:not json at all' 'nullBytesInSessionId:{"session
     NAME="${CASE%%:*}"
     PAYLOAD="${CASE#*:}"
 
-    SB="$(new_sandbox)"
+    new_sandbox
     RC=0
     echo "$PAYLOAD" | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1 || RC=$?
     assert_eq "preCompact_${NAME}_exitsZero" "$RC" "0"
@@ -2133,7 +2185,7 @@ echo ""
 echo "session-end-cleanup.sh:"
 
 # cleanup_sessionEnd_removesCompactionMarkers
-SB="$(new_sandbox)"
+new_sandbox
 touch "$SB/.claude/logs/.compact-base-s1" "$SB/.claude/logs/.compact-nudged-s1" \
       "$SB/.claude/logs/.compact-cycle-s1" "$SB/.claude/logs/.compact-handoff-s1"
 printf '{"session_id":"s1","reason":"exit"}' \
@@ -2156,7 +2208,7 @@ assert_file_exists "cleanup_sessionEnd_keepsOwnHandoffOwnershipRecord" \
 # cleanup_staleHandoffOwnershipRecord_prunedAfterSevenDays
 # Retention is bounded, not permanent — the record is kept for the concurrent
 # reader, not forever. touch -d backdates past the -mtime +7 window.
-SB="$(new_sandbox)"
+new_sandbox
 touch "$SB/.claude/logs/.compact-handoff-s9"
 touch -d '30 days ago' "$SB/.claude/logs/.compact-handoff-s9" 2>/dev/null \
     || touch -t 202001010000 "$SB/.claude/logs/.compact-handoff-s9"
@@ -2172,7 +2224,7 @@ assert_file_absent "cleanup_staleHandoffOwnershipRecord_prunedAfterSevenDays" \
 # the record disappears while its handoff is still live, and every session that
 # then touches that path is in the third state. A record two days old belongs to
 # a session that may still be running.
-SB="$(new_sandbox)"
+new_sandbox
 touch "$SB/.claude/logs/.compact-handoff-s8"
 touch -d '2 days ago' "$SB/.claude/logs/.compact-handoff-s8" 2>/dev/null || true
 printf '{"session_id":"s1","reason":"exit"}' \
@@ -2181,7 +2233,7 @@ assert_file_exists "cleanup_recentHandoffOwnershipRecord_survivesThePrune" \
     "$SB/.claude/logs/.compact-handoff-s8"
 
 # cleanup_otherSessionMarkers_leftIntact
-SB="$(new_sandbox)"
+new_sandbox
 touch "$SB/.claude/logs/.compact-base-s1" "$SB/.claude/logs/.compact-base-s2" \
       "$SB/.claude/logs/.compact-cycle-s2" "$SB/.claude/logs/.compact-handoff-s2"
 printf '{"session_id":"s1","reason":"exit"}' \
@@ -2212,7 +2264,7 @@ echo "payload paths in the OS's own spelling:"
 # windowsPayload_jsonEscapedBackslashes_claimed
 # The real shape: `C:\\Users\\...`. This is what a live transcript contains —
 # 30 of 30 file_path values, measured.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 TARGET="$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
 run_suggest_pre "$SB" "$SB/transcript.jsonl" Write "${TARGET//\//\\\\}" >/dev/null
@@ -2222,7 +2274,7 @@ assert_eq "windowsPayload_jsonEscapedBackslashes_claimed" "$RECORDED" "$TARGET"
 # windowsPayload_singleBackslashes_claimed
 # The same path with unescaped separators, for a payload that reaches the hook
 # through anything that has already unescaped it once.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 TARGET="$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
 run_suggest_pre "$SB" "$SB/transcript.jsonl" Write "${TARGET//\//\\}" >/dev/null
@@ -2233,7 +2285,7 @@ assert_eq "windowsPayload_singleBackslashes_claimed" "$RECORDED" "$TARGET"
 # The claim is only worth writing if pre-compact.sh can act on it. A record
 # written in one spelling and read against candidates built in another is the
 # same silent mismatch one layer down, so the two hooks are exercised together.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 TARGET="$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
 run_suggest_pre "$SB" "$SB/transcript.jsonl" Write "${TARGET//\//\\\\}" >/dev/null
@@ -2252,7 +2304,7 @@ assert_contains "windowsPayload_claimRecordedInReadableSpelling_forwardedEndToEn
 # work. This replaces a test that asserted the same canonicalization through the
 # deleted discovery fallback; the property survived the fallback, the route to it
 # did not.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 TARGET="$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
 printf '{"session_id":"s2","transcript_path":"%s","hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"%s"}}' \
@@ -2283,7 +2335,7 @@ echo "ownership record framing:"
 # broken loop — measured at the time. Since #T144 the record is the only
 # lookup, so a dropped final line forwards nothing at all and the single
 # assertion discriminates on its own.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "UNTERMINATED CLAIM instruction"
 printf '%s' "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
     > "$SB/.claude/logs/.compact-handoff-s1"
@@ -2305,7 +2357,7 @@ assert_contains "ownershipRecord_finalLineUnterminated_stillRead" \
 # A trailing carriage return makes the path fail every -f test and every
 # newline-framed comparison while looking correct in any output that prints it.
 # Single-handoff setup for the same reason as the unterminated case above.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "CRLF CLAIM instruction"
 printf '%s\r\n' "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
     > "$SB/.claude/logs/.compact-handoff-s1"
@@ -2324,7 +2376,7 @@ assert_contains "ownershipRecord_crlfLineEndings_stillRead" \
 # property did not: it used to be the discovery fallback, and is now simply the
 # next line of the record. Rejecting a line must not stop the loop reading the
 # lines after it.
-SB="$(new_sandbox)"
+new_sandbox
 OUTSIDE="$(mktemp -d)"
 SANDBOXES+=("$OUTSIDE")
 printf 'compact_instruction: |\n  OUT OF ROOT instruction\n' \
@@ -2345,7 +2397,7 @@ assert_not_contains "ownershipRecord_outOfProjectClaim_stillRejected" \
 # unanchored `*/.claude/sessions/handoff-*.yaml`, which any checkout on the
 # machine satisfies — so writing a handoff in a second project put a foreign
 # path into this session's record, where it is just a path to read.
-SB="$(new_sandbox)"
+new_sandbox
 OTHER="$(mktemp -d)"
 SANDBOXES+=("$OTHER")
 mkdir -p "$OTHER/.claude/sessions"
@@ -2361,7 +2413,7 @@ echo "markers spent only after delivery:"
 # nudge_deliverySucceeded_markerSpent
 # The control. Without it the assertion below passes on any hook that never
 # nudges at all.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 150000 0 0
 run_suggest "$SB" "$SB/transcript.jsonl" >/dev/null
 assert_file_exists "nudge_deliverySucceeded_markerSpent" \
@@ -2372,7 +2424,7 @@ assert_file_exists "nudge_deliverySucceeded_markerSpent" \
 # one that was owed and never sent. Spent before the write, any failure in
 # between costs the nudge outright; spent after, the worst case is a duplicate.
 # stdout is closed, so the emitting printf fails.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 150000 0 0
 run_suggest "$SB" "$SB/transcript.jsonl" >&- 2>/dev/null || true
 assert_file_absent "nudge_deliveryFailed_markerLeftUnspent" \
@@ -2383,7 +2435,7 @@ assert_file_absent "nudge_deliveryFailed_markerLeftUnspent" \
 # stops being fresh and the nudge marker is cleared. Done before the forwarding
 # printf, an abort in between retires the cycle without the instruction ever
 # reaching the summarizer, and nothing revisits it.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "FORWARD ME instruction"
 claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
 touch "$SB/.claude/logs/.compact-nudged-s1"
@@ -2394,7 +2446,7 @@ assert_file_exists "preCompact_forwardingFailed_cycleNotRetired" \
 
 # preCompact_forwardingSucceeded_cycleRetired
 # The control for the above: on the ordinary path the cycle does close.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "FORWARD ME instruction"
 claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
 touch "$SB/.claude/logs/.compact-nudged-s1"
@@ -2410,7 +2462,7 @@ echo "kill switch:"
 # These hooks run on every tool call and on every compaction. Without a switch
 # the only way to stop a misbehaving one is editing settings.json, from inside
 # the session that is already going wrong.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 150000 0 0
 OUT=$(run_suggest "$SB" "$SB/transcript.jsonl" PROJECT_OS_COMPACT_DISABLE=1)
 assert_eq "killSwitch_compactSuggest_emitsNothing" "$OUT" ""
@@ -2420,7 +2472,7 @@ assert_file_absent "killSwitch_compactSuggest_leavesMarkerUnspent" \
 # killSwitch_compactSuggest_claimsNothing
 # Disabled means disabled: the claim runs ahead of everything else in the hook,
 # so a switch checked further down would still write to the record.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 printf '{"session_id":"s1","transcript_path":"%s","hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"%s"}}' \
     "$SB/transcript.jsonl" "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
@@ -2431,7 +2483,7 @@ assert_file_absent "killSwitch_compactSuggest_claimsNothing" \
 # killSwitch_preCompact_forwardsNothing
 # One variable covers both hooks. Disabling half the gate — forwarding without
 # nudging, or the reverse — is a state nobody wants to debug.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "DISABLED instruction"
 claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
@@ -2443,7 +2495,7 @@ assert_eq "killSwitch_preCompact_forwardsNothing" "$OUT" ""
 # unconditionally satisfies every one of them. This pins the other direction —
 # unset means the gate runs normally — so "disabled" stays a property of the
 # variable rather than of the guard.
-SB="$(new_sandbox)"
+new_sandbox
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "ENABLED instruction"
 claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
@@ -2457,7 +2509,7 @@ echo "compact_instruction scalar forms:"
 # `compact_instruction: "one line"` is valid YAML and is what a hand-edited
 # handoff most often contains. The key line was matched and then skipped, so the
 # value ON it was never read — no error, just an empty instruction.
-SB="$(new_sandbox)"
+new_sandbox
 {
     printf 'timestamp: "2026-07-30T00:00:00Z"\n'
     printf 'phase: "build"\n'
@@ -2488,7 +2540,7 @@ fi
 # valid YAML and is what most formatters emit, so the forwarded instruction
 # arrived with two spaces on every line — a markdown code block, read by the
 # summarizer as literal text rather than direction.
-SB="$(new_sandbox)"
+new_sandbox
 {
     printf 'phase: "build"\n'
     printf 'compact_instruction: |\n'
@@ -2507,7 +2559,7 @@ assert_not_contains "handoff_blockScalarIndentedFour_indentFullyStripped" \
 # Stripping the block indent must be measured, not maximal: indentation BELOW
 # the block base is the author structuring their instruction, and flattening it
 # loses the structure the two-space version happened to keep.
-SB="$(new_sandbox)"
+new_sandbox
 {
     printf 'phase: "build"\n'
     printf 'compact_instruction: |\n'
@@ -2525,7 +2577,7 @@ assert_contains "handoff_blockScalarRelativeIndent_preserved" \
 # neither — two objectives joined mid-thought, with nothing marking the seam.
 # The first occurrence wins: deterministic, and it cannot invent a sentence the
 # author did not write.
-SB="$(new_sandbox)"
+new_sandbox
 {
     printf 'phase: "build"\n'
     printf 'compact_instruction: |\n'
@@ -2546,7 +2598,7 @@ assert_not_contains "handoff_duplicateInstructionKey_notConcatenated" \
 # Three states, not two. "No handoff exists" and "a handoff exists and carries
 # no instruction" were the same sentence, so the one a reader can act on was
 # reported as the one they cannot.
-SB="$(new_sandbox)"
+new_sandbox
 {
     printf 'phase: "build"\n'
     printf 'feature: "sandbox-feature"\n'
@@ -2565,7 +2617,7 @@ fi
 # handoff_absent_checkpointStillSaysNoHandoff
 # The control for the three-state note: the original sentence must still be
 # reachable, or the distinction above just renamed the only case.
-SB="$(new_sandbox)"
+new_sandbox
 printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
 CP=$(find "$SB/.claude/sessions" -name 'auto-checkpoint-*.yaml' -type f 2>/dev/null | head -1)
@@ -2591,7 +2643,7 @@ echo "environment validation (reject, don't scrub):"
 # threshold, so the hook nudged on the first tool call of a fresh session and on
 # every one after it — the failure presents as the feature being far too eager,
 # never as a bad environment variable.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/t.jsonl" 1000 0 0
 OUT=$(run_suggest "$SB" "$SB/t.jsonl" CLAUDE_CODE_AUTO_COMPACT_WINDOW=1e6)
 assert_not_contains "env_windowInExponentNotation_rejectedNotScrubbed" \
@@ -2600,7 +2652,7 @@ assert_not_contains "env_windowInExponentNotation_rejectedNotScrubbed" \
 # env_windowNegative_rejectedNotStrippedOfSign
 # `-5` scrubbed to `5`: the sign is what made it invalid, and it is exactly what
 # `tr -cd` removes. A five-token window is the same runaway as above.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/t.jsonl" 1000 0 0
 OUT=$(run_suggest "$SB" "$SB/t.jsonl" CLAUDE_CODE_AUTO_COMPACT_WINDOW=-5)
 assert_not_contains "env_windowNegative_rejectedNotStrippedOfSign" \
@@ -2610,7 +2662,7 @@ assert_not_contains "env_windowNegative_rejectedNotStrippedOfSign" \
 # `0.9` scrubbed to `09`, and `09` is not a valid octal literal, so the very
 # next `$((COMPACT_PCT - 15))` aborted the hook under `set -e`. The nudge did
 # not fire wrongly — it stopped existing, silently, for the whole session.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/t.jsonl" 130000 0 0
 OUT=$(run_suggest "$SB" "$SB/t.jsonl" CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=0.9)
 assert_contains "env_compactPctWithDecimalPoint_rejectedNotScrubbedToOctal" \
@@ -2620,7 +2672,7 @@ assert_contains "env_compactPctWithDecimalPoint_rejectedNotScrubbedToOctal" \
 # `-5` scrubbed to `5` set the nudge threshold to 5% of the window: a nudge on
 # essentially every tool call, spending the cycle's single nudge at the moment
 # it is least useful.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/t.jsonl" 20000 0 0
 OUT=$(run_suggest "$SB" "$SB/t.jsonl" PROJECT_OS_COMPACT_NUDGE_PCT=-5)
 assert_not_contains "env_nudgePctNegative_rejectedNotStrippedOfSign" \
@@ -2633,7 +2685,7 @@ assert_not_contains "env_nudgePctNegative_rejectedNotStrippedOfSign" \
 # reads that error as "below threshold". A typo in one environment variable
 # turned the entire fallback off, silently, for every session that inherited it.
 # 2 MB of growth is unambiguously past any sane threshold and must still nudge.
-SB="$(new_sandbox)"
+new_sandbox
 head -c 2000000 /dev/zero 2>/dev/null | tr '\0' 'x' > "$SB/t.jsonl"
 OUT=$(run_suggest "$SB" "$SB/t.jsonl" PROJECT_OS_COMPACT_NUDGE_BYTES=1e3)
 assert_contains "env_nudgeBytesInExponentNotation_fallsBackInsteadOfDisablingTheFallback" \
@@ -2643,7 +2695,7 @@ assert_contains "env_nudgeBytesInExponentNotation_fallsBackInsteadOfDisablingThe
 # The control the five assertions above need: rejecting everything satisfies all
 # of them. A well-formed override must still take effect, or "validation" is
 # indistinguishable from "ignore the environment".
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/t.jsonl" 20000 0 0
 OUT=$(run_suggest "$SB" "$SB/t.jsonl" PROJECT_OS_COMPACT_NUDGE_PCT=5)
 assert_contains "env_validOverridesStillHonoured" "$OUT" "Context pressure"
@@ -2658,7 +2710,7 @@ echo "payload-field extraction (prefix-bounded):"
 # of its own call — a few hundred tokens — and reported it as the size of the
 # conversation. The real measurement is `message.usage`, and it is the earlier
 # of the two.
-SB="$(new_sandbox)"
+new_sandbox
 printf '{"type":"user","message":{"role":"user","content":"hello"}}\n' > "$SB/t.jsonl"
 printf '{"type":"assistant","isSidechain":false,"message":{"role":"assistant","usage":{"input_tokens":130000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":42}},"toolUseResult":{"usage":{"input_tokens":10,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":1}}}\n' \
     >> "$SB/t.jsonl"
@@ -2679,7 +2731,7 @@ assert_contains "tokens_recordWithTwoDepth2UsageKeys_firstOneWins" \
 # object rather than a quoted string: inside a JSON string the runtime writes
 # `\"agent_id\"`, and the backslash already defeats the naive extraction. A
 # nested object is where the raw key survives.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/t.jsonl" 130000 0 0
 OUT=$(printf '{"session_id":"s1","transcript_path":"%s","hook_event_name":"PostToolUse","tool_name":"Read","tool_input":{"file_path":"%s"},"tool_response":{"agent_id":"agentevil","content":"result body"}}' \
         "$SB/t.jsonl" "$SB/t.jsonl" \
@@ -2694,7 +2746,7 @@ assert_contains "agentId_appearingOnlyInsideToolResponse_notReadAsThisFiring" \
 # The control for the assertion above: bounding the search must not disable the
 # sub-agent guard. A genuine `agent_id`, which the runtime serializes ahead of
 # `tool_input`, is inside the prefix and still suppresses the nudge.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/t.jsonl" 130000 0 0
 OUT=$(run_suggest_as "$SB" "$SB/t.jsonl" "subagent7")
 assert_not_contains "agentId_realSubAgentFiring_stillSuppressed" \
@@ -2709,7 +2761,7 @@ echo "nudge mutual exclusion:"
 # find no marker, and all emit — three concurrent firings produced three nudges
 # on every trial. `mkdir` is the arbitration because it is atomic and it FAILS
 # for the loser, which `touch`, `>` and `[ -f ]` do not.
-SB="$(new_sandbox)"
+new_sandbox
 make_token_transcript "$SB/t.jsonl" 130000 0 0
 for i in 1 2 3; do
     run_suggest "$SB" "$SB/t.jsonl" > "$SB/concurrent-$i.out" &
@@ -2727,7 +2779,7 @@ assert_eq "nudge_threeConcurrentFirings_emitsExactlyOne" "$NUDGE_COUNT" "1"
 # The claim outlives a firing killed between `mkdir` and delivery. Left behind,
 # it suppresses every future nudge in the session — a fail-closed leak. The end
 # of the compaction cycle is where it is cleared, alongside the spent marker.
-SB="$(new_sandbox)"
+new_sandbox
 mkdir -p "$SB/.claude/logs/.compact-nudging-s1"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "instruction body"
 claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
@@ -2748,7 +2800,7 @@ echo "system-map drift (exit code 3 specifically):"
 # Gating on "nonzero" turned a checker that never formed an opinion into a
 # confident claim that the map is wrong, which sends the reader to re-derive
 # hook wiring from source for nothing.
-SB="$(new_sandbox)"
+new_sandbox
 printf 'process.exit(1);\n' > "$SB/scripts/system-map.ts"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "instruction body"
 claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
@@ -2759,7 +2811,7 @@ assert_not_contains "map_checkerFailsToRun_notReportedAsDrift" "$OUT" "drifted"
 # map_checkerReportsDrift_stillSurfaced
 # The control: exit 3 must still reach the reader, or the fix above is just a
 # way of never mentioning drift.
-SB="$(new_sandbox)"
+new_sandbox
 drift_the_map "$SB"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "instruction body"
 claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
@@ -2776,7 +2828,7 @@ echo "checkpoint YAML escaping (C0 control characters):"
 # four a double-quoted scalar reserves", which is false and is why nobody looked
 # for the rest. `\r` is the arm that fires in practice: ROADMAP.md is CRLF here,
 # so every description carries one.
-SB="$(new_sandbox)"
+new_sandbox
 {
     printf '# ROADMAP\n\n'
     printf '## Feature: control-chars\n\n'
@@ -2826,7 +2878,7 @@ echo "_common.sh path containment:"
 # file rejected, and the callers read a rejection as "not ours" and silently
 # skipped it. A guard that can only produce false negatives is worse than none,
 # because it is counted as coverage.
-SB="$(new_sandbox)"
+new_sandbox
 DOTROOT="$SB/my..project"
 mkdir -p "$DOTROOT/.claude/hooks" "$DOTROOT/docs"
 cp "$REAL_HOOKS/_common.sh" "$DOTROOT/.claude/hooks/"
@@ -2856,7 +2908,7 @@ assert_eq "containment_traversalOutsideProject_stillRejected" "$RESOLVED" ""
 echo ""
 echo "hook registration (.claude/settings.json):"
 
-SB="$(new_sandbox)"
+new_sandbox
 printf '%s\n' \
     'const fs = require("fs");' \
     'const settings = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));' \
