@@ -150,48 +150,41 @@ CHECKPOINT_FILE="$SESSIONS_DIR/auto-checkpoint-$TIMESTAMP_FILE.yaml"
 # The age window is the fallback for the first compaction of a session, when
 # no marker exists yet.
 #
-# Filenames are handoff-YYYY-MM-DD-HHMMSS-<token>.yaml, so lexical order is
-# chronological and `sort | tail -1` is portable where find -printf is not. The
-# token is a collision-resistant suffix, not an identifier this hook reads — it
-# sits after the full timestamp precisely so it cannot perturb that ordering.
-# Names written before the suffix existed (…-HHMM.yaml) still sort correctly
-# against it — but only in byte order, so the sort is pinned to LC_ALL=C. A
-# UTF-8 locale collates punctuation weakly, which would rank the legacy
-# `…-1400.yaml` above `…-140030-42.yaml` written thirty seconds later.
-# -type f rejects symlinks; resolve_project_path enforces containment before
-# any read.
+# Filenames are not read for ordering. They were, once, when a directory glob
+# was the lookup and lexical order had to stand in for chronology; the ownership
+# record is appended in write order, so the order is recorded rather than
+# inferred, and no locale-sensitive sort is involved.
 #
 # Timestamps alone cannot tell two sessions apart, and a second session working
 # in the same checkout writes into the same directory. compact-suggest.sh
-# records the path of any handoff THIS session wrote, so that record is
-# consulted first; the glob remains for handoffs written by other means. Both
-# paths obey the same freshness rule — ownership does not license forwarding a
-# handoff this session wrote before the previous compaction.
+# records the path of any handoff THIS session wrote, and that record is the
+# ONLY way a handoff becomes forwardable — see the note below the loop for why
+# there is no glob fallback. Ownership is necessary, not sufficient: the
+# freshness rule still applies, because owning a handoff does not license
+# forwarding one written before the previous compaction.
 CYCLE_FILE="$LOG_DIR/.compact-cycle-$SESSION_ID"
 OWNED_FILE="$LOG_DIR/.compact-handoff-$SESSION_ID"
 
 # The record holds every handoff this session wrote, appended in order, so the
 # last line that still exists and is fresh is the one to forward.
 #
-# "Fresh" means the same thing on both branches, and it has to. An earlier
-# version accepted an owned handoff of ANY age whenever the cycle marker was
-# missing, on the reasoning that no marker means no compaction has happened
-# yet. But missing-marker is not the same as recently-written, and the glob
-# fallback below applies the age window in exactly that situation. Two ways the
-# gap was reachable: a session that wrote a handoff and then worked for hours
-# before its first compaction, and — more sharply — a session resuming after
-# SessionEnd, since cleanup removes the session-private cycle marker while
+# An earlier version accepted an owned handoff of ANY age whenever the cycle
+# marker was missing, on the reasoning that no marker means no compaction has
+# happened yet. But missing-marker is not the same as recently-written. Two ways
+# the gap was reachable: a session that wrote a handoff and then worked for
+# hours before its first compaction, and — more sharply — a session resuming
+# after SessionEnd, since cleanup removes the session-private cycle marker while
 # deliberately keeping the cross-session ownership record. Claims outliving
 # markers is what makes the second case possible, so the retention fix that
-# introduced it is the reason this branch now has to check age for itself.
+# introduced it is the reason age is checked here at all.
 #
 # `read -r … || [ -n "$OWNED" ]` because a plain `read` loop DISCARDS a final
 # line with no trailing newline: read returns non-zero at EOF and the loop exits
 # with the value it just assigned unexamined. The record is appended to by a
 # hook that can be killed mid-write, so an unterminated last line is reachable —
-# and it is the newest claim, the one that matters most. The same shape guards
-# the foreign-record loop below, where dropping a line means failing to exclude
-# another session's handoff and forwarding its instruction here.
+# and it is the newest claim, the one that matters most. Since the record is now
+# the only lookup, dropping that line does not fall back to anything: it means
+# the handoff is not forwarded at all.
 #
 # `\r` is stripped for the same class of reason: the record can be written by a
 # hook whose stdout was redirected through a Windows text-mode filter, and a
@@ -202,18 +195,28 @@ if [ -f "$OWNED_FILE" ]; then
     while IFS= read -r OWNED || [ -n "$OWNED" ]; do
         OWNED="${OWNED%$'\r'}"
         [ -n "$OWNED" ] || continue
+        # A claim naming a symlink is refused outright rather than resolved.
+        # resolve_project_path FOLLOWS links and then tests where they land, so
+        # a link to an in-scope sibling would be accepted — and the sessions
+        # directory is exactly where a link can be planted by a checkout. The
+        # deleted glob got this property free from `find -type f`; stating it
+        # here is what keeps it after the glob is gone. compact-suggest.sh
+        # already refuses to claim a symlink, so a record naming one did not
+        # come from this feature.
+        # Written `! -L … || continue`, not `-L … && continue`: the `||` form
+        # always leaves status 0 behind, and this script runs `set -e` with an
+        # ERR trap that exits.
+        [ ! -L "$OWNED" ] || continue
         # Containment BEFORE the path can become the answer, not after it
         # already is. This check used to live below the loop, applied once to
         # whatever value the loop settled on — so a single claim pointing
-        # outside the project root was accepted here and nulled there, and the
-        # discovery fallback, which is gated on HANDOFF still being empty,
-        # never ran. One bad line starved forwarding permanently, for every
-        # future compaction of the session. Skipping it here lets discovery
-        # proceed exactly as if the claim had never been recorded.
+        # outside the project root was accepted here and nulled there, and
+        # forwarding was starved permanently, for every future compaction of the
+        # session, by one bad line. Skipping the line here confines the damage
+        # to that line: the rest of the record is still read.
         #
         # resolve_project_path subsumes the `-f` test it replaces: it requires a
-        # regular file, resolves symlinks, and rejects anything that lands
-        # outside the root.
+        # regular file and rejects anything landing outside the root.
         OWNED=$(resolve_project_path "$OWNED") || continue
         if [ -f "$CYCLE_FILE" ]; then
             [ "$OWNED" -nt "$CYCLE_FILE" ] || continue
@@ -226,50 +229,73 @@ if [ -f "$OWNED_FILE" ]; then
     done < "$OWNED_FILE"
 fi
 
-if [ -z "$HANDOFF" ]; then
-    if [ -f "$CYCLE_FILE" ]; then
-        CANDIDATES=$(find "$SESSIONS_DIR" -maxdepth 1 -type f -name 'handoff-*.yaml' -newer "$CYCLE_FILE" 2>/dev/null | LC_ALL=C sort || true)
-    else
-        CANDIDATES=$(find "$SESSIONS_DIR" -maxdepth 1 -type f -name 'handoff-*.yaml' -mmin -"$HANDOFF_MAX_AGE_MIN" 2>/dev/null | LC_ALL=C sort || true)
-    fi
-
-    # Every session in this checkout writes its ownership record into the same
-    # log directory, so a handoff another session claimed is identifiable even
-    # from here. Skipping those makes the fallback safe in the case that
-    # motivated ownership tracking; what remains unattributed is a handoff no
-    # session claimed, which is the pre-existing behaviour.
-    #
-    # EVERY line of each foreign record counts, not just the newest: a session
-    # that wrote two handoffs this cycle claims both, and reading only the last
-    # would leave its earlier one looking unattributed and forwardable here.
-    #
-    # CLAIMED is newline-framed on both sides and matched with the newlines
-    # included, so `/s/handoff-1.yaml` cannot be satisfied by a claim on
-    # `/s/handoff-1.yaml` written under a longer directory prefix.
-    CLAIMED=$'\n'
-    for OWNERSHIP_RECORD in "$LOG_DIR"/.compact-handoff-*; do
-        [ -f "$OWNERSHIP_RECORD" ] || continue
-        case "$OWNERSHIP_RECORD" in
-            */".compact-handoff-$SESSION_ID") continue ;;
-        esac
-        while IFS= read -r OTHER || [ -n "$OTHER" ]; do
-            OTHER="${OTHER%$'\r'}"
-            [ -n "$OTHER" ] || continue
-            CLAIMED="$CLAIMED$OTHER"$'\n'
-        done < "$OWNERSHIP_RECORD"
-    done
-
-    # Ascending order, so the last one accepted is the newest unclaimed handoff.
-    while IFS= read -r CANDIDATE; do
-        [ -n "$CANDIDATE" ] || continue
-        case "$CLAIMED" in
-            *$'\n'"$CANDIDATE"$'\n'*) continue ;;
-        esac
-        HANDOFF="$CANDIDATE"
-    done <<< "$CANDIDATES"
-fi
+# There is no discovery fallback. A handoff is forwarded only if a session on
+# this machine claimed it — the ownership record above is the whole of the
+# lookup.
+#
+# What used to be here: a glob of `handoff-*.yaml`, filtered by the same
+# freshness rule, minus anything appearing in another session's record. That
+# fallback was safe against the case it was written for — two sessions in one
+# checkout, each writing its own handoff — because both would have claims. It
+# was not safe against a handoff with NO claim, and an unclaimed file in
+# `.claude/sessions/` is not evidence of anything. `.claude/sessions/` is
+# gitignored here, but this hook ships to every scaffolded project, where the
+# directory may be tracked, checked out from a branch, restored from a backup,
+# or written by tooling that never ran through compact-suggest.sh. In all of
+# those the file is present, fresh by mtime, unclaimed — and its
+# `compact_instruction` becomes instructions to the summarizer. Freshness is an
+# mtime, and an mtime is not a provenance.
+#
+# The cost of the strict rule, stated plainly because it is real and was
+# accepted: a handoff written before ownership tracking existed, or one whose
+# claim was pruned by the seven-day sweep or lost with a cleaned `.claude/logs`,
+# silently stops being forwarded. That is the same silent-decline failure mode
+# #T130 fixed, reintroduced deliberately in the one direction that fails closed.
+# The checkpoint still names the file — HANDOFF_NOTE's second arm exists for
+# exactly this — so the next session is told a handoff is there and to read it,
+# rather than being told nothing.
+#
+# There is deliberately no environment escape hatch. A variable that re-enables
+# forwarding from unclaimed files is a variable an untrusted repo can set in
+# its own settings, and the gate would then be advisory.
 if [ -n "$HANDOFF" ]; then
     HANDOFF=$(resolve_project_path "$HANDOFF") || HANDOFF=""
+fi
+
+# ── The unclaimed case, for the checkpoint note only ────────────────────────
+# This is the other half of the strict rule above, and the reason its cost is
+# affordable. Nothing here can reach the summarizer: the value is a BASENAME,
+# it is used in one place — a sentence in the checkpoint file telling a human
+# where to look — and the file is never opened, so its `compact_instruction`
+# has no path into anything. Declining to forward is a decision; declining
+# silently is the failure #T130 fixed, and re-earning it here would be a poor
+# trade for a line of prose.
+#
+# Ordering: the glob expands sorted, and the last match is named. That is a
+# filename inference, of the kind forwarding no longer makes — permissible only
+# because the stake is which of several files gets mentioned in a sentence, not
+# which one steers a summary.
+#
+# No age filter: a handoff whose claim was pruned is by definition old, and it
+# is precisely the case this note exists to cover.
+#
+# The charset guard is not decoration. The note is interpolated into a
+# `context_notes: |` block scalar, where a newline in a filename would close the
+# block and let the rest of the name parse as YAML keys. A POSIX filename may
+# contain any byte but `/` and NUL; a handoff written by this project's own
+# tooling cannot contain anything outside this set, so anything that does is
+# not named rather than escaped.
+UNCLAIMED_HANDOFF=""
+if [ -z "$HANDOFF" ]; then
+    for CAND in "$SESSIONS_DIR"/handoff-*.yaml; do
+        [ -f "$CAND" ] || continue
+        [ ! -L "$CAND" ] || continue
+        CAND_BASE="${CAND##*/}"
+        case "$CAND_BASE" in
+            *[!A-Za-z0-9._-]*) continue ;;
+        esac
+        UNCLAIMED_HANDOFF="$CAND_BASE"
+    done
 fi
 
 # ── Extract its compact_instruction scalar ──────────────────────────────────
@@ -498,16 +524,20 @@ if [ -z "$RECENT" ]; then
 "
     done < <(git -C "$PROJECT_ROOT" status --porcelain -z --untracked-files=all 2>/dev/null || true)
 
-    # Three states, not two. Keying the note on COMPACT_INSTRUCTION alone
+    # Four states, not two. Keying the note on COMPACT_INSTRUCTION alone
     # collapsed "no handoff exists" into the same sentence as "a handoff exists
     # and its instruction did not parse" — so the one failure a reader could act
     # on was reported as the one they cannot, and the file sitting right there
     # went unmentioned. Whoever reads the checkpoint is the person who can open
-    # it; name it.
+    # it; name it. The third arm is the same principle applied to the strict
+    # ownership rule: an unclaimed handoff is not forwarded, and saying so is
+    # what keeps that from being a silent decline.
     if [ -n "$COMPACT_INSTRUCTION" ]; then
         HANDOFF_NOTE="Rich handoff available at ${HANDOFF#"$PROJECT_ROOT/"}"
     elif [ -n "$HANDOFF" ]; then
         HANDOFF_NOTE="A handoff exists at ${HANDOFF#"$PROJECT_ROOT/"} but carries no compact_instruction; read it directly."
+    elif [ -n "$UNCLAIMED_HANDOFF" ]; then
+        HANDOFF_NOTE="A handoff exists at .claude/sessions/${UNCLAIMED_HANDOFF} but no session on this machine claimed it, so its instruction was NOT forwarded to this summary; read it directly."
     else
         HANDOFF_NOTE="No fresh handoff was written before this compaction; decisions and rationale from this session were not captured."
     fi

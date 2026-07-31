@@ -129,6 +129,24 @@ write_handoff() {
     } > "$sb/.claude/sessions/$name"
 }
 
+# claim_handoff <sandbox> <session-id> <name>...
+# Appends handoff paths to the ownership record compact-suggest.sh would have
+# written, in the order given.
+#
+# Since #T144 there is no discovery fallback: a handoff nobody claimed is never
+# forwarded, so any test asserting that an instruction reaches the summarizer
+# has to say which session wrote the file. Kept as a separate call rather than
+# folded into write_handoff so the two situations stay visible at the call site —
+# a test that plants a file and a test that plants an OWNED file are testing
+# different things, and several tests below plant deliberately unclaimed files.
+claim_handoff() {
+    local sb="$1" sid="$2" n
+    shift 2
+    for n in "$@"; do
+        printf '%s\n' "$sb/.claude/sessions/$n" >> "$sb/.claude/logs/.compact-handoff-$sid"
+    done
+}
+
 # make_transcript <path> <bytes>
 # A transcript with no parseable usage record, so compact-suggest.sh falls back
 # to byte growth. Used by the fallback tests.
@@ -796,6 +814,7 @@ SB="$(new_sandbox)"
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" \
     "Preserve the awk extraction in pre-compact.sh:78-82.
 Safe to drop: the abandoned flock counter."
+claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto","transcript_path":""}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_contains "forward_freshHandoff_printsInstructionBody" \
@@ -808,13 +827,17 @@ assert_contains "forward_freshHandoff_pointsAtHandoffPath" \
 # envelope here would be read as instruction text.
 assert_not_contains "forward_stdout_isPlainTextNotJson" "$OUT" "hookSpecificOutput"
 
-# forward_multipleHandoffs_usesNewestByName
+# forward_multipleHandoffs_usesLastClaimed
+# The record is append-ordered, so "newest" is the last claim still standing —
+# a recorded fact rather than an inference from the filename. Claimed in the
+# order they were written, which is what compact-suggest.sh does.
 SB="$(new_sandbox)"
 write_handoff "$SB" "handoff-2026-07-30-0900.yaml" "OLDER instruction"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "NEWER instruction"
+claim_handoff "$SB" s1 "handoff-2026-07-30-0900.yaml" "handoff-2026-07-30-1400.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
-assert_contains "forward_multipleHandoffs_usesNewestByName" "$OUT" "NEWER instruction"
+assert_contains "forward_multipleHandoffs_usesLastClaimed" "$OUT" "NEWER instruction"
 assert_not_contains "forward_multipleHandoffs_ignoresOlder" "$OUT" "OLDER instruction"
 
 # forward_unfilledPlaceholder_treatedAsAbsent
@@ -822,6 +845,7 @@ SB="$(new_sandbox)"
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" \
     "[A /compact instruction tuned to the current task, e.g.:
  \"Focus on the auth middleware refactor in src/middleware/auth.ts.\"]"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_eq "forward_unfilledPlaceholder_treatedAsAbsent" "$OUT" ""
@@ -830,6 +854,7 @@ assert_eq "forward_unfilledPlaceholder_treatedAsAbsent" "$OUT" ""
 # falls back to the age window and a two-hour-old handoff is out of scope.
 SB="$(new_sandbox)"
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "STALE instruction"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
 touch -d '2 hours ago' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
@@ -846,6 +871,7 @@ assert_eq "forward_staleHandoff_ignored" "$OUT" ""
 SB="$(new_sandbox)"
 touch -d '3 hours ago' "$SB/.claude/logs/.compact-cycle-s1"
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "SLOW SESSION instruction"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
 touch -d '1 hour ago' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
@@ -857,6 +883,7 @@ assert_contains "freshness_handoffWrittenThisCycleButOldByClock_stillForwarded" 
 # compaction, so it describes context that has already been summarized away.
 SB="$(new_sandbox)"
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "PREVIOUS CYCLE instruction"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
 touch -d '5 minutes ago' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml"
 touch "$SB/.claude/logs/.compact-cycle-s1"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
@@ -872,15 +899,17 @@ assert_not_contains "freshness_handoffPredatingCycleMarker_ignoredEvenWhenRecent
 SB="$(new_sandbox)"
 touch -d '1 hour ago' "$SB/.claude/logs/.compact-cycle-s1"
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "ORDERING instruction"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_contains "freshness_cycleMarkerReadBeforeItIsReset" "$OUT" "ORDERING instruction"
 
 # ── Session ownership ───────────────────────────────────────────────────────
 # Handoff filenames carry a timestamp but no session identifier, so two sessions
-# sharing one checkout are indistinguishable to the discovery glob alone.
+# sharing one checkout would be indistinguishable to a directory listing.
 # compact-suggest.sh records the path of any handoff it observed being written,
-# and pre-compact.sh consults that record before the glob.
+# and since #T144 that record is the ONLY thing pre-compact.sh consults: an
+# unclaimed file is never forwarded, however fresh it looks.
 
 # ownership_writeOfHandoff_recordsAuthoringSession
 # The record must be written even though this call produces no nudge — the
@@ -995,53 +1024,96 @@ assert_contains "ownership_ownHandoff_forwardedOverNewerForeignOne" \
 assert_not_contains "ownership_concurrentSessionHandoff_notForwarded" \
     "$OUT" "SESSION TWO instruction"
 
-# ownership_foreignHandoff_notPickedUpByGlobFallback
-# s1 wrote no handoff at all, so there is nothing to prefer. The glob would
-# otherwise hand it s2's — a claimed handoff is excluded from the fallback too.
+# ownership_foreignHandoff_notForwarded
+# s1 wrote no handoff at all, so its record does not exist. Another session's
+# claimed handoff is not a substitute for one.
 SB="$(new_sandbox)"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "FOREIGN instruction"
 printf '%s\n' "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
     > "$SB/.claude/logs/.compact-handoff-s2"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
-assert_not_contains "ownership_foreignHandoff_notPickedUpByGlobFallback" \
+assert_not_contains "ownership_foreignHandoff_notForwarded" \
     "$OUT" "FOREIGN instruction"
 
-# ownership_unclaimedHandoff_stillForwarded
-# The fallback must not become a whitelist: a handoff nobody claimed — written
-# before this feature existed, or by a tool the PostToolUse hook cannot see —
-# is forwarded exactly as it was.
+# ownership_unclaimedHandoff_notForwarded
+# #T144, and the assertion whose premise this release inverts. It used to read
+# `_stillForwarded`, on the reasoning that a handoff nobody claimed was probably
+# written before the feature existed and should be honoured anyway.
+#
+# The reasoning was wrong in the direction that matters. This hook ships to every
+# scaffolded project, where `.claude/sessions/` may be tracked in git, checked
+# out from a branch, or restored from a backup — and in all of those the file is
+# present, fresh by mtime, unclaimed, and its `compact_instruction` becomes
+# instructions to the summarizer. Freshness is an mtime, and an mtime is not a
+# provenance. A claim is the only evidence a session on this machine wrote it.
 SB="$(new_sandbox)"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "UNCLAIMED instruction"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
-assert_contains "ownership_unclaimedHandoff_stillForwarded" "$OUT" "UNCLAIMED instruction"
+assert_not_contains "ownership_unclaimedHandoff_notForwarded" "$OUT" "UNCLAIMED instruction"
 
-# ownership_newerForeignHandoff_fallsBackToOlderUnclaimedOne
-# Exclusion must skip to the next candidate rather than abandoning the search.
+# ownership_unclaimedHandoff_checkpointStillNamesIt
+# The other half of #T144, and the reason the strict rule is affordable. Refusing
+# to forward must not mean saying nothing: the file is real, and the next session
+# is told it is there and to read it. Without this the accepted cost — a handoff
+# whose claim was pruned stops being forwarded — would be a silent decline, the
+# exact failure #T130 fixed.
+#
+# Both halves are asserted, and the second one is why this is not vacuous. The
+# name alone appears in the note on the OLD hook too — it forwarded the file, so
+# it named it as a rich handoff. Only the declining sentence distinguishes "read
+# this, I used it" from "read this, I refused to use it".
+CP=$(find "$SB/.claude/sessions" -name 'auto-checkpoint-*.yaml' -type f 2>/dev/null | head -1)
+if [ -n "$CP" ]; then
+    assert_contains "ownership_unclaimedHandoff_checkpointStillNamesIt" \
+        "$(cat "$CP")" "handoff-2026-07-30-1400.yaml"
+    assert_contains "ownership_unclaimedHandoff_checkpointSaysItWasNotForwarded" \
+        "$(cat "$CP")" "no session on this machine claimed it"
+else
+    bad "ownership_unclaimedHandoff_checkpointStillNamesIt — no checkpoint written"
+fi
+
+# ownership_ownClaimAlongsideNewerForeignHandoff_forwardsOwn
+# The successor to a test that asserted the search fell back to an older
+# UNCLAIMED file when the newest one belonged to someone else. There is no
+# fallback to assert now; what survives from it is the property that actually
+# mattered — a newer foreign handoff never displaces this session's own.
 SB="$(new_sandbox)"
-write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "UNCLAIMED OLDER instruction"
-write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "CLAIMED NEWER instruction"
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "OWN OLDER instruction"
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "FOREIGN NEWER instruction"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
 printf '%s\n' "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
     > "$SB/.claude/logs/.compact-handoff-s2"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
-assert_contains "ownership_newerForeignHandoff_fallsBackToOlderUnclaimedOne" \
-    "$OUT" "UNCLAIMED OLDER instruction"
-assert_not_contains "ownership_newerForeignHandoff_ignoresClaimedOne" \
-    "$OUT" "CLAIMED NEWER instruction"
+assert_contains "ownership_ownClaimAlongsideNewerForeignHandoff_forwardsOwn" \
+    "$OUT" "OWN OLDER instruction"
+assert_not_contains "ownership_ownClaimAlongsideNewerForeignHandoff_ignoresForeign" \
+    "$OUT" "FOREIGN NEWER instruction"
 
-# ownership_claimOnPrefixCollidingPath_doesNotExcludeThisHandoff
-# The exclusion test matches whole newline-framed lines. A claim on a path that
-# merely ENDS with this handoff's name — a same-named file under a longer
-# directory prefix — must not suppress the real one.
+# ownership_foreignClaimOnPrefixCollidingPath_doesNotSuppressOwnClaim
+# The successor to a prefix-collision test aimed at the deleted exclusion set.
+# The collision risk did not go away with it: compact-suggest.sh still refuses to
+# claim a path another session's record holds, and that comparison is whole-line
+# for this reason. A foreign claim on a path that merely ENDS with this handoff's
+# name — the same name under a longer directory prefix, i.e. a second checkout —
+# must not stop s1 claiming its own, because a handoff it cannot claim is now a
+# handoff that will never be forwarded.
 SB="$(new_sandbox)"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "PREFIX COLLISION instruction"
 printf '%s\n' "/other/checkout$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
     > "$SB/.claude/logs/.compact-handoff-s2"
+make_transcript "$SB/transcript.jsonl" 50
+printf '{"session_id":"s1","transcript_path":"%s","tool_name":"Write","tool_input":{"file_path":"%s"}}' \
+    "$SB/transcript.jsonl" "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
+    | bash "$SB/.claude/hooks/compact-suggest.sh" >/dev/null 2>&1
+assert_eq "ownership_foreignClaimOnPrefixCollidingPath_doesNotSuppressOwnClaim" \
+    "$(cat "$SB/.claude/logs/.compact-handoff-s1" 2>/dev/null || true)" \
+    "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
-assert_contains "ownership_claimOnPrefixCollidingPath_doesNotExcludeThisHandoff" \
+assert_contains "ownership_foreignClaimOnPrefixCollidingPath_ownHandoffStillForwarded" \
     "$OUT" "PREFIX COLLISION instruction"
 
 # ownership_ownRecordFromPreviousCycle_notReforwarded
@@ -1094,9 +1166,13 @@ assert_file_absent "preToolUse_claimRecorded_whileFileStillAbsent" \
 
 # preToolUse_claimPrecedesPublication_foreignSessionDoesNotForwardIt
 # THE RACE THIS CLOSES. s1 claims, then publishes; s2 compacts in between. With
-# the claim trailing the write, s2's fallback glob finds an unattributed handoff
-# and forwards s1's compact_instruction to s2's summarizer — and a claim
-# appended a millisecond later cannot un-compact anything.
+# the claim trailing the write, the file exists for a window during which no
+# record names it — and under the pre-#T144 discovery rule an unattributed
+# handoff was forwarded to whoever compacted, so s2's summarizer received s1's
+# compact_instruction, and a claim appended a millisecond later could not
+# un-compact anything. The strict rule closes the same window from the other
+# side; the ordering is still asserted because the strict rule is what makes an
+# unrecorded claim fatal rather than merely risky.
 SB="$(new_sandbox)"
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 run_suggest_pre "$SB" "$SB/transcript.jsonl" Write \
@@ -1265,11 +1341,10 @@ assert_eq "ownership_repeatClaimOnSamePath_stillWritesOneLine" "$LINES" "1"
 # make the ownership branch accept a file that genuinely exists and hand s2 the
 # other session's instruction.
 #
-# s1 must claim the handoff for this to test what it says it tests. An
-# UNCLAIMED handoff is forwarded to s2 by the glob fallback anyway — that is
-# the documented pre-existing behaviour for a handoff no session attributes to
-# itself, and asserting against it would fail for a reason that has nothing to
-# do with the pre-claim.
+# s1 claims the handoff so the assertion is about the pre-claim rather than
+# about #T144. With no claim at all the instruction would not reach s2 either,
+# but for the unrelated reason that nothing unclaimed is ever forwarded — the
+# test would pass without exercising the gate it names.
 SB="$(new_sandbox)"
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "ANOTHER SESSION instruction"
@@ -1319,8 +1394,9 @@ assert_file_absent "preToolUse_pathOccupiedByDirectory_claimsNothing" \
 # preToolUse_ownPublishedHandoffEdited_claimSurvives
 # The other side of the gate: a session revising its own handoff gets no new
 # claim, and needs none — it claimed the path when it created the file. The
-# record must still name it, or the ownership branch would fall through to the
-# glob fallback for a session that did everything right.
+# record must still name it, because since #T144 the record is the only route
+# by which a handoff is forwarded at all: losing the claim on the second write
+# would silently stop forwarding for a session that did everything right.
 SB="$(new_sandbox)"
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 run_suggest_pre "$SB" "$SB/transcript.jsonl" Write \
@@ -1391,10 +1467,10 @@ assert_contains "postToolUse_explicitEventName_stillNudges" \
     "$OUT" "Context is at 65% of the 200000-token window"
 
 # ── Session ownership: more than one handoff per session ────────────────────
-# A session can write several handoffs in one cycle. If the record kept only
-# the newest, the earlier ones would look unattributed to a concurrent
-# session's glob fallback — reintroducing the cross-session leak one handoff
-# further back.
+# A session can write several handoffs in one cycle. If the record kept only the
+# newest, the earlier ones would be unattributed — which since #T144 means they
+# would never be forwarded, and which before it meant a concurrent session could
+# pick them up.
 
 # ownership_secondHandoffWrite_appendsRatherThanReplaces
 SB="$(new_sandbox)"
@@ -1431,9 +1507,12 @@ assert_eq "ownership_repeatedWriteOfSameHandoff_recordedOnce" \
     "$RECORDED" "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml"
 
 # ownership_olderOfTwoForeignHandoffs_notForwarded
-# THE BUG THIS CLOSES. s2 wrote both handoffs this cycle and s1 wrote none.
-# Excluding only s2's newest claim would leave the older one looking unclaimed,
-# and the glob fallback would forward it to s1's summarizer.
+# THE BUG THIS CLOSED. s2 wrote both handoffs this cycle and s1 wrote none.
+# Excluding only s2's newest claim left the older one looking unclaimed, and the
+# discovery fallback forwarded it to s1's summarizer. #T144 removed that
+# fallback, so this now holds for the broader reason that s1 has no record at
+# all; kept because the property is the one that matters and a future fallback
+# would have to satisfy it.
 SB="$(new_sandbox)"
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "FOREIGN FIRST instruction"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "FOREIGN SECOND instruction"
@@ -1479,8 +1558,8 @@ assert_contains "ownership_newestOwnClaimDeleted_fallsBackToSurvivingEarlierOne"
     "$OUT" "SURVIVING instruction"
 
 # ownership_ownHandoffOlderThanAgeWindow_notForwardedWithoutCycleMarker
-# Freshness applied to the glob but not to the owned branch, so before this
-# session's first compaction — no cycle marker yet — ANY owned handoff was
+# Freshness applied to the discovery branch but not to the owned one, so before
+# this session's first compaction — no cycle marker yet — ANY owned handoff was
 # forwarded regardless of age. A session that wrote a handoff hours ago and has
 # been working since would hand the summarizer an instruction describing work
 # that is already finished. The age window now governs both branches.
@@ -1547,9 +1626,17 @@ assert_not_contains "ownership_staleOwnHandoffAfterFreshOne_outdatedNotForwarded
 # Ownership tracking cannot disambiguate two sessions that wrote the SAME path,
 # and at minute granularity two /tools:handoff runs in one minute produced
 # exactly that: one file, whichever body was written last, claimed by both
-# records. handoff.md now generates handoff-YYYY-MM-DD-HHMMSS-<token>.yaml. The
-# hooks never parse the token — what they rely on is that it comes after the
-# full timestamp, so these tests pin the ordering that assumption rests on.
+# records. handoff.md now generates handoff-YYYY-MM-DD-HHMMSS-<token>.yaml, so
+# the paths differ and the records can tell them apart.
+#
+# What is NOT tested here any more: lexical ordering of the filenames. Two tests
+# used to pin it — a variable-width $RANDOM token must not out-sort a later
+# seconds field, and a legacy …-1400.yaml must not out-sort …-140030-42.yaml
+# under a UTF-8 collation that weights punctuation weakly, which is why the hook
+# pinned LC_ALL=C on its sort. #T144 deleted the directory glob those tests were
+# aimed at, and the sort with it; ordering now comes from the append order of the
+# ownership record, which is a recorded fact rather than an inference from a
+# name. Both tests were removed rather than left passing against nothing.
 
 # naming_twoSessionsSameMinute_eachForwardsItsOwnHandoff
 SB="$(new_sandbox)"
@@ -1566,38 +1653,22 @@ assert_contains "naming_twoSessionsSameMinute_eachForwardsItsOwnHandoff" \
 assert_not_contains "naming_twoSessionsSameMinute_doesNotForwardTheOtherSession" \
     "$OUT" "SESSION TWO same-minute instruction"
 
-# naming_variableWidthToken_newestBySecondsStillWins
-# The token is $RANDOM, so it is 1-5 digits wide. A wider token on an older
-# file must not out-sort a narrower one on a newer file — the seconds field
-# decides first because it precedes the token.
+# naming_recordOrderBeatsFilenameOrder_lastClaimWins
+# The replacement for the two deleted sort tests, and the assertion that makes
+# their deletion safe rather than merely convenient. A handoff whose NAME sorts
+# earlier is claimed LAST, so name order and record order disagree — and the
+# record has to win, or something is still ordering by filename. Under the
+# deleted glob this forwarded the 1400 body; it must now forward the 1200 one.
 SB="$(new_sandbox)"
-write_handoff "$SB" "handoff-2026-07-30-140012-99999.yaml" "EARLIER SECOND instruction"
-write_handoff "$SB" "handoff-2026-07-30-140059-7.yaml" "LATER SECOND instruction"
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "CLAIMED LAST instruction"
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "CLAIMED FIRST instruction"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml" "handoff-2026-07-30-1200.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
-assert_contains "naming_variableWidthToken_newestBySecondsStillWins" \
-    "$OUT" "LATER SECOND instruction"
-assert_not_contains "naming_variableWidthToken_earlierSecondNotForwarded" \
-    "$OUT" "EARLIER SECOND instruction"
-
-# naming_legacyMinuteNameVersusSuffixedName_suffixedWins
-# Handoffs written before this scheme are still on disk. A legacy …-1400.yaml
-# and a suffixed …-140030-42.yaml from thirty seconds later must order by time.
-# In byte order they do ('.' < '3'); under a UTF-8 locale, where glibc gives
-# punctuation a weaker first-level weight, they compare as 1400yaml vs
-# 14003042yaml and invert — which is why the hook pins LC_ALL=C on the sort.
-# The env below makes this a real regression test where that locale is
-# installed; on a C-only image (no en_US.UTF-8 in `locale -a`, as in this
-# project's container) sort falls back to C and only byte order is exercised.
-SB="$(new_sandbox)"
-write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "LEGACY NAME instruction"
-write_handoff "$SB" "handoff-2026-07-30-140030-42.yaml" "SUFFIXED NAME instruction"
-OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
-    | LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
-assert_contains "naming_legacyMinuteNameVersusSuffixedName_suffixedWins" \
-    "$OUT" "SUFFIXED NAME instruction"
-assert_not_contains "naming_legacyMinuteNameVersusSuffixedName_legacyNotForwarded" \
-    "$OUT" "LEGACY NAME instruction"
+assert_contains "naming_recordOrderBeatsFilenameOrder_lastClaimWins" \
+    "$OUT" "CLAIMED LAST instruction"
+assert_not_contains "naming_recordOrderBeatsFilenameOrder_earlierClaimNotForwarded" \
+    "$OUT" "CLAIMED FIRST instruction"
 
 # forward_noHandoff_cleanMap_printsNothing
 SB="$(new_sandbox)"
@@ -1616,15 +1687,24 @@ assert_contains "forward_driftedMap_noHandoff_printsCaveat" "$OUT" "system map a
 SB="$(new_sandbox)"
 drift_the_map "$SB"
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "Keep the pressure-baseline reset."
+claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_contains "forward_driftedMap_withHandoff_printsInstruction" "$OUT" "Keep the pressure-baseline reset."
 assert_contains "forward_driftedMap_withHandoff_printsCaveat" "$OUT" "system map at docs/maps/ is drifted"
 
 # ── Containment ─────────────────────────────────────────────────────────────
-# Handoff discovery is `find -type f`, which never yields a symlink, and
-# resolve_project_path re-checks containment. Both indirection cases must be
-# rejected: the one that escapes the project AND the one that stays inside it.
+# A claimed path is a path read from disk, so the hook refuses a claim naming a
+# symlink outright and resolve_project_path re-checks containment on what is
+# left. Both indirection cases must be rejected: the one that escapes the
+# project AND the one that stays inside it.
+#
+# Both fixtures now CLAIM the link, which is the only way they reach the code
+# under test at all since #T144 — and it is also the sharper setup: an
+# unclaimed link is refused for a reason that has nothing to do with where it
+# points. The claim is written directly rather than through compact-suggest.sh
+# because that hook refuses to claim a symlink; this asserts the second line of
+# defence, for a record that arrived some other way.
 
 # containment_symlinkEscapingProject_rejected
 SB="$(new_sandbox)"
@@ -1634,19 +1714,23 @@ mkdir -p "$OUTSIDE/.claude/sessions"
 write_handoff "$OUTSIDE" "handoff-2026-07-30-1200.yaml" "ESCAPED instruction"
 ln -s "$OUTSIDE/.claude/sessions/handoff-2026-07-30-1200.yaml" \
       "$SB/.claude/sessions/handoff-2026-07-30-1300.yaml"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1300.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_not_contains "containment_symlinkEscapingProject_rejected" "$OUT" "ESCAPED instruction"
 
 # containment_symlinkToInScopeSibling_alsoRejected
-# The link target is inside the project, so containment alone would allow it.
-# `-type f` rejects it anyway — the discovery rule is "regular files only",
-# not "files that resolve somewhere acceptable". Asserted so a future switch to
-# `-type f -o -type l` fails here rather than silently widening the surface.
+# The link target is inside the project, so containment alone would allow it —
+# resolve_project_path FOLLOWS the link and then asks where it landed, and the
+# answer is "somewhere acceptable". The rule is "regular files only", not "files
+# that resolve somewhere acceptable", and the deleted glob got that free from
+# `find -type f`. The explicit `[ ! -L ]` in the ownership loop is what keeps it;
+# this fails if that line is ever removed as redundant.
 SB="$(new_sandbox)"
 mkdir -p "$SB/docs"
 write_handoff "$SB" "../../docs/planted.yaml" "SIBLING instruction"
 ln -s "$SB/docs/planted.yaml" "$SB/.claude/sessions/handoff-2026-07-30-1300.yaml"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1300.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_not_contains "containment_symlinkToInScopeSibling_alsoRejected" "$OUT" "SIBLING instruction"
@@ -1673,6 +1757,7 @@ assert_not_contains "containment_symlinkToInScopeSibling_alsoRejected" "$OUT" "S
 # symlink in the path and the case cannot discriminate.
 SB="$(new_sandbox)"
 write_handoff "$SB" "handoff-2026-07-30-1300.yaml" "THROUGH SYMLINK instruction"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1300.yaml"
 LINKDIR="$(mktemp -d)"
 SANDBOXES+=("$LINKDIR")
 LINK="$LINKDIR/link"
@@ -1721,6 +1806,7 @@ assert_contains "cycle_afterReset_newGrowth_nudgesAgain" "$OUT" '"hookEventName"
 # read, or the same instruction would be replayed into every later compaction.
 SB="$(new_sandbox)"
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "ONE SHOT instruction"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
 FIRST=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_contains "cycle_firstCompaction_forwardsHandoff" "$FIRST" "ONE SHOT instruction"
@@ -1943,6 +2029,7 @@ fi
 SB="$(new_sandbox)"
 touch "$SB/.claude/sessions/auto-checkpoint-2026-07-30-1200.yaml"
 write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "Debounce must not gate stdout."
+claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_contains "checkpoint_debounced_stillForwardsInstruction" "$OUT" "Debounce must not gate stdout."
@@ -2156,10 +2243,15 @@ OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
 assert_contains "windowsPayload_claimRecordedInReadableSpelling_forwardedEndToEnd" \
     "$OUT" "WINDOWS CLAIMED instruction"
 
-# windowsPayload_foreignBackslashClaim_excludesFromGlobFallback
-# The other direction: a claim s2 recorded from a backslash payload must still
-# exclude that handoff from s1's fallback. If canonicalization stopped at the
-# claim and the exclusion compared raw strings, s1 would forward s2's work.
+# windowsPayload_foreignBackslashClaim_blocksASecondClaim
+# The other direction. s2 claims from a backslash payload; s1 then tries to claim
+# the same file, and must be refused — the foreign-claim check is a whole-line
+# comparison against a record written in canonical spelling, so if
+# canonicalization stopped at the claim and the comparison saw raw strings, both
+# sessions would hold the same handoff and one of them would forward the other's
+# work. This replaces a test that asserted the same canonicalization through the
+# deleted discovery fallback; the property survived the fallback, the route to it
+# did not.
 SB="$(new_sandbox)"
 make_token_transcript "$SB/transcript.jsonl" 1000 0 0
 TARGET="$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
@@ -2167,9 +2259,12 @@ printf '{"session_id":"s2","transcript_path":"%s","hook_event_name":"PreToolUse"
     "$SB/transcript.jsonl" "${TARGET//\//\\\\}" \
     | bash "$SB/.claude/hooks/compact-suggest.sh" >/dev/null 2>&1
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "FOREIGN WINDOWS instruction"
+run_suggest_pre "$SB" "$SB/transcript.jsonl" Edit "$TARGET" >/dev/null
+assert_file_absent "windowsPayload_foreignBackslashClaim_blocksASecondClaim" \
+    "$SB/.claude/logs/.compact-handoff-s1"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
-assert_not_contains "windowsPayload_foreignBackslashClaim_excludesFromGlobFallback" \
+assert_not_contains "windowsPayload_foreignBackslashClaim_notForwardedToTheOtherSession" \
     "$OUT" "FOREIGN WINDOWS instruction"
 
 echo ""
@@ -2182,60 +2277,53 @@ echo "ownership record framing:"
 # The record is appended to by a hook that can be killed mid-write, so the
 # state is reachable.
 #
-# A second, NEWER unclaimed handoff is present on purpose. With only the
-# claimed one in the directory the discovery fallback quietly forwards the same
-# file the dropped claim pointed at, and the assertion passes against the
-# broken loop — measured. Here the two paths disagree: the claim selects 1400,
-# the fallback selects 1500, and only one of them can be in the output.
+# This used to need a second, newer unclaimed handoff to be non-vacuous: with
+# only the claimed file in the directory, the discovery fallback forwarded the
+# same path the dropped claim pointed at, and the assertion passed against the
+# broken loop — measured at the time. Since #T144 the record is the only
+# lookup, so a dropped final line forwards nothing at all and the single
+# assertion discriminates on its own.
 SB="$(new_sandbox)"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "UNTERMINATED CLAIM instruction"
-write_handoff "$SB" "handoff-2026-07-30-1500.yaml" "FALLBACK PICK instruction"
 printf '%s' "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
     > "$SB/.claude/logs/.compact-handoff-s1"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_contains "ownershipRecord_finalLineUnterminated_stillRead" \
     "$OUT" "UNTERMINATED CLAIM instruction"
-assert_not_contains "ownershipRecord_finalLineUnterminated_claimBeatsFallback" \
-    "$OUT" "FALLBACK PICK instruction"
 
-# ownershipRecord_foreignFinalLineUnterminated_stillExcluded
-# THE LEAK, end to end. The dropped line is a claim that fails to exclude, so
-# s1's fallback treats s2's handoff as unattributed and forwards s2's
-# instruction to s1's summarizer — the exact failure ownership tracking exists
-# to prevent, reintroduced by a missing four characters in a read loop.
-SB="$(new_sandbox)"
-write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "FOREIGN UNTERMINATED instruction"
-printf '%s' "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
-    > "$SB/.claude/logs/.compact-handoff-s2"
-OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
-    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
-assert_not_contains "ownershipRecord_foreignFinalLineUnterminated_stillExcluded" \
-    "$OUT" "FOREIGN UNTERMINATED instruction"
+# The foreign counterpart of the case above — an unterminated line in ANOTHER
+# session's record, which used to be the whole leak: the dropped line failed to
+# exclude, s1's fallback treated s2's handoff as unattributed, and s2's
+# instruction reached s1's summarizer. It was deleted rather than left passing,
+# because with no fallback s1 forwards nothing whatever s2's record says, so the
+# assertion held against a read loop that dropped every line. What it protected
+# is now covered structurally: a handoff is forwarded only if THIS session's
+# record names it.
 
 # ownershipRecord_crlfLineEndings_stillRead
 # A trailing carriage return makes the path fail every -f test and every
 # newline-framed comparison while looking correct in any output that prints it.
-# Same two-handoff setup as above, and for the same reason: the fallback would
-# otherwise cover for the claim and the assertion would prove nothing.
+# Single-handoff setup for the same reason as the unterminated case above.
 SB="$(new_sandbox)"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "CRLF CLAIM instruction"
-write_handoff "$SB" "handoff-2026-07-30-1500.yaml" "CRLF FALLBACK instruction"
 printf '%s\r\n' "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml" \
     > "$SB/.claude/logs/.compact-handoff-s1"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_contains "ownershipRecord_crlfLineEndings_stillRead" \
     "$OUT" "CRLF CLAIM instruction"
-assert_not_contains "ownershipRecord_crlfLineEndings_claimBeatsFallback" \
-    "$OUT" "CRLF FALLBACK instruction"
 
-# ownershipRecord_outOfProjectClaim_doesNotStarveDiscovery
+# ownershipRecord_outOfProjectClaim_doesNotStarveTheRestOfTheRecord
 # Containment ran once, below the loop, on whatever value the loop settled on —
 # so an out-of-root claim was accepted inside the loop and nulled afterwards,
-# and the discovery fallback, gated on HANDOFF still being empty, never ran.
-# One bad line disabled forwarding for every remaining compaction of the
-# session. The rejection must be a skip, not a verdict.
+# and forwarding was disabled for every remaining compaction of the session by
+# one bad line. The rejection must be a skip, not a verdict.
+#
+# What the surviving good line falls through to changed with #T144 and the
+# property did not: it used to be the discovery fallback, and is now simply the
+# next line of the record. Rejecting a line must not stop the loop reading the
+# lines after it.
 SB="$(new_sandbox)"
 OUTSIDE="$(mktemp -d)"
 SANDBOXES+=("$OUTSIDE")
@@ -2244,9 +2332,10 @@ printf 'compact_instruction: |\n  OUT OF ROOT instruction\n' \
 write_handoff "$SB" "handoff-2026-07-30-1500.yaml" "REAL OWN instruction"
 printf '%s\n' "$OUTSIDE/handoff-2026-07-30-1400.yaml" \
     > "$SB/.claude/logs/.compact-handoff-s1"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1500.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
-assert_contains "ownershipRecord_outOfProjectClaim_doesNotStarveDiscovery" \
+assert_contains "ownershipRecord_outOfProjectClaim_doesNotStarveTheRestOfTheRecord" \
     "$OUT" "REAL OWN instruction"
 assert_not_contains "ownershipRecord_outOfProjectClaim_stillRejected" \
     "$OUT" "OUT OF ROOT instruction"
@@ -2296,6 +2385,7 @@ assert_file_absent "nudge_deliveryFailed_markerLeftUnspent" \
 # reaching the summarizer, and nothing revisits it.
 SB="$(new_sandbox)"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "FORWARD ME instruction"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
 touch "$SB/.claude/logs/.compact-nudged-s1"
 printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" >&- 2>/dev/null || true
@@ -2306,6 +2396,7 @@ assert_file_exists "preCompact_forwardingFailed_cycleNotRetired" \
 # The control for the above: on the ordinary path the cycle does close.
 SB="$(new_sandbox)"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "FORWARD ME instruction"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
 touch "$SB/.claude/logs/.compact-nudged-s1"
 printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
@@ -2342,6 +2433,7 @@ assert_file_absent "killSwitch_compactSuggest_claimsNothing" \
 # nudging, or the reverse — is a state nobody wants to debug.
 SB="$(new_sandbox)"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "DISABLED instruction"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | PROJECT_OS_COMPACT_DISABLE=1 bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_eq "killSwitch_preCompact_forwardsNothing" "$OUT" ""
@@ -2353,6 +2445,7 @@ assert_eq "killSwitch_preCompact_forwardsNothing" "$OUT" ""
 # variable rather than of the guard.
 SB="$(new_sandbox)"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "ENABLED instruction"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | env -u PROJECT_OS_COMPACT_DISABLE bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_contains "killSwitch_unset_hooksStillRun" "$OUT" "ENABLED instruction"
@@ -2370,6 +2463,7 @@ SB="$(new_sandbox)"
     printf 'phase: "build"\n'
     printf 'compact_instruction: "Finish the parser rewrite before anything else"\n'
 } > "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_contains "handoff_flowScalarInstruction_forwarded" \
@@ -2401,6 +2495,7 @@ SB="$(new_sandbox)"
     printf '    Rewrite the tokenizer first\n'
     printf '    Then the parser\n'
 } > "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_contains "handoff_blockScalarIndentedFour_contentForwarded" \
@@ -2419,6 +2514,7 @@ SB="$(new_sandbox)"
     printf '  Preserve verbatim:\n'
     printf '    - the retry cap\n'
 } > "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_contains "handoff_blockScalarRelativeIndent_preserved" \
@@ -2438,6 +2534,7 @@ SB="$(new_sandbox)"
     printf 'compact_instruction: |\n'
     printf '  SECONDBLOCK directive\n'
 } > "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_contains "handoff_duplicateInstructionKey_firstWins" \
@@ -2454,6 +2551,7 @@ SB="$(new_sandbox)"
     printf 'phase: "build"\n'
     printf 'feature: "sandbox-feature"\n'
 } > "$SB/.claude/sessions/handoff-2026-07-30-1400.yaml"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
 printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
 CP=$(find "$SB/.claude/sessions" -name 'auto-checkpoint-*.yaml' -type f 2>/dev/null | head -1)
@@ -2632,6 +2730,7 @@ assert_eq "nudge_threeConcurrentFirings_emitsExactlyOne" "$NUDGE_COUNT" "1"
 SB="$(new_sandbox)"
 mkdir -p "$SB/.claude/logs/.compact-nudging-s1"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "instruction body"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
 printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
 if [ -d "$SB/.claude/logs/.compact-nudging-s1" ]; then
@@ -2652,6 +2751,7 @@ echo "system-map drift (exit code 3 specifically):"
 SB="$(new_sandbox)"
 printf 'process.exit(1);\n' > "$SB/scripts/system-map.ts"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "instruction body"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_not_contains "map_checkerFailsToRun_notReportedAsDrift" "$OUT" "drifted"
@@ -2662,6 +2762,7 @@ assert_not_contains "map_checkerFailsToRun_notReportedAsDrift" "$OUT" "drifted"
 SB="$(new_sandbox)"
 drift_the_map "$SB"
 write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "instruction body"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
 OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
 assert_contains "map_checkerReportsDrift_stillSurfaced" "$OUT" "drifted"
