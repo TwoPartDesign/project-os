@@ -27,6 +27,25 @@ if [ -n "$SESSION_ID" ]; then
     # reads them, so they die with it.
     rm -f "$LOG_DIR/.compact-base-$SESSION_ID" "$LOG_DIR/.compact-nudged-$SESSION_ID" "$LOG_DIR/.compact-cycle-$SESSION_ID"
 
+    # The nudge claim is a DIRECTORY, not a file — compact-suggest.sh arbitrates
+    # concurrent firings with an atomic `mkdir`, because mkdir is the only one of
+    # `touch`/`>`/`[ -f ]` that fails for the loser. Being a directory is why it
+    # was missed here and why none of the `-type f` prunes below could ever have
+    # collected it: it was cleared by pre-compact.sh alone, so a session that
+    # died in the sliver between the mkdir and the delivery leaked it forever.
+    #
+    # Leaking it is not merely untidy, it is fail-closed. A leftover claim makes
+    # the next `mkdir` fail, and the hook reads that failure as "another firing
+    # is already delivering this nudge" and exits silently — so every subsequent
+    # nudge in any session reusing that id is suppressed, and only a compaction
+    # clears it, by which point the nudge that should have preceded it is gone.
+    # That is the "the cycle is simply lost" outcome the design refuses.
+    #
+    # rmdir, not rm -rf: the claim is a pure mutex and is always empty. If it
+    # somehow is not, something else owns that path and deleting its contents is
+    # not this hook's business.
+    rmdir "$LOG_DIR/.compact-nudging-$SESSION_ID" 2>/dev/null || true
+
     # .compact-handoff-* is deliberately NOT removed here. It is the one marker
     # read ACROSS sessions: it records which session authored which handoff, and
     # since #T144 it is the ENTIRE basis on which pre-compact.sh decides whether
@@ -51,6 +70,15 @@ find "$LOG_DIR" -maxdepth 1 -name '.compact-base-*' -type f -mtime +7 -delete 2>
 find "$LOG_DIR" -maxdepth 1 -name '.compact-nudged-*' -type f -mtime +7 -delete 2>/dev/null || true
 find "$LOG_DIR" -maxdepth 1 -name '.compact-cycle-*' -type f -mtime +7 -delete 2>/dev/null || true
 find "$LOG_DIR" -maxdepth 1 -name '.compact-handoff-*' -type f -mtime +7 -delete 2>/dev/null || true
+# -type d, matching what the claim actually is. `-delete` rmdir's an empty
+# directory, which this always is. This is the backstop for the case the block
+# above cannot reach: a crash or container reclaim that fires no SessionEnd at
+# all. The residual gap is a session resumed under the same id within the 7-day
+# window after such a crash — it stays silenced until the next compaction. That
+# is accepted rather than papered over with an age-based steal in
+# compact-suggest.sh, which would race two concurrent firings back into the
+# double-nudge the mkdir exists to prevent.
+find "$LOG_DIR" -maxdepth 1 -name '.compact-nudging-*' -type d -mtime +7 -delete 2>/dev/null || true
 
 # Opportunistic rotation of the append-only logs
 rotate_log "$LOG_DIR/activity.jsonl"

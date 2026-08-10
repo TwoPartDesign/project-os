@@ -57,7 +57,16 @@ ROADMAP="$PROJECT_ROOT/ROADMAP.md"
 
 # A handoff older than this is treated as describing earlier work, not the
 # state being compacted away now.
-HANDOFF_MAX_AGE_MIN="${PROJECT_OS_HANDOFF_MAX_AGE_MIN:-30}"
+#
+# Validated, not taken raw. It is interpolated into `find -mmin -$value`, and a
+# value find cannot parse fails silently in the direction that costs the most:
+# find errors, its stderr is discarded, its output is empty, and the freshness
+# test below reads an empty result as "too old" and skips EVERY owned handoff.
+# The compaction then proceeds with nothing forwarded, and the checkpoint blames
+# an unclaimed handoff — a cause that is not the real one. `abc` and `-30` both
+# reproduce it. posint_or_default is in _common.sh precisely so this caller
+# cannot be the one that forgets.
+HANDOFF_MAX_AGE_MIN=$(posint_or_default "${PROJECT_OS_HANDOFF_MAX_AGE_MIN:-}" 30)
 
 # Debounce for the checkpoint FILE WRITE only — never for the stdout
 # contribution below, which must be emitted on every compaction.
@@ -426,10 +435,28 @@ if [ -z "$RECENT" ]; then
     FEATURE="${FEATURE#"${FEATURE%%[![:space:]]*}"}"
     FEATURE="${FEATURE%"${FEATURE##*[![:space:]]}"}"
     [ -z "$FEATURE" ] && FEATURE="none"
+    # A second, flattened copy — NOT a replacement. FEATURE keeps its original
+    # bytes because its other use site (the `feature:` key) is a double-quoted
+    # scalar that escapes them correctly; only the block-scalar use below, which
+    # has no escaping available, needs them gone. Same split as SAFE_DESC vs
+    # FLAT_DESC further down, and for the same reason.
+    FLAT_FEATURE=$(printf '%s' "$FEATURE" | tr -d '\000-\037\177')
+    [ -z "$FLAT_FEATURE" ] && FLAT_FEATURE="none"
 
+    # The trailing-CR strip is not cosmetic. TASK_LIST, built from these lines,
+    # goes into a literal block scalar RAW (see the printf near the end of this
+    # file) — unlike SAFE_DESC, which is a double-quoted scalar and can escape a
+    # control character. A lone CR is a YAML line break, so it would terminate
+    # the scalar and drop everything after it at column 0, costing the checkpoint
+    # its remaining fields. The id-stripping sub() below already eats the CR on
+    # any line that ends in `#TN`, which is why the exposure is exactly the
+    # in-progress task written without an id. Not reproducible under Git Bash,
+    # whose awk strips CR on read; live for any Unix clone of this repo, which is
+    # CRLF-committed and carries no .gitattributes.
     IN_PROGRESS_RAW=$(awk '
         /^[[:space:]]*([-*][[:space:]]+)?\[-\]/ {
             line = $0
+            sub(/\r$/, "", line)
             sub(/^[[:space:]]*([-*][[:space:]]+)?\[-\][[:space:]]*/, "", line)
             sub(/[[:space:]]+#T[0-9]+.*$/, "", line)
             if (length(line) > 0) print line
@@ -473,10 +500,17 @@ if [ -z "$RECENT" ]; then
       files: \"\"
       state: \"in-progress at compaction time\"
 "
+            # SAFE_DESC above keeps the text verbatim because a double-quoted
+            # scalar can escape anything. This copy cannot: it lands in a
+            # literal block scalar with no escaping available, so a control
+            # character surviving to here would break the document rather than
+            # appear in it. Stripping is the only option the target format
+            # leaves, and the escaped copy above preserves the original.
+            FLAT_DESC=$(printf '%s' "$task_desc" | tr -d '\000-\037\177')
             if [ -n "$TASK_LIST" ]; then
-                TASK_LIST="${TASK_LIST}; ${task_desc}"
+                TASK_LIST="${TASK_LIST}; ${FLAT_DESC}"
             else
-                TASK_LIST="$task_desc"
+                TASK_LIST="$FLAT_DESC"
             fi
         done <<< "$IN_PROGRESS_RAW"
     fi
@@ -616,7 +650,7 @@ if [ -z "$RECENT" ]; then
         # instructions. Only the indentation matters, and both values are built
         # from `read -r` lines, so neither can contain a newline to break it.
         printf 'compact_instruction: |\n'
-        printf '  Working on %s. In-progress tasks: %s.\n' "$FEATURE" "$TASK_LIST"
+        printf '  Working on %s. In-progress tasks: %s.\n' "$FLAT_FEATURE" "$TASK_LIST"
     } > "$CHECKPOINT_TMP"
     # Explicit `if`: a bare `mv` that fails would fire the ERR trap and exit 0
     # from a script whose ACTUAL job — forwarding the instruction to the

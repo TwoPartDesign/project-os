@@ -2989,6 +2989,153 @@ assert_eq "wiring_preCompactRegistration_declaresATimeout" \
 
 echo ""
 
+echo ""
+echo "nudge claim lifecycle outside a compaction:"
+
+# cleanup_nudgeClaimDirectory_removedAtSessionEnd
+# The claim is the one compaction marker that is a DIRECTORY — mkdir is the
+# arbitration because it is the only primitive that fails for the loser. Being a
+# directory is why it was missed by a cleanup that removes its three siblings
+# with `rm -f` and prunes five patterns with `-type f`, none of which can match
+# it. Cleared only by pre-compact.sh, it survived any session that ended without
+# compacting.
+new_sandbox
+mkdir -p "$SB/.claude/logs/.compact-nudging-s1"
+touch "$SB/.claude/logs/.compact-base-s1" "$SB/.claude/logs/.compact-nudged-s1" \
+      "$SB/.claude/logs/.compact-cycle-s1"
+printf '{"session_id":"s1"}' \
+    | bash "$SB/.claude/hooks/session-end-cleanup.sh" >/dev/null 2>&1
+if [ -d "$SB/.claude/logs/.compact-nudging-s1" ]; then
+    bad "cleanup_nudgeClaimDirectory_removedAtSessionEnd — claim survived SessionEnd"
+else
+    ok "cleanup_nudgeClaimDirectory_removedAtSessionEnd"
+fi
+
+# cleanup_nudgeClaimOfAnotherSession_leftAlone
+# The containment control. Cleanup is keyed by session id, and a fix that
+# reached for a glob would silently steal the mutex out from under a concurrent
+# session mid-delivery — arbitration that another process can delete is not
+# arbitration.
+new_sandbox
+mkdir -p "$SB/.claude/logs/.compact-nudging-s1" "$SB/.claude/logs/.compact-nudging-s2"
+printf '{"session_id":"s1"}' \
+    | bash "$SB/.claude/hooks/session-end-cleanup.sh" >/dev/null 2>&1
+if [ -d "$SB/.claude/logs/.compact-nudging-s2" ]; then
+    ok "cleanup_nudgeClaimOfAnotherSession_leftAlone"
+else
+    bad "cleanup_nudgeClaimOfAnotherSession_leftAlone — a live session's claim was deleted"
+fi
+
+# cleanup_staleNudgeClaimFromCrashedSession_pruned
+# The backstop for the case SessionEnd cannot reach at all: a crash or container
+# reclaim fires no SessionEnd, so nothing keyed to the session id ever runs. The
+# prune must use -type d; the five existing prune lines are all -type f and
+# could never have collected this no matter what pattern they carried.
+new_sandbox
+mkdir -p "$SB/.claude/logs/.compact-nudging-crashed"
+if touch -d "8 days ago" "$SB/.claude/logs/.compact-nudging-crashed" 2>/dev/null; then
+    printf '{"session_id":"live"}' \
+        | bash "$SB/.claude/hooks/session-end-cleanup.sh" >/dev/null 2>&1
+    if [ -d "$SB/.claude/logs/.compact-nudging-crashed" ]; then
+        bad "cleanup_staleNudgeClaimFromCrashedSession_pruned — 8-day-old claim survived"
+    else
+        ok "cleanup_staleNudgeClaimFromCrashedSession_pruned"
+    fi
+else
+    skip "cleanup_staleNudgeClaimFromCrashedSession_pruned (touch -d unavailable)"
+fi
+
+# nudge_claimLeakedByAPriorSession_doesNotSilenceTheNext
+# The consequence, end to end, and the reason this is a defect rather than
+# untidiness. A leftover claim makes mkdir fail, the hook reads that as "another
+# firing is already delivering", and exits silently — so a session reusing the
+# id is never warned, and only a compaction clears the claim, by which point the
+# warning it owed is gone. Fail-closed, and invisible from inside the session.
+new_sandbox
+mkdir -p "$SB/.claude/logs/.compact-nudging-s1"
+printf '{"session_id":"s1"}' \
+    | bash "$SB/.claude/hooks/session-end-cleanup.sh" >/dev/null 2>&1
+make_token_transcript "$SB/t.jsonl" 190000 0 0
+assert_contains "nudge_claimLeakedByAPriorSession_doesNotSilenceTheNext" \
+    "$(run_suggest "$SB" "$SB/t.jsonl")" "Context pressure"
+
+echo ""
+echo "handoff freshness window (validated like every other tunable):"
+
+# handoff_nonNumericMaxAgeWindow_stillForwards
+# PROJECT_OS_HANDOFF_MAX_AGE_MIN was the one tunable in the feature that skipped
+# posint_or_default, and it is interpolated into `find -mmin -$value`. A value
+# find cannot parse fails in the direction that costs the most: find errors,
+# stderr is discarded, output is empty, and the freshness test reads empty as
+# "too old" and skips EVERY owned handoff. The compaction then forwards nothing
+# and the checkpoint blames an unclaimed handoff — a cause that is not the real
+# one, sending the reader to look in the wrong place.
+new_sandbox
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "KEEP THE PARSER WORK"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | PROJECT_OS_HANDOFF_MAX_AGE_MIN=abc bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "handoff_nonNumericMaxAgeWindow_stillForwards" "$OUT" "KEEP THE PARSER WORK"
+
+# handoff_negativeMaxAgeWindow_stillForwards
+# The sign is already supplied by the `-mmin -` in the call site, so a caller who
+# writes -30 produces `-mmin --30`. Same silent skip, different typo.
+new_sandbox
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "KEEP THE PARSER WORK"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | PROJECT_OS_HANDOFF_MAX_AGE_MIN=-30 bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "handoff_negativeMaxAgeWindow_stillForwards" "$OUT" "KEEP THE PARSER WORK"
+
+# handoff_validMaxAgeWindow_stillHonoured
+# The control that keeps the two above honest: rejecting a malformed value must
+# not degrade into ignoring the setting entirely.
+new_sandbox
+write_handoff "$SB" "handoff-2026-07-30-1400.yaml" "KEEP THE PARSER WORK"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1400.yaml"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | PROJECT_OS_HANDOFF_MAX_AGE_MIN=1 bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "handoff_validMaxAgeWindow_stillHonoured" "$OUT" "KEEP THE PARSER WORK"
+
+echo ""
+echo "block-scalar interpolation (no escaping is available there):"
+
+# checkpoint_taskDescriptionWithControlChar_strippedFromBlockScalar
+# compact_instruction is a LITERAL block scalar, so the feature name and task
+# list go into it raw — deliberately, since escaping them there would put
+# backslashes in prose the summarizer reads. The consequence is that a control
+# character reaching it cannot be escaped, only stripped: a lone CR is a YAML
+# line break, and everything after it lands at column 0 and ends the document,
+# costing the checkpoint every field below the break. The escaped copy in
+# in_progress keeps the original bytes, so nothing is lost.
+new_sandbox
+printf '# ROADMAP\n\n## Feature: sandbox-feature\n\n- [-] Sandbox task\001here in progress #T900\n' \
+    > "$SB/ROADMAP.md"
+printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
+CP=$(ls "$SB/.claude/sessions"/auto-checkpoint-*.yaml 2>/dev/null | head -1)
+LINE=$(grep -a "In-progress tasks" "$CP" 2>/dev/null || true)
+assert_eq "checkpoint_taskDescriptionWithControlChar_strippedFromBlockScalar" \
+    "$(printf '%s' "$LINE" | tr -d '\001-\010\013\014\016-\037\177')" "$LINE"
+
+# checkpoint_featureNameWithControlChar_strippedFromBlockScalar
+# The feature name reaches the same scalar by a different route, and the
+# `feature:` key above it is a double-quoted scalar that escapes correctly — so
+# the fix is a second flattened copy, not a replacement. Stripping the shared
+# variable would have silently degraded the escaped field to prove a point about
+# the raw one.
+new_sandbox
+printf '# ROADMAP\n\n## Feature: sandbox\002feature\n\n- [-] Sandbox task in progress #T900\n' \
+    > "$SB/ROADMAP.md"
+printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
+CP=$(ls "$SB/.claude/sessions"/auto-checkpoint-*.yaml 2>/dev/null | head -1)
+LINE=$(grep -a "Working on" "$CP" 2>/dev/null || true)
+assert_eq "checkpoint_featureNameWithControlChar_strippedFromBlockScalar" \
+    "$(printf '%s' "$LINE" | tr -d '\001-\010\013\014\016-\037\177')" "$LINE"
+
+echo ""
+
 # ── Summary ─────────────────────────────────────────────────────────────────
 echo "=== Results ==="
 TOTAL=$((PASS + FAIL))

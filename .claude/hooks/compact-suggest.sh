@@ -79,30 +79,11 @@ mkdir -p "$LOG_DIR"
 # The window auto-compaction measures against, and the percentage of it at
 # which compaction fires. Both are read from the same env vars the runtime
 # uses, so the nudge tracks the trigger instead of guessing at it.
-# Reject, do not scrub. `tr -cd '0-9'` deletes the characters that make a value
-# wrong and keeps the digits that surround them, which turns malformed input
-# into a plausible-looking number instead of a rejected one:
-#   0.9  -> 09   — a leading zero, which `$((…))` reads as OCTAL. `09` is not a
-#                  valid octal literal, so the arithmetic below ABORTS the hook.
-#   1e6  -> 16   — a 16-token window. Every nudge fires, every turn.
-#   -5   -> 5    — the sign is deleted and the negation is silently inverted.
-# None of these is a number the caller asked for, and each fails somewhere far
-# from the assignment. A value that is not a plain non-negative integer is not
-# repairable; the only safe reading of it is "unset", so it falls back to the
-# default the same way an absent variable does.
 #
-# `10#` on every arithmetic use of these below, so a caller who legitimately
-# writes `075` gets 75 rather than 61.
-posint_or_default() {
-    case "$1" in
-        ''|*[!0-9]*) printf '%s' "$2"; return ;;
-    esac
-    if [ "$((10#$1))" -gt 0 ] 2>/dev/null; then
-        printf '%s' "$((10#$1))"
-    else
-        printf '%s' "$2"
-    fi
-}
+# posint_or_default — which rejects a malformed value rather than scrubbing it
+# into a plausible-looking wrong one — now lives in _common.sh, sourced above,
+# because pre-compact.sh needs the identical guarantee for
+# PROJECT_OS_HANDOFF_MAX_AGE_MIN. The full rationale moved with it.
 
 WINDOW=$(posint_or_default "${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}" 200000)
 COMPACT_PCT=$(posint_or_default "${CLAUDE_AUTOCOMPACT_PCT_OVERRIDE:-}" 75)

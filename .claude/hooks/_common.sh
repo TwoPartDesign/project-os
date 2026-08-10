@@ -248,6 +248,44 @@ read_hook_payload() {
     fi
 }
 
+# Validate a caller-supplied positive integer, falling back to a default.
+#
+# Reject, do not scrub. `tr -cd '0-9'` deletes the characters that make a value
+# wrong and keeps the digits that surround them, which turns malformed input
+# into a plausible-looking number instead of a rejected one:
+#   0.9  -> 09   — a leading zero, which `$((…))` reads as OCTAL. `09` is not a
+#                  valid octal literal, so the arithmetic ABORTS the hook.
+#   1e6  -> 16   — a 16-token window. Every nudge fires, every turn.
+#   -5   -> 5    — the sign is deleted and the negation is silently inverted.
+# None of these is a number the caller asked for, and each fails somewhere far
+# from the assignment. A value that is not a plain non-negative integer is not
+# repairable; the only safe reading of it is "unset", so it falls back to the
+# default the same way an absent variable does.
+#
+# `10#` on every arithmetic use, so a caller who legitimately writes `075` gets
+# 75 rather than 61.
+#
+# This lives in _common.sh rather than in the hook that first needed it because
+# the one tunable that skipped it — PROJECT_OS_HANDOFF_MAX_AGE_MIN, interpolated
+# straight into `find -mmin -$value` — failed in the worst available way. A
+# non-numeric value made `find` error, its stderr was discarded, its output was
+# empty, and pre-compact.sh read that empty result as "this handoff is too old",
+# skipping EVERY owned handoff and then reporting the loss in the checkpoint as
+# an unclaimed handoff — the wrong cause. A validator only one of two callers
+# can reach is not a validator.
+#
+# Usage: n=$(posint_or_default "${SOME_ENV:-}" 30)
+posint_or_default() {
+    case "$1" in
+        ''|*[!0-9]*) printf '%s' "$2"; return ;;
+    esac
+    if [ "$((10#$1))" -gt 0 ] 2>/dev/null; then
+        printf '%s' "$((10#$1))"
+    else
+        printf '%s' "$2"
+    fi
+}
+
 # Get project root (useful for referencing project-relative paths in hooks)
 # Usage: root=$(get_project_root)
 get_project_root() {
