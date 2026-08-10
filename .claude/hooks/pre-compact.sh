@@ -371,6 +371,32 @@ case "$COMPACT_INSTRUCTION" in
     *"[A /compact instruction tuned"*) COMPACT_INSTRUCTION="" ;;
 esac
 
+# ── Bound what gets forwarded ───────────────────────────────────────────────
+# Everything printed below goes into the summarizer's instructions, and the
+# extraction above has no upper bound: a block scalar runs until the next
+# unindented line, so a handoff whose `compact_instruction` swallowed the rest
+# of the file — a missing dedent, a pasted transcript, a generated handoff that
+# grew — forwards all of it. Into a compaction. Whose entire purpose is to
+# reclaim context. The instruction competes with the conversation it is meant
+# to describe, and the more of it there is the less summary survives.
+#
+# TRUNCATED, not dropped. Discarding an over-long instruction would leave
+# COMPACT_INSTRUCTION empty, and empty is already spoken for downstream: it
+# picks the "a handoff exists but carries no compact_instruction" note, which
+# would be false, and would send the reader looking for a parse failure that did
+# not happen. The head of the instruction is also the part most likely to carry
+# the point. So the value is cut and the cut is NAMED in the forwarded text —
+# the reader is told there is more and where to find all of it, which is a
+# thing they can act on.
+#
+# Characters, not bytes: ${#var} counts characters, and the cap exists to bound
+# what the summarizer reads, which is measured the same way.
+COMPACT_INSTRUCTION_MAX=$(posint_or_default "${PROJECT_OS_COMPACT_INSTRUCTION_MAX_CHARS:-}" 4000)
+if [ "${#COMPACT_INSTRUCTION}" -gt "$COMPACT_INSTRUCTION_MAX" ]; then
+    COMPACT_INSTRUCTION="${COMPACT_INSTRUCTION:0:$COMPACT_INSTRUCTION_MAX}
+[Truncated at ${COMPACT_INSTRUCTION_MAX} characters — the full compact_instruction is in the handoff.]"
+fi
+
 # ── System map: observe, never heal ─────────────────────────────────────────
 # `check` re-hashes working-tree inputs against .maps.lock and exits 3 on
 # drift. It writes nothing without --heal, and healing here would be wrong:
@@ -385,10 +411,34 @@ esac
 # hides the real fault (the checker is broken) behind a plausible one. An
 # unreadable checker is not evidence about the map, so it is reported as
 # neither drifted nor clean.
+#
+# BOUNDED, because this runs on the blocking path of a compaction the user is
+# already waiting through. `check` walks the working tree and re-hashes it; on a
+# large or network-backed checkout, or against a Node that starts and then hangs
+# on something unrelated, it can outlast the hook's own 30-second budget — and
+# when the hook is killed, everything below dies with it: the checkpoint is not
+# written and the handoff instruction never reaches the summarizer. Trading the
+# whole feature for one advisory line about the map is a bad trade, so the line
+# is what gets dropped.
+#
+# The timeout needs no new reporting branch. `timeout` exits 124, which is not
+# 3, so a check that ran out of time is already reported as neither drifted nor
+# clean — the same reading the block above gives a checker that failed for any
+# other reason, and the right one: it never got far enough to have an opinion.
+#
+# Guarded on `timeout` being present rather than assumed. It is coreutils, so
+# Linux and Git Bash have it and a stock macOS does not; where it is missing the
+# call runs bare, exactly as before, instead of failing closed on a tool that
+# was never required.
+MAP_CHECK_TIMEOUT=$(posint_or_default "${PROJECT_OS_MAP_CHECK_TIMEOUT_SEC:-}" 10)
 MAP_DRIFTED=0
 if node_available "system map drift check" 2>/dev/null; then
     MAP_RC=0
-    (cd "$PROJECT_ROOT" && node scripts/system-map.ts check >/dev/null 2>&1) || MAP_RC=$?
+    if command -v timeout >/dev/null 2>&1; then
+        (cd "$PROJECT_ROOT" && timeout "$MAP_CHECK_TIMEOUT" node scripts/system-map.ts check >/dev/null 2>&1) || MAP_RC=$?
+    else
+        (cd "$PROJECT_ROOT" && node scripts/system-map.ts check >/dev/null 2>&1) || MAP_RC=$?
+    fi
     # `if`, not `[ … ] && MAP_DRIFTED=1`: an && list whose left side fails is
     # the last command of this block, and leaving a compound statement with a
     # nonzero status under `set -e` plus an ERR trap is not worth the two saved

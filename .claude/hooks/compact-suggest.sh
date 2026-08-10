@@ -211,6 +211,37 @@ TRANSCRIPT=$(json_string_field "$PAYLOAD_PREFIX" transcript_path)
 # PAYLOAD_PREFIX is computed once, just below the `cat`.
 HOOK_EVENT=$(json_string_field "$PAYLOAD_PREFIX" hook_event_name)
 
+# Two questions, not one — and an ABSENT event name answers neither.
+#
+# The event decides two independent things: whether the ownership gate below
+# applies to the path being written, and whether to measure context and maybe
+# nudge. Both were spelled `= "PreToolUse"`, which makes absence mean
+# "PostToolUse" — the same absence-is-presence inference this file explicitly
+# refuses a few dozen lines down for `agent_id`, and refuses for the same
+# reason: an older or reshaped payload retires a guard without saying so.
+#
+# The guard it retired is the one that matters most. The claim itself is NOT
+# conditioned on the event — the `case` below records any handoff path this
+# payload names — so absence did not lose a claim, it lost the check on whether
+# the path was already claimed by SOMEONE ELSE. This session then wrote another
+# session's handoff into its own record, both records named it, and
+# pre-compact.sh forwarded an instruction written for a different session. That
+# is exactly the cross-session mixup #T144 introduced ownership to end, arrived
+# at through the one payload shape nothing was checking.
+#
+# So absence takes the union rather than guessing. Applying the gate on what
+# turns out to be PostToolUse costs nothing: by then the path exists and is
+# this session's own, so the gate passes. Nudging on what turns out to be
+# PreToolUse costs nothing either: the hook exits 0 and prints an advisory
+# `additionalContext`, and denying a tool call needs `permissionDecision`,
+# which this hook never emits. Every other split loses something.
+CLAIM_PHASE=0
+NUDGE_PHASE=1
+case "$HOOK_EVENT" in
+    PreToolUse) CLAIM_PHASE=1; NUDGE_PHASE=0 ;;
+    '')         CLAIM_PHASE=1 ;;
+esac
+
 # The payload path is canonicalized before anything looks at it. It arrives in
 # the OS's own spelling — on Windows `C:\Users\...`, still JSON-escaped to
 # `C:\\Users\\...` — and every use below is a forward-slash comparison: the
@@ -269,7 +300,7 @@ claimed_by_another_session() {
 # link — is still declined outright, unchanged. Those are not handoffs this
 # session is about to publish, and nothing downstream could forward them; the
 # ownership question only arises for a real file.
-if [ "$HOOK_EVENT" = "PreToolUse" ] \
+if [ "$CLAIM_PHASE" = "1" ] \
     && { [ -e "$WRITTEN_PATH" ] || [ -L "$WRITTEN_PATH" ]; }; then
     if [ ! -f "$WRITTEN_PATH" ] || [ -L "$WRITTEN_PATH" ]; then
         WRITTEN_PATH=""
@@ -315,7 +346,7 @@ esac
 # Exiting 0 and printing nothing is load-bearing on this path — PreToolUse is
 # the one event where a hook can deny the tool call, and an advisory hook must
 # never do that.
-if [ "$HOOK_EVENT" = "PreToolUse" ]; then
+if [ "$NUDGE_PHASE" = "0" ]; then
     exit 0
 fi
 

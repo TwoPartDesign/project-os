@@ -3135,6 +3135,150 @@ assert_eq "checkpoint_featureNameWithControlChar_strippedFromBlockScalar" \
     "$(printf '%s' "$LINE" | tr -d '\001-\010\013\014\016-\037\177')" "$LINE"
 
 echo ""
+echo "what reaches the summarizer is bounded:"
+
+# forward_overlongInstruction_truncatedAndSaidSo
+# The block-scalar extraction has no upper bound — a scalar runs to the next
+# unindented line, so a handoff whose instruction swallowed the rest of the file
+# forwards all of it into a compaction, which exists to reclaim context. The
+# instruction then competes with the conversation it was written to describe.
+#
+# Truncated rather than dropped, because empty is already spoken for: it selects
+# the "carries no compact_instruction" note, which would report a parse failure
+# that did not happen and send the reader looking in the wrong place.
+new_sandbox
+BODY=""
+IDX=0
+while [ "$IDX" -lt 400 ]; do
+    BODY="${BODY}Line ${IDX} of a compact_instruction that ran away and ate the file.
+"
+    IDX=$((IDX + 1))
+done
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "$BODY"
+claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "forward_overlongInstruction_truncationIsNamed" \
+    "$OUT" "[Truncated at 4000 characters"
+# The head is the part most likely to carry the point, so it is the part kept.
+assert_contains "forward_overlongInstruction_headSurvives" \
+    "$OUT" "Line 0 of a compact_instruction"
+assert_not_contains "forward_overlongInstruction_tailDropped" \
+    "$OUT" "Line 399 of a compact_instruction"
+if [ "${#OUT}" -lt 5000 ]; then BOUNDED=yes; else BOUNDED=no; fi
+assert_eq "forward_overlongInstruction_outputBounded" "$BOUNDED" "yes"
+# Truncation must not read downstream as "there was no instruction" — the
+# handoff is still named, which is what tells the reader where the rest is.
+assert_contains "forward_overlongInstruction_stillNamesTheHandoff" \
+    "$OUT" ".claude/sessions/handoff-2026-07-30-1200.yaml"
+
+# forward_shortInstruction_notTruncated
+# Control. An ordinary instruction must pass through byte for byte, with no
+# marker appended — a cap that fires on normal input is a cap set wrong.
+new_sandbox
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "A perfectly ordinary instruction."
+claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_contains "forward_shortInstruction_forwardedVerbatim" \
+    "$OUT" "A perfectly ordinary instruction."
+assert_not_contains "forward_shortInstruction_notTruncated" "$OUT" "[Truncated at"
+
+echo ""
+echo "the map check cannot outlast the compaction it runs inside:"
+
+# mapCheck_hangingChecker_doesNotBlockTheCompaction
+# `check` runs on the blocking path of a compaction the user is already waiting
+# through, and it walks and re-hashes the working tree. If it outlasts the
+# hook's own budget the hook is killed, and everything below it dies too: no
+# checkpoint, and the handoff instruction never reaches the summarizer. The
+# whole feature was staked on one advisory line about the map.
+#
+# The stub hangs for twenty seconds and then reports drift, so an unbounded run
+# is slow AND ends up claiming drift; a bounded one is neither.
+if command -v timeout >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
+    new_sandbox
+    printf 'setTimeout(function () { process.exit(3); }, 20000);\n' > "$SB/scripts/system-map.ts"
+    write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "TIMEOUT PROBE instruction"
+    claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
+    START=$(date +%s)
+    OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+        | env PROJECT_OS_MAP_CHECK_TIMEOUT_SEC=1 \
+              bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+    ELAPSED=$(( $(date +%s) - START ))
+    if [ "$ELAPSED" -lt 10 ]; then FAST=yes; else FAST=no; fi
+    assert_eq "mapCheck_hangingChecker_doesNotBlockTheCompaction" "$FAST" "yes"
+    assert_contains "mapCheck_hangingChecker_instructionStillForwarded" \
+        "$OUT" "TIMEOUT PROBE instruction"
+    # timeout exits 124, which is not 3 — so a check that ran out of time is
+    # reported as neither drifted nor clean, the same reading given to a checker
+    # that failed any other way. It never got far enough to have an opinion.
+    assert_not_contains "mapCheck_timedOutChecker_notReportedAsDrift" \
+        "$OUT" "docs/maps/ is drifted"
+
+    # mapCheck_promptChecker_stillReportsDrift
+    # Control. The timeout must bound the pathological case without silencing
+    # the ordinary one — a checker that answers in time still gets to answer.
+    new_sandbox
+    drift_the_map "$SB"
+    write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "PROMPT CHECKER instruction"
+    claim_handoff "$SB" s1 "handoff-2026-07-30-1200.yaml"
+    OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+        | env PROJECT_OS_MAP_CHECK_TIMEOUT_SEC=30 \
+              bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+    assert_contains "mapCheck_promptChecker_stillReportsDrift" \
+        "$OUT" "docs/maps/ is drifted"
+else
+    skip "mapCheck_hangingChecker_doesNotBlockTheCompaction"
+    skip "mapCheck_hangingChecker_instructionStillForwarded"
+    skip "mapCheck_timedOutChecker_notReportedAsDrift"
+    skip "mapCheck_promptChecker_stillReportsDrift"
+fi
+
+echo ""
+echo "an absent hook_event_name is not a claim to be PostToolUse:"
+
+# preToolUse_missingEventName_stillHonoursForeignOwnership
+# The ownership gate was conditioned on `hook_event_name == "PreToolUse"`, so a
+# payload that carried no event name skipped it — the same absence-is-presence
+# inference the hook refuses for `agent_id`, reached by a different key.
+#
+# The claim itself is NOT conditioned on the event, so what absence lost was not
+# a claim but the check on whether the path already belonged to someone else.
+# This session wrote another session's handoff into its own record; both records
+# then named it, and pre-compact.sh forwarded an instruction written for a
+# different session. That is the cross-session mixup ownership exists to end.
+new_sandbox
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "S2 OWNED instruction"
+printf '%s\n' "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
+    > "$SB/.claude/logs/.compact-handoff-s2"
+printf '{"session_id":"s1","transcript_path":"%s","tool_name":"Write","tool_input":{"file_path":"%s"}}' \
+    "$SB/transcript.jsonl" "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
+    | bash "$SB/.claude/hooks/compact-suggest.sh" >/dev/null 2>&1
+assert_file_absent "preToolUse_missingEventName_doesNotClaimAForeignHandoff" \
+    "$SB/.claude/logs/.compact-handoff-s1"
+# The consequence, not just the record: s1 compacting must not be handed s2's
+# material.
+OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+assert_not_contains "preToolUse_missingEventName_foreignInstructionNotForwarded" \
+    "$OUT" "S2 OWNED instruction"
+
+# preToolUse_missingEventName_stillClaimsItsOwnWrite
+# Control. Tightening the gate must not cost the claim it is guarding: an
+# unclaimed handoff this session is writing is still this session's to take.
+new_sandbox
+make_token_transcript "$SB/transcript.jsonl" 1000 0 0
+write_handoff "$SB" "handoff-2026-07-30-1200.yaml" "S1 OWN instruction"
+printf '{"session_id":"s1","transcript_path":"%s","tool_name":"Write","tool_input":{"file_path":"%s"}}' \
+    "$SB/transcript.jsonl" "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml" \
+    | bash "$SB/.claude/hooks/compact-suggest.sh" >/dev/null 2>&1
+RECORDED=$(cat "$SB/.claude/logs/.compact-handoff-s1" 2>/dev/null || true)
+assert_eq "preToolUse_missingEventName_stillClaimsItsOwnWrite" \
+    "$RECORDED" "$SB/.claude/sessions/handoff-2026-07-30-1200.yaml"
+
+echo ""
 
 # ── Summary ─────────────────────────────────────────────────────────────────
 echo "=== Results ==="

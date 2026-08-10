@@ -138,7 +138,7 @@ Project OS includes an FTS5-based knowledge index for efficient context manageme
 
 ### Compaction Handoff Chain
 
-Auto-compaction fires at 75% of the context window (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75`;
+Auto-compaction fires at 80% of the context window (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=80`;
 the threshold is inert unless `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is also set, which
 activates the proactive trigger path). Compaction is not something a hook can usefully
 stop, so the chain steers it instead — three stages, two of them hooks:
@@ -147,7 +147,7 @@ stop, so the chain steers it instead — three stages, two of them hooks:
    the transcript's newest non-sidechain `usage` record
    (`input_tokens + cache_read_input_tokens + cache_creation_input_tokens`) and,
    once it passes `PROJECT_OS_COMPACT_NUDGE_PCT` of the window (default
-   `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE − 15`, i.e. 60%), injects
+   `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE − 15`, i.e. 65%), injects
    `hookSpecificOutput.additionalContext` into Claude's context: *write the handoff
    now, with a `compact_instruction`*. One nudge per cycle, tracked by
    `.claude/logs/.compact-nudged-<session_id>`. Transcript-byte growth
