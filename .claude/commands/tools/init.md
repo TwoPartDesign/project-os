@@ -276,13 +276,13 @@ Ask:
 
 > "Which Claude subscription tier are you on? This sets the model routing for orchestration and sub-agents."
 >
-> 1. **Max** — Opus for orchestration, Sonnet for sub-agents
-> 2. **Pro** — Sonnet for orchestration, Haiku for sub-agents *(default)*
+> 1. **Max** — Fable for orchestration, Opus for sub-agents *(default when Fable is available)*
+> 2. **Pro** — Opus for orchestration, Sonnet for sub-agents
 > 3. **Custom** — I'll specify models manually
 
 If **Custom**, ask:
-- Orchestration model ID — prefer a bare alias (`opus`/`sonnet`/`haiku`, or `fable` for the Fable/Mythos tier), which always resolves to the latest model in that family. Pin a dated ID (e.g. `claude-opus-4-8`) only when you need a specific version.
-- Sub-agent model ID — same: prefer a bare alias (`sonnet`/`haiku`) over a dated ID.
+- Orchestration model ID — prefer a bare alias (`fable`/`opus`/`sonnet`), which always resolves to the latest model in that family. Pin a dated ID only when you need a specific version.
+- Sub-agent model ID — same: prefer a bare alias (`opus`/`sonnet`) over a dated ID.
 
 Record as:
 - `MODEL_ORCHESTRATION` — the primary/orchestration model ID
@@ -291,8 +291,10 @@ Record as:
 Standard tier mappings (bare aliases so routing always tracks the latest release):
 | Tier | Orchestration | Sub-agent |
 |---|---|---|
-| Max | `opus` (or `fable` for the hardest design work) | `sonnet` |
-| Pro | `sonnet` | `haiku` |
+| Max | `fable` | `opus` |
+| Pro | `opus` | `sonnet` |
+
+Never set `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`; it overrides agent-file frontmatter and collapses the mechanical tier. `set-models` changes the env-var tier only; per-agent tiers live in `.claude/agents/*.md` frontmatter.
 
 ### Round 6 — Code Review Tool (optional)
 
