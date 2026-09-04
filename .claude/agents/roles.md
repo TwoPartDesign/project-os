@@ -23,22 +23,30 @@ Roles define what each agent type can do. Permissions are advisory in v2 (enforc
 - **Active Phases**: Review
 - **Responsibility**: Evaluate quality, security, and design alignment. Never modify source code.
 
-## Orchestrator
+## Approver
 - **Agents**: human (via Claude Code CLI)
 - **Read**: all
 - **Write**: all
 - **Active Phases**: all
-- **Responsibility**: Coordinate workflow, approve drafts, resolve conflicts, make final decisions.
+- **Responsibility**: Decide `/pm:approve`, design approval, scope changes, destructive actions. Invoking `/workflows:mvp` is standing consent for that feature's task promotion; ship still pauses.
+
+## Lead
+- **Agents**: primary session
+- **Read**: all
+- **Write**: specs, knowledge, ROADMAP, handoffs, git integration
+- **Active Phases**: all
+- **Responsibility**: Plan, brief, dispatch, arbitrate, integrate, run verification commands, report. Does not implement. Delegates suite runs and accepts output as evidence.
 
 ## Permission Model
 
 ```
-             Read                  Write              Phases
-Architect    all                   specs/knowledge    Idea, Design
-Developer    specs/knowledge/src   code/tests/docs    Build
-Reviewer     all                   review-reports     Review
-Orchestrator all                   all                all
+             Read                  Write                              Phases
+Architect    all                   specs/knowledge                    Idea, Design
+Developer    specs/knowledge/src   code/tests/docs                    Build
+Reviewer     all                   review-reports                     Review
+Approver     all                   all                                all
+Lead         all                   specs/knowledge/ROADMAP/handoffs   all
 ```
 
 Enforcement is advisory in v2. Agents should self-enforce based on their frontmatter.
-Orchestrator (human) can override any restriction.
+Approver (human) can override any restriction.

@@ -21,7 +21,7 @@ Each phase transition produces and consumes specific artifacts. No phase may sta
 
 ## Approve → Build
 - **Produces**: ROADMAP.md entries promoted from `[?]` to `[ ]`
-- **Gate**: `/pm:approve` must be run by Orchestrator (human)
+- **Gate**: `/pm:approve` is invoked by the Lead and decided by the Approver (human)
 - **Validation**: No `[?]` tasks remain for the feature being built
 
 ## Build → Review

@@ -63,7 +63,8 @@ The orchestrator resolves dispatch per task:
 
 0. **Model annotation**: `(model: <model>)` in ROADMAP.md → **native dispatch** (Task tool, `isolation: "worktree"`) with that model
 1. **Agent annotation**: `(agent: <name>)` in ROADMAP.md → external adapter `.claude/agents/adapters/<name>.sh` (health-checked; falls back to native dispatch on failure)
-2. **Default**: native dispatch with the sub-agent default model (`CLAUDE_CODE_SUBAGENT_MODEL` in `.claude/settings.json`)
+2. **Agent-file frontmatter**: agent-file `model:` frontmatter (`.claude/agents/<name>.md`)
+3. **Default**: native dispatch with the sub-agent default model (`CLAUDE_CODE_SUBAGENT_MODEL` in `.claude/settings.json`)
 
 Adapter scripts live in `.claude/agents/adapters/<name>.sh`.
 
