@@ -67,18 +67,21 @@ Blocked:              #T7 (depends on [!] #T4 — resolve first)
 
 ## Dispatch Resolution
 
-Default dispatch is **native**: the Task tool with per-task model selection and `isolation: "worktree"`. External adapters (`.claude/agents/adapters/`) are consulted only for tasks explicitly annotated with `(agent: <name>)`.
+Default dispatch is **native**: the Agent tool with a registered roster agent named by `subagent_type`, per-task model selection, and `isolation: "worktree"`. External adapters (`.claude/agents/adapters/`) are consulted only for tasks explicitly annotated with `(agent: <name>)`.
 
 Resolve per task:
 
-0. `(model: <model>)` annotation in ROADMAP.md → native dispatch with that model
+0. `(model: <model>)` annotation in ROADMAP.md → native dispatch with that model, passed as the Agent tool's `model:` override
 1. `(agent: <name>)` annotation in ROADMAP.md → external adapter `.claude/agents/adapters/<name>.sh`
-2. No annotation → native dispatch with the sub-agent default model (`CLAUDE_CODE_SUBAGENT_MODEL` in `.claude/settings.json`)
+2. No annotation → the `model:` (and `effort:`) frontmatter of the registered agent file in `.claude/agents/` (`implementer.md` is `opus`/`high`; `documenter.md` is `sonnet`/`high`)
+3. No agent-file frontmatter → the sub-agent default model (`CLAUDE_CODE_SUBAGENT_MODEL` in `.claude/settings.json`)
+
+`CLAUDE_CODE_SUBAGENT_MODEL_FORCE` is never set — it would override every agent file's own `model:` frontmatter and collapse the roster onto one tier.
 
 **Examples:**
 ```markdown
-- [ ] Critical security task #T1 (model: claude-opus-4-8)  → native, model claude-opus-4-8
-- [ ] Routine task #T2                                     → native, sub-agent default model
+- [ ] Critical security task #T1 (model: opus)              → native, model opus
+- [ ] Routine task #T2                                     → native, the agent file's own `model:` frontmatter
 - [ ] Codex-specific task #T3 (agent: codex)               → codex adapter (if healthy, else native)
 ```
 
@@ -114,24 +117,29 @@ For each task in the batch, assemble ONLY:
 - The relevant section from `docs/specs/$ARGUMENTS/design.md` (NOT the full design)
 - If the task creates or modifies framework wiring (hook, command, or skill files, or anything under scripts/): the relevant node/edge lines from `docs/maps/system-map.md` for the touched files — so the agent sees what references what it's changing without grepping for it. Excerpt only; never the whole map.
 - Project conventions from CLAUDE.md
-- Agent rules: extract the `## Agent Rules` section from `.claude/rules/tests.md` and `.claude/rules/escalation.md` and include in the conventions block. Do NOT include the full rule files — only the `## Agent Rules` section from each. Bash rules go in the dedicated CRITICAL section below, not here.
+- Agent rules: extract the `## Agent Rules` section from `.claude/rules/tests.md`, `.claude/rules/escalation.md`, and `.claude/rules/lead.md` and include them in the conventions block. Do NOT include the full rule files — only the `## Agent Rules` section from each. Bash rules go in the dedicated CRITICAL section below, not here.
 - The specific files the task mentions (read them for current state)
+
+**Paths:** every path the packet hands the agent that lives under `docs/specs/`, `docs/research/`, `docs/memory/`, or `.claude/sessions/` must be written as a **main-repo absolute path** (e.g. `<main-repo-root>/docs/specs/$ARGUMENTS/design.md`), never a repo-relative one. Those directories are gitignored, so a worktree cannot see them — a relative path resolves inside the worktree and silently finds nothing.
 
 DO NOT give agents: full spec history, other tasks, the brief, research findings, or review comments. Context isolation is critical.
 
 **3. Dispatch sub-agents (parallel)**
 Dispatch up to `max_concurrent_agents` (default: 4) sub-agents simultaneously.
-Each agent is dispatched via the Task tool with `isolation: "worktree"`, which automatically creates an isolated git worktree in `.claude/worktrees/` and cleans it up after the agent completes (kept with a branch name if changes were made).
+Each agent is dispatched via the Agent tool with `isolation: "worktree"`, which automatically creates an isolated git worktree in `.claude/worktrees/` and cleans it up after the agent completes (kept with a branch name if changes were made).
 
-**Native path (default):** dispatch directly via the Task tool with the context packet from step 2:
+**Native path (default):** dispatch a **registered roster agent by name** via the Agent tool with the context packet from step 2:
 ```
-Task(
+Agent(
   prompt: "<assembled agent prompt>",
-  subagent_type: "general-purpose",
-  model: "<model from (model: X) annotation — omit to use the sub-agent default>",
+  subagent_type: "implementer",
+  model: "<model from the (model: X) annotation — omit to use the agent file's own model: frontmatter>",
   isolation: "worktree"
 )
 ```
+Use `subagent_type: "documenter"` instead when the task is **docs-only** — every file in its scope is under `docs/`, or is `README.md`, `CHANGELOG.md`, or a root-level `*.md`. Any other task, including one that touches a single source or script file alongside docs, goes to `implementer`.
+
+If the named agent type is unknown, halt with the escalation message "Retry cap reached on dispatch. Blocker: agent <name> not registered. Suggested next: run tests/agent-roster.test.ts." Never fall back to an unregistered generic agent type — the task would silently land on the env-var model tier instead of the roster tier.
 
 **External adapter path** (only for `(agent: <name>)` tasks): prepare a context packet on disk and invoke the adapter:
 ```bash
@@ -169,12 +177,9 @@ Current file state:
 [RELEVANT FILES IF MODIFYING]
 
 Instructions:
-1. Write the implementation code
-2. Write the tests specified in the task
-3. Run the tests — they must pass
-4. Do NOT modify any files not listed in this task
-5. If you encounter an ambiguity, make the simplest choice and document it as a code comment
-6. When done, report: files created/modified, tests passed/failed, any assumptions made"
+1. Implement the task, run its acceptance criteria, commit on your worktree branch, and report per your `## Report` contract.
+2. Do NOT modify any files not listed in this task
+3. If you encounter an ambiguity, make the simplest choice and document it as a code comment"
 
 If more tasks exist than `max_concurrent_agents`, queue the overflow and dispatch as slots free up. Never dispatch a task whose dependencies are not yet `completed` — native Task `addBlockedBy` enforces this; the ROADMAP `(depends:)` clauses are the fallback check.
 
@@ -182,8 +187,8 @@ If more tasks exist than `max_concurrent_agents`, queue the overflow and dispatc
 For each agent that finishes:
 - Write `docs/specs/$ARGUMENTS/tasks/TN/completion-report.md` with: files changed, tests passed, assumptions
 - If tests pass: mark task `[~]` in ROADMAP.md (ready for review). Log: `bash .claude/hooks/log-activity.sh task-completed feature=$ARGUMENTS task_id=TN`
-- If tests fail: give the agent ONE retry with the error output
-- If retry fails: mark task `[!]` in ROADMAP.md. Log: `bash .claude/hooks/log-activity.sh task-failed feature=$ARGUMENTS task_id=TN`
+- If tests fail: give the agent up to 2 retries with the error output, per `.claude/rules/escalation.md`
+- If the retries fail: mark task `[!]` in ROADMAP.md. Log: `bash .claude/hooks/log-activity.sh task-failed feature=$ARGUMENTS task_id=TN`
 - Notify: `bash .claude/hooks/notify-phase-change.sh task-unblocked <next-task-id>` for any newly unblocked tasks
 
 **5. Batch gate**
@@ -215,9 +220,9 @@ Each time the running set drains (all dispatched agents have completed) and befo
 ### After all tasks complete:
 
 1. Run final full test suite
-2. Worktree lifecycle is native: agent worktrees are cleaned up automatically (kept as a branch when changes were made). No manual session-preservation step.
+2. Workers commit on their worktree branch. Collect each branch (`git log --oneline master..<branch>`, then merge or cherry-pick) before the worktree is cleaned up; an uncommitted worktree is discarded. Worktree lifecycle is otherwise native: worktrees are cleaned up automatically and kept as a branch when changes were made. No manual session-preservation step.
 3. Check for uncommitted changes: `git status`
-4. Create atomic commits (one per task): `feat($ARGUMENTS): <task title> (TN)`
+4. Any work a worker left uncommitted is already gone — re-dispatch that task rather than reconstructing it. For work you cherry-picked or created yourself, keep atomic commits (one per task): `feat($ARGUMENTS): <task title> (TN)`
 5. Update ROADMAP.md — verify all completed tasks are marked `[~]` (ready for review). Do NOT mark them `[x]` — that transition happens only after `/workflows:review` passes.
 6. Notify: `bash .claude/hooks/notify-phase-change.sh review-requested $ARGUMENTS`
 
