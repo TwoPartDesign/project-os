@@ -83,6 +83,7 @@
     "scripts/update-project.sh": "05bb501e1b3973c0e67b58b39f89c0b91ad413244a0c45d1ace1bc7cbfaffbd7",
     "scripts/validate-freshness.sh": "8dc557bd4e85b52858044ea12d9263f78941ef0dac36cc514f822ed425212274",
     "scripts/validate-roadmap.sh": "4bec58920f220f0666fef73557b2b5bb735b373ad38b21a56e4a74c6dc72e08f",
+    "tests/agent-roster.test.ts": "3c47a445ca4ee03f20f12617c06087a240a4ff677d45ac98be19b5e591f50923",
     "tests/compaction-hooks.sh": "d94ee4c4b7f86ffebb4c70b896adceeb8441f16ae6dae77e82c08f7aa0066d07",
     "tests/critical-rules.test.ts": "7761b205042f3b85fbdb572270c05f6d559ae506ceebb73050785cdf79f4fee8",
     "tests/dashboard-render.test.ts": "78e1adbc90c152718eb327e895b70423392d01b7b969ee0b493f4d892f9adfb2",

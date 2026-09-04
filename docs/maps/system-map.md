@@ -91,6 +91,7 @@
 - `s_update_project` — `scripts/update-project.sh` (1 dependent)
 - `s_validate_freshness` — `scripts/validate-freshness.sh` (0 dependents)
 - `s_validate_roadmap` — `scripts/validate-roadmap.sh` (4 dependents)
+- `s_agent_roster_test` — `tests/agent-roster.test.ts` (0 dependents)
 - `s_compaction_hooks` — `tests/compaction-hooks.sh` (0 dependents)
 - `s_critical_rules_test` — `tests/critical-rules.test.ts` (0 dependents)
 - `s_dashboard_render_test` — `tests/dashboard-render.test.ts` (0 dependents)
