@@ -188,6 +188,10 @@ Small quality items surfaced during self-maintenance / #T9 reviews (2026-07-17).
 - [x] skill-edit: reflect.md — add-op proposed text must not repeat the anchor (applied 1ec83b7) #T96
   <!-- maint-fp: skill-edit:.claude/commands/tools/reflect.md:add-op-anchor-duplication -->
   <!-- proposal: docs/specs/skill-optimization-loop/skill-edits.md Proposal 3 -->
+- [?] Investigate recurring Bash failures (6 since 2026-07-30T21:11:49Z) #T152
+  <!-- maint-fp: failures:Bash:6 -->
+- [?] Run /tools:dream — 12 memory files / 42 session files, consolidation due #T153
+  <!-- maint-fp: dream:12:42 -->
 
 ### Todo
 
@@ -341,6 +345,24 @@ Two pre-existing defects found while verifying #T112's rewrite. Both make named 
 - [x] Replaced the transcript-bytes proxy with a measured token count instead of calibrating it — the assumption behind #T118 was disproved, not tuned. Assistant records in the transcript JSONL already carry `usage.input_tokens + cache_read_input_tokens + cache_creation_input_tokens`, which is the real context size in the same unit as `CLAUDE_CODE_AUTO_COMPACT_WINDOW`; the byte proxy tracked a different quantity entirely (2,897,308 bytes against 106,432 actual tokens — 27 bytes/token, ~7x the normal ratio), so the nudge fired at ~53% of the window rather than the intended point. Reading the real number also lets the nudge threshold be derived (`COMPACT_PCT - 15`, floored at 20) instead of asserted, and bytes survive only as a fallback when no `usage` record is present. Same move applied to handoff freshness: the asserted 30-minute window became cycle-scoped via a `.compact-cycle-<sid>` marker, so a handoff counts iff it was written since the last compaction. Confirmed live in-session at exactly 60% of a 200000-token window. Third latent bug fixed: the `pre-compact.sh` FEATURE awk reset its match at every `## Feature:` heading, so an in-progress task in an earlier section was forgotten and `feature` came out `none`. Tests 45 -> 72 assertions. Supersedes #T118 #T119
 - [x] Compaction Handoff Chain — auto-compaction at 75% of the window, a PostToolUse nudge that requires a model-authored handoff while the context to write one still exists, and the handoff's `compact_instruction` forwarded to the compaction summarizer via PreCompact stdout. Blocking was designed for three rounds and rejected on CLI verification: a `PreCompact` block reason reaches only a debug log and a reason-less notification, never Claude. Read-only system-map drift check, forwarded as a caveat — never healed. Fixed a pre-existing bug that had made every auto-checkpoint's `phase`/`feature`/`in_progress` fields inert. Spec `docs/specs/compaction-gate/`, tests `tests/compaction-hooks.sh` (45 assertions at the time; later entries carry the count forward). Implemented directly at the owner's direction; did not pass through `/pm:approve` #T117
 <!-- #T118 (calibrate PROJECT_OS_COMPACT_NUDGE_BYTES) closed 2026-07-30 without being done: the byte proxy it proposed to calibrate was removed in #T119. ID #T118 is retired, never reused. -->
+
+## Feature: fable-orchestrator-alignment
+### Draft
+- [~] Register and reconcile the worker agents (implementer, documenter) #T154
+- [~] Register and reconcile the reader agents (researcher, three reviewers) #T155
+- [~] Roster invariant test tests/agent-roster.test.ts #T156
+- [~] Rules files: ladder, lead routing, local-documents rule #T157
+- [~] Role split in roles.md, handoffs.md, adapters/INTERFACE.md #T158 (model: sonnet)
+- [~] Top-level docs: routing tiers and roles (CLAUDE.md, template, README, STATUS, guide) #T159 (model: sonnet)
+- [~] Tier presets in init.md and set-models.md #T160 (model: sonnet)
+- [~] Knowledge docs: ADR, principles, architecture, pattern #T161
+- [~] Build workflow dispatches the roster (depends: #T154, #T155, #T156) #T162
+- [~] Review and design workflows dispatch the reviewers (depends: #T154, #T155, #T156) #T163
+- [~] Compete, research, dream, mvp dispatch and wording (depends: #T154, #T155, #T156) #T164
+### Todo
+### In Progress
+### Review
+### Done
 
 
 ## Backlog

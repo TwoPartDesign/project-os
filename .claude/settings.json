@@ -1,6 +1,6 @@
 {
-  "model": "opus",
-  "fallbackModel": ["sonnet"],
+  "model": "fable",
+  "fallbackModel": ["opus", "sonnet"],
   "effortLevel": "high",
   "permissions": {
     "allow": [
@@ -77,9 +77,9 @@
     "deny": []
   },
   "env": {
-    "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "opus",
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "80",
-    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "200000"
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "350000"
   },
   "project_os": {
     "parallel": {
