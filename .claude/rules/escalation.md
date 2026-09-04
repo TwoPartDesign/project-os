@@ -5,7 +5,9 @@
 - Never silently retry the same action a third time — it wastes quota and masks the real problem.
 
 ## Escalation Ladder
-`haiku` → `sonnet` → `opus` → `fable` (bare aliases — each resolves to the latest release in its family)
+`sonnet` (high) → `opus` (high) → `fable` (high) (bare aliases — each resolves to the latest release in its family)
+
+Raise effort `high → xhigh` before raising the model when the failure is reasoning depth, not capability.
 
 Sub-agent tasks default to the model in `CLAUDE_CODE_SUBAGENT_MODEL` (`.claude/settings.json`). Escalate a task one rung via a `(model: <model-id>)` annotation in ROADMAP.md only on persistent failures or decisions beyond task scope. The top rung (Fable 5, Mythos-class) is for architecture-defining decisions — not routine unblocking.
 
@@ -29,3 +31,4 @@ Then stop and wait for user direction.
 - Maximum **2 retries** per task. After 2 consecutive failures: STOP and surface the blocker.
 - Never silently retry the same action a third time — it wastes quota and masks the real problem.
 - When hitting the retry cap, output: "Retry cap reached on [operation]. Blocker: [specific issue]. Suggested next: [action]." Then stop and wait for direction.
+- The escalation ladder is `sonnet` (high) → `opus` (high) → `fable` (high); raise effort `high → xhigh` before raising the model when the failure is reasoning depth, not capability.
