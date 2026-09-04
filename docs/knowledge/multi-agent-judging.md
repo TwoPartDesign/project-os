@@ -94,6 +94,9 @@ if outcome labels start being logged.
 opinions are the point. Extend annotation resolution to those spawn points before considering
 anything more sophisticated.
 
+**Resolved 2026-09-04**: the roster is registered and every judgement path spawns a named agent
+whose tier lives in frontmatter; the monoculture note above is historical.
+
 Sources: [Redis — LLM router architecture](https://redis.io/blog/llm-router-architecture-best-practices/) ·
 [LLM routing and model cascades](https://tianpan.co/blog/2025-11-03-llm-routing-model-cascades).
 
@@ -108,7 +111,7 @@ collides with the never-commit-secrets hard rule.
 
 Diversity axes that cost nothing to adopt:
 
-1. **Claude model ladder** — `haiku`/`sonnet`/`opus`/`fable` via the Agent tool's `model`
+1. **Claude model ladder** — `sonnet`/`opus`/`fable` via the Agent tool's `model`
    parameter. Different scale and training, same vendor.
 2. **OpenAI via `scripts/codex-review.sh --mode read-only`** — a genuine cross-vendor voice with no
    write access and no worktree. Stricter than the `codex.sh` adapter's `danger-full-access`

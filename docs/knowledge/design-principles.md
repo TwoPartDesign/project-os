@@ -69,26 +69,48 @@ Every decision, bug root cause, and pattern discovered gets recorded in `docs/kn
 
 ## Model Routing Rationale
 
-### Orchestration & Design: Primary Model (Opus 4.8; Fable 5 for the Hardest Work)
+Tiers live in `.claude/agents/<name>.md` frontmatter, not in prose or an
+environment variable — a tier declared on a file the runtime never registers is
+documentation, not routing. Resolution order: per-invocation `(model: ...)`
+annotation > agent-file `model:` > `CLAUDE_CODE_SUBAGENT_MODEL` > main model.
+Bare aliases only, never dated IDs.
 
-- Complex reasoning, architecture decisions
-- Context: Full access to project state, decisions, patterns
-- Frequency: Once per phase transition
-- Cost/benefit: High reasoning quality justifies higher cost. Set via `"model"` in settings.json; Fable 5 is an option when design difficulty warrants the top tier.
+### Lead: `fable`
 
-### Sub-Agent Implementation: Sonnet 5
+- Scoping, decomposition, routing, brief-writing, arbitration, integration, final judgment
+- Context: full access to project state, decisions, patterns
+- Frequency: continuous — it is the primary session
+- Cost/benefit: the most expensive model in the session, so it spends tokens on thinking rather than typing. It does not implement, read large files, or grind through mechanical work. Set via `"model"` in settings.json.
 
-- Focused coding within a narrow spec
-- Context: Only task-specific context (10-15% of full project context)
-- Frequency: Parallel implementation across multiple tasks
-- Cost/benefit: Strong implementation quality at mid-tier cost — the default via `CLAUDE_CODE_SUBAGENT_MODEL`. Route cheap, tightly-scoped mechanical tasks to Haiku 4.5 (the cheapest tier) via `(model: ...)` annotations.
+### Default Executor: `opus`, high effort
 
-### Adversarial Review: Primary Model (Isolated Context)
+- The majority of delegated work, including debugging, lands here via the `implementer` agent
+- Context: only task-specific context (10-15% of full project context)
+- Frequency: parallel implementation across multiple tasks
+- Cost/benefit: strong one-shot execution on a complete brief and a clean context window. Raise effort to `xhigh` for a hard root cause or a refactor spanning systems — effort before model.
+
+### Mechanical Work: `sonnet`, high effort
+
+- Renames, file moves, doc tweaks, a single well-specified function
+- Context: the spec and the target files, nothing more
+- Frequency: whenever a task is tightly scoped enough to be fully specified
+- Cost/benefit: `sonnet` at high effort is the floor. Nothing runs below it; there is no cheaper rung.
+
+### Adversarial Review: `inherit` (Isolated Context)
 
 - Independent judgment over code, tests, architecture drift
-- Context: Spec + code diff only; no implementation details
-- Frequency: Once per feature, three reviewers in parallel
-- Cost/benefit: Primary model needed for architectural judgment; isolation prevents reviewer bias.
+- Context: spec + code diff only; no implementation details
+- Frequency: once per feature, three reviewers in parallel
+- Cost/benefit: reviewers inherit the lead's tier so review is never cheaper than the work it audits; isolation prevents reviewer bias.
+
+### Escalation
+
+Ladder: `sonnet` → `opus` → `fable`. Move one rung after two consecutive
+failures on the same operation, never a third silent retry, and raise effort
+before raising the model when the failure is reasoning depth rather than
+capability. Drop follow-up tasks back to the default tier once the blocker
+clears. A worker that blew its budget is usually a brief problem, not a model
+problem — fix the brief first.
 
 ---
 

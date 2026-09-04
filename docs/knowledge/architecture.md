@@ -17,7 +17,7 @@ It preserves human authority through three mechanisms:
 - **Audit trail** — ROADMAP.md state machine + JSONL activity log capture every decision
 
 ```
-User ──→ Workflow Commands ──→ Orchestrator ──→ Sub-agents (isolated worktrees)
+User (Approver) ──→ Workflow Commands ──→ Lead ──→ Sub-agents (named roster, isolated worktrees)
               │                     │                    │
               ▼                     ▼                    ▼
          ROADMAP.md           Adapter Layer         Task Output
@@ -108,8 +108,9 @@ Governance record     Dispatch Resolution                   Completion Reports
      └──────────── Batch-Drain Consistency Check ◄───────────────────┘
 ```
 
-### Dispatch Resolution (3-step)
+### Dispatch Resolution (4-step)
 0. `(model: <model>)` annotation → native Task-tool dispatch with that model
+0.5. Agent-file `model:` frontmatter → the named roster agent's own tier (and `effort:`)
 1. `(agent: codex)` annotation → external adapter (if healthy, else native)
 2. Default → native Task-tool dispatch with sub-agent default model (settings.json)
 

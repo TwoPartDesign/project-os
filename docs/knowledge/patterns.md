@@ -167,3 +167,15 @@ Corollary — **placeholder-scanning cannot find this class**. A setup command t
 **Example**: `tests/compaction-hooks.sh` builds a sandbox per test case and asserts what the hooks *do* — instruction forwarded, nudge fired exactly once per cycle, symlinked handoff rejected — rather than only that they exit 0, which is all `tests/hook-smoke.sh` could safely check while running against the live root. It caught a pre-existing bug immediately: `pre-compact.sh` matched ROADMAP markers with `^\s*\[-\]`, but tasks are markdown list items (`- [-] …`), so every auto-checkpoint ever written had recorded `phase: "ad-hoc"` / `feature: "none"`.
 
 **Anti-pattern**: Exit-code-only smoke tests standing in for behaviour tests — a hook that silently does nothing passes every one of them. Or testing against the live project root, which makes assertions order-dependent (debounce files, markers left by earlier cases) and leaves artifacts in tracked directories.
+
+---
+
+### Registered Roster, Not Pasted Prose
+
+**When to Use**: Any command that spawns a sub-agent — build, review, design, competitive implementation, research. Anywhere the same role gets dispatched from more than one caller.
+
+**Pattern**: An agent's identity, scope fence, report contract, and tier live in one place: `.claude/agents/<name>.md`. The frontmatter carries `name`, `description`, `model`, and `effort`; the body carries only what is stable across every caller and becomes the agent's system prompt. Commands reference the agent by `subagent_type: <name>` and add task content plus the `## Agent Rules` injection — nothing else. The registration is load-bearing: a `model:`/`effort:` key on a file the runtime never registers is documentation, not routing, and per-agent `effort` has no other channel at all (the Agent tool takes no effort parameter). Where a command and a body disagree, the body wins on format and the command wins on content, and both get edited until they agree. If a named agent type is unknown, halt — never fall back to `general-purpose`, because the fallback silently restores the flat tier the roster exists to replace.
+
+**Example**: `build.md` dispatches `subagent_type: "implementer"` and passes only the task spec; the implementer's tier (`opus`, `effort: high`), its worktree isolation, its no-fan-out fence, and its evidence-first report contract all come from `.claude/agents/implementer.md`. Reviewers carry `model: inherit` so adversarial review runs at the lead's tier from every caller that spawns one.
+
+**Anti-pattern**: `subagent_type: "general-purpose"` with a hand-written role paragraph in the command — five spawn points then hold five drifting copies of the same role, and none of them can carry a tier. Also: setting `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`, which overrides frontmatter and flattens every tier back into one.

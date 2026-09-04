@@ -152,6 +152,8 @@ Each entry: Date, Decision, Context, Alternatives Considered, Rationale
 
 **Rationale**: Every hand-rolled system replaced here now has a strictly better native equivalent, and each deletion shrinks the always-loaded context (a core principle: context is noise). Governance value — gates, markers, adversarial review — is preserved untouched; only the execution plumbing changed.
 
+**Update (2026-09-04)**: routing superseded, see the 2026-09-04 entry. Decision 2 above (the ladder and the cheapest-tier rung) is historical record only; live guidance is the registered roster and the `sonnet → opus → fable` ladder.
+
 ---
 
 ## 2026-07-16 — Dashboard Kanban: Shared Render Lib + Linear-Parse Mandate
@@ -280,3 +282,51 @@ and wants the hooks to reflect.
 untrusted Project OS clone in Claude Code. There is no in-repo control that
 makes doing so safe, and none of the five hooks above should acquire one on the
 theory that it adds defence in depth.
+
+---
+
+## 2026-09-04 — Fable Lead, Registered Roster, Sonnet Floor
+
+**Decision**: Route sub-agent work through a *registered* agent roster instead of
+through an environment variable. Each of the six files in `.claude/agents/`
+gains `name`, `description`, `model`, and `effort` frontmatter so Claude Code
+registers it, and every workflow command spawns an agent by name
+(`subagent_type: implementer`, `reviewer-security`, …) rather than
+`general-purpose` with a role paragraph pasted into the prompt. Tiers: the lead
+(primary session) runs `fable`; the default executor is `opus` at high effort;
+tightly-scoped mechanical work is `sonnet` at high effort; reviewers `inherit`
+so adversarial review runs at the lead's tier. `sonnet` is the floor — `haiku`
+is removed from live guidance and is no longer a rung. The escalation ladder
+becomes `sonnet → opus → fable`, raising effort (`high → xhigh`) before raising
+the model. The human role splits in two: **Approver** (every gate that needs
+intent — `/pm:approve`, design approval, scope changes, destructive actions) and
+**Lead** (the primary session: plan, brief, dispatch, arbitrate, integrate, run
+verification commands and git, report).
+
+**Context**: Fable 5.1 shipped 2026-09-01 with effort (`high`/`xhigh`) as its
+primary reasoning-depth control, which is only settable per agent — the Agent
+tool takes no effort parameter. The roster, meanwhile, was never registered:
+the six agent files carried only `isolation`/`role`/`permissions` frontmatter,
+so this session's agent list read `claude, claude-code-guide, Explore,
+general-purpose, Plan, statusline-setup` and nothing read the six bodies at
+all. Every spawn point (`build.md`, `review.md`, `design.md`,
+`compete-review.md`, `research.md`) passed `general-purpose` with a
+self-contained prompt, so per-agent tiering could not take effect no matter
+what the frontmatter said.
+
+**Alternatives Considered**:
+- **Frontmatter only, keep `general-purpose` spawns** — rejected: frontmatter is inert on unregistered files, so the diff would change nothing and the R4 defect would stay open.
+- **Env var only (`CLAUDE_CODE_SUBAGENT_MODEL: opus`), no roster** — rejected: one tier for everything; reviewers never inherit the lead's model and the Sonnet floor is lost.
+- **Keep `general-purpose`, have each command read `model:` out of the agent file and pass it per invocation** — rejected: no per-agent `effort`, bodies stay dead prose, and "read a YAML key from a file" in command prose is fragile and unverifiable.
+- **Keep the human as Orchestrator and add Lead beneath it** — rejected: two overlapping names; ten live occurrences across eight files is cheap to fix, and clarity wins.
+
+**Rationale**: Registration is the only version of this change where per-agent
+tiers actually take effect — a tier declared in frontmatter on a file Claude
+Code never loads is documentation, not routing. It also closes the R4 defect in
+`multi-agent-judging.md` (annotations honoured only on the build path): review,
+design, compete, and research spawns now inherit their tier from the agent
+file, so the judgement paths stop running as a model monoculture. Resolution
+order is per-invocation `model` > agent-file `model:` >
+`CLAUDE_CODE_SUBAGENT_MODEL` > main model; the env var stays `opus` as the tier
+for any remaining `general-purpose` spawn, and `_FORCE` stays unset because it
+would flatten the mechanical tier.

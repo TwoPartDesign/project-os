@@ -46,7 +46,7 @@ Where:
 - `Task description` = human-readable task summary
 - `(depends: ...)` = optional dependency clause (see Dependencies section)
 - `#TN` = unique task ID (required)
-- `(model: model-id)` = optional model routing (e.g., `(model: claude-opus-4-8)`) — placed after `#TN`, same as `(agent: ...)`
+- `(model: model-id)` = optional model routing (e.g., `(model: opus)`) — placed after `#TN`, same as `(agent: ...)`. Use bare aliases (`sonnet`, `opus`, `fable`), never dated IDs.
 - `(agent: agent-name)` = optional agent routing (e.g., `(agent: codex)`)
 
 `(model: ...)` and `(agent: ...)` are both optional, both repeatable-position (order-independent relative to each other), and may appear together on the same task line. Dispatch resolution checks `(model: ...)` before `(agent: ...)` — see `.claude/commands/workflows/build.md` § Dispatch Resolution.
@@ -58,7 +58,7 @@ Where:
 - [ ] Add test coverage for login (depends: #T1) #T2
 - [ ] Review security of auth token storage (depends: #T1, #T2) #T3 (agent: reviewer-security)
 - [-] Refactor API response format #T4
-- [ ] Critical security task (depends: #T1) #T5 (model: claude-opus-4-8)
+- [ ] Critical security task (depends: #T1) #T5 (model: opus)
 ```
 
 ---
