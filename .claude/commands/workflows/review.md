@@ -20,22 +20,35 @@ git diff "${BASE}...HEAD"
 
 All three reviewers run with `isolation: worktree` for filesystem isolation (prevents reviewers from modifying the working tree). Cross-reviewer isolation is enforced by **prompt separation** — each sub-agent receives only its own instructions and review focus. The orchestrator (you) is the only entity that reads all three reports.
 
-Before spawning any reviewer, read `.claude/rules/bash.md` and extract the full content of its `## Agent Rules` section (everything after that heading). Store this as `BASH_AGENT_RULES` — substitute it into each reviewer prompt where indicated below.
+Before spawning any reviewer, read `.claude/rules/bash.md` and `.claude/rules/lead.md` and extract the full content of each one's `## Agent Rules` section (everything after that heading). Store the bash rules as `BASH_AGENT_RULES` and the lead rules as `LEAD_AGENT_RULES` — substitute them into each reviewer prompt where indicated below.
+
+**Spawn contract:** each reviewer is a **registered roster agent dispatched by name**. If a named agent type is unknown, halt with the escalation message "Retry cap reached on dispatch. Blocker: agent <name> not registered. Suggested next: run tests/agent-roster.test.ts." Never fall back to an unregistered generic agent type — the reviewer would silently land on the env-var model tier instead of the roster tier.
 
 ## Reviewer 1: Drift Detection (Plan vs Implementation)
 
 Spawn a sub-agent with this prompt:
+
+```
+Agent(
+  subagent_type: "reviewer-architecture",
+  isolation: "worktree",
+  prompt: <the prompt below>
+)
+```
 
 "You are a drift detection auditor. Your job is to find mismatches between what was planned and what was built.
 
 CRITICAL — BASH COMMAND RULES:
 [BASH_AGENT_RULES]
 
+AGENT RULES:
+[LEAD_AGENT_RULES]
+
 PLANNED (source of truth):
 [Contents of tasks.md — the task descriptions and acceptance criteria]
 
 DESIGN (reference):
-[Contents of design.md — the technical approach section]
+[Contents of design.md — the technical approach section, read from `<main-repo absolute path>/docs/specs/$ARGUMENTS/design.md` (docs/specs is gitignored; worktrees cannot see it)]
 
 YOUR TASK:
 1. For each task in the plan, verify the acceptance criteria are met in the actual code
@@ -44,8 +57,11 @@ YOUR TASK:
 4. Check for TODO/FIXME/HACK comments without corresponding ROADMAP entries
 5. If the feature touched framework wiring (hooks/commands/skills/scripts): read `docs/maps/system-map.md` and run `node scripts/system-map.ts report` — new HIGH findings (unwired hooks, dangling refs) on files this feature touched are DRIFT; also verify the map's edges for new/changed files match what the design intended to wire
 
-Output format:
-- DRIFT: [description of mismatch] | Severity: CRITICAL/HIGH/MEDIUM/LOW
+Output format — one line per finding:
+`SEVERITY / FILE:LINES / ISSUE / FIX`
+Severity is one of CRITICAL, HIGH, MEDIUM, LOW. The ISSUE field starts with the word `DRIFT:` — e.g. `HIGH / scripts/foo.ts:40-58 / DRIFT: task T12 required X, the code does Y / restore X`. Report everything; the coordinator filters.
+
+After the findings, add these content lines:
 - UNPLANNED: [description of scope creep] | Risk: [assessment]
 - PASS: [criterion that was correctly implemented]"
 
@@ -53,10 +69,24 @@ Output format:
 
 Spawn a sub-agent with this prompt:
 
+```
+Agent(
+  subagent_type: "reviewer-security",
+  isolation: "worktree",
+  prompt: <the prompt below>
+)
+```
+
 "You are a security auditor. Review ONLY the changed files for security issues.
 
 CRITICAL — BASH COMMAND RULES:
 [BASH_AGENT_RULES]
+
+AGENT RULES:
+[LEAD_AGENT_RULES]
+
+Reference (the specification these changes must satisfy):
+`<main-repo absolute path>/docs/specs/$ARGUMENTS/design.md` (docs/specs is gitignored; worktrees cannot see it)
 
 Changed files:
 [git diff output — filenames and content]
@@ -73,8 +103,11 @@ Check for:
 9. Sensitive data in logs or error messages
 10. Race conditions in concurrent operations
 
-Output format:
-- VULN: [description] | Severity: CRITICAL/HIGH/MEDIUM/LOW | File: [path:line]
+Output format — one line per finding:
+`SEVERITY / FILE:LINES / ISSUE / FIX`
+Severity is one of CRITICAL, HIGH, MEDIUM, LOW. The ISSUE field starts with the word `VULN:` — e.g. `CRITICAL / scripts/run.sh:12 / VULN: command injection via unquoted $INPUT / quote the expansion`. Report everything; the coordinator filters.
+
+After the findings, add these content lines:
 - CONCERN: [potential issue needing investigation] | File: [path:line]
 - PASS: [security property verified]"
 
@@ -82,10 +115,24 @@ Output format:
 
 Spawn a sub-agent with this prompt:
 
+```
+Agent(
+  subagent_type: "reviewer-tests",
+  isolation: "worktree",
+  prompt: <the prompt below>
+)
+```
+
 "You are a code quality reviewer. Review the changed files for maintainability.
 
 CRITICAL — BASH COMMAND RULES:
 [BASH_AGENT_RULES]
+
+AGENT RULES:
+[LEAD_AGENT_RULES]
+
+Reference (the specification these changes must satisfy):
+`<main-repo absolute path>/docs/specs/$ARGUMENTS/design.md` (docs/specs is gitignored; worktrees cannot see it)
 
 Changed files and test files:
 [Relevant source and test files]
@@ -105,8 +152,11 @@ Check for:
 9. Magic numbers or strings that should be constants
 10. Complex conditionals that should be simplified
 
-Output format:
-- ISSUE: [description] | Severity: CRITICAL/HIGH/MEDIUM/LOW | File: [path:line]
+Output format — one line per finding:
+`SEVERITY / FILE:LINES / ISSUE / FIX`
+Severity is one of CRITICAL, HIGH, MEDIUM, LOW. The ISSUE field starts with the word `ISSUE:` — e.g. `MEDIUM / scripts/parse.ts:80-140 / ISSUE: getPage() is 61 lines and mixes parse with render / split the render half out`. Report everything; the coordinator filters.
+
+After the findings, add these content lines:
 - SUGGESTION: [optional improvement] | File: [path:line]
 - PASS: [quality standard met]"
 

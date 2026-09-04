@@ -86,21 +86,35 @@ Brief: ./brief.md
 
 ## Step 3: Self-Adversarial Review
 
-Before spawning the reviewer, read `.claude/rules/bash.md` and extract the full content of its `## Agent Rules` section (everything after that heading). Store this as `BASH_AGENT_RULES` — substitute it into the reviewer prompt where indicated below.
+Before spawning the reviewer, read `.claude/rules/bash.md` and `.claude/rules/lead.md` and extract the full content of each one's `## Agent Rules` section (everything after that heading). Store the bash rules as `BASH_AGENT_RULES` and the lead rules as `LEAD_AGENT_RULES` — substitute them into the reviewer prompt where indicated below.
+
+**Spawn contract:** the reviewer is a **registered roster agent dispatched by name**. If the named agent type is unknown, halt with the escalation message "Retry cap reached on dispatch. Blocker: agent <name> not registered. Suggested next: run tests/agent-roster.test.ts." Never fall back to an unregistered generic agent type — the reviewer would silently land on the env-var model tier instead of the roster tier.
 
 Before presenting to the user, spawn a reviewer sub-agent with this prompt:
 
-"You are a critical code reviewer. Read the design at docs/specs/$ARGUMENTS/design.md. Your job is to find flaws. Check:
+```
+Agent(
+  subagent_type: "reviewer-architecture",
+  prompt: <the prompt below>
+)
+```
+
+"You are a critical code reviewer. Read the design at `<main-repo absolute path>/docs/specs/$ARGUMENTS/design.md` (docs/specs is gitignored; worktrees cannot see it). Your job is to find flaws. Check:
 1. Are any UNVERIFIED assumptions load-bearing? Flag them.
 2. Does the approach conflict with patterns in docs/knowledge/patterns.md?
 3. Are there security gaps in the Security Considerations section?
 4. Is the testing strategy sufficient to catch regressions?
 5. Are there simpler alternatives the designer missed?
 6. For every finding from a PRIOR review round that was closed by adding a condition, check, or guard: attack the fixed condition itself. A fix is a fresh attack surface, not a settled matter — ask what inputs satisfy the new check while still violating the property it exists to protect.
-Output a list of findings ranked by severity (CRITICAL > HIGH > MEDIUM > LOW). For each finding, include a specific recommendation.
+Output format — one line per finding:
+`SEVERITY / FILE:LINES / ISSUE / FIX`
+Severity is one of CRITICAL, HIGH, MEDIUM, LOW. Report everything; the designer filters. After the findings, add the ranked list of findings ordered CRITICAL > HIGH > MEDIUM > LOW.
 
 CRITICAL — BASH COMMAND RULES:
-[BASH_AGENT_RULES]"
+[BASH_AGENT_RULES]
+
+AGENT RULES:
+[LEAD_AGENT_RULES]"
 
 ## Step 4: Iterate or Approve
 
