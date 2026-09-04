@@ -21,14 +21,27 @@ For each `compete-<strategy>.md` file:
 
 ## Step 2: Deep comparison
 
-Before spawning reviewers, read `.claude/rules/bash.md` and extract the full content of its `## Agent Rules` section (everything after that heading). Store this as `BASH_AGENT_RULES` — substitute it into each reviewer prompt where indicated below.
+Before spawning reviewers, read `.claude/rules/bash.md` and `.claude/rules/lead.md` and extract the full content of each one's `## Agent Rules` section (everything after that heading). Store the bash rules as `BASH_AGENT_RULES` and the lead rules as `LEAD_AGENT_RULES` — substitute them into each reviewer prompt where indicated below.
 
-Spawn a reviewer sub-agent for each approach (parallel, isolated):
+Spawn a reviewer sub-agent for each approach (parallel, isolated). Each reviewer is a **registered roster agent dispatched by name**:
+
+```
+Agent(
+  subagent_type: "reviewer-architecture",
+  isolation: "worktree",
+  prompt: <the prompt below>
+)
+```
+
+If the named agent type is unknown, halt with the escalation message "Retry cap reached on dispatch. Blocker: agent <name> not registered. Suggested next: run tests/agent-roster.test.ts." Never fall back to an unregistered generic agent type — the reviewer would silently land on the env-var model tier instead of the roster tier.
 
 "You are reviewing a competitive implementation.
 
 CRITICAL — BASH COMMAND RULES:
 [BASH_AGENT_RULES]
+
+AGENT RULES:
+[LEAD_AGENT_RULES]
 
 Strategy: [STRATEGY NAME]
 Task spec: [TASK DESCRIPTION]
@@ -44,6 +57,8 @@ Evaluate on these axes:
 6. **Convention alignment**: Does it follow CLAUDE.md patterns?
 
 Score each axis 1-5. Provide specific code references for your scoring."
+
+The 1-5 axis scores are **content**, not a replacement for the reviewer's report format: the reviewer reports its findings in the `SEVERITY / FILE:LINES / ISSUE / FIX` format defined in its agent body, then reports the axis scores after them.
 
 ## Step 3: Synthesize
 

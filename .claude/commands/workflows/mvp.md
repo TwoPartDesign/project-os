@@ -116,7 +116,7 @@ Each auto-advanced transition carries a declarative **goal predicate** — a Pro
 | Gate | Goal predicate | Auto-approve condition | Pause condition |
 |---|---|---|---|
 | Design approval | `design.md` contains `Status: APPROVED` | `design.md` contains `Status: APPROVED` | Design lacks `Status: APPROVED` (not yet approved by user) |
-| Task approval (`[?]` → `[ ]`) | all qualifying `[?]` tasks promoted, `validate-roadmap.sh` clean | Always — MVP applies approval directly without invoking `/pm:approve` | Never |
+| Task approval (`[?]` → `[ ]`) | all qualifying `[?]` tasks promoted, `validate-roadmap.sh` clean | Always — MVP applies approval directly without invoking `/pm:approve`. Promotion without `/pm:approve` is covered by the Approver's standing consent given by invoking `/workflows:mvp`; ship still pauses. | Never |
 | Rebuild mode choice | `[!]` tasks reset to `[-]` and re-dispatched | Auto Mode 1 (re-implement) — inlined, does not invoke `/workflows:rebuild` | Never |
 | Review failure — first time | `review.md` contains `GATE PASSED` or `GATE FAILED` (parseable) | Auto-trigger Mode 1 rebuild and re-review | — |
 | Review failure — second time | `review.md` contains `GATE PASSED` | Never | Always — surface findings and halt |

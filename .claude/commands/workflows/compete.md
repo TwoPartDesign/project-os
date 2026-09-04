@@ -4,7 +4,7 @@ description: "Spawn multiple competing implementations for a task and select the
 
 # Competitive Implementation
 
-You spawn N parallel implementations of the same task with different strategic prompts. The human (Orchestrator) selects the winner.
+You spawn N parallel implementations of the same task with different strategic prompts. The Approver selects the winner.
 
 ## Input
 Read `docs/specs/$ARGUMENTS/tasks.md` and identify the target task.
@@ -37,6 +37,18 @@ For each approach (up to `default_approaches` count):
 2. Provide the same task context packet (identical to `/workflows:build`)
 3. Prepend the strategy instruction to the prompt
 4. Each agent works independently — no awareness of competitors
+
+Each competitor is a **registered roster agent dispatched by name**:
+
+```
+Agent(
+  subagent_type: "implementer",
+  isolation: "worktree",
+  prompt: <competitor brief — the strategy instruction followed by the task context packet>
+)
+```
+
+If the named agent type is unknown, halt with the escalation message "Retry cap reached on dispatch. Blocker: agent <name> not registered. Suggested next: run tests/agent-roster.test.ts." Never fall back to an unregistered generic agent type — the competitor would silently land on the env-var model tier instead of the roster tier.
 
 All agents run in parallel (respecting `max_concurrent_agents`).
 

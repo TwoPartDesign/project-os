@@ -11,20 +11,32 @@ This is the canonical parallel research protocol. Other commands (e.g. `/workflo
 
 ## Process
 
-Break the research topic into 2-3 independent questions. Spawn a sub-agent for each question, dispatched per the researcher role spec (`.claude/agents/researcher.md`), which defines the search order agents follow.
+Break the research topic into 2-3 independent questions. Spawn one sub-agent per question as a **registered roster agent dispatched by name** — `.claude/agents/researcher.md` is that agent's definition (it defines the search order agents follow); do not paste its body into the prompt:
 
-Before spawning sub-agents, read `.claude/rules/bash.md` and extract the full content of its `## Agent Rules` section (everything after that heading). Store this as `BASH_AGENT_RULES` — sub-agents do not inherit CLAUDE.md, so append it to every agent prompt.
+```
+Agent(
+  subagent_type: "researcher",
+  prompt: <the agent prompt template below>
+)
+```
+
+If the named agent type is unknown, halt with the escalation message "Retry cap reached on dispatch. Blocker: agent <name> not registered. Suggested next: run tests/agent-roster.test.ts." Never fall back to an unregistered generic agent type — the research would silently land on the env-var model tier instead of the roster tier.
+
+Before spawning sub-agents, read `.claude/rules/bash.md` and `.claude/rules/lead.md` and extract the full content of each one's `## Agent Rules` section (everything after that heading). Store the bash rules as `BASH_AGENT_RULES` and the lead rules as `LEAD_AGENT_RULES` — sub-agents do not inherit CLAUDE.md, so append both to every agent prompt.
 
 ### Agent prompt template
 
 Each agent prompt must contain:
 1. The SINGLE focused question to investigate
 2. The required output format (below)
-3. The bash rules block:
+3. The bash rules block and the lead agent rules block:
 
 ```
 CRITICAL — BASH COMMAND RULES:
 [BASH_AGENT_RULES]
+
+AGENT RULES:
+[LEAD_AGENT_RULES]
 ```
 
 ### Required Output Format (canonical — agents must produce exactly this)

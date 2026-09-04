@@ -49,14 +49,13 @@ Pass this tiering scheme to the sub-agent in Step 3 so it applies the same stand
 
 ## Step 3: Spawn ONE consolidation sub-agent
 
-Spawn exactly one sub-agent `(model: sonnet)` — deliberately not `haiku`. Contradiction
-detection between sources requires judgment a cheaper model is more likely to get
-wrong, and this command runs infrequently enough that the cost difference doesn't
-matter.
+Spawn exactly one `general-purpose` sub-agent with an explicit `model: sonnet`.
+Contradiction detection between sources requires judgment, and this command runs
+infrequently enough that the cost difference doesn't matter.
 
-Before spawning, read `.claude/rules/bash.md` and extract the full content of its
-`## Agent Rules` section — sub-agents do not inherit CLAUDE.md, so append it verbatim
-to the agent prompt.
+Before spawning, read `.claude/rules/bash.md` and `.claude/rules/lead.md` and extract
+the full content of each one's `## Agent Rules` section — sub-agents do not inherit
+CLAUDE.md, so append both verbatim to the agent prompt.
 
 Give the sub-agent everything gathered in Step 1 (file contents, not just paths — it
 should not need to re-read them), the volatility tiering scheme from Step 2, and this
