@@ -39,8 +39,10 @@ Optional: `/workflows:compete` + `/workflows:compete-review` for competitive imp
 Never skip from idea to build. The design phase catches 80% of mistakes.
 
 ## Model Routing
-- **Orchestration & design**: Primary session model (`"model"` in settings.json — currently `opus`; `fable` an option for the hardest design work)
-- **Sub-agent implementation**: `sonnet` (default via `CLAUDE_CODE_SUBAGENT_MODEL`); `haiku` for cheap, tightly-scoped mechanical tasks via `(model: ...)` annotations
+- **Lead**: `fable` (set via `"model"` in settings.json; `opus` on plans without Fable)
+- **Default sub-agent**: `opus` at high effort, via `CLAUDE_CODE_SUBAGENT_MODEL` and agent-file frontmatter
+- **Mechanical tier**: `sonnet` at high effort (renames, moves, doc tweaks, single well-specified functions) via `documenter` or `(model: sonnet)` annotations
+- **Reviewers**: `inherit`
 - **Adversarial review**: Primary model with isolated context
 - **Agent adapters**: Per-task routing via `(agent: <name>)` — see `.claude/agents/adapters/INTERFACE.md`
 
@@ -48,7 +50,8 @@ Never skip from idea to build. The design phase catches 80% of mistakes.
 - **Architect**: Design authority — reads all, writes specs/knowledge
 - **Developer**: Implementation — reads specs, writes code/tests/docs
 - **Reviewer**: Quality gates — reads all, writes review reports
-- **Orchestrator**: Human — all permissions, all phases
+- **Approver**: Human — all permissions; decides `/pm:approve`, design approval, scope changes, destructive actions
+- **Lead**: Primary session — plans, briefs, dispatches, arbitrates, integrates, verifies; does not implement
 See `.claude/agents/roles.md` for full definitions.
 
 ## Memory System
@@ -80,3 +83,4 @@ See `.claude/agents/roles.md` for full definitions.
 - Test files mirror source structure: `src/foo.ts` -> `tests/foo.test.ts`
 - Commits are conventional: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`
 - ROADMAP.md format: see ROADMAP.md header for marker legend, `#TN` IDs, and dependency syntax
+- Produced documents stay local: reports, specs, handoffs, and reviews go to the repo (`docs/specs/`, `.claude/sessions/`, `docs/knowledge/`), never to the Claude Artifacts feature

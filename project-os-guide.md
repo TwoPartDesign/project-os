@@ -89,9 +89,10 @@ Loaded every session, every project. Personal preferences, interaction style, mo
 - No `any` types in TypeScript. No bare `except` in Python.
 
 ## Model Routing
-- Opus: Default for all interactive work (Fable 5 an option for the hardest design work)
-- Sonnet: Sub-agents for implementation tasks
-- Haiku: Cheap, tightly-scoped mechanical tasks via `(model: ...)` annotations
+- Lead: `fable` (`opus` on plans without Fable)
+- Default sub-agent: `opus` at high effort, via `CLAUDE_CODE_SUBAGENT_MODEL` and agent-file frontmatter
+- Mechanical tier: `sonnet` at high effort (renames, moves, doc tweaks, single well-specified functions) via `documenter` or `(model: sonnet)` annotations
+- Reviewers: `inherit`
 
 ## Global Rules
 - ALWAYS check `docs/knowledge/` before proposing a pattern — it may already be documented
@@ -355,7 +356,7 @@ project-root/
 **`.claude/settings.json`**:
 ```json
 {
-  "model": "opus",
+  "model": "fable",
   "permissions": {
     "allow": [
       "Bash(git *)",
@@ -382,7 +383,7 @@ project-root/
     ]
   },
   "env": {
-    "CLAUDE_CODE_SUBAGENT_MODEL": "claude-sonnet-5"
+    "CLAUDE_CODE_SUBAGENT_MODEL": "opus"
   },
   "project_os": {
     "parallel": {
@@ -604,7 +605,8 @@ All agents have YAML frontmatter declaring `isolation` mode, `role`, and `permis
 | **Architect** | researcher | Investigate, design, document decisions. Never write implementation code. | Idea, Design |
 | **Developer** | implementer, documenter | Implement exactly what the spec says. Stay within task scope. | Build |
 | **Reviewer** | reviewer-architecture, reviewer-security, reviewer-tests | Evaluate quality, security, alignment. Never modify source code. | Review |
-| **Orchestrator** | human (via Claude Code CLI) | Coordinate workflow, approve drafts, resolve conflicts, make final decisions. | All |
+| **Approver** | human (via Claude Code CLI) | All permissions; decides `/pm:approve`, design approval, scope changes, destructive actions. | All |
+| **Lead** | primary session | Plans, briefs, dispatches, arbitrates, integrates, verifies; does not implement. | All |
 
 ### Implementer Agent
 

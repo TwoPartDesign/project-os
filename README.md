@@ -160,8 +160,10 @@ Five layers with distinct lifespans:
 
 | Role | Model | Why |
 |---|---|---|
-| Orchestration & design | Primary model (Opus 4.8; Fable 5 for the hardest design work) | Complex reasoning, architecture |
-| Sub-agent implementation | Sonnet 5 (Haiku 4.5 for tightly-scoped mechanical tasks) | Focused coding — strong quality at lower cost |
+| Lead | `fable` (`opus` on plans without Fable) | Complex reasoning, architecture, dispatch |
+| Default sub-agent | `opus` at high effort | Independent implementation quality |
+| Mechanical tier | `sonnet` at high effort | Renames, moves, doc tweaks, single well-specified functions |
+| Reviewers | `inherit` | Consistent judgment with the lead |
 | Adversarial review | Primary model (isolated) | Independent judgment |
 
 Configured in `.claude/settings.json` via `"model"` and `CLAUDE_CODE_SUBAGENT_MODEL`.
