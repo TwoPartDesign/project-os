@@ -376,8 +376,8 @@ Tier 1 fixes from the 2026-09 improvement review (.claude/plans/2026-09-04-fable
 - [~] output-index.sh reads d.arguments/d.output; payload is tool_input/tool_response — fix hook, refit hook-smoke.sh fixtures from a real payload, add schema hygiene test (model: opus) #T167
 - [~] security-scanner.ts: execFileSync maxBuffer + typed catch, scan-diff reads the diff not the working tree, non-zero exit on directory args #T168
 - [~] post-write-session.sh canonicalizes the payload path via canonicalize_payload_path (depends: #T167) #T169
-- [-] hook-smoke-negctl.sh exits non-zero on failure (set -e, victim comparison) #T170
-- [-] update-project.sh manifest check lists skill-apply.ts and skill-ledger.ts and is bidirectional #T171
+- [~] hook-smoke-negctl.sh exits non-zero on failure (set -e, victim comparison) #T170
+- [~] update-project.sh manifest check lists skill-apply.ts and skill-ledger.ts and is bidirectional #T171
 - [~] notify-phase-change.sh: Windows branch terminal-only, drop the MessageBox; update architecture.md wording (model: sonnet) #T172
 ### Todo
 ### In Progress
