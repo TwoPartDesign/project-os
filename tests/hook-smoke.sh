@@ -155,8 +155,8 @@ index_calls() {
 }
 
 # Minimal valid hook payloads.
-VALID_READ='{"tool_name":"Read","arguments":{"file_path":"/x/test.txt"},"output":"hello world","is_error":false}'
-VALID_ERROR='{"tool_name":"Bash","arguments":{"command":"false"},"output":"failed","is_error":true}'
+VALID_READ='{"tool_name":"Read","tool_input":{"file_path":"/x/test.txt"},"tool_response":"hello world","is_error":false}'
+VALID_ERROR='{"tool_name":"Bash","tool_input":{"command":"false"},"tool_response":"failed","is_error":true}'
 EMPTY_INPUT='{}'
 INVALID_JSON='not json at all'
 
@@ -170,7 +170,7 @@ SB=$(new_sandbox)
 write_index_stub "$SB"
 BIG=$(printf 'x%.0s' $(seq 1 4000))
 run_hook "$SB" output-index.sh \
-    "{\"tool_name\":\"Read\",\"arguments\":{\"file_path\":\"/x/big.txt\"},\"output\":\"$BIG\",\"is_error\":false}"
+    "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"/x/big.txt\"},\"tool_response\":\"$BIG\",\"is_error\":false}"
 assert_eq "outputIndex_largeOutput_exitsZero" 0 "$HOOK_EXIT"
 assert_contains "outputIndex_largeOutput_invokesIndexer" "$(index_calls "$SB")" "index"
 assert_contains "outputIndex_largeOutput_emitsHintOnStderr" "$HOOK_ERR" "Large output indexed"
@@ -191,7 +191,7 @@ assert_not_contains "outputIndex_smallOutput_noHint" "$HOOK_ERR" "Large output i
 SB=$(new_sandbox)
 write_index_stub "$SB"
 run_hook "$SB" output-index.sh \
-    "{\"tool_name\":\"Read\",\"arguments\":{\"file_path\":\"/x/big.txt\"},\"output\":\"$BIG\",\"is_error\":false}" \
+    "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"/x/big.txt\"},\"tool_response\":\"$BIG\",\"is_error\":false}" \
     CONTEXT_FILTER_DISABLED=1
 assert_eq "outputIndex_disabled_exitsZero" 0 "$HOOK_EXIT"
 # The kill switch has to cut the work, not just the hint. If the indexer still
@@ -200,9 +200,21 @@ assert_file_absent "outputIndex_disabled_indexerNeverInvoked" "$SB/index-calls.l
 
 SB=$(new_sandbox)
 run_hook "$SB" output-index.sh \
-    "{\"tool_name\":\"Read\",\"arguments\":{\"file_path\":\"/x/big.txt\"},\"output\":\"$BIG\",\"is_error\":false}"
+    "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"/x/big.txt\"},\"tool_response\":\"$BIG\",\"is_error\":false}"
 assert_eq "outputIndex_noIndexScript_exitsZero" 0 "$HOOK_EXIT"
 assert_not_contains "outputIndex_noIndexScript_noHint" "$HOOK_ERR" "Large output indexed"
+
+# Bash does not send a string result: `tool_response` is an object carrying
+# stdout/stderr/interrupted. A hook that only handled the string shape would
+# index every Read and no Bash call, which is the half-dead version of the same
+# bug — so the object shape gets its own fixture.
+SB=$(new_sandbox)
+write_index_stub "$SB"
+run_hook "$SB" output-index.sh \
+    "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls -R\"},\"tool_response\":{\"stdout\":\"$BIG\",\"stderr\":\"\",\"interrupted\":false}}"
+assert_eq "outputIndex_objectToolResponse_exitsZero" 0 "$HOOK_EXIT"
+assert_contains "outputIndex_objectToolResponse_invokesIndexer" "$(index_calls "$SB")" "index"
+assert_contains "outputIndex_objectToolResponse_emitsHintOnStderr" "$HOOK_ERR" "Large output indexed"
 
 SB=$(new_sandbox)
 write_index_stub "$SB"
@@ -228,7 +240,7 @@ printf '{"type":"user","message":{"content":"hello"}}\n' > "$SB/transcript.jsonl
 # that branch; the default 1.2 MB threshold would otherwise need a 1.2 MB file.
 NUDGE_ENV=PROJECT_OS_COMPACT_NUDGE_BYTES=10
 run_hook "$SB" compact-suggest.sh \
-    "{\"session_id\":\"smoke1\",\"hook_event_name\":\"PostToolUse\",\"transcript_path\":\"$SB/transcript.jsonl\",\"tool_name\":\"Read\",\"output\":\"ok\",\"is_error\":false}" \
+    "{\"session_id\":\"smoke1\",\"hook_event_name\":\"PostToolUse\",\"transcript_path\":\"$SB/transcript.jsonl\",\"tool_name\":\"Read\",\"tool_response\":\"ok\",\"is_error\":false}" \
     "$NUDGE_ENV"
 assert_eq "compactSuggest_pressure_exitsZero" 0 "$HOOK_EXIT"
 assert_contains "compactSuggest_pressure_emitsAdditionalContext" "$HOOK_OUT" \
@@ -241,7 +253,7 @@ assert_file_exists "compactSuggest_pressure_spendsTheCycleMarker" \
 # the marker exists; a hook that re-emitted would spend context on every tool
 # call for the rest of the session.
 run_hook "$SB" compact-suggest.sh \
-    "{\"session_id\":\"smoke1\",\"hook_event_name\":\"PostToolUse\",\"transcript_path\":\"$SB/transcript.jsonl\",\"tool_name\":\"Read\",\"output\":\"ok\",\"is_error\":false}" \
+    "{\"session_id\":\"smoke1\",\"hook_event_name\":\"PostToolUse\",\"transcript_path\":\"$SB/transcript.jsonl\",\"tool_name\":\"Read\",\"tool_response\":\"ok\",\"is_error\":false}" \
     "$NUDGE_ENV"
 assert_eq "compactSuggest_secondFiringSameCycle_emitsNothing" "" "$HOOK_OUT"
 
@@ -285,7 +297,7 @@ SB=$(new_sandbox)
 # append-only log a human reads. The sanitizer keeps [[:alnum:]_-], so the
 # separators that would forge a second entry are dropped rather than escaped.
 run_hook "$SB" tool-failure-log.sh \
-    '{"tool_name":"Bash; rm -rf /","arguments":{},"output":"x","is_error":true}'
+    '{"tool_name":"Bash; rm -rf /","tool_input":{},"tool_response":"x","is_error":true}'
 LOGGED=$(cat "$SB/.claude/logs/tool-failures.log" 2>/dev/null || true)
 assert_contains "toolFailureLog_punctuationInToolName_strippedNotEscaped" \
     "$LOGGED" "FAIL tool=Bashrm-rf"
@@ -320,7 +332,7 @@ SB=$(new_sandbox)
 printf 'x\n' > "$SB/note.md"
 rm -rf "$SB/.claude/logs"
 run_hook "$SB" post-tool-use.sh \
-    "{\"tool_name\":\"Write\",\"arguments\":{\"file_path\":\"$SB/note.md\"},\"output\":\"ok\",\"is_error\":false}"
+    "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$SB/note.md\"},\"tool_response\":\"ok\",\"is_error\":false}"
 assert_eq "postToolUse_inProjectFile_exitsZero" 0 "$HOOK_EXIT"
 # A .md file matches no formatter branch, so the only observable effect is that
 # the hook got PAST containment. That is the thing worth asserting: the log
@@ -333,7 +345,7 @@ SANDBOXES+=("$OUTSIDE")
 printf 'x\n' > "$OUTSIDE/elsewhere.md"
 rm -rf "$SB/.claude/logs"
 run_hook "$SB" post-tool-use.sh \
-    "{\"tool_name\":\"Write\",\"arguments\":{\"file_path\":\"$OUTSIDE/elsewhere.md\"},\"output\":\"ok\",\"is_error\":false}"
+    "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$OUTSIDE/elsewhere.md\"},\"tool_response\":\"ok\",\"is_error\":false}"
 assert_eq "postToolUse_outOfProjectFile_exitsZero" 0 "$HOOK_EXIT"
 # The containment check has to be the FIRST thing with an effect. If the log
 # directory appeared here, the hook would be doing work on behalf of a path it
@@ -349,7 +361,7 @@ rm -rf "$SB/.claude/logs"
 # canonicalize_payload_path exists to prevent one layer down.
 WINPATH=$(printf '%s' "$SB/note.md" | sed 's|/|\\\\|g')
 run_hook "$SB" post-tool-use.sh \
-    "{\"tool_name\":\"Write\",\"arguments\":{\"file_path\":\"$WINPATH\"},\"output\":\"ok\",\"is_error\":false}"
+    "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$WINPATH\"},\"tool_response\":\"ok\",\"is_error\":false}"
 assert_eq "postToolUse_backslashPayloadPath_exitsZero" 0 "$HOOK_EXIT"
 assert_file_exists "postToolUse_backslashPayloadPath_stillResolved" "$SB/.claude/logs"
 
@@ -369,7 +381,7 @@ SB=$(new_sandbox)
 printf 'x\n' > "$SB/note.md"
 rm -rf "$SB/.claude/logs"
 run_hook "$SB" post-tool-use.sh \
-    "{\"tool_name\":\"Write\",\"arguments\":{\"file_path\":\"$SB/note.md\"}}" \
+    "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$SB/note.md\"}}" \
     PROJECT_OS_HOOK_PAYLOAD_BYTES=16
 assert_contains "postToolUse_filePathBeyondBound_saysSoOnStderr" \
     "$HOOK_ERR" "not formatting"
@@ -391,7 +403,7 @@ printf 'x\n' > "$SB/note.md"
 rm -rf "$SB/.claude/logs"
 TAIL_FILLER=$(head -c 262144 /dev/zero | tr '\0' 'x')
 run_hook "$SB" post-tool-use.sh \
-    "{\"tool_name\":\"Write\",\"arguments\":{\"file_path\":\"$SB/note.md\"},\"output\":\"$TAIL_FILLER\"}" \
+    "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$SB/note.md\"},\"tool_response\":\"$TAIL_FILLER\"}" \
     PROJECT_OS_HOOK_PAYLOAD_BYTES=256
 assert_eq "postToolUse_payloadPastBound_exitsZero" 0 "$HOOK_EXIT"
 assert_file_exists "postToolUse_payloadPastBound_keyInWindow_stillResolved" \
@@ -453,6 +465,34 @@ rm -rf "$SB/.claude/logs"
 run_hook "$SB" session-end-cleanup.sh '{"session_id":"smoke1","reason":"exit"}'
 assert_eq "sessionEnd_noLogDir_exitsZero" 0 "$HOOK_EXIT"
 assert_file_absent "sessionEnd_noLogDir_doesNotCreateOne" "$SB/.claude/logs"
+
+echo ""
+
+# ── Payload schema hygiene ──────────────────────────────────────────────────
+# output-index.sh read `arguments` and `output` off the PostToolUse payload for
+# its whole life. The runtime sends `tool_input` and `tool_response`, so every
+# field it extracted was empty and the hook indexed nothing — and it PASSED the
+# section above, because the fixtures were written from the same wrong schema
+# as the hook. Behavioural assertions cannot catch that: fixture and subject
+# agreed with each other and disagreed only with reality.
+#
+# So this is a static check, and it is deliberately not run against the sandbox
+# or against $REAL_HOOKS. It lints the repo's own hooks and this file's own
+# fixtures, which is where a reintroduced wrong key would live; pointing it at a
+# mutant tree would let it pass vacuously.
+echo "payload schema:"
+
+# The regexes are spelled so they cannot match themselves: each needs a quote
+# immediately against the key name, and these carry `(` in between.
+STALE_FIXTURES=$(grep -nE '\\?"(arguments|output)\\?"[[:space:]]*:' \
+    "$SCRIPT_DIR/hook-smoke.sh" 2>/dev/null || true)
+assert_eq "payloadSchema_fixturesInThisFile_nameToolInputAndToolResponse" \
+    "" "$STALE_FIXTURES"
+
+STALE_HOOKS=$(grep -rnE '\.(arguments|output)\b|\\?"(arguments|output)\\?"[[:space:]]*:' \
+    "$PROJECT_ROOT/.claude/hooks" 2>/dev/null || true)
+assert_eq "payloadSchema_hookScripts_readToolInputAndToolResponse" \
+    "" "$STALE_HOOKS"
 
 echo ""
 

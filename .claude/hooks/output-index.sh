@@ -40,11 +40,29 @@ trap "rm -f '$INPUT_FILE' '$EXTRACT_FILE'" EXIT
 INPUT_PATH="$INPUT_FILE" node > "$EXTRACT_FILE" 2>/dev/null << 'EXTRACT_SCRIPT' || exit 0
 try {
   const d = JSON.parse(require('fs').readFileSync(process.env.INPUT_PATH, 'utf8'));
-  const args = d.arguments || {};
+  // PostToolUse delivers the tool's parameters as `tool_input` and its result
+  // as `tool_response`. This hook read `arguments`/`output` — keys the runtime
+  // has never sent — so every field came back empty, the size check compared 0
+  // against the threshold, and the hook returned 0 without ever indexing
+  // anything. Silent, because it is advisory and exits 0 by design.
+  const args = d.tool_input || {};
+  // `tool_response` is not one shape: Bash sends an object with stdout/stderr,
+  // Read and Grep send a string or a { content } / { file } object. Take the
+  // text when there is a text field, and fall back to the serialized object so
+  // an unfamiliar shape is still indexed rather than silently dropped.
+  const r = d.tool_response;
+  let out = '';
+  if (typeof r === 'string') {
+    out = r;
+  } else if (r && typeof r === 'object') {
+    if (typeof r.stdout === 'string') out = r.stdout;
+    else if (typeof r.content === 'string') out = r.content;
+    else out = JSON.stringify(r);
+  }
   const esc = s => (s || '').replace(/\\/g, '\\\\').replace(/'/g, "'\\''");
   const lines = [
     "TOOL_NAME='" + esc(d.tool_name || '') + "'",
-    "OUTPUT='" + esc(d.output || '') + "'",
+    "OUTPUT='" + esc(out) + "'",
     "ARG_COMMAND='" + esc((args.command || '').substring(0,50)) + "'",
     "ARG_FILE_PATH='" + esc(args.file_path || '') + "'",
     "ARG_PATTERN='" + esc((args.pattern || '').substring(0,50)) + "'",
