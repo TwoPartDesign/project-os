@@ -110,6 +110,7 @@
 - `s_scan_rules_node22_test` — `tests/scan-rules-node22.test.ts` (0 dependents)
 - `s_scan_rules_restored_test` — `tests/scan-rules-restored.test.ts` (0 dependents)
 - `s_scanner_smoke` — `tests/scanner-smoke.sh` (0 dependents)
+- `s_security_scanner_test` — `tests/security-scanner.test.ts` (0 dependents)
 - `s_setup_node_guard_test` — `tests/setup-node-guard.test.ts` (0 dependents)
 - `s_shipped_settings_test` — `tests/shipped-settings.test.ts` (0 dependents)
 - `s_skill_apply_lib_test` — `tests/skill-apply-lib.test.ts` (0 dependents)
