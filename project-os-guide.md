@@ -612,7 +612,7 @@ All agents have YAML frontmatter declaring `isolation` mode, `role`, and `permis
 
 **File**: `.claude/agents/implementer.md`
 
-Focused implementation agent for build phase. Receives single task, implements exactly per spec (no more, no less), writes tests first, runs acceptance criteria, and reports completion or blocker. Self-enforces file list boundaries and does not refactor adjacent code.
+Focused implementation agent for build phase. Receives single task, implements exactly per spec (no more, no less), runs the task's acceptance criteria and includes the output as evidence, and reports completion or blocker. Self-enforces file list boundaries and does not refactor adjacent code.
 
 ### Security Reviewer Agent
 

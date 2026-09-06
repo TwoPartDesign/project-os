@@ -22,7 +22,7 @@ All three reviewers run with `isolation: worktree` for filesystem isolation (pre
 
 Before spawning any reviewer, read `.claude/rules/bash.md` and `.claude/rules/lead.md` and extract the full content of each one's `## Agent Rules` section (everything after that heading). Store the bash rules as `BASH_AGENT_RULES` and the lead rules as `LEAD_AGENT_RULES` — substitute them into each reviewer prompt where indicated below.
 
-**Spawn contract:** each reviewer is a **registered roster agent dispatched by name**. If a named agent type is unknown, halt with the escalation message "Retry cap reached on dispatch. Blocker: agent <name> not registered. Suggested next: run tests/agent-roster.test.ts." Never fall back to an unregistered generic agent type — the reviewer would silently land on the env-var model tier instead of the roster tier.
+**Spawn contract:** each reviewer is a **registered roster agent dispatched by name**. If a named agent type is unknown, halt with the escalation message "Retry cap reached on dispatch. Blocker: agent <name> not registered. Suggested next: run tests/agent-roster.test.ts." Never fall back to `general-purpose` or any agent not in the roster — the reviewer would silently land on the env-var model tier instead of the roster tier.
 
 ## Reviewer 1: Drift Detection (Plan vs Implementation)
 

@@ -20,7 +20,7 @@ Agent(
 )
 ```
 
-If the named agent type is unknown, halt with the escalation message "Retry cap reached on dispatch. Blocker: agent <name> not registered. Suggested next: run tests/agent-roster.test.ts." Never fall back to an unregistered generic agent type — the research would silently land on the env-var model tier instead of the roster tier.
+If the named agent type is unknown, halt with the escalation message "Retry cap reached on dispatch. Blocker: agent <name> not registered. Suggested next: run tests/agent-roster.test.ts." Never fall back to `general-purpose` or any agent not in the roster — the research would silently land on the env-var model tier instead of the roster tier.
 
 Before spawning sub-agents, read `.claude/rules/bash.md` and `.claude/rules/lead.md` and extract the full content of each one's `## Agent Rules` section (everything after that heading). Store the bash rules as `BASH_AGENT_RULES` and the lead rules as `LEAD_AGENT_RULES` — sub-agents do not inherit CLAUDE.md, so append both to every agent prompt.
 

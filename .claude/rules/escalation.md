@@ -9,7 +9,7 @@
 
 Raise effort `high → xhigh` before raising the model when the failure is reasoning depth, not capability.
 
-Sub-agent tasks default to the model in `CLAUDE_CODE_SUBAGENT_MODEL` (`.claude/settings.json`). Escalate a task one rung via a `(model: <model-id>)` annotation in ROADMAP.md only on persistent failures or decisions beyond task scope. The top rung (Fable 5, Mythos-class) is for architecture-defining decisions — not routine unblocking.
+A sub-agent dispatched by roster name takes the `model:`/`effort:` frontmatter of its agent file in `.claude/agents/` — `sonnet` at high effort for `implementer` and `documenter`, the default executor tier. `CLAUDE_CODE_SUBAGENT_MODEL` (`.claude/settings.json`) applies only to an unnamed spawn. Escalate a task one rung via a `(model: <model-id>)` annotation in ROADMAP.md only on persistent failures or decisions beyond task scope. The top rung (Fable 5, Mythos-class) is for architecture-defining decisions — not routine unblocking.
 
 ## Downshift Rule
 After resolving a blocker on a higher-tier model, return follow-up tasks to the default sub-agent model.
@@ -32,3 +32,4 @@ Then stop and wait for user direction.
 - Never silently retry the same action a third time — it wastes quota and masks the real problem.
 - When hitting the retry cap, output: "Retry cap reached on [operation]. Blocker: [specific issue]. Suggested next: [action]." Then stop and wait for direction.
 - The escalation ladder is `sonnet` (high) → `opus` (high) → `fable` (high); raise effort `high → xhigh` before raising the model when the failure is reasoning depth, not capability.
+- A sub-agent dispatched by roster name runs at its agent file's own `model:`/`effort:` frontmatter (`sonnet` at high effort for `implementer` and `documenter`); `CLAUDE_CODE_SUBAGENT_MODEL` applies only to an unnamed spawn.
