@@ -41,6 +41,9 @@ tests/.logs/
 .claude/backups/
 *.upstream
 
+# Native sub-agent worktrees (isolation: worktree)
+.claude/worktrees/
+
 # Security: dangerous file types (private keys, certificates, credentials)
 *.pem
 *.key

@@ -333,5 +333,20 @@ design, compete, and research spawns now inherit their tier from the agent
 file, so the judgement paths stop running as a model monoculture. Resolution
 order is per-invocation `model` > agent-file `model:` >
 `CLAUDE_CODE_SUBAGENT_MODEL` > main model; the env var stays `opus` as the tier
-for any remaining `general-purpose` spawn, and `_FORCE` stays unset because it
-would flatten the mechanical tier.
+for any remaining unnamed spawn, and `_FORCE` stays unset because it
+would flatten the default tier.
+
+**Config rider (recorded 2026-09-06 after review r1 flagged it as
+unauthorised)**: the same settings change raised
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW` from `200000` to `350000` because the lead now
+runs Fable 5.1, whose context window is 350k; the compaction nudge in
+`compact-suggest.sh` and the 75% auto-compact threshold are both percentages of
+this value, so leaving it at 200k would have fired the nudge at ~43% of the real
+window. Known cost: when `fallbackModel` drops the session to Opus (200k), the
+nudge is computed against 350k and fires at ~227k, i.e. never. Accepted for now
+because fallback is rare and a fallback session still gets the PreCompact
+checkpoint; revisit if Claude Code exposes the active model to hooks, at which
+point `compact-suggest.sh` should derive the window from it. `new-project.sh`
+copies the value to new projects, which is right for a Fable-led project and
+wrong (late nudge) for an Opus-led one; the `/tools:set-models` opus preset
+must set it back to `200000` alongside the model.

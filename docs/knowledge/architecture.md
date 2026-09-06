@@ -108,11 +108,11 @@ Governance record     Dispatch Resolution                   Completion Reports
      └──────────── Batch-Drain Consistency Check ◄───────────────────┘
 ```
 
-### Dispatch Resolution (4-step)
-0. `(model: <model>)` annotation → native Task-tool dispatch with that model
-0.5. Agent-file `model:` frontmatter → the named roster agent's own tier (and `effort:`)
+### Dispatch Resolution (4-step, same order as build.md and adapters/INTERFACE.md)
+0. `(model: <model>)` annotation → native dispatch of the named roster agent with that model as the per-invocation override
 1. `(agent: codex)` annotation → external adapter (if healthy, else native)
-2. Default → native Task-tool dispatch with sub-agent default model (settings.json)
+2. No annotation → native dispatch of the named roster agent at its own frontmatter `model:` and `effort:` (implementer/documenter `sonnet`, researcher `opus`, reviewers `inherit`)
+3. Unnamed spawn (no roster agent) → `CLAUDE_CODE_SUBAGENT_MODEL` from settings.json (`opus`); commands never do this deliberately — an unknown agent name halts instead
 
 ### Dashboard (optional)
 ```

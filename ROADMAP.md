@@ -192,6 +192,8 @@ Small quality items surfaced during self-maintenance / #T9 reviews (2026-07-17).
   <!-- maint-fp: failures:Bash:6 -->
 - [?] Run /tools:dream — 12 memory files / 42 session files, consolidation due #T153
   <!-- maint-fp: dream:12:42 -->
+- [?] Run /tools:dream — 13 memory files / 44 session files, consolidation due #T165
+  <!-- maint-fp: dream:13:44 -->
 
 ### Todo
 
@@ -359,6 +361,22 @@ Two pre-existing defects found while verifying #T112's rewrite. Both make named 
 - [~] Build workflow dispatches the roster (depends: #T154, #T155, #T156) #T162
 - [~] Review and design workflows dispatch the reviewers (depends: #T154, #T155, #T156) #T163
 - [~] Compete, research, dream, mvp dispatch and wording (depends: #T154, #T155, #T156) #T164
+- [?] set-models and init presets set CLAUDE_CODE_AUTO_COMPACT_WINDOW per lead model (350000 fable, 200000 opus) — review r1 HIGH 4 follow-up #T173
+### Todo
+### In Progress
+### Review
+### Done
+
+## Feature: silently-broken-fixes
+Tier 1 fixes from the 2026-09 improvement review (.claude/plans/2026-09-04-fable-alignment-plan.md Phase 2). Each turns a dead feature back on. Item 8 (local-documents rule) shipped in #T157.
+### Draft
+- [-] CLAUDE.md @import lines never expand — replace with inline ~40-line digests of architecture.md and patterns.md #T166
+- [~] output-index.sh reads d.arguments/d.output; payload is tool_input/tool_response — fix hook, refit hook-smoke.sh fixtures from a real payload, add schema hygiene test #T167 (model: opus)
+- [-] security-scanner.ts: execFileSync maxBuffer + typed catch, scan-diff reads the diff not the working tree, non-zero exit on directory args #T168
+- [-] post-write-session.sh canonicalizes the payload path via canonicalize_payload_path (depends: #T167) #T169
+- [-] hook-smoke-negctl.sh exits non-zero on failure (set -e, victim comparison) #T170
+- [-] update-project.sh manifest check lists skill-apply.ts and skill-ledger.ts and is bidirectional #T171
+- [~] notify-phase-change.sh: Windows branch terminal-only, drop the MessageBox; update architecture.md wording #T172 (model: sonnet)
 ### Todo
 ### In Progress
 ### Review
