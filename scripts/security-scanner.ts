@@ -10,6 +10,8 @@ import {
   existsSync,
   renameSync,
   chmodSync,
+  readdirSync,
+  statSync,
 } from "node:fs";
 import { resolve, join, relative, dirname } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -578,6 +580,54 @@ function outputFindings(findings: Finding[], options: ScanOptions): void {
 // Subcommand: scan-files
 // ============================================================================
 
+/** Directory names never worth walking: git's object store and vendored deps. */
+const SCAN_SKIP_DIRS = new Set([".git", "node_modules"]);
+
+/**
+ * Expands one path argument into the concrete files to scan: a file yields
+ * itself, a directory yields every regular file beneath it. Symlinks are not
+ * followed (a Dirent that is neither a file nor a directory is skipped), which
+ * keeps the walk free of cycles and of escapes past the project root.
+ *
+ * A directory used to be handed straight to readFileSync, which threw EISDIR;
+ * the caller logged a warning and continued, so `scan-files some/dir` scanned
+ * nothing and still exited 0 — a silent pass.
+ */
+function expandScanTargets(absPath: string): string[] {
+  let isDir: boolean;
+  try {
+    isDir = statSync(absPath).isDirectory();
+  } catch (err) {
+    process.stderr.write(
+      `Warning: could not stat ${absPath}: ${(err as Error).message}\n`,
+    );
+    return [];
+  }
+
+  if (!isDir) return [absPath];
+
+  const targets: string[] = [];
+  let children;
+  try {
+    children = readdirSync(absPath, { withFileTypes: true });
+  } catch (err) {
+    process.stderr.write(
+      `Warning: could not list ${absPath}: ${(err as Error).message}\n`,
+    );
+    return [];
+  }
+
+  for (const child of children) {
+    if (child.isDirectory()) {
+      if (SCAN_SKIP_DIRS.has(child.name)) continue;
+      targets.push(...expandScanTargets(join(absPath, child.name)));
+    } else if (child.isFile()) {
+      targets.push(join(absPath, child.name));
+    }
+  }
+  return targets;
+}
+
 function cmdScanFiles(
   filePaths: string[],
   projectRoot: string,
@@ -592,21 +642,34 @@ function cmdScanFiles(
   }
 
   const allFindings: Finding[] = [];
+  let scanned = 0;
 
   for (const rawPath of filePaths) {
     const absPath = validatePath(rawPath, projectRoot);
-    let content: string;
-    try {
-      content = readFileSync(absPath, "utf-8");
-    } catch (err) {
-      process.stderr.write(
-        `Warning: could not read ${absPath}: ${(err as Error).message}\n`,
-      );
-      continue;
+    for (const target of expandScanTargets(absPath)) {
+      let content: string;
+      try {
+        content = readFileSync(target, "utf-8");
+      } catch (err) {
+        process.stderr.write(
+          `Warning: could not read ${target}: ${(err as Error).message}\n`,
+        );
+        continue;
+      }
+      scanned++;
+      const relPath = relative(projectRoot, target).replace(/\\/g, "/");
+      const found = scanContent(content, relPath, _rules, allowlist, options);
+      allFindings.push(...found);
     }
-    const relPath = relative(projectRoot, absPath).replace(/\\/g, "/");
-    const found = scanContent(content, relPath, _rules, allowlist, options);
-    allFindings.push(...found);
+  }
+
+  // Scanning nothing is not a pass. A typo'd path, an empty directory, or an
+  // unreadable tree must never be reported to a caller as "clean".
+  if (scanned === 0) {
+    process.stderr.write(
+      `Error: scan-files found no files to scan under: ${filePaths.join(", ")}\n`,
+    );
+    process.exit(2);
   }
 
   outputFindings(allFindings, options);
@@ -616,6 +679,14 @@ function cmdScanFiles(
 // ============================================================================
 // Subcommand: scan-staged
 // ============================================================================
+
+/**
+ * Byte ceiling for git subprocess output. Node's default is 1 MiB; exceeding it
+ * makes execFileSync THROW rather than truncate, so a single large blob or diff
+ * turned into a skipped file and a clean report. 64 MiB is well past any real
+ * source file while still bounding memory.
+ */
+const GIT_MAX_BUFFER = 64 * 1024 * 1024;
 
 function cmdScanStaged(
   projectRoot: string,
@@ -631,7 +702,7 @@ function cmdScanStaged(
     rawOutput = execFileSync(
       "git",
       ["diff", "--cached", "--name-only", "--diff-filter=d", "-z"],
-      { cwd: projectRoot },
+      { cwd: projectRoot, maxBuffer: GIT_MAX_BUFFER },
     ).toString();
   } catch (err) {
     process.stderr.write(`Error: git diff failed: ${(err as Error).message}\n`);
@@ -645,6 +716,7 @@ function cmdScanStaged(
   }
 
   const allFindings: Finding[] = [];
+  let unreadable = 0;
 
   for (const file of files) {
     let content: string;
@@ -652,10 +724,17 @@ function cmdScanStaged(
       content = execFileSync("git", ["show", `:0:${file}`], {
         cwd: projectRoot,
         stdio: ["pipe", "pipe", "pipe"],
+        maxBuffer: GIT_MAX_BUFFER,
       }).toString();
-    } catch {
-      // Defense in depth: file might still be missing from the index
-      // (e.g. a race with another process) or binary — skip.
+    } catch (err) {
+      // Every path here came from --diff-filter=d, so it IS in the index: a
+      // failure is a real error (git failure, or output past maxBuffer), not a
+      // benign skip. Swallowing it reported the file as clean without ever
+      // reading it, which is the one outcome a secret scanner must never have.
+      process.stderr.write(
+        `Error: could not read staged content for ${file}: ${(err as Error).message}\n`,
+      );
+      unreadable++;
       continue;
     }
     const found = scanContent(content, file, _rules, allowlist, options);
@@ -663,12 +742,68 @@ function cmdScanStaged(
   }
 
   outputFindings(allFindings, options);
-  process.exit(allFindings.length > 0 ? 1 : 0);
+  if (allFindings.length > 0) process.exit(1);
+  process.exit(unreadable > 0 ? 2 : 0);
 }
 
 // ============================================================================
 // Subcommand: scan-diff
 // ============================================================================
+
+/** One added line of a unified diff, with its line number in the new file. */
+interface AddedLine {
+  line: number;
+  text: string;
+}
+
+/**
+ * Parses unified-diff text into the added lines of each file, keyed by the
+ * post-image path. Header lines are only recognised between a `diff --git`
+ * line and the first hunk header, so a body line whose own content starts with
+ * `+++ ` or `--- ` is never mistaken for a file header.
+ */
+function parseDiffAdditions(diff: string): Map<string, AddedLine[]> {
+  const byFile = new Map<string, AddedLine[]>();
+  let inHeader = false;
+  let file: string | null = null;
+  let newLine = 0;
+
+  for (const raw of diff.split("\n")) {
+    if (raw.startsWith("diff --git ")) {
+      inHeader = true;
+      file = null;
+      newLine = 0;
+      continue;
+    }
+    if (raw.startsWith("@@")) {
+      inHeader = false;
+      const m = /^@@ -\d+(?:,\d+)? \+(\d+)/.exec(raw);
+      newLine = m ? Number(m[1]) : 0;
+      continue;
+    }
+    if (inHeader) {
+      if (raw.startsWith("+++ ")) {
+        const target = raw.slice(4).trim();
+        file = target === "/dev/null" ? null : target.replace(/^b\//, "");
+      }
+      continue;
+    }
+    if (file === null || newLine === 0) continue;
+
+    if (raw.startsWith("+")) {
+      const added = byFile.get(file);
+      if (added) added.push({ line: newLine, text: raw.slice(1) });
+      else byFile.set(file, [{ line: newLine, text: raw.slice(1) }]);
+      newLine++;
+    } else if (raw.startsWith(" ")) {
+      newLine++;
+    }
+    // Removals ("-") and the "\ No newline at end of file" marker do not
+    // occupy a line in the new file, so they never advance the counter.
+  }
+
+  return byFile;
+}
 
 function cmdScanDiff(
   baseBranch: string,
@@ -676,38 +811,54 @@ function cmdScanDiff(
   allowlist: Allowlist,
   options: ScanOptions,
 ): void {
-  let rawOutput: string;
+  // Read the CHANGE SET, not the working tree. Listing names and then reading
+  // the files on disk scanned content that was never in the diff and missed
+  // content that was in the diff but has since been edited or reverted in the
+  // working tree — a secret introduced and then removed from the tree still
+  // ships in the pushed history, and used to pass.
+  let rawDiff: string;
   try {
-    rawOutput = execFileSync(
+    rawDiff = execFileSync(
       "git",
-      ["diff", "--name-only", "-z", `${baseBranch}...HEAD`],
-      { cwd: projectRoot },
+      [
+        "diff",
+        "--no-color",
+        "--unified=0",
+        "--diff-filter=d",
+        `${baseBranch}...HEAD`,
+      ],
+      { cwd: projectRoot, maxBuffer: GIT_MAX_BUFFER },
     ).toString();
   } catch (err) {
     process.stderr.write(`Error: git diff failed: ${(err as Error).message}\n`);
     process.exit(2);
   }
 
-  const files = rawOutput.split("\0").filter(Boolean);
-  if (files.length === 0) {
+  const additions = parseDiffAdditions(rawDiff);
+  if (additions.size === 0) {
     process.stdout.write("No changed files to scan.\n");
     process.exit(0);
   }
 
   const allFindings: Finding[] = [];
 
-  for (const file of files) {
-    const absPath = resolve(projectRoot, file);
-    if (!existsSync(absPath)) continue; // Deleted files
-
-    let content: string;
-    try {
-      content = readFileSync(absPath, "utf-8");
-    } catch {
-      continue;
+  for (const [file, added] of additions) {
+    // Scan the added lines of a file as one block so scanContent's per-line
+    // rules see them exactly as written, then map each finding's block-relative
+    // line number back to its position in the new file.
+    const block = added.map((a) => a.text).join("\n");
+    for (const finding of scanContent(
+      block,
+      file,
+      _rules,
+      allowlist,
+      options,
+    )) {
+      allFindings.push({
+        ...finding,
+        line: added[finding.line - 1]?.line ?? finding.line,
+      });
     }
-    const found = scanContent(content, file, _rules, allowlist, options);
-    allFindings.push(...found);
   }
 
   outputFindings(allFindings, options);
