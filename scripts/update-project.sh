@@ -449,7 +449,62 @@ TEMPLATE_SCRIPTS=(
     "scripts/install-global-commands.sh"
     "scripts/new-project.sh"
     "scripts/setup.sh"
+    "scripts/skill-apply.ts"
+    "scripts/skill-ledger.ts"
 )
+
+# verify_template_scripts_list -- TEMPLATE_SCRIPTS must match the upstream
+# scripts/ directory in BOTH directions.
+#
+# The list is hand-maintained and every kind of drift here is silent. An entry
+# with no file behind it is a stale name that quietly hashes nothing. A file
+# with no entry is worse: the script ships in the template but no downstream
+# project is ever offered an update for it, and nothing anywhere complains.
+# skill-apply.ts and skill-ledger.ts drifted exactly that way (#T171) -- they
+# were added to generate-manifest.sh's copy of this list and not to this one.
+# Checking only "listed but missing" would not have caught either.
+#
+# scripts/lib/ is excluded on purpose: it is hashed wholesale below, so its
+# contents are never enumerated here.
+verify_template_scripts_list() {
+    local scripts_dir="$UPSTREAM_ROOT/scripts"
+    [ -d "$scripts_dir" ] || return 0
+
+    local -A listed=()
+    local entry file rel
+    local missing_files="" unlisted_files=""
+
+    for entry in "${TEMPLATE_SCRIPTS[@]}"; do
+        listed["$entry"]=1
+        if [ ! -f "$UPSTREAM_ROOT/$entry" ]; then
+            missing_files="${missing_files}  $entry"$'\n'
+        fi
+    done
+
+    while IFS= read -r file; do
+        [ -n "$file" ] || continue
+        rel="${file#$UPSTREAM_ROOT/}"
+        if [ -z "${listed[$rel]:-}" ]; then
+            unlisted_files="${unlisted_files}  $rel"$'\n'
+        fi
+    done < <(find "$scripts_dir" -maxdepth 1 -type f \( -name '*.sh' -o -name '*.ts' \) | sort)
+
+    if [ -z "$missing_files" ] && [ -z "$unlisted_files" ]; then
+        return 0
+    fi
+
+    echo "ERROR: TEMPLATE_SCRIPTS in scripts/update-project.sh is out of sync with $scripts_dir" >&2
+    if [ -n "$missing_files" ]; then
+        printf 'Listed in TEMPLATE_SCRIPTS but not present in the template:\n%s' "$missing_files" >&2
+    fi
+    if [ -n "$unlisted_files" ]; then
+        printf 'Present in the template but not listed in TEMPLATE_SCRIPTS:\n%s' "$unlisted_files" >&2
+    fi
+    echo "Fix TEMPLATE_SCRIPTS in scripts/update-project.sh (and the sibling list in scripts/generate-manifest.sh)." >&2
+    return 1
+}
+
+verify_template_scripts_list
 
 for relpath in "${TEMPLATE_FILES[@]}" "${TEMPLATE_SCRIPTS[@]}"; do
     file="$UPSTREAM_ROOT/$relpath"
