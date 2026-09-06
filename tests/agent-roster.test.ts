@@ -87,8 +87,14 @@ const VALID_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
 /** The literal string every `reviewer-*` body must teach. */
 const FINDING_FORMAT = "SEVERITY / FILE:LINES / ISSUE / FIX";
 
-/** Opt-out marker for a guidance line that legitimately names a retired tier. */
-const ALLOW_MARKER = "<!-- roster-test: allow -->";
+/**
+ * Opt-out marker for a guidance line that legitimately names a retired tier
+ * or dated id. The marker must name the pattern tag(s) it excuses — e.g.
+ * `<!-- roster-test: allow haiku -->` — so it suppresses only that pattern
+ * on that line, not every pattern.
+ */
+const ALLOW_MARKER_RE =
+  /<!--\s*roster-test:\s*allow\s+([a-z0-9_,\s-]+?)\s*-->/i;
 
 type FrontmatterValue = string | string[];
 
@@ -533,28 +539,45 @@ describe("command dispatch sites", () => {
 
 describe("model-routing guidance", () => {
   it("guidance_allowlist_hasNoRetiredTierOrDatedId", () => {
-    const patterns: ReadonlyArray<{ re: RegExp; why: string }> = [
-      { re: /\bhaiku\b/i, why: "retired tier" },
-      { re: /claude-(opus|sonnet|haiku|fable)-[0-9]/, why: "dated model id" },
-      { re: /claude-[a-z0-9.-]*\d{6,}/, why: "dated model id" },
+    const patterns: ReadonlyArray<{ re: RegExp; why: string; tag: string }> = [
+      { re: /\bhaiku\b/i, why: "retired tier", tag: "haiku" },
+      {
+        re: /claude-(opus|sonnet|haiku|fable)-[0-9]/,
+        why: "dated model id",
+        tag: "dated-id",
+      },
+      {
+        re: /claude-[a-z0-9.-]*\d{6,}/,
+        why: "dated model id",
+        tag: "dated-id",
+      },
     ];
     const offenders: string[] = [];
     for (const rel of guidanceFiles()) {
       const lines = read(rel).split(/\r?\n/);
       lines.forEach((line, i) => {
-        if (line.includes(ALLOW_MARKER)) return;
-        for (const { re, why } of patterns) {
-          if (re.test(line)) {
-            offenders.push(`${rel}:${i + 1} (${why}) -> ${line.trim()}`);
-            return;
-          }
+        const markerMatch = line.match(ALLOW_MARKER_RE);
+        const allowedTags = markerMatch
+          ? new Set(
+              markerMatch[1]
+                .split(/[\s,]+/)
+                .filter(Boolean)
+                .map((t) => t.toLowerCase()),
+            )
+          : null;
+        for (const { re, why, tag } of patterns) {
+          if (!re.test(line)) continue;
+          if (allowedTags?.has(tag)) continue;
+          offenders.push(`${rel}:${i + 1} (${why}) -> ${line.trim()}`);
+          return;
         }
       });
     }
     ok(
       offenders.length === 0,
       "live guidance still names a retired tier or a dated model id. " +
-        `The ladder is sonnet -> opus -> fable on bare aliases. Add "${ALLOW_MARKER}" ` +
+        'The ladder is sonnet -> opus -> fable on bare aliases. Add "<!-- roster-test: allow <tag> -->" ' +
+        'naming the pattern tag it excuses (e.g. "haiku" or "dated-id") ' +
         "to a line that legitimately names one (e.g. prose about the retirement itself).\n" +
         offenders.join("\n"),
     );

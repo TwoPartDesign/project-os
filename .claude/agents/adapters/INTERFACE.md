@@ -1,7 +1,7 @@
 # Agent Adapter Interface
 
 ## Purpose
-Adapters provide a uniform interface for dispatching tasks to **external (non-Claude) AI coding agents**. They are not involved in default dispatch: Claude sub-agents are dispatched natively via the Task tool with per-task `model:` selection and `isolation: "worktree"`. An adapter is consulted only when a task carries an `(agent: <name>)` annotation in ROADMAP.md. The Codex adapter is the one functional implementation (requires the `codex` CLI).
+Adapters provide a uniform interface for dispatching tasks to **external (non-Claude) AI coding agents**. They are not involved in default dispatch: Claude sub-agents are dispatched natively via the Agent tool with per-task `model:` selection and `isolation: "worktree"`. An adapter is consulted only when a task carries an `(agent: <name>)` annotation in ROADMAP.md. The Codex adapter is the one functional implementation (requires the `codex` CLI).
 
 ## Contract
 
@@ -61,7 +61,7 @@ Returns 0 if the agent CLI is installed and accessible. Returns 1 with a message
 
 The orchestrator resolves dispatch per task:
 
-0. **Model annotation**: `(model: <model>)` in ROADMAP.md → **native dispatch** (Task tool, `isolation: "worktree"`) with that model
+0. **Model annotation**: `(model: <model>)` in ROADMAP.md → **native dispatch** (Agent tool, `isolation: "worktree"`) with that model
 1. **Agent annotation**: `(agent: <name>)` in ROADMAP.md → external adapter `.claude/agents/adapters/<name>.sh` (health-checked; falls back to native dispatch on failure)
 2. **Agent-file frontmatter**: agent-file `model:` frontmatter (`.claude/agents/<name>.md`)
 3. **Default**: native dispatch with the sub-agent default model (`CLAUDE_CODE_SUBAGENT_MODEL` in `.claude/settings.json`)
@@ -86,7 +86,7 @@ Adapter scripts live in `.claude/agents/adapters/<name>.sh`.
 
 The Codex adapter uses `codex exec -s danger-full-access` which grants unrestricted filesystem access.
 
-**No isolation**: Codex runs directly in the main working tree. It does NOT get worktree isolation — `supports_isolation` is `false` and adapter dispatch bypasses the Task tool, so `isolation: "worktree"` never applies to it. Dispatch Codex tasks only when the working tree is clean and committed, so `validate_file_scope()` can revert out-of-scope changes reliably.
+**No isolation**: Codex runs directly in the main working tree. It does NOT get worktree isolation — `supports_isolation` is `false` and adapter dispatch bypasses the Agent tool, so `isolation: "worktree"` never applies to it. Dispatch Codex tasks only when the working tree is clean and committed, so `validate_file_scope()` can revert out-of-scope changes reliably.
 
 Mitigations that do apply:
 

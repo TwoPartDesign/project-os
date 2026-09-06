@@ -279,7 +279,7 @@ project-root/
 │   │   ├── documenter.md               # Developer role — documentation agent
 │   │   ├── roles.md                    # Role permission matrix
 │   │   ├── handoffs.md                 # Phase handoff artifact contracts
-│   │   └── adapters/                   # External-agent adapters (default dispatch is the native Task tool)
+│   │   └── adapters/                   # External-agent adapters (default dispatch is the native Agent tool)
 │   │       ├── INTERFACE.md            # Adapter 3-command contract spec
 │   │       ├── _prompt-template.sh     # Shared prompt assembly for external adapters
 │   │       └── codex.sh                # Codex adapter (functional; runs without worktree isolation)
@@ -594,7 +594,7 @@ The following commands support project planning and approval workflows. Each com
 
 ## Agent Definitions
 
-All agents have YAML frontmatter declaring `isolation` mode, `role`, and `permissions`. Permissions are **advisory** in v2 — agents self-enforce based on frontmatter. Hard enforcement planned for v2.1+.
+All agents have YAML frontmatter declaring `name`, `description`, `model`, and `effort`, plus `disallowedTools`; `implementer` and `documenter` additionally declare `isolation`. Permissions are **advisory** in v2 — agents self-enforce based on frontmatter. Hard enforcement planned for v2.1+.
 
 ### Roles
 
@@ -630,7 +630,7 @@ Verifies implementation matches design and follows project patterns. Checks for 
 
 **File**: `.claude/agents/reviewer-tests.md`
 
-Audits test quality and identifies coverage gaps. Checks for untested functions/branches, happy-path-only tests (missing error paths), missing edge cases (null, empty, boundary, overflow, concurrent), test independence issues, vague assertions, and flaky indicators (timing-dependent, unseeded randomness).
+Audits test quality and identifies coverage gaps. Checks for untested functions/branches, happy-path-only tests (missing error paths), missing edge cases (null, empty, boundary, overflow, concurrent), test independence issues, vague assertions, flaky indicators (timing-dependent, unseeded randomness), and maintainability (function length, dead code, naming, duplication).
 
 ---
 
@@ -638,7 +638,7 @@ Audits test quality and identifies coverage gaps. Checks for untested functions/
 
 **Interface spec**: `.claude/agents/adapters/INTERFACE.md`
 
-Adapters provide a uniform 3-command contract for dispatching tasks to **external** (non-Claude) coding agents. The **default dispatch path is native**: sub-agents are spawned via the Task tool with per-task `model:` and worktree isolation — no adapter involved. Adapters only apply when a task carries an `(agent: <name>)` annotation.
+Adapters provide a uniform 3-command contract for dispatching tasks to **external** (non-Claude) coding agents. The **default dispatch path is native**: sub-agents are spawned via the Agent tool with per-task `model:` and worktree isolation — no adapter involved. Adapters only apply when a task carries an `(agent: <name>)` annotation.
 
 **Commands**: `info` (metadata as JSON), `health` (CLI availability check), `execute <context_dir> <output_dir>` (run task)
 
@@ -647,12 +647,12 @@ Adapters provide a uniform 3-command contract for dispatching tasks to **externa
 - **Output** (`output_dir/`): `completion-report.md`, `result` (pass/fail), `test-output.txt`, `files/` (modified/created)
 - **Environment**: `ADAPTER_TASK_ID`, `ADAPTER_FEATURE`, `ADAPTER_MAX_TURNS`, `ADAPTER_MODEL`
 
-**Dispatch Resolution**: `(model: <id>)` annotation → native Task dispatch with that model → `(agent: codex)` annotation → external adapter (if healthy, else native) → default: native Task dispatch with the sub-agent default model from `settings.json`
+**Dispatch Resolution**: `(model: <id>)` annotation → `(agent: <name>)` adapter annotation (external adapter, if healthy, else native) → roster agent's frontmatter `model`/`effort` → default: `CLAUDE_CODE_SUBAGENT_MODEL` from `settings.json` for unnamed spawns
 
 **Available Adapters (v2.3-dev)**:
 - `codex` (Functional) — `.claude/agents/adapters/codex.sh` + `_prompt-template.sh`. Runs **without worktree isolation** (`supports_isolation: false`) — see INTERFACE.md for the documented risk posture.
 
-The former `claude-code.sh` default adapter (a no-op pass-through) and the `gemini`/`aider`/`amp` stubs were deleted in the v2.3-dev adapter collapse; native Task dispatch replaced them.
+The former `claude-code.sh` default adapter (a no-op pass-through) and the `gemini`/`aider`/`amp` stubs were deleted in the v2.3-dev adapter collapse; native Agent tool dispatch replaced them.
 
 ---
 
