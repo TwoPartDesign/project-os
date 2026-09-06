@@ -188,11 +188,11 @@ Small quality items surfaced during self-maintenance / #T9 reviews (2026-07-17).
 - [x] skill-edit: reflect.md — add-op proposed text must not repeat the anchor (applied 1ec83b7) #T96
   <!-- maint-fp: skill-edit:.claude/commands/tools/reflect.md:add-op-anchor-duplication -->
   <!-- proposal: docs/specs/skill-optimization-loop/skill-edits.md Proposal 3 -->
-- [?] Investigate recurring Bash failures (6 since 2026-07-30T21:11:49Z) #T152
+- [ ] Investigate recurring Bash failures (6 since 2026-07-30T21:11:49Z) #T152
   <!-- maint-fp: failures:Bash:6 -->
-- [?] Run /tools:dream — 12 memory files / 42 session files, consolidation due #T153
+- [ ] Run /tools:dream — 12 memory files / 42 session files, consolidation due #T153
   <!-- maint-fp: dream:12:42 -->
-- [?] Run /tools:dream — 13 memory files / 44 session files, consolidation due #T165
+- [x] Run /tools:dream — 13 memory files / 44 session files, consolidation due (duplicate of #T153, retired 2026-09-06) #T165
   <!-- maint-fp: dream:13:44 -->
 
 ### Todo
@@ -351,9 +351,9 @@ Two pre-existing defects found while verifying #T112's rewrite. Both make named 
 ## Feature: fable-orchestrator-alignment
 Approved in-session by the Approver on 2026-09-04 (design APPROVED, plan accepted, build authorised); tasks were recorded at `[~]` after the build rather than passing through a separate `/pm:approve` commit. Review r1 (2026-09-06) FAIL → fixes merged → PASS; see docs/specs/fable-orchestrator-alignment/review.md.
 ### Draft
-- [?] set-models and init presets set CLAUDE_CODE_AUTO_COMPACT_WINDOW per lead model (350000 fable, 200000 opus) — review r1 HIGH 4 follow-up #T173
-- [?] compete-review.md: weight the six axis scores so Correctness cannot be outvoted (multi-agent-judging.md R3) #T174
-- [?] aws-access-token misses some valid AKIA-prefixed keys of the same shape as ones it catches (sample pair in docs/specs/silently-broken-fixes/review.md) — likely the entropy gate #T175
+- [ ] set-models and init presets set CLAUDE_CODE_AUTO_COMPACT_WINDOW per lead model (350000 fable, 200000 opus) — review r1 HIGH 4 follow-up #T173
+- [ ] compete-review.md: weight the six axis scores so Correctness cannot be outvoted (multi-agent-judging.md R3) #T174
+- [ ] aws-access-token misses some valid AKIA-prefixed keys of the same shape as ones it catches (sample pair in docs/specs/silently-broken-fixes/review.md) — likely the entropy gate #T175
 ### Todo
 ### In Progress
 ### Review
@@ -374,7 +374,7 @@ Approved in-session by the Approver on 2026-09-04 (design APPROVED, plan accepte
 Tier 1 fixes from the 2026-09 improvement review (.claude/plans/2026-09-04-fable-alignment-plan.md Phase 2). Each turns a dead feature back on. Item 8 (local-documents rule) shipped in #T157.
 Approved in-session 2026-09-06 per the plan the Approver signed off on 2026-09-04. Review (single Opus pass, 2026-09-06) FAIL on 1 HIGH → lead-applied fixes → full suite 10/10 green → PASS; see docs/specs/silently-broken-fixes/review.md.
 ### Draft
-- [?] LOW review leftovers: _common.sh `cd --`, update-project.sh quoting at the upstream-relative expansion and a stale-cache message naming PROJECT_OS_UPSTREAM_CACHE, smoke coverage for notify-phase-change.sh, symlink-argument test for scan-files (SKIPs on Windows) #T176
+- [ ] LOW review leftovers: _common.sh `cd --`, update-project.sh quoting at the upstream-relative expansion and a stale-cache message naming PROJECT_OS_UPSTREAM_CACHE, smoke coverage for notify-phase-change.sh, symlink-argument test for scan-files (SKIPs on Windows) #T176
 ### Todo
 ### In Progress
 ### Review

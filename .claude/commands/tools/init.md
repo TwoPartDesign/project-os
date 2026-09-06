@@ -296,6 +296,21 @@ Standard tier mappings (bare aliases so routing always tracks the latest release
 
 Never set `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`; it overrides agent-file frontmatter and collapses the mechanical tier. `set-models` changes the env-var tier only; per-agent tiers live in `.claude/agents/*.md` frontmatter.
 
+**Fable confirmation.** If `MODEL_ORCHESTRATION` resolves to `fable` and the
+user's current primary (`~/.claude/settings.json` `"model"`, or an existing
+project `.claude/settings.json`) is `opus`, `sonnet`, or unset, ask before
+recording it:
+
+> "This makes Fable — the Mythos-class tier, several times the cost of Opus —
+> the primary session model for this project. Fable earns that on
+> architecture-defining work; a routine project is well served by Opus as
+> lead. Switch the primary to Fable?"
+
+If the user declines, record `MODEL_ORCHESTRATION` as the current primary (or
+`opus` when unset) and keep the chosen sub-agent tier. Never promote the
+primary to Fable silently — the project file overrides the global one, so a
+preset would otherwise change the lead model without anyone choosing it.
+
 ### Round 6 — Code Review Tool (optional)
 
 Ask:

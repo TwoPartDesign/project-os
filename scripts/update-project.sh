@@ -492,7 +492,7 @@ verify_template_scripts_list() {
 
     while IFS= read -r file; do
         [ -n "$file" ] || continue
-        rel="${file#$UPSTREAM_ROOT/}"
+        rel="${file#"$UPSTREAM_ROOT"/}"
         if [ -z "${listed[$rel]:-}" ]; then
             unlisted_files="${unlisted_files}  $rel"$'\n'
         fi
