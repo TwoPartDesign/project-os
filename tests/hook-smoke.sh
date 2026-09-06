@@ -103,9 +103,10 @@ new_sandbox() {
     SANDBOXES+=("$sb")
     mkdir -p "$sb/.claude/hooks" "$sb/.claude/logs" "$sb/.claude/sessions" "$sb/scripts"
     for h in _common.sh output-index.sh compact-suggest.sh tool-failure-log.sh \
-             post-tool-use.sh session-end-cleanup.sh; do
+             post-tool-use.sh session-end-cleanup.sh post-write-session.sh; do
         cp "$REAL_HOOKS/$h" "$sb/.claude/hooks/$h" 2>/dev/null || true
     done
+    cp "$PROJECT_ROOT/scripts/scrub-secrets.sh" "$sb/scripts/scrub-secrets.sh" 2>/dev/null || true
     printf '%s' "$sb"
 }
 
@@ -408,6 +409,53 @@ run_hook "$SB" post-tool-use.sh \
 assert_eq "postToolUse_payloadPastBound_exitsZero" 0 "$HOOK_EXIT"
 assert_file_exists "postToolUse_payloadPastBound_keyInWindow_stillResolved" \
     "$SB/.claude/logs"
+
+echo ""
+
+# ── post-write-session.sh ───────────────────────────────────────────────────
+# #T169: the payload path used to be compared against .claude/sessions/ raw,
+# unresolved. A backslash path (Windows) or a symlinked sessions directory
+# named a real session file but never matched the prefix check, so the hook
+# silently skipped scrubbing it — a secret shipped in a handoff file with no
+# error anywhere. canonicalize_payload_path + resolve_project_path fix both.
+echo "post-write-session.sh:"
+
+SECRET_LINE='api_key: sk-abcdefghijklmnopqrstuvwx'  # scan:allow (fake fixture token, not a real secret)
+
+SB=$(new_sandbox)
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/handoff.yaml"
+# Windows delivers file_path as a native backslash path, and the runtime's JSON
+# escaping doubles each separator. Unconverted, resolve_project_path's
+# `[ -f "$file" ]` fails against the raw backslash spelling and the hook
+# silently skips scrubbing a session file that IS under .claude/sessions/.
+WINPATH=$(printf '%s' "$SB/.claude/sessions/handoff.yaml" | sed 's|/|\\\\|g')
+run_hook "$SB" post-write-session.sh \
+    "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$WINPATH\"},\"tool_response\":\"ok\",\"is_error\":false}"
+assert_eq "postWriteSession_backslashPayloadPath_exitsZero" 0 "$HOOK_EXIT"
+assert_not_contains "postWriteSession_backslashPayloadPath_secretScrubbed" \
+    "$(cat "$SB/.claude/sessions/handoff.yaml" 2>/dev/null || true)" "sk-abcdefghijklmnopqrstuvwx"
+assert_contains "postWriteSession_backslashPayloadPath_redactionMarkerWritten" \
+    "$(cat "$SB/.claude/sessions/handoff.yaml" 2>/dev/null || true)" "REDACTED:OPENAI_KEY"
+
+# In-bounds indirection: a session file reached through a symlink to the real
+# sessions directory. realpath resolves it back inside SESSION_DIR, so this
+# must scrub exactly like the direct path does.
+SB=$(new_sandbox)
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/via-symlink.yaml"
+# `ln -s` on a directory can succeed (exit 0) on Windows/MSYS while silently
+# falling back to a junction rather than a real symlink — `-L` is false on it
+# and realpath never resolves through it, which would make this case fail for
+# a reason unrelated to the hook. Require an actual symlink, not just a
+# successful exit, before trusting the result.
+if ln -s "$SB/.claude/sessions" "$SB/session-link" 2>/dev/null && [ -L "$SB/session-link" ]; then
+    run_hook "$SB" post-write-session.sh \
+        "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$SB/session-link/via-symlink.yaml\"},\"tool_response\":\"ok\",\"is_error\":false}"
+    assert_eq "postWriteSession_symlinkedSessionsDir_exitsZero" 0 "$HOOK_EXIT"
+    assert_not_contains "postWriteSession_symlinkedSessionsDir_secretScrubbed" \
+        "$(cat "$SB/.claude/sessions/via-symlink.yaml" 2>/dev/null || true)" "sk-abcdefghijklmnopqrstuvwx"
+else
+    echo "  SKIP: postWriteSession_symlinkedSessionsDir_secretScrubbed (symlink creation unsupported)"
+fi
 
 echo ""
 
