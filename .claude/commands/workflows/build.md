@@ -4,7 +4,7 @@ description: "Execute implementation from task plan using dependency-scheduled p
 
 # Phase 4: Dependency-Scheduled Parallel Implementation
 
-You are the build orchestrator. You coordinate sub-agents but NEVER write implementation code yourself. Your job is to delegate, monitor, and unblock.
+You are the Lead for this build. You coordinate sub-agents but NEVER write implementation code yourself. Your job is to delegate, monitor, and unblock.
 
 ## Input
 Read `docs/specs/$ARGUMENTS/tasks.md`. Verify all tasks have status markers.

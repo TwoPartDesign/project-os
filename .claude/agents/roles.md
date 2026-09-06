@@ -45,7 +45,7 @@ Architect    all                   specs/knowledge                    Idea, Desi
 Developer    specs/knowledge/src   code/tests/docs                    Build
 Reviewer     all                   review-reports                     Review
 Approver     all                   all                                all
-Lead         all                   specs/knowledge/ROADMAP/handoffs   all
+Lead         all                   specs/knowledge/ROADMAP/handoffs/git-integration   all
 ```
 
 Enforcement is advisory in v2. Agents should self-enforce based on their frontmatter.
