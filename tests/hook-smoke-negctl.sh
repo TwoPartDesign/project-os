@@ -61,7 +61,7 @@ WORK="$(mktemp -d)"
 # makes that true on the failure paths too.
 trap 'rm -rf "$WORK"' EXIT
 
-HOOK_NAMES="_common.sh output-index.sh compact-suggest.sh tool-failure-log.sh post-tool-use.sh session-end-cleanup.sh"
+HOOK_NAMES="_common.sh output-index.sh compact-suggest.sh tool-failure-log.sh post-tool-use.sh session-end-cleanup.sh post-write-session.sh"
 
 CTL_FAIL=0
 
@@ -116,6 +116,15 @@ done
 # which is the exact defect this file exists to catch.
 STUB_SURVIVORS_OK='_(exitsZero|notOnStdout|doesNotIndex|noHint|indexerNeverInvoked|emitsNothing|doesNotLogOutput|writesNothing|noSideEffect|deliberatelyKept|notPruned|nothingDeleted[A-Za-z]*|doesNotCreateOne)$'
 
+# Explicit, not pattern-matched: hook-smoke.sh's "payload schema" block greps
+# the repo's own source (this file and $PROJECT_ROOT/.claude/hooks) rather than
+# $REAL_HOOKS/the sandboxed hooks, by design — a mutant tree would let it pass
+# vacuously (see the comment above it in hook-smoke.sh). It is therefore
+# invariant across every mutant here, stub included: nothing this script builds
+# changes what it checks, so it is always expected to survive.
+STUB_STATIC_SURVIVORS="payloadSchema_fixturesInThisFile_nameToolInputAndToolResponse
+payloadSchema_hookScripts_readToolInputAndToolResponse"
+
 echo "=== mutant 1: all hooks stubbed to \`exit 0\` ==="
 STUB_STATUS=0
 PROJECT_OS_TEST_HOOKS="$STUB" bash "$SCRIPT_DIR/hook-smoke.sh" > "$WORK/stub.out" 2>&1 || STUB_STATUS=$?
@@ -128,7 +137,7 @@ failed_names "$WORK/stub.out"
 if [ "$STUB_STATUS" -eq 0 ]; then
     ctl_fail "mutant 1" "hook-smoke.sh PASSED against hooks that do nothing at all"
 fi
-STUB_UNEXPECTED="$(passed_names "$WORK/stub.out" | grep -Ev "$STUB_SURVIVORS_OK" || true)"
+STUB_UNEXPECTED="$(passed_names "$WORK/stub.out" | grep -Ev "$STUB_SURVIVORS_OK" | grep -Fxv "$STUB_STATIC_SURVIVORS" || true)"
 if [ -n "$STUB_UNEXPECTED" ]; then
     ctl_fail "mutant 1" "effect assertions survived the stubs: $(oneline "$STUB_UNEXPECTED")"
 fi
