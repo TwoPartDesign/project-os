@@ -349,34 +349,36 @@ Two pre-existing defects found while verifying #T112's rewrite. Both make named 
 <!-- #T118 (calibrate PROJECT_OS_COMPACT_NUDGE_BYTES) closed 2026-07-30 without being done: the byte proxy it proposed to calibrate was removed in #T119. ID #T118 is retired, never reused. -->
 
 ## Feature: fable-orchestrator-alignment
+Approved in-session by the Approver on 2026-09-04 (design APPROVED, plan accepted, build authorised); tasks were recorded at `[~]` after the build rather than passing through a separate `/pm:approve` commit. Review r1 (2026-09-06) FAIL → fixes merged → PASS; see docs/specs/fable-orchestrator-alignment/review.md.
 ### Draft
-- [~] Register and reconcile the worker agents (implementer, documenter) #T154
-- [~] Register and reconcile the reader agents (researcher, three reviewers) #T155
-- [~] Roster invariant test tests/agent-roster.test.ts #T156
-- [~] Rules files: ladder, lead routing, local-documents rule #T157
-- [~] Role split in roles.md, handoffs.md, adapters/INTERFACE.md #T158 (model: sonnet)
-- [~] Top-level docs: routing tiers and roles (CLAUDE.md, template, README, STATUS, guide) #T159 (model: sonnet)
-- [~] Tier presets in init.md and set-models.md #T160 (model: sonnet)
-- [~] Knowledge docs: ADR, principles, architecture, pattern #T161
-- [~] Build workflow dispatches the roster (depends: #T154, #T155, #T156) #T162
-- [~] Review and design workflows dispatch the reviewers (depends: #T154, #T155, #T156) #T163
-- [~] Compete, research, dream, mvp dispatch and wording (depends: #T154, #T155, #T156) #T164
 - [?] set-models and init presets set CLAUDE_CODE_AUTO_COMPACT_WINDOW per lead model (350000 fable, 200000 opus) — review r1 HIGH 4 follow-up #T173
+- [?] compete-review.md: weight the six axis scores so Correctness cannot be outvoted (multi-agent-judging.md R3) #T174
 ### Todo
 ### In Progress
 ### Review
 ### Done
+- [x] Register and reconcile the worker agents (implementer, documenter) #T154
+- [x] Register and reconcile the reader agents (researcher, three reviewers) #T155
+- [x] Roster invariant test tests/agent-roster.test.ts #T156
+- [x] Rules files: ladder, lead routing, local-documents rule #T157
+- [x] Role split in roles.md, handoffs.md, adapters/INTERFACE.md (model: sonnet) #T158
+- [x] Top-level docs: routing tiers and roles (CLAUDE.md, template, README, STATUS, guide) (model: sonnet) #T159
+- [x] Tier presets in init.md and set-models.md (model: sonnet) #T160
+- [x] Knowledge docs: ADR, principles, architecture, pattern #T161
+- [x] Build workflow dispatches the roster (depends: #T154, #T155, #T156) #T162
+- [x] Review and design workflows dispatch the reviewers (depends: #T154, #T155, #T156) #T163
+- [x] Compete, research, dream, mvp dispatch and wording (depends: #T154, #T155, #T156) #T164
 
 ## Feature: silently-broken-fixes
 Tier 1 fixes from the 2026-09 improvement review (.claude/plans/2026-09-04-fable-alignment-plan.md Phase 2). Each turns a dead feature back on. Item 8 (local-documents rule) shipped in #T157.
 ### Draft
-- [-] CLAUDE.md @import lines never expand — replace with inline ~40-line digests of architecture.md and patterns.md #T166
-- [~] output-index.sh reads d.arguments/d.output; payload is tool_input/tool_response — fix hook, refit hook-smoke.sh fixtures from a real payload, add schema hygiene test #T167 (model: opus)
-- [-] security-scanner.ts: execFileSync maxBuffer + typed catch, scan-diff reads the diff not the working tree, non-zero exit on directory args #T168
-- [-] post-write-session.sh canonicalizes the payload path via canonicalize_payload_path (depends: #T167) #T169
+- [~] CLAUDE.md @import lines never expand — replace with inline ~40-line digests of architecture.md and patterns.md #T166
+- [~] output-index.sh reads d.arguments/d.output; payload is tool_input/tool_response — fix hook, refit hook-smoke.sh fixtures from a real payload, add schema hygiene test (model: opus) #T167
+- [~] security-scanner.ts: execFileSync maxBuffer + typed catch, scan-diff reads the diff not the working tree, non-zero exit on directory args #T168
+- [~] post-write-session.sh canonicalizes the payload path via canonicalize_payload_path (depends: #T167) #T169
 - [-] hook-smoke-negctl.sh exits non-zero on failure (set -e, victim comparison) #T170
 - [-] update-project.sh manifest check lists skill-apply.ts and skill-ledger.ts and is bidirectional #T171
-- [~] notify-phase-change.sh: Windows branch terminal-only, drop the MessageBox; update architecture.md wording #T172 (model: sonnet)
+- [~] notify-phase-change.sh: Windows branch terminal-only, drop the MessageBox; update architecture.md wording (model: sonnet) #T172
 ### Todo
 ### In Progress
 ### Review
