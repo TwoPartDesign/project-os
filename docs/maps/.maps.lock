@@ -33,7 +33,7 @@
     ".claude/hooks/_common.sh": "b0c170dc41e6ad211e414e9c6e52b658cbca4854d217c8ae06dc91ccb6e58ce8",
     ".claude/hooks/compact-suggest.sh": "7d78853d5c13153bf4b67bc6cce1f5129855df3b97bc292a1cf02f264b12702a",
     ".claude/hooks/log-activity.sh": "fe2df53296497364a57540bd329a5bef1c874515b4739d2ac6ebdfbe2827b47e",
-    ".claude/hooks/notify-phase-change.sh": "e590c69ecf0350304307735265d5f523c150a359b833d37dd560e68a13b44e04",
+    ".claude/hooks/notify-phase-change.sh": "bb8c2af6dff3890a24ee8cb118501b015b7a6ef9d4f8c5d65bf98ec2ab097d00",
     ".claude/hooks/output-index.sh": "763652a95bd8975cca3d3f2ce70ad999c946916c23635252b6ce236088bb6b62",
     ".claude/hooks/post-mcp-validate.sh": "91fb4477f456c70636fcbbcb9c100cd67650f781ee365b8b0121f26c6767cb1a",
     ".claude/hooks/post-tool-use.sh": "0211c8f2ba5127e565b3defbcc10f19d84d0029b821decdb2340a973420b77bb",

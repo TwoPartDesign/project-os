@@ -71,9 +71,6 @@ if command -v notify-send &>/dev/null; then
 elif command -v osascript &>/dev/null; then
     # macOS — pass via env var to avoid shell interpolation issues
     NOTIFY_MSG="$SAFE_MSG" osascript -e 'display notification (system attribute "NOTIFY_MSG") with title "Project OS"' 2>/dev/null || true
-elif command -v powershell.exe &>/dev/null; then
-    # Windows — pass message via environment variable to avoid interpolation
-    NOTIFY_MSG="$SAFE_MSG" powershell.exe -NoProfile -Command \
-        '[System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms") | Out-Null; [System.Windows.Forms.MessageBox]::Show($env:NOTIFY_MSG,"Project OS","OK","Information")' 2>/dev/null &
-    disown 2>/dev/null || true
 fi
+# Windows (msys/cygwin/powershell available): terminal-only, no pop-up.
+# The stderr line printed above is the sole notification on this platform.
