@@ -19,10 +19,83 @@ Core principles guide all architecture decisions. See `docs/knowledge/design-pri
 - Token economics: output tokens cost several times more than input — keep agent responses concise
 
 ## Architecture
-@import docs/knowledge/architecture.md
+Project OS is a solo-developer governance layer (bash + markdown) enforcing
+human authority via phase checkpoints, adversarial review, and an audit trail
+(ROADMAP.md + JSONL activity log).
+
+**Components**: commands in `.claude/commands/{workflows,tools,pm}/`
+(lifecycle, utility, governance); named agent roster in `.claude/agents/*.md`
+(frontmatter sets model/effort; dispatch by `subagent_type`, never
+`general-purpose`); skills in `.claude/skills/*/SKILL.md`
+(progressive-disclosure playbooks, e.g. context-filter); external adapters in
+`.claude/agents/adapters/` (`codex.sh` only — native Task-tool dispatch is
+the default path); 11 hooks in `.claude/hooks/` (compaction chain below,
+plus format/scrub-on-write, SessionStart activation + maintenance, advisory
+PostToolUse indexing); `scripts/` utilities (`knowledge-index.ts` FTS5
+search, `system-map.ts` wiring graph, `maintain.sh`/`maintain-draft.ts`
+drafts-only loop, `security-scanner.ts`, `setup.sh`, `dashboard-server.ts`);
+`docs/knowledge/` (patterns, decisions, bugs, architecture) and
+`docs/maps/system-map.md` (generated wiring map — never hand-edit).
+
+**Data flow (build)**: ROADMAP.md markers are authoritative → parsed into
+native Tasks (`addBlockedBy` from `(depends:)`) → dispatch resolution
+(`(model:)` annotation → agent frontmatter → `(agent: codex)` → native
+default) → sub-agents in isolated worktrees → completion reports →
+batch-drain re-derives state from ROADMAP markers.
+
+**Compaction handoff chain** (3 stages, 2 hooks): (1) `compact-suggest.sh`
+nudges Claude via PostToolUse `additionalContext` once context passes ~65%
+of the window, and claims handoff-file writes by session id on PreToolUse so
+ownership is known before compaction; (2) Claude runs `/tools:handoff`, the
+only stage that can author rationale; (3) `pre-compact.sh` (PreCompact) reads
+only this session's claimed handoff and prints its `compact_instruction` on
+stdout, forwarded by the runtime to the compaction summarizer — no discovery
+fallback, no environment override.
+
+See `docs/knowledge/architecture.md` for the full module map, hook/script
+tables, security scanning, and self-maintenance details.
 
 ## Active Conventions
-@import docs/knowledge/patterns.md
+One line per established pattern (name — rule enforced); see the full file for
+rationale, examples, and anti-patterns.
+
+- **Ship Seeds, Not Live Content** — a template seeds new projects from a
+  dedicated seed tier, never from its own live working files.
+- **ROADMAP↔Tasks Dual-Track** — ROADMAP.md markers are the authoritative
+  state; native Tasks are the runtime scheduler; re-derive from markers on
+  every batch drain.
+- **Schema Contract Across File Boundaries** — verify a producer's output
+  schema matches its consumer's input expectations at integration time.
+- **Security Scanning Gate** — defense-in-depth (pre-commit/pre-push/ship
+  scan-diff); never bypass with `--no-verify` without the ship-workflow
+  backstop.
+- **Sole-Writer Self-Enforcement** — the sole sanctioned writer to a sensitive
+  artifact sanitizes every field it writes, not just the obvious one.
+- **Deterministic Artifact: Heal, Don't Block** — on drift, regenerate a
+  generated artifact from the staged index and re-stage it; fail the commit
+  only when the machine genuinely can't resolve it.
+- **Denylist Before Emit** — normalize the key, then check a separator-free
+  sensitive-name denylist, before emitting any config/key-value observation.
+- **Mitigate Against the Platform's Real Surface, Not Its Defaults** —
+  enumerate where the platform actually looks (all hook types, indirection
+  like `core.hooksPath`) and mitigate there, not just the default location.
+- **Invert Open-Ended Recognition Predicates to Closed Allowlists** — define
+  the closed set of safe residue and refuse anything outside it, rather than
+  enumerating unsafe shapes.
+- **One Command Runs Every Check, On The Machine That Ships** — one entry
+  point discovers and runs every suite by glob, and it must run on the
+  platform that actually ships.
+- **Verify the Channel Before Designing the Gate** — check a design's
+  load-bearing observability assumption against the shipped runtime before
+  building enforcement around it.
+- **Test Behaviour in a Copied Project Root** — copy self-locating scripts
+  into a throwaway root and assert what they *do*, not just their exit code.
+- **Registered Roster, Not Pasted Prose** — an agent's identity, tier, and
+  scope live once in `.claude/agents/<name>.md`; dispatch by name, never fall
+  back to `general-purpose`.
+
+See `docs/knowledge/patterns.md` for full rationale, examples, and
+anti-patterns per pattern.
 
 ## Workflow
 This project uses spec-first, governance-gated development:

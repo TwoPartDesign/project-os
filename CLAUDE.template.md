@@ -16,10 +16,21 @@
 - Tests define done, not "it looks right"
 
 ## Architecture
-@import docs/knowledge/architecture.md
+<!-- /tools:init: replace with a ~40-line digest of this project's component
+     map (major modules/services), data flow, and any hand-off or integration
+     chains worth every session knowing — then keep the pointer line below. -->
+[PROJECT_NAME]'s architecture digest goes here.
+
+See `docs/knowledge/architecture.md` for full details.
 
 ## Active Conventions
-@import docs/knowledge/patterns.md
+<!-- /tools:init: replace with one line per established pattern (name — rule
+     enforced) as patterns.md accumulates entries — then keep the pointer
+     line below. -->
+This project has no recorded patterns yet.
+
+See `docs/knowledge/patterns.md` for full rationale, examples, and
+anti-patterns per pattern.
 
 ## Workflow
 This project uses spec-driven development:
