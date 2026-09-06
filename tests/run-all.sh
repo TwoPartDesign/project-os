@@ -29,6 +29,12 @@ LOG_DIR="$SCRIPT_DIR/.logs"
 # Suites that take more than ~30s. --fast skips these; CI and pre-push do not.
 SLOW="new-project-smoke"
 
+# A suite that hangs (a hook waiting on stdin, a prompt nobody answers) blocks
+# the whole gate indefinitely. Bound each one and report the overrun as a
+# failure instead. Override with SUITE_TIMEOUT=<seconds>; `timeout` ships with
+# Git Bash and coreutils, but degrade to an unbounded run where it is absent.
+SUITE_TIMEOUT="${SUITE_TIMEOUT:-600}"
+
 FAST=0
 ONLY=""
 LIST=0
@@ -127,12 +133,20 @@ while [ $i -lt ${#SUITE_NAMES[@]} ]; do
     start=$SECONDS
     # Suites resolve their own paths from BASH_SOURCE, but node --test and any
     # relative path inside a suite need the repo root as cwd.
-    ( cd "$REPO_ROOT" && eval "$cmd" ) >"$log" 2>&1
+    if command -v timeout >/dev/null 2>&1; then
+        ( cd "$REPO_ROOT" && timeout "$SUITE_TIMEOUT" bash -c "$cmd" ) >"$log" 2>&1
+    else
+        ( cd "$REPO_ROOT" && eval "$cmd" ) >"$log" 2>&1
+    fi
     status=$?
     elapsed=$((SECONDS - start))
 
     if [ $status -eq 0 ]; then
         printf 'PASS  (%ss)\n' "$elapsed"
+    elif [ $status -eq 124 ]; then
+        printf 'FAIL  (timed out after %ss)\n' "$SUITE_TIMEOUT"
+        echo "--- suite timed out after ${SUITE_TIMEOUT}s (SUITE_TIMEOUT) ---" >>"$log"
+        FAILED+=("$name")
     else
         printf 'FAIL  (%ss, exit %s)\n' "$elapsed" "$status"
         FAILED+=("$name")

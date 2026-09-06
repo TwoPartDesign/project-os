@@ -1748,11 +1748,18 @@ SANDBOXES+=("$OUTSIDE")
 mkdir -p "$OUTSIDE/.claude/sessions"
 write_handoff "$OUTSIDE" "handoff-2026-07-30-1200.yaml" "ESCAPED instruction"
 ln -s "$OUTSIDE/.claude/sessions/handoff-2026-07-30-1200.yaml" \
-      "$SB/.claude/sessions/handoff-2026-07-30-1300.yaml"
-claim_handoff "$SB" s1 "handoff-2026-07-30-1300.yaml"
-OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
-    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
-assert_not_contains "containment_symlinkEscapingProject_rejected" "$OUT" "ESCAPED instruction"
+      "$SB/.claude/sessions/handoff-2026-07-30-1300.yaml" 2>/dev/null || true
+if [ -L "$SB/.claude/sessions/handoff-2026-07-30-1300.yaml" ]; then
+    claim_handoff "$SB" s1 "handoff-2026-07-30-1300.yaml"
+    OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+        | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+    assert_not_contains "containment_symlinkEscapingProject_rejected" "$OUT" "ESCAPED instruction"
+else
+    # Windows without Developer Mode: `ln -s` degrades to a copy of the target,
+    # which is a regular in-project file — the fixture is not the case under
+    # test, so asserting on it would report a fault the code does not have.
+    skip "containment_symlinkEscapingProject_rejected — no real symlink available"
+fi
 
 # containment_symlinkToInScopeSibling_alsoRejected
 # The link target is inside the project, so containment alone would allow it —
@@ -1764,11 +1771,17 @@ assert_not_contains "containment_symlinkEscapingProject_rejected" "$OUT" "ESCAPE
 new_sandbox
 mkdir -p "$SB/docs"
 write_handoff "$SB" "../../docs/planted.yaml" "SIBLING instruction"
-ln -s "$SB/docs/planted.yaml" "$SB/.claude/sessions/handoff-2026-07-30-1300.yaml"
-claim_handoff "$SB" s1 "handoff-2026-07-30-1300.yaml"
-OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
-    | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
-assert_not_contains "containment_symlinkToInScopeSibling_alsoRejected" "$OUT" "SIBLING instruction"
+ln -s "$SB/docs/planted.yaml" "$SB/.claude/sessions/handoff-2026-07-30-1300.yaml" 2>/dev/null || true
+if [ -L "$SB/.claude/sessions/handoff-2026-07-30-1300.yaml" ]; then
+    claim_handoff "$SB" s1 "handoff-2026-07-30-1300.yaml"
+    OUT=$(printf '{"session_id":"s1","trigger":"auto"}' \
+        | bash "$SB/.claude/hooks/pre-compact.sh" 2>/dev/null)
+    assert_not_contains "containment_symlinkToInScopeSibling_alsoRejected" "$OUT" "SIBLING instruction"
+else
+    # Same degradation as above: a copy is a regular file, and "regular files
+    # only" is exactly the rule this case exists to test.
+    skip "containment_symlinkToInScopeSibling_alsoRejected — no real symlink available"
+fi
 
 # containment_projectReachedThroughSymlink_stillForwards
 # The other direction, and the one that actually bit: containment must not
@@ -2016,7 +2029,11 @@ git init -q "$SB" >/dev/null 2>&1
 # unfixed hook. -z ignores the setting entirely, which is the point.
 git -C "$SB" config core.quotePath true >/dev/null 2>&1
 printf 'x\n' > "$SB/café.txt"
-printf 'y\n' > "$SB/a\\b\"c.txt"
+# NTFS forbids both `\` and `"` in a filename, so this fixture cannot exist on
+# Windows at all. Record whether it was actually created and assert on it only
+# then — a missing fixture is a skip, never a fault in the escaping code.
+QUOTE_FIXTURE="$SB/a\\b\"c.txt"
+printf 'y\n' > "$QUOTE_FIXTURE" 2>/dev/null || true
 printf '{"session_id":"s1","trigger":"auto"}' \
     | bash "$SB/.claude/hooks/pre-compact.sh" >/dev/null 2>&1
 CP=$(find "$SB/.claude/sessions" -name 'auto-checkpoint-*.yaml' -type f 2>/dev/null | head -1)
@@ -2028,8 +2045,12 @@ if [ -n "$CP" ]; then
         "$BODY" 'caf\303\251'
     # Backslash escaped first, then the quote — reversing the order would
     # re-escape the backslash the quote escape just introduced.
-    assert_contains "checkpoint_pathWithBackslashAndQuote_bothEscapedForYaml" \
-        "$BODY" 'path: "a\\b\"c.txt"'
+    if [ -f "$QUOTE_FIXTURE" ]; then
+        assert_contains "checkpoint_pathWithBackslashAndQuote_bothEscapedForYaml" \
+            "$BODY" 'path: "a\\b\"c.txt"'
+    else
+        skip "checkpoint_pathWithBackslashAndQuote_bothEscapedForYaml — filename unrepresentable on this filesystem"
+    fi
 else
     bad "checkpoint_pathNeedingGitQuoting_writtenAsValidYaml — no checkpoint written"
 fi
