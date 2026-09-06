@@ -893,6 +893,45 @@ assert_eq "$HOSTILE_CONTENT_BEFORE" "$(safe_cat "$S12E/scripts/hostile.sh")" "sc
 HOSTILE_MODE_AFTER="$(git -C "$S12E" ls-files -s scripts/hostile.sh)"
 assert_eq "$HOSTILE_MODE_BEFORE" "$HOSTILE_MODE_AFTER" "scenario12e: scripts/hostile.sh git index mode unchanged (never re-staged/chmod'd by adopt)"
 
+# ================================================================================
+# Scenario 13: update-project.sh TEMPLATE_SCRIPTS <-> template scripts/ must
+# agree in BOTH directions (#T171). The list is hand-maintained; drift in
+# either direction is otherwise silent -- a listed name with no file hashes
+# nothing, and a shipped script with no entry is never offered as an update to
+# any downstream project (how skill-apply.ts and skill-ledger.ts went missing).
+# The checkout is used as both the project root and the --local-upstream
+# source, so this exercises the real check in the real script.
+# ================================================================================
+echo ""
+echo "=== Scenario 13: update-project.sh TEMPLATE_SCRIPTS matches the template scripts/ both ways ==="
+S13="$(new_tmp)"
+build_template_checkout "$S13"
+
+UPD13_OUT="$(bash "$S13/scripts/update-project.sh" --local-upstream "$S13" 2>&1)"
+UPD13_EC=$?
+if [ "$UPD13_EC" -eq 0 ]; then pass "scenario13: update-project_list-matches-template_exits-0"; else fail "scenario13: update-project exited $UPD13_EC on an in-sync template: $UPD13_OUT"; fi
+
+# Direction (b): a script present in the template but absent from the list.
+printf '#!/usr/bin/env bash\necho "unlisted framework script"\n' > "$S13/scripts/zz-unlisted-fixture.sh"
+UPD13B_OUT="$(bash "$S13/scripts/update-project.sh" --local-upstream "$S13" 2>&1)"
+UPD13B_EC=$?
+if [ "$UPD13B_EC" -ne 0 ]; then pass "scenario13: update-project_script-not-in-list_exits-nonzero"; else fail "scenario13: update-project exited 0 despite an unlisted template script"; fi
+assert_contains "$UPD13B_OUT" "zz-unlisted-fixture.sh" "scenario13: update-project_script-not-in-list_names-the-file"
+rm -f "$S13/scripts/zz-unlisted-fixture.sh"
+
+# Direction (a): a name in the list with no file behind it in the template.
+rm -f "$S13/scripts/skill-ledger.ts"
+UPD13A_OUT="$(bash "$S13/scripts/update-project.sh" --local-upstream "$S13" 2>&1)"
+UPD13A_EC=$?
+if [ "$UPD13A_EC" -ne 0 ]; then pass "scenario13: update-project_listed-script-missing_exits-nonzero"; else fail "scenario13: update-project exited 0 despite a listed script missing from the template"; fi
+assert_contains "$UPD13A_OUT" "skill-ledger.ts" "scenario13: update-project_listed-script-missing_names-the-file"
+
+# The two scripts #T171 found drifted must be listed by name, not merely
+# covered by the directory walk above (which a future exclusion could hide).
+UPD13_LIST="$(safe_cat "$REPO_ROOT/scripts/update-project.sh")"
+assert_contains "$UPD13_LIST" '"scripts/skill-apply.ts"' "scenario13: TEMPLATE_SCRIPTS lists scripts/skill-apply.ts"
+assert_contains "$UPD13_LIST" '"scripts/skill-ledger.ts"' "scenario13: TEMPLATE_SCRIPTS lists scripts/skill-ledger.ts"
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     echo "ALL ASSERTIONS PASSED"
