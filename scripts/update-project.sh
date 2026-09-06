@@ -453,16 +453,25 @@ TEMPLATE_SCRIPTS=(
     "scripts/skill-ledger.ts"
 )
 
-# verify_template_scripts_list -- TEMPLATE_SCRIPTS must match the upstream
-# scripts/ directory in BOTH directions.
+# verify_template_scripts_list -- TEMPLATE_SCRIPTS is checked against the
+# upstream scripts/ directory in BOTH directions, but the two directions carry
+# different severity:
 #
-# The list is hand-maintained and every kind of drift here is silent. An entry
-# with no file behind it is a stale name that quietly hashes nothing. A file
-# with no entry is worse: the script ships in the template but no downstream
-# project is ever offered an update for it, and nothing anywhere complains.
-# skill-apply.ts and skill-ledger.ts drifted exactly that way (#T171) -- they
-# were added to generate-manifest.sh's copy of this list and not to this one.
-# Checking only "listed but missing" would not have caught either.
+#   - An entry with no file behind it ("listed but missing upstream") is a
+#     hard failure: it means this script would try to hash/offer a file that
+#     does not exist, so it exits non-zero.
+#   - A file with no entry ("present upstream but not listed") is a stderr
+#     WARNING that does NOT change the exit code. An OLDER downstream
+#     update-project.sh must still be able to run against a NEWER upstream
+#     that has since added a script -- failing that run would break every
+#     project that hasn't updated yet, which is worse than the silent drift
+#     this check exists to catch. The template repo's own gate against that
+#     drift is tests/new-project-smoke.sh scenario 13, not this script's exit
+#     code.
+#
+# skill-apply.ts and skill-ledger.ts drifted via the "present but not listed"
+# path (#T171) -- they were added to generate-manifest.sh's copy of this list
+# and not to this one.
 #
 # scripts/lib/ is excluded on purpose: it is hashed wholesale below, so its
 # contents are never enumerated here.
@@ -489,17 +498,18 @@ verify_template_scripts_list() {
         fi
     done < <(find "$scripts_dir" -maxdepth 1 -type f \( -name '*.sh' -o -name '*.ts' \) | sort)
 
-    if [ -z "$missing_files" ] && [ -z "$unlisted_files" ]; then
+    if [ -n "$unlisted_files" ]; then
+        echo "WARNING: scripts present in $scripts_dir but not listed in TEMPLATE_SCRIPTS (scripts/update-project.sh) -- not offered as updates to any downstream project:" >&2
+        printf '%s' "$unlisted_files" >&2
+        echo "Add these to TEMPLATE_SCRIPTS (and the sibling list in scripts/generate-manifest.sh)." >&2
+    fi
+
+    if [ -z "$missing_files" ]; then
         return 0
     fi
 
-    echo "ERROR: TEMPLATE_SCRIPTS in scripts/update-project.sh is out of sync with $scripts_dir" >&2
-    if [ -n "$missing_files" ]; then
-        printf 'Listed in TEMPLATE_SCRIPTS but not present in the template:\n%s' "$missing_files" >&2
-    fi
-    if [ -n "$unlisted_files" ]; then
-        printf 'Present in the template but not listed in TEMPLATE_SCRIPTS:\n%s' "$unlisted_files" >&2
-    fi
+    echo "ERROR: TEMPLATE_SCRIPTS in scripts/update-project.sh lists scripts not present in $scripts_dir:" >&2
+    printf '%s' "$missing_files" >&2
     echo "Fix TEMPLATE_SCRIPTS in scripts/update-project.sh (and the sibling list in scripts/generate-manifest.sh)." >&2
     return 1
 }

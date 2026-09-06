@@ -111,6 +111,7 @@
 - `s_scan_rules_node22_test` — `tests/scan-rules-node22.test.ts` (0 dependents)
 - `s_scan_rules_restored_test` — `tests/scan-rules-restored.test.ts` (0 dependents)
 - `s_scanner_smoke` — `tests/scanner-smoke.sh` (0 dependents)
+- `s_security_scanner_test` — `tests/security-scanner.test.ts` (0 dependents)
 - `s_setup_node_guard_test` — `tests/setup-node-guard.test.ts` (0 dependents)
 - `s_shipped_settings_test` — `tests/shipped-settings.test.ts` (0 dependents)
 - `s_skill_apply_lib_test` — `tests/skill-apply-lib.test.ts` (0 dependents)
@@ -211,8 +212,8 @@
 
 ## Findings
 
-- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 6898 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 11792 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 6981 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 12044 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/design-principles.md — docs/knowledge/design-principles.md is approximately 2639 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 3985 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/patterns.md — docs/knowledge/patterns.md is approximately 5004 tokens, exceeding the 2500-token warn threshold.

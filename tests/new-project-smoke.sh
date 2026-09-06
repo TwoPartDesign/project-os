@@ -895,12 +895,16 @@ assert_eq "$HOSTILE_MODE_BEFORE" "$HOSTILE_MODE_AFTER" "scenario12e: scripts/hos
 
 # ================================================================================
 # Scenario 13: update-project.sh TEMPLATE_SCRIPTS <-> template scripts/ must
-# agree in BOTH directions (#T171). The list is hand-maintained; drift in
-# either direction is otherwise silent -- a listed name with no file hashes
-# nothing, and a shipped script with no entry is never offered as an update to
-# any downstream project (how skill-apply.ts and skill-ledger.ts went missing).
-# The checkout is used as both the project root and the --local-upstream
-# source, so this exercises the real check in the real script.
+# be checked in BOTH directions (#T171), but the two directions carry
+# different severity. A listed name with no file behind it hashes nothing and
+# is a hard failure. A shipped script with no entry is never offered as an
+# update to any downstream project (how skill-apply.ts and skill-ledger.ts
+# went missing) -- serious, but only a stderr WARNING, exit 0: an older
+# downstream update-project.sh must still run against a newer upstream that
+# added a script, so this scenario (not the script's own exit code) is the
+# template repo's gate against that drift. The checkout is used as both the
+# project root and the --local-upstream source, so this exercises the real
+# check in the real script.
 # ================================================================================
 echo ""
 echo "=== Scenario 13: update-project.sh TEMPLATE_SCRIPTS matches the template scripts/ both ways ==="
@@ -912,11 +916,14 @@ UPD13_EC=$?
 if [ "$UPD13_EC" -eq 0 ]; then pass "scenario13: update-project_list-matches-template_exits-0"; else fail "scenario13: update-project exited $UPD13_EC on an in-sync template: $UPD13_OUT"; fi
 
 # Direction (b): a script present in the template but absent from the list.
+# Warning only, exit 0 -- an older downstream update-project.sh must keep
+# running against a newer upstream that added a script.
 printf '#!/usr/bin/env bash\necho "unlisted framework script"\n' > "$S13/scripts/zz-unlisted-fixture.sh"
 UPD13B_OUT="$(bash "$S13/scripts/update-project.sh" --local-upstream "$S13" 2>&1)"
 UPD13B_EC=$?
-if [ "$UPD13B_EC" -ne 0 ]; then pass "scenario13: update-project_script-not-in-list_exits-nonzero"; else fail "scenario13: update-project exited 0 despite an unlisted template script"; fi
-assert_contains "$UPD13B_OUT" "zz-unlisted-fixture.sh" "scenario13: update-project_script-not-in-list_names-the-file"
+if [ "$UPD13B_EC" -eq 0 ]; then pass "scenario13: update-project_script-not-in-list_exits-zero"; else fail "scenario13: update-project exited $UPD13B_EC on an unlisted template script (should warn, not fail): $UPD13B_OUT"; fi
+assert_contains "$UPD13B_OUT" "zz-unlisted-fixture.sh" "scenario13: update-project_script-not-in-list_warns-naming-the-file"
+assert_contains "$UPD13B_OUT" "WARNING" "scenario13: update-project_script-not-in-list_warning-labeled"
 rm -f "$S13/scripts/zz-unlisted-fixture.sh"
 
 # Direction (a): a name in the list with no file behind it in the template.
