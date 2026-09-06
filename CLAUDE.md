@@ -39,12 +39,13 @@ drafts-only loop, `security-scanner.ts`, `setup.sh`, `dashboard-server.ts`);
 
 **Data flow (build)**: ROADMAP.md markers are authoritative → parsed into
 native Tasks (`addBlockedBy` from `(depends:)`) → dispatch resolution
-(`(model:)` annotation → agent frontmatter → `(agent: codex)` → native
-default) → sub-agents in isolated worktrees → completion reports →
-batch-drain re-derives state from ROADMAP markers.
+(`(model:)` annotation → `(agent: codex)` adapter → roster agent frontmatter →
+`CLAUDE_CODE_SUBAGENT_MODEL` for unnamed spawns) → sub-agents in isolated
+worktrees → completion reports → batch-drain re-derives state from ROADMAP
+markers.
 
 **Compaction handoff chain** (3 stages, 2 hooks): (1) `compact-suggest.sh`
-nudges Claude via PostToolUse `additionalContext` once context passes ~65%
+nudges Claude via PostToolUse `additionalContext` once context passes 60%
 of the window, and claims handoff-file writes by session id on PreToolUse so
 ownership is known before compaction; (2) Claude runs `/tools:handoff`, the
 only stage that can author rationale; (3) `pre-compact.sh` (PreCompact) reads

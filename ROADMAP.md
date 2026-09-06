@@ -353,6 +353,7 @@ Approved in-session by the Approver on 2026-09-04 (design APPROVED, plan accepte
 ### Draft
 - [?] set-models and init presets set CLAUDE_CODE_AUTO_COMPACT_WINDOW per lead model (350000 fable, 200000 opus) — review r1 HIGH 4 follow-up #T173
 - [?] compete-review.md: weight the six axis scores so Correctness cannot be outvoted (multi-agent-judging.md R3) #T174
+- [?] aws-access-token misses some valid AKIA-prefixed keys of the same shape as ones it catches (sample pair in docs/specs/silently-broken-fixes/review.md) — likely the entropy gate #T175
 ### Todo
 ### In Progress
 ### Review
