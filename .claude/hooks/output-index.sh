@@ -33,13 +33,20 @@ fi
 # does the same job in 88ms. This is the hook that exists BECAUSE outputs get
 # large, so it is the one that was paying that most often.
 INPUT_FILE=$(mktemp)
-EXTRACT_FILE=$(mktemp)
+EXTRACT_DIR=$(mktemp -d)
 cat > "$INPUT_FILE"
-trap "rm -f '$INPUT_FILE' '$EXTRACT_FILE'" EXIT
+trap "rm -rf '$INPUT_FILE' '$EXTRACT_DIR'" EXIT
 
-INPUT_PATH="$INPUT_FILE" node > "$EXTRACT_FILE" 2>/dev/null << 'EXTRACT_SCRIPT' || exit 0
+# Each field lands in its own file under EXTRACT_DIR. No shell text is built
+# from payload content, so nothing is eval'd and nothing is escaped — the
+# previous key='value' + eval scheme doubled every backslash (corrupting
+# Windows paths in the index) and reinstated a whole-payload command
+# substitution this file's own comment above says was removed.
+INPUT_PATH="$INPUT_FILE" EXTRACT_DIR="$EXTRACT_DIR" node 2>/dev/null << 'EXTRACT_SCRIPT' || exit 0
 try {
-  const d = JSON.parse(require('fs').readFileSync(process.env.INPUT_PATH, 'utf8'));
+  const fs = require('fs');
+  const path = require('path');
+  const d = JSON.parse(fs.readFileSync(process.env.INPUT_PATH, 'utf8'));
   // PostToolUse delivers the tool's parameters as `tool_input` and its result
   // as `tool_response`. This hook read `arguments`/`output` — keys the runtime
   // has never sent — so every field came back empty, the size check compared 0
@@ -59,25 +66,25 @@ try {
     else if (typeof r.content === 'string') out = r.content;
     else out = JSON.stringify(r);
   }
-  const esc = s => (s || '').replace(/\\/g, '\\\\').replace(/'/g, "'\\''");
-  const lines = [
-    "TOOL_NAME='" + esc(d.tool_name || '') + "'",
-    "OUTPUT='" + esc(out) + "'",
-    "ARG_COMMAND='" + esc((args.command || '').substring(0,50)) + "'",
-    "ARG_FILE_PATH='" + esc(args.file_path || '') + "'",
-    "ARG_PATTERN='" + esc((args.pattern || '').substring(0,50)) + "'",
-    "ARG_URL='" + esc((args.url || '').substring(0,100)) + "'"
-  ];
-  console.log(lines.join('\n'));
+  const w = (name, v) => fs.writeFileSync(path.join(process.env.EXTRACT_DIR, name), v || '');
+  w('tool_name', d.tool_name);
+  w('output', out);
+  w('command', (args.command || '').substring(0, 50));
+  w('file_path', args.file_path);
+  w('pattern', (args.pattern || '').substring(0, 50));
+  w('url', (args.url || '').substring(0, 100));
 } catch { process.exit(1); }
 EXTRACT_SCRIPT
 
-# Safely read extracted fields using eval on a controlled temp file
-# Each line is key='value' format with shell-escaped content
-eval "$(cat "$EXTRACT_FILE")" || exit 0
-
-# If no output, nothing to do
-[ -z "$OUTPUT" ] && exit 0
+# The output file doubles as the indexer's input; the payload text never
+# enters a bash variable.
+TEMP_FILE="$EXTRACT_DIR/output"
+[ -s "$TEMP_FILE" ] || exit 0
+TOOL_NAME=$(cat "$EXTRACT_DIR/tool_name")
+ARG_COMMAND=$(cat "$EXTRACT_DIR/command")
+ARG_FILE_PATH=$(cat "$EXTRACT_DIR/file_path")
+ARG_PATTERN=$(cat "$EXTRACT_DIR/pattern")
+ARG_URL=$(cat "$EXTRACT_DIR/url")
 
 # Check if knowledge-index.ts exists — skip indexing entirely if not
 INDEX_SCRIPT="$PROJECT_ROOT/scripts/knowledge-index.ts"
@@ -88,7 +95,7 @@ THRESHOLD=$(node "$INDEX_SCRIPT" config threshold_bytes 2>/dev/null || echo "512
 [ -z "$THRESHOLD" ] && THRESHOLD=5120
 
 # Measure output size in bytes
-OUTPUT_SIZE=${#OUTPUT}
+OUTPUT_SIZE=$(wc -c < "$TEMP_FILE" | tr -d '[:space:]')
 
 # If under threshold, no action needed
 if [ "$OUTPUT_SIZE" -le "$THRESHOLD" ]; then
@@ -98,12 +105,8 @@ fi
 # Output exceeds threshold — index it
 OBS_COUNT=0
 OBS_FILE=""
-TEMP_FILE=$(mktemp)
-cleanup() { rm -f "$INPUT_FILE" "$EXTRACT_FILE" "$TEMP_FILE" "${OBS_FILE:-}"; }
+cleanup() { rm -rf "$INPUT_FILE" "$EXTRACT_DIR" "${OBS_FILE:-}"; }
 trap cleanup EXIT
-
-# Write output to temp file safely (printf avoids echo's backslash/flag issues)
-printf '%s' "$OUTPUT" > "$TEMP_FILE"
 
 # ── Extract structured observations ─────────────────────────────────────
 # Call the observation parser to extract typed facts from the output.

@@ -11,7 +11,7 @@ import {
   renameSync,
   chmodSync,
   readdirSync,
-  statSync,
+  lstatSync,
 } from "node:fs";
 import { resolve, join, relative, dirname } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -472,8 +472,10 @@ function scanContent(
 function validatePath(filePath: string, projectRoot: string): string {
   const abs = resolve(filePath);
   const absNorm = abs.replace(/\\/g, "/");
-  const rootNorm = projectRoot.replace(/\\/g, "/");
-  if (!absNorm.startsWith(rootNorm)) {
+  const rootNorm = projectRoot.replace(/\\/g, "/").replace(/\/+$/, "");
+  // Separator-anchored: `<root>-sibling/...` shares the root's prefix but is
+  // not inside it. Equality covers scanning the root itself.
+  if (absNorm !== rootNorm && !absNorm.startsWith(rootNorm + "/")) {
     process.stderr.write(`Error: path outside project root: ${filePath}\n`);
     process.exit(2);
   }
@@ -596,7 +598,20 @@ const SCAN_SKIP_DIRS = new Set([".git", "node_modules"]);
 function expandScanTargets(absPath: string): string[] {
   let isDir: boolean;
   try {
-    isDir = statSync(absPath).isDirectory();
+    // lstat, not stat: validatePath is lexical, so a symlink argument that
+    // passes it could still point outside the root. The pre-push hook feeds
+    // every tracked path in here, and a tracked symlink such as
+    // `docs -> ~/.ssh` would otherwise be walked and its contents echoed
+    // back as findings. Symlink arguments are refused outright, wherever
+    // they point — the child walk below already skips symlink Dirents.
+    const st = lstatSync(absPath);
+    if (st.isSymbolicLink()) {
+      process.stderr.write(
+        `Warning: skipping symlink argument ${absPath} (scan the target path directly)\n`,
+      );
+      return [];
+    }
+    isDir = st.isDirectory();
   } catch (err) {
     process.stderr.write(
       `Warning: could not stat ${absPath}: ${(err as Error).message}\n`,

@@ -350,3 +350,37 @@ point `compact-suggest.sh` should derive the window from it. `new-project.sh`
 copies the value to new projects, which is right for a Fable-led project and
 wrong (late nudge) for an Opus-led one; the `/tools:set-models` opus preset
 must set it back to `200000` alongside the model.
+
+---
+
+## 2026-09-06 — Orchestration Cost Controls
+
+**Decision**: Size every delegation and review to the diff, and write the
+thresholds into `lead.md` so they bind the lead session, not just advise it:
+changes under ~20 lines in one file are the lead's to make; tasks sharing a
+file run in sequence, not parallel worktrees; workers run only the suite
+covering their file and the lead runs the full suite once per wave; briefs
+carry a token budget (~40k one-file, ~80k multi-file) and a 150-word report
+cap; negative-probe evidence is asked for only when the test is the task;
+review is one Sonnet reviewer for text-shaped diffs, one Opus reviewer for
+code with a security surface, and the three-reviewer `inherit` pass once per
+feature as the ship gate; the lead reports the wave's summed sub-agent spend.
+
+**Context**: The first two Fable-led waves (2026-09-04 and 2026-09-06) were
+almost entirely markdown and small bash edits, yet spent ~1.1M and ~1.9M
+sub-agent tokens and hit the session limit twice. The spend came from shape,
+not volume: fourteen dispatches at 65-130k each, two Opus reviews at 170-190k,
+review rounds that spawned fix rounds, briefs demanding negative probes that
+doubled every test run, workers running nine-minute suites, parallel worktrees
+on one test file that produced a reconciliation task, and five-line edits
+dispatched with a 50k-token brief-and-report overhead.
+
+**Alternatives Considered**:
+- **Lower effort on Opus workers** — rejected: effort is the reasoning-depth control; a task that needs thinking should not run at reduced effort, and a task that does not is Sonnet work (see the 2026-09-04 amendment).
+- **Drop the roster and run everything in the lead** — rejected: the lead is the most expensive model; the split is right, the sizing was wrong.
+- **Advisory guidance only** — rejected: the previous lead.md already said "work so small the brief costs more than the doing" and it was not followed; a numeric threshold is checkable, a sentiment is not.
+
+**Rationale**: The orchestration shape is only cheaper than a single session
+when the brief-and-report overhead is small relative to the work. Concrete
+thresholds make the lead's judgment auditable after the fact (sum the spend,
+count the dispatches under twenty lines) and give the user a lever to adjust.

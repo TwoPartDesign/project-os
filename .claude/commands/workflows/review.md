@@ -16,6 +16,20 @@ if git rev-parse --verify main &>/dev/null; then BASE="main"; else BASE="master"
 git diff "${BASE}...HEAD"
 ```
 
+## Review sizing
+
+Size the pass to the diff before spawning anything (`.claude/rules/lead.md`
+Routing). A text-shaped diff — markdown, rules, command prose, config — gets
+**one** reviewer (`reviewer-architecture` with `model: sonnet`) covering drift,
+consistency, and test gaps in a single context. Code with a security or
+correctness surface — hooks, the scanner, scripts touching git or the
+filesystem — gets **one** reviewer (`reviewer-security` with `model: opus`)
+covering security and correctness together. The full three-reviewer pass below,
+at the lead's tier (`inherit`), is the **ship gate**: run it once per feature
+before `/workflows:ship`, not after every wave. Findings under about twenty
+lines in one file are the Lead's to fix directly; do not dispatch a worker for
+them.
+
 ## Isolation
 
 All three reviewers run with `isolation: worktree` for filesystem isolation (prevents reviewers from modifying the working tree). Cross-reviewer isolation is enforced by **prompt separation** — each sub-agent receives only its own instructions and review focus. The Lead (you) is the only entity that reads all three reports.

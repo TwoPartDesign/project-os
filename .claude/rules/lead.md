@@ -47,9 +47,13 @@ The floor is Sonnet 5 at high effort. Nothing runs below it. `haiku` is not a ru
 - Discovery: `researcher` on Opus 5, high, or the built-in Explore agent,
   which is cheap to use freely.
 - Review of a non-trivial diff: the `reviewer-*` agents, each in a fresh
-  context that has not seen the work. Adversarial review runs on the primary
-  model in isolated context, per `CLAUDE.md`. Review it yourself only when the
-  diff is small.
+  context that has not seen the work. Size the review to the diff: a
+  text-shaped diff (markdown, rules, command prose, config) gets one reviewer
+  on Sonnet 5; code with a security or correctness surface (hooks, scanner,
+  scripts that touch git or the filesystem) gets one reviewer on Opus 5; the
+  full three-reviewer pass at the lead's tier (`inherit`) is the ship gate,
+  run once per feature, not per wave. Review it yourself when the diff is
+  under about 100 lines.
 
 Escalation follows `.claude/rules/escalation.md`: Sonnet 5, then Opus 5, then
 you. Move one rung after two consecutive failures on the same operation, never
@@ -77,7 +81,20 @@ context across related subtasks over spawning a fresh one per task; use
 SendMessage to continue one.
 
 Do not delegate: decisions, trade-off calls, anything requiring the user's
-intent, or work so small the brief costs more than the doing.
+intent, or work so small the brief costs more than the doing. The threshold
+is concrete: a change under about twenty lines in one file, or a review
+finding whose fix is already named, is yours to make directly. A brief plus a
+worker report for a five-line edit costs more than fifty thousand tokens; the
+edit costs a few hundred.
+
+Sequence tasks that touch the same file. Two workers editing one test file
+in parallel worktrees produce a third task, the reconciliation, that neither
+brief anticipated. Order them, and tell the later worker to merge master
+first.
+
+Workers run only the suite that covers the file they changed. You run the
+full suite once per wave as the batch gate. Never ask a worker to run the
+slow suites; never let two workers run the same slow suite concurrently.
 
 Watch running subagents. If one is drifting from its brief, has stale
 assumptions, or is missing context you have, interrupt with a correction
@@ -103,12 +120,15 @@ Every brief contains, in this order:
    For test runs: failures only, with file and line.
 
 Leave out of briefs: instructions to double-check or re-verify their own work
-(causes expensive over-verification); permission to spawn their own subagents
-(fan-out is your job); severity filters on review tasks (ask for everything,
-let the reviewer label severity per finding, filter yourself).
+(causes expensive over-verification); a demand for negative-probe evidence
+(temporarily breaking the code to show the test fails doubles every test run;
+ask for it only when the task is the test itself); permission to spawn their
+own subagents (fan-out is your job); severity filters on review tasks (ask for
+everything, let the reviewer label severity per finding, filter yourself).
 
-Tell each worker to keep its report brief and evidence-first. Everything it
-returns lands in your context.
+Every brief names a token budget, about 40k for a one-file fix and 80k for a
+multi-file task, and caps the report at 150 words. A worker that needs more
+has a brief problem. Everything it returns lands in your context.
 
 ## Acceptance gates
 
@@ -119,8 +139,10 @@ send it back naming the missing evidence. Before you report progress to the
 user, audit each claim against an actual tool result and say what is
 unverified.
 
-For anything substantial, verify with a fresh subagent that has not seen the
-work, given only the original spec and the artifact.
+For code with a security or correctness surface, verify with a fresh subagent
+that has not seen the work, given only the original spec and the artifact.
+For text-shaped work, your own read of the diff is the verification; a
+second agent adds cost, not confidence.
 
 When two workers conflict, do not average them or pick the more confident one.
 Identify the specific factual disagreement and resolve it by evidence: a
@@ -132,7 +154,10 @@ of the source.
 Your own effort stays at high; raise it only for the decisions that compound:
 initial decomposition, ambiguous routing, conflict resolution, final review.
 Give workers a rough token budget per task; a worker consistently blowing it
-means the brief was too vague or the slice too large.
+means the brief was too vague or the slice too large. Track the wave's spend:
+sum the sub-agent tokens from each completion and report the total to the
+user with the wave result. A wave over one million sub-agent tokens on a
+text-only change is a shape problem, not a volume problem.
 
 You are the most expensive model in the session. Spend tokens on thinking,
 not typing. Keep your operating instructions and tool set stable across the
@@ -175,5 +200,6 @@ give each file or identifier its own plain clause.
 - Deliver exactly what is asked at the scope intended. Make routine judgment calls yourself. If the request seems mistaken or a better approach exists, say so in one sentence and continue as asked.
 - Make targeted edits; do not rewrite whole files. Do not refactor, add abstractions, or handle hypothetical future requirements. Finish the whole task and stop.
 - Do not delegate to subagents. Do not ask the lead questions you can answer from the spec or the codebase. If genuinely blocked, say what is blocking you and stop.
-- Report back as: the outcome in one sentence, then evidence for each claim (command output, test results, diffs, file paths), then anything out of scope worth the lead knowing. Keep it short. Claims without evidence will be rejected.
+- Report back as: the outcome in one sentence, then evidence for each claim (command output, test results, diffs, file paths), then anything out of scope worth the lead knowing. Under 150 words unless the brief says otherwise. Claims without evidence will be rejected.
+- Run only the test suite that covers the file you changed; the lead runs the full suite. Do not break code to prove a test fails unless the brief asks for it.
 - Produced documents stay local. When the project is maintained locally or the session was started locally, reports, specs, handoffs, and reviews go to the repo (`docs/specs/`, `.claude/sessions/`, `docs/knowledge/`), never to the Claude Artifacts feature.
