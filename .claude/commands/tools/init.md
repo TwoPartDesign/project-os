@@ -369,12 +369,16 @@ Standard mappings:
 
 For each file containing placeholders, make all replacements in a single edit pass.
 
-Also apply model routing from Round 5: update the `## Model Routing` section of `CLAUDE.md` to reflect the chosen models:
+Also apply model routing from Round 5: update the `## Model Routing` section of `CLAUDE.md` to reflect the chosen models. Emit the block below — it is `CLAUDE.template.md`'s `## Model Routing` section line for line, with `[MODEL_ORCHESTRATION]` and `[MODEL_SUBAGENT]` substituted in the two model positions. Do not shorten it to the retired two-line orchestration/sub-agent shape:
 
 ```markdown
 ## Model Routing
-- **Orchestration & design**: [MODEL_ORCHESTRATION]
-- **Sub-agent implementation**: [MODEL_SUBAGENT] (via `CLAUDE_CODE_SUBAGENT_MODEL`)
+- **Lead**: `[MODEL_ORCHESTRATION]` (set via `"model"` in settings.json; `opus` on plans without Fable)
+- **Default sub-agent**: `sonnet` at high effort via `implementer`/`documenter` frontmatter, for any task with a complete brief and checkable acceptance criteria
+- **Judgment tier**: `opus` at high effort via `(model: opus)` annotations or `researcher`, for reconciling sources, test design, root-causing, cross-system refactors, and escalation after a Sonnet failure. `CLAUDE_CODE_SUBAGENT_MODEL` stays `[MODEL_SUBAGENT]` as the tier for any unnamed spawn
+- **Reviewers**: `inherit`
+- **Adversarial review**: Primary model with isolated context
+- **Agent adapters**: Per-task routing via `(agent: <name>)` — see `.claude/agents/adapters/INTERFACE.md`
 ```
 
 Set the models in `.claude/settings.json` (create the file if it doesn't exist, preserving any existing keys):
@@ -382,6 +386,7 @@ Set the models in `.claude/settings.json` (create the file if it doesn't exist, 
 ```json
 {
   "model": "[MODEL_ORCHESTRATION]",
+  "fallbackModel": ["opus", "sonnet"],
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "[MODEL_SUBAGENT]"
   }
@@ -389,7 +394,8 @@ Set the models in `.claude/settings.json` (create the file if it doesn't exist, 
 ```
 
 - `"model"` sets the orchestration/session model (aliases like `"opus"` resolve to the current Opus)
-- `env.CLAUDE_CODE_SUBAGENT_MODEL` routes sub-agent tasks
+- `"fallbackModel"` is the safety net: an ordered list the session falls back through when the primary model is unavailable, so a plan without Fable still lands on `opus`, then `sonnet`, instead of failing
+- `env.CLAUDE_CODE_SUBAGENT_MODEL` routes sub-agent tasks that are spawned without a roster name; a named roster agent takes its own `model:` frontmatter first
 
 Settings take effect on the next Claude Code session — no shell profile changes needed.
 

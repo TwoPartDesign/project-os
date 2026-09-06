@@ -52,7 +52,7 @@ Do NOT over-interview. If the idea is clear enough, skip to Step 2.
 
 ## Step 2: Parallel research (sub-agents)
 
-Run the parallel research protocol from `/tools:research` with up to 2 agents. That command defines the fan-out mechanics: agent dispatch via the researcher role spec, the `BASH_AGENT_RULES` injection from `.claude/rules/bash.md`, and the per-agent output format. Do not restate them here.
+Run the parallel research protocol from `/tools:research` with up to 2 agents. That command defines the fan-out mechanics: dispatch by name as `subagent_type: "researcher"`, per `/tools:research`, the `BASH_AGENT_RULES` injection from `.claude/rules/bash.md`, and the per-agent output format. Do not restate them here.
 
 For a feasibility brief, use these two questions:
 

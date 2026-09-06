@@ -37,14 +37,48 @@ const ROSTER_NAMES: readonly string[] = [
  * Agent types the Claude Code CLI provides itself. This list is coupled to the
  * installed CLI version — when the CLI adds or renames a built-in, this list
  * must be updated by hand; nothing in the repo can derive it.
+ *
+ * `general-purpose` is deliberately absent: it is the fallback the roster
+ * exists to replace, so it is accepted only in the files named by
+ * GENERAL_PURPOSE_ALLOWED_FILES below.
  */
 const BUILTIN_SUBAGENT_TYPES: readonly string[] = [
-  "general-purpose",
   "Explore",
   "Plan",
   "claude-code-guide",
   "claude",
   "statusline-setup",
+];
+
+/**
+ * The only files allowed to dispatch `general-purpose`. A command that reverts
+ * to it anywhere else — with a pasted role paragraph in place of a roster file
+ * — is the exact regression this suite exists to catch, so it must fail.
+ */
+const GENERAL_PURPOSE_ALLOWED_FILES: readonly string[] = [
+  ".claude/commands/tools/dream.md",
+];
+
+/**
+ * Top-level `.claude/agents/*.md` files that are reference docs, not agents,
+ * and so carry no frontmatter. `adapters/` is excluded structurally — the
+ * agent-file sweep reads only the top level.
+ */
+const NON_AGENT_FILES: readonly string[] = ["roles.md", "handoffs.md"];
+
+/** The agent that each spawn file must dispatch by literal name. */
+const SPAWN_FILE_EXPECTED_AGENTS: ReadonlyArray<
+  readonly [string, readonly string[]]
+> = [
+  [".claude/commands/workflows/build.md", ["implementer", "documenter"]],
+  [
+    ".claude/commands/workflows/review.md",
+    ["reviewer-architecture", "reviewer-security", "reviewer-tests"],
+  ],
+  [".claude/commands/workflows/design.md", ["reviewer-architecture"]],
+  [".claude/commands/workflows/compete.md", ["implementer"]],
+  [".claude/commands/workflows/compete-review.md", ["reviewer-architecture"]],
+  [".claude/commands/tools/research.md", ["researcher"]],
 ];
 
 const VALID_MODELS = new Set(["sonnet", "opus", "fable", "inherit"]);
@@ -209,51 +243,105 @@ function guidanceFiles(): string[] {
 // Roster registration
 // ==========================================================================
 
+/**
+ * Every registration rule Claude Code applies to an agent file, checked against
+ * one already-parsed frontmatter block. Returns human-readable problems; an
+ * empty list means the file registers. Pure — no shared state between callers.
+ */
+function registrationProblems(rel: string, fm: Frontmatter): string[] {
+  const problems: string[] = [];
+  const stem = basename(rel, ".md");
+  const f = fm.fields;
+
+  if (f.name !== stem) {
+    problems.push(
+      `${rel}: name is ${JSON.stringify(f.name)}, must equal the filename stem "${stem}"`,
+    );
+  }
+  if (typeof f.description !== "string" || f.description.length === 0) {
+    problems.push(`${rel}: description is missing or empty`);
+  } else if (!fm.quotedKeys.has("description")) {
+    problems.push(
+      `${rel}: description must be a double-quoted string (it contains commas and colons)`,
+    );
+  }
+  if (typeof f.model !== "string" || !VALID_MODELS.has(f.model)) {
+    problems.push(
+      `${rel}: model is ${JSON.stringify(f.model)}, must be one of ${[...VALID_MODELS].join(", ")}`,
+    );
+  }
+  if (typeof f.effort !== "string" || !VALID_EFFORTS.has(f.effort)) {
+    problems.push(
+      `${rel}: effort is ${JSON.stringify(f.effort)}, must be one of ${[...VALID_EFFORTS].join(", ")}`,
+    );
+  }
+  if (
+    !Array.isArray(f.disallowedTools) ||
+    !f.disallowedTools.includes("Agent")
+  ) {
+    problems.push(
+      `${rel}: disallowedTools is ${JSON.stringify(f.disallowedTools)}, must include "Agent" — fan-out is the Lead's job`,
+    );
+  }
+  return problems;
+}
+
 describe("agent roster registration", () => {
-  it("roster_everyAgentFileWithRole_hasValidRegistration", () => {
+  it("roster_everyRosterName_hasValidRegistration", () => {
+    // Driven by ROSTER_NAMES, not by what the files happen to contain: a file
+    // that drops `name:`, `model:` or its whole frontmatter must fail here.
+    const problems: string[] = [];
+    for (const name of ROSTER_NAMES) {
+      const rel = `.claude/agents/${name}.md`;
+      if (!existsSync(resolve(ROOT, rel))) {
+        problems.push(
+          `${rel}: file does not exist, so "${name}" is not a registered agent`,
+        );
+        continue;
+      }
+      const fm = parseFrontmatter(read(rel));
+      if (fm === null) {
+        problems.push(
+          `${rel}: no YAML frontmatter, so Claude Code never registers "${name}"`,
+        );
+        continue;
+      }
+      problems.push(...registrationProblems(rel, fm));
+    }
+    ok(
+      problems.length === 0,
+      `invalid roster registrations:\n${problems.join("\n")}`,
+    );
+  });
+
+  it("roster_everyNonReferenceAgentFile_hasNameAndDescription", () => {
+    // Sweep over extra agent files beyond the six. `roles.md` and
+    // `handoffs.md` are reference docs; `adapters/` is excluded structurally
+    // because topLevelAgentFiles() reads only the top level.
     const problems: string[] = [];
     for (const rel of topLevelAgentFiles()) {
-      const fm = parseFrontmatter(read(rel));
-      if (fm === null) continue;
-      if (!("role" in fm.fields)) continue;
-
+      if (NON_AGENT_FILES.includes(basename(rel))) continue;
       const stem = basename(rel, ".md");
-      const f = fm.fields;
-
-      if (f.name !== stem) {
+      const fm = parseFrontmatter(read(rel));
+      if (fm === null) {
         problems.push(
-          `${rel}: name is ${JSON.stringify(f.name)}, must equal the filename stem "${stem}"`,
+          `${rel}: no YAML frontmatter — every .claude/agents/*.md file except ${NON_AGENT_FILES.join(", ")} must register`,
+        );
+        continue;
+      }
+      if (fm.fields.name !== stem) {
+        problems.push(
+          `${rel}: name is ${JSON.stringify(fm.fields.name)}, must equal the filename stem "${stem}"`,
         );
       }
-      if (typeof f.description !== "string" || f.description.length === 0) {
+      const description = fm.fields.description;
+      if (typeof description !== "string" || description.length === 0) {
         problems.push(`${rel}: description is missing or empty`);
-      } else if (!fm.quotedKeys.has("description")) {
-        problems.push(
-          `${rel}: description must be a double-quoted string (it contains commas and colons)`,
-        );
-      }
-      if (typeof f.model !== "string" || !VALID_MODELS.has(f.model)) {
-        problems.push(
-          `${rel}: model is ${JSON.stringify(f.model)}, must be one of ${[...VALID_MODELS].join(", ")}`,
-        );
-      }
-      if (typeof f.effort !== "string" || !VALID_EFFORTS.has(f.effort)) {
-        problems.push(
-          `${rel}: effort is ${JSON.stringify(f.effort)}, must be one of ${[...VALID_EFFORTS].join(", ")}`,
-        );
-      }
-      if (
-        !Array.isArray(f.disallowedTools) ||
-        !f.disallowedTools.includes("Agent")
-      ) {
-        problems.push(
-          `${rel}: disallowedTools is ${JSON.stringify(f.disallowedTools)}, must include "Agent" — fan-out is the Lead's job`,
-        );
       }
     }
     ok(
       problems.length === 0,
-      `invalid agent registrations:\n${problems.join("\n")}`,
+      `these .claude/agents/*.md files do not carry a valid name+description registration:\n${problems.join("\n")}`,
     );
   });
 
@@ -373,39 +461,68 @@ describe("command dispatch sites", () => {
         for (const m of line.matchAll(
           /subagent_type:\s*["']?([A-Za-z0-9_-]+)["']?/g,
         )) {
-          if (!known.has(m[1])) offenders.push(`${rel}:${i + 1} -> ${m[1]}`);
+          const named = m[1];
+          if (named === "general-purpose") {
+            if (!GENERAL_PURPOSE_ALLOWED_FILES.includes(rel)) {
+              offenders.push(
+                `${rel}:${i + 1} -> general-purpose (allowed only in ${GENERAL_PURPOSE_ALLOWED_FILES.join(", ")})`,
+              );
+            }
+            continue;
+          }
+          if (!known.has(named)) offenders.push(`${rel}:${i + 1} -> ${named}`);
         }
       });
     }
     ok(
       offenders.length === 0,
-      "these dispatch sites name an agent type that is neither a roster file nor a CLI built-in.\n" +
+      "these dispatch sites name an agent type that is neither a roster file nor a permitted CLI built-in.\n" +
         `The built-in list (${BUILTIN_SUBAGENT_TYPES.join(", ")}) is CLI-version-coupled: ` +
         "if the CLI added or renamed a built-in, update BUILTIN_SUBAGENT_TYPES in this test.\n" +
+        "`general-purpose` is not on that list: it is the fallback the roster replaces, " +
+        `and is accepted only in ${GENERAL_PURPOSE_ALLOWED_FILES.join(", ")}.\n` +
         offenders.join("\n"),
     );
   });
 
-  it("commands_sixSpawnFiles_haveLiteralSubagentType", () => {
-    const spawnFiles = [
-      ".claude/commands/workflows/build.md",
-      ".claude/commands/workflows/review.md",
-      ".claude/commands/workflows/design.md",
-      ".claude/commands/workflows/compete.md",
-      ".claude/commands/workflows/compete-review.md",
-      ".claude/commands/tools/research.md",
-    ];
+  it("commands_sixSpawnFiles_nameTheirExpectedRosterAgents", () => {
+    // Not a substring check: each file must name every agent the design maps
+    // to it, by a literal roster name. review.md dropping a reviewer, or
+    // build.md naming reviewer-tests, has to fail here.
     const offenders: string[] = [];
-    for (const rel of spawnFiles) {
+    for (const [rel, expected] of SPAWN_FILE_EXPECTED_AGENTS) {
       if (!existsSync(resolve(ROOT, rel))) {
-        offenders.push(`${rel} (file does not exist)`);
+        offenders.push(`${rel}: file does not exist`);
         continue;
       }
-      if (!/subagent_type:/.test(read(rel))) offenders.push(rel);
+      const named = new Set<string>();
+      for (const m of read(rel).matchAll(
+        /subagent_type:\s*["']?([A-Za-z0-9_-]+)["']?/g,
+      )) {
+        named.add(m[1]);
+      }
+      if (named.size === 0) {
+        offenders.push(
+          `${rel}: no literal \`subagent_type:\` line, so dispatch is left to prose`,
+        );
+        continue;
+      }
+      const missing = expected.filter((n) => !named.has(n));
+      if (missing.length > 0) {
+        offenders.push(
+          `${rel}: expected ${expected.join(", ")}; missing ${missing.join(", ")} (found ${[...named].sort().join(", ")})`,
+        );
+      }
+      const nonRoster = [...named].filter((n) => !ROSTER_NAMES.includes(n));
+      if (nonRoster.length > 0) {
+        offenders.push(
+          `${rel}: dispatches ${nonRoster.join(", ")}, which is not a roster name`,
+        );
+      }
     }
     ok(
       offenders.length === 0,
-      `these commands spawn agents but carry no literal \`subagent_type:\` line, so dispatch is left to prose: ${offenders.join(", ")}`,
+      `these commands do not dispatch the roster agents the design maps to them:\n${offenders.join("\n")}`,
     );
   });
 });

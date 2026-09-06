@@ -73,8 +73,10 @@ Resolve per task:
 
 0. `(model: <model>)` annotation in ROADMAP.md → native dispatch with that model, passed as the Agent tool's `model:` override
 1. `(agent: <name>)` annotation in ROADMAP.md → external adapter `.claude/agents/adapters/<name>.sh`
-2. No annotation → the `model:` (and `effort:`) frontmatter of the registered agent file in `.claude/agents/` (`implementer.md` is `opus`/`high`; `documenter.md` is `sonnet`/`high`)
+2. No annotation → the `model:` (and `effort:`) frontmatter of the registered agent file in `.claude/agents/` (`implementer.md` is `sonnet`/`high`; `documenter.md` is `sonnet`/`high`)
 3. No agent-file frontmatter → the sub-agent default model (`CLAUDE_CODE_SUBAGENT_MODEL` in `.claude/settings.json`)
+
+**Tiers:** `sonnet`/`high` is the default executor — any task with a complete brief and checkable acceptance criteria. `opus`/`high` is the judgment tier: reach it with a `(model: opus)` annotation (step 0) when the task asks the worker to decide — reconciling conflicting sources, designing a test, root-causing a bug, a refactor spanning systems. Move the model, not the effort. The ladder is `sonnet` → `opus` → `fable`; raise effort `high` → `xhigh` before raising the model when the failure is reasoning depth rather than capability.
 
 `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` is never set — it would override every agent file's own `model:` frontmatter and collapse the roster onto one tier.
 
@@ -139,7 +141,7 @@ Agent(
 ```
 Use `subagent_type: "documenter"` instead when the task is **docs-only** — every file in its scope is under `docs/`, or is `README.md`, `CHANGELOG.md`, or a root-level `*.md`. Any other task, including one that touches a single source or script file alongside docs, goes to `implementer`.
 
-If the named agent type is unknown, halt with the escalation message "Retry cap reached on dispatch. Blocker: agent <name> not registered. Suggested next: run tests/agent-roster.test.ts." Never fall back to an unregistered generic agent type — the task would silently land on the env-var model tier instead of the roster tier.
+If the named agent type is unknown, halt with the escalation message "Retry cap reached on dispatch. Blocker: agent <name> not registered. Suggested next: run tests/agent-roster.test.ts." Never fall back to `general-purpose` or any agent not in the roster — the task would silently land on the env-var model tier instead of the roster tier.
 
 **External adapter path** (only for `(agent: <name>)` tasks): prepare a context packet on disk and invoke the adapter:
 ```bash

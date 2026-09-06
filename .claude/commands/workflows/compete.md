@@ -48,7 +48,7 @@ Agent(
 )
 ```
 
-If the named agent type is unknown, halt with the escalation message "Retry cap reached on dispatch. Blocker: agent <name> not registered. Suggested next: run tests/agent-roster.test.ts." Never fall back to an unregistered generic agent type — the competitor would silently land on the env-var model tier instead of the roster tier.
+If the named agent type is unknown, halt with the escalation message "Retry cap reached on dispatch. Blocker: agent <name> not registered. Suggested next: run tests/agent-roster.test.ts." Never fall back to `general-purpose` or any agent not in the roster — the competitor would silently land on the env-var model tier instead of the roster tier.
 
 All agents run in parallel (respecting `max_concurrent_agents`).
 
