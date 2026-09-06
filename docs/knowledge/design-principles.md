@@ -82,19 +82,18 @@ Bare aliases only, never dated IDs.
 - Frequency: continuous — it is the primary session
 - Cost/benefit: the most expensive model in the session, so it spends tokens on thinking rather than typing. It does not implement, read large files, or grind through mechanical work. Set via `"model"` in settings.json.
 
-### Default Executor: `opus`, high effort
+### Default Executor: `sonnet`, high effort
 
-- The majority of delegated work, including debugging, lands here via the `implementer` agent
+- Any task with a complete brief and checkable acceptance criteria lands here via the `implementer` and `documenter` agents — most Project OS work
 - Context: only task-specific context (10-15% of full project context)
 - Frequency: parallel implementation across multiple tasks
-- Cost/benefit: strong one-shot execution on a complete brief and a clean context window. Raise effort to `xhigh` for a hard root cause or a refactor spanning systems — effort before model.
+- Cost/benefit: `sonnet` at high effort is the floor. Nothing runs below it; there is no cheaper rung. Move the model, not the effort: a task specified tightly enough that Opus would not need to think is Sonnet work (revised 2026-09-04 after the first Fable-led build spent most of its sub-agent tokens on Opus executing markdown edits).
 
-### Mechanical Work: `sonnet`, high effort
+### Judgment Tier: `opus`, high effort
 
-- Renames, file moves, doc tweaks, a single well-specified function
-- Context: the spec and the target files, nothing more
-- Frequency: whenever a task is tightly scoped enough to be fully specified
-- Cost/benefit: `sonnet` at high effort is the floor. Nothing runs below it; there is no cheaper rung.
+- Reconciling conflicting sources, designing a test, root-causing a bug, a refactor spanning systems, and escalation after a Sonnet failure
+- Dispatched per invocation (`model: opus`) or via a ROADMAP `(model: opus)` annotation; `researcher` runs here by default
+- Cost/benefit: strong one-shot execution where the brief itself asks the worker to decide. Raise effort to `xhigh` for a hard root cause — effort before model.
 
 ### Adversarial Review: `inherit` (Isolated Context)
 

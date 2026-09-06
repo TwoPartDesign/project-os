@@ -90,8 +90,8 @@ Loaded every session, every project. Personal preferences, interaction style, mo
 
 ## Model Routing
 - Lead: `fable` (`opus` on plans without Fable)
-- Default sub-agent: `opus` at high effort, via `CLAUDE_CODE_SUBAGENT_MODEL` and agent-file frontmatter
-- Mechanical tier: `sonnet` at high effort (renames, moves, doc tweaks, single well-specified functions) via `documenter` or `(model: sonnet)` annotations
+- Default sub-agent: `sonnet` at high effort via `implementer`/`documenter` frontmatter, for any task with a complete brief and checkable acceptance criteria
+- Judgment tier: `opus` at high effort via `(model: opus)` annotations or `researcher`, for reconciling sources, test design, root-causing, cross-system refactors, and escalation after a Sonnet failure. `CLAUDE_CODE_SUBAGENT_MODEL` stays `opus` as the tier for any unnamed spawn
 - Reviewers: `inherit`
 
 ## Global Rules

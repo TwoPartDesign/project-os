@@ -37,8 +37,8 @@ Never skip from idea to build. The design phase catches 80% of mistakes.
 
 ## Model Routing
 - **Lead**: `fable` (set via `"model"` in settings.json; `opus` on plans without Fable)
-- **Default sub-agent**: `opus` at high effort, via `CLAUDE_CODE_SUBAGENT_MODEL` and agent-file frontmatter
-- **Mechanical tier**: `sonnet` at high effort (renames, moves, doc tweaks, single well-specified functions) via `documenter` or `(model: sonnet)` annotations
+- **Default sub-agent**: `sonnet` at high effort via `implementer`/`documenter` frontmatter, for any task with a complete brief and checkable acceptance criteria
+- **Judgment tier**: `opus` at high effort via `(model: opus)` annotations or `researcher`, for reconciling sources, test design, root-causing, cross-system refactors, and escalation after a Sonnet failure. `CLAUDE_CODE_SUBAGENT_MODEL` stays `opus` as the tier for any unnamed spawn
 - **Reviewers**: `inherit`
 - **Adversarial review**: Primary model with isolated context
 - **Agent adapters**: Per-task routing via `(agent: <name>)` — see `.claude/agents/adapters/INTERFACE.md`

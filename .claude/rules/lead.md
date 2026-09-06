@@ -33,11 +33,17 @@ brief instead. The exceptions are work small enough to be cheaper than a brief
 
 The floor is Sonnet 5 at high effort. Nothing runs below it. `haiku` is not a rung. <!-- roster-test: allow -->
 
-- Default executor: `implementer` on Opus 5, high effort. The majority of work
-  goes here, including debugging. Raise to xhigh for a hard root cause or a
-  refactor that spans systems.
-- Tightly scoped mechanical work (renames, moves, doc tweaks, a single
-  well-specified function): `implementer` or `documenter` on Sonnet 5, high.
+- Default executor: `implementer` on Sonnet 5, high effort. Anything with a
+  complete brief and grep-checkable acceptance criteria goes here, which is
+  most Project OS work. Move the model, not the effort: a task specified
+  tightly enough that Opus would not need to think is Sonnet work, and a task
+  that needs thinking should not run Opus at reduced effort.
+- Judgment tier: `implementer` with `model: opus` per invocation (or a ROADMAP
+  `(model: opus)` annotation), high effort, when the brief itself asks the
+  worker to decide: reconciling conflicting sources, designing a test,
+  root-causing a bug, a refactor that spans systems. Raise to xhigh for a hard
+  root cause. Escalate here after a Sonnet failure.
+- Doc-only work: `documenter` on Sonnet 5, high.
 - Discovery: `researcher` on Opus 5, high, or the built-in Explore agent,
   which is cheap to use freely.
 - Review of a non-trivial diff: the `reviewer-*` agents, each in a fresh

@@ -293,9 +293,14 @@ gains `name`, `description`, `model`, and `effort` frontmatter so Claude Code
 registers it, and every workflow command spawns an agent by name
 (`subagent_type: implementer`, `reviewer-security`, …) rather than
 `general-purpose` with a role paragraph pasted into the prompt. Tiers: the lead
-(primary session) runs `fable`; the default executor is `opus` at high effort;
-tightly-scoped mechanical work is `sonnet` at high effort; reviewers `inherit`
-so adversarial review runs at the lead's tier. `sonnet` is the floor — `haiku`
+(primary session) runs `fable`; the default executor is `sonnet` at high effort
+for any task with a complete brief; `opus` at high effort is the judgment tier
+(reconciling sources, test design, root-causing, cross-system refactors,
+escalation); reviewers `inherit` so adversarial review runs at the lead's tier.
+*Amended 2026-09-04, same day*: the tiers originally shipped as `opus` default /
+`sonnet` mechanical. The first Fable-led build spent most of its sub-agent
+budget on Opus executing fully specified markdown edits, so the default moved
+down a rung — move the model, not the effort. `sonnet` is the floor — `haiku`
 is removed from live guidance and is no longer a rung. The escalation ladder
 becomes `sonnet → opus → fable`, raising effort (`high → xhigh`) before raising
 the model. The human role splits in two: **Approver** (every gate that needs

@@ -1,7 +1,7 @@
 ---
 name: implementer
 description: "Implements one approved ROADMAP task exactly as specified, with tests. Used by /workflows:build, compete, and rebuild."
-model: opus
+model: sonnet
 effort: high
 isolation: worktree
 disallowedTools: [Agent, Task]

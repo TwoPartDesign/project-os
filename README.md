@@ -161,8 +161,8 @@ Five layers with distinct lifespans:
 | Role | Model | Why |
 |---|---|---|
 | Lead | `fable` (`opus` on plans without Fable) | Complex reasoning, architecture, dispatch |
-| Default sub-agent | `opus` at high effort | Independent implementation quality |
-| Mechanical tier | `sonnet` at high effort | Renames, moves, doc tweaks, single well-specified functions |
+| Default sub-agent | `sonnet` at high effort | Any task with a complete brief and checkable acceptance criteria |
+| Judgment tier | `opus` at high effort | Reconciling sources, test design, root-causing, cross-system refactors, escalation after a Sonnet failure |
 | Reviewers | `inherit` | Consistent judgment with the lead |
 | Adversarial review | Primary model (isolated) | Independent judgment |
 
