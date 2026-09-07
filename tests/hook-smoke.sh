@@ -516,6 +516,37 @@ assert_file_absent "sessionEnd_noLogDir_doesNotCreateOne" "$SB/.claude/logs"
 
 echo ""
 
+# ── notify-phase-change.sh ──────────────────────────────────────────────────
+# #T172 made the Windows branch terminal-only: no notify-send/osascript call,
+# just the stderr line — that line IS the notification on that platform, so
+# its whole contract is checked together here. The hook takes positional CLI
+# args rather than a JSON stdin payload and touches no project state, so it
+# runs directly against the repo's own hook rather than through
+# run_hook/new_sandbox's copy-and-pipe machinery; the sandbox is used only to
+# capture stdout/stderr. This is deliberately $PROJECT_ROOT, not $REAL_HOOKS:
+# notify-phase-change.sh is not in HOOK_NAMES (tests/hook-smoke-negctl.sh), so
+# a mutant dir never contains it, and pointing at $REAL_HOOKS would make this
+# assertion fail against every mutant for a missing-file reason unrelated to
+# whatever the mutant is sabotaging.
+echo "notify-phase-change.sh:"
+
+SB=$(new_sandbox)
+bash "$PROJECT_ROOT/.claude/hooks/notify-phase-change.sh" review-requested some-feature \
+    >"$SB/notify.out" 2>"$SB/notify.err"
+NOTIFY_EXIT=$?
+NOTIFY_OUT=$(cat "$SB/notify.out" 2>/dev/null || true)
+NOTIFY_ERR=$(cat "$SB/notify.err" 2>/dev/null || true)
+
+if [ "$NOTIFY_EXIT" -eq 0 ] \
+    && printf '%s' "$NOTIFY_ERR" | grep -Eq '^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\] PROJECT-OS:' \
+    && [ -z "$NOTIFY_OUT" ]; then
+    ok "notifyPhaseChange_windowsTerminalOnly_exit0StderrLineNoStdout"
+else
+    nope "notifyPhaseChange_windowsTerminalOnly_exit0StderrLineNoStdout — exit=$NOTIFY_EXIT stdout=[$NOTIFY_OUT] stderr=[$NOTIFY_ERR]"
+fi
+
+echo ""
+
 # ── Payload schema hygiene ──────────────────────────────────────────────────
 # output-index.sh read `arguments` and `output` off the PostToolUse payload for
 # its whole life. The runtime sends `tool_input` and `tool_response`, so every

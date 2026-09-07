@@ -510,7 +510,8 @@ verify_template_scripts_list() {
 
     echo "ERROR: TEMPLATE_SCRIPTS in scripts/update-project.sh lists scripts not present in $scripts_dir:" >&2
     printf '%s' "$missing_files" >&2
-    echo "Fix TEMPLATE_SCRIPTS in scripts/update-project.sh (and the sibling list in scripts/generate-manifest.sh)." >&2
+    echo "This usually means a stale upstream cache (\$PROJECT_OS_UPSTREAM_CACHE, default ~/.project-os-upstream-cache) that predates one of these scripts. Refresh it with a git pull in the cache dir (the same pull the pre-push hook runs) and retry before assuming TEMPLATE_SCRIPTS itself is wrong." >&2
+    echo "If the cache is current, fix TEMPLATE_SCRIPTS in scripts/update-project.sh (and the sibling list in scripts/generate-manifest.sh)." >&2
     return 1
 }
 
