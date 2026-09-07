@@ -49,9 +49,20 @@ Pass this tiering scheme to the sub-agent in Step 3 so it applies the same stand
 
 ## Step 3: Spawn ONE consolidation sub-agent
 
-Spawn exactly one `general-purpose` sub-agent with an explicit `model: sonnet`.
-Contradiction detection between sources requires judgment, and this command runs
-infrequently enough that the cost difference doesn't matter.
+Spawn exactly one `documenter` sub-agent (Sonnet, high effort — dispatch by roster
+name, never `general-purpose`). Contradiction detection between sources requires
+judgment, and this command runs infrequently enough that the cost difference
+doesn't matter.
+
+**Staging path must be absolute and point at the main repo.** `documenter` runs in
+an isolated worktree, and `docs/memory/` is gitignored. A worktree with no tracked
+changes is deleted when the agent finishes, and the gitignored staging directory
+goes with it — the 2026-09-06 dream pass lost all ten output files this way and
+had to be recovered from the agent transcript. Give the agent the full absolute
+path `<main-repo-root>/docs/memory/.dream-output/<timestamp>/` and say explicitly
+that its worktree is not the destination. The same applies to any input paths you
+hand it: the worktree copy of `docs/memory/` and `.claude/sessions/` is empty,
+because both are gitignored.
 
 Before spawning, read `.claude/rules/bash.md` and `.claude/rules/lead.md` and extract
 the full content of each one's `## Agent Rules` section — sub-agents do not inherit

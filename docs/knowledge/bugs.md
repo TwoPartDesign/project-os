@@ -98,3 +98,13 @@ Each entry: Date, Symptom, Root Cause, Fix, Prevention Rule
 **Fix**: None. `#T175` closed. The existing `AWS_FIXTURE` in `tests/security-scanner.test.ts` is a valid base32 key and stays the canonical fixture.
 
 **Prevention Rule**: When a "same shape" pair diverges in scanner output, diff the two strings against the rule's character class before suspecting entropy or allowlists.
+
+### 2026-09-06 — Worktree-isolated agent output lost when the destination is gitignored
+
+**Symptom**: The `/tools:dream` consolidation agent (#T153, `documenter`) reported ten files written under `docs/memory/.dream-output/2026-09-06-1800/`. After it returned, the directory did not exist anywhere in the repo and `git worktree list` showed no worktree for it.
+
+**Root Cause**: `documenter` has `isolation: worktree`. The agent wrote into its worktree's copy of `docs/memory/`, which is gitignored. The harness removes a worktree that has no tracked changes when the agent finishes, and untracked-ignored files are removed with it. From git's point of view the agent produced nothing.
+
+**Fix**: Recovered the files by replaying the `Write` tool calls from the agent transcript (`~/.claude/projects/<project>/<session>/subagents/agent-<id>.jsonl`) into the main repo. `dream.md` Step 3 now requires an absolute main-repo staging path and warns that the worktree is not the destination.
+
+**Prevention Rule**: Any brief to a worktree-isolated agent whose deliverable lands in a gitignored path (`docs/memory/`, `docs/specs/`, `.claude/sessions/`) must give the absolute main-repo path. Inputs under those paths are likewise invisible inside the worktree; pass absolute paths for them too. When a report claims files exist, verify with Glob against the main repo before the worktree is gone.
