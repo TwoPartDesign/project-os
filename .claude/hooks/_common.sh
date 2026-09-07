@@ -106,7 +106,7 @@ canonicalize_payload_path() {
     # compared against roots and against `realpath`-canonicalized candidates,
     # all of which are physical. A logical answer here would reintroduce the
     # mismatch on a symlinked checkout.
-    if dir=$(cd "$dir" 2>/dev/null && pwd -P); then
+    if dir=$(cd -- "$dir" 2>/dev/null && pwd -P); then
         case "$dir" in
             */) printf '%s%s' "$dir" "$base" ;;
             *)  printf '%s/%s' "$dir" "$base" ;;

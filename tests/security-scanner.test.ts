@@ -30,6 +30,7 @@ import {
   writeFileSync,
   rmSync,
   realpathSync,
+  symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, dirname, join } from "node:path";
@@ -238,6 +239,48 @@ describe("scan-files accepts directory arguments", () => {
         !/No findings\./.test(r.stdout),
         `scanning nothing must not be reported as clean, got: ${r.stdout}`,
       );
+    });
+  });
+
+  // #T176 LOW finding: a symlink argument is refused wherever it points
+  // (expandScanTargets lstats the argument itself), so pointing one at a
+  // secret-bearing file outside the project root must neither report that
+  // secret nor silently pass — it must warn on stderr and exit 2, the same
+  // "scanned nothing" contract as an empty directory.
+  it("scanFiles_symlinkArgument_notFollowedWarnsAndReportsNothing", (t) => {
+    withProbeDir((dir) => {
+      const outsideDir = mkdtempSync(join(tmpdir(), "scanner-t176-"));
+      try {
+        const outsideFile = join(outsideDir, "secret.txt");
+        writeFileSync(outsideFile, `aws_key = "${AWS_FIXTURE}"\n`, "utf-8");
+
+        const linkPath = join(dir, "link-to-outside");
+        try {
+          symlinkSync(outsideFile, linkPath);
+        } catch {
+          // Windows without developer mode / symlink privilege: EPERM.
+          t.skip("symlink creation unsupported");
+          return;
+        }
+
+        const r = runScanner(["scan-files", linkPath], ROOT);
+        strictEqual(
+          r.status,
+          2,
+          `expected exit 2 (nothing scanned), got ${r.status}: ${r.stdout}${r.stderr}`,
+        );
+        match(r.stderr, /skipping symlink argument/);
+        ok(
+          !r.stdout.includes(AWS_FIXTURE),
+          `symlink target's secret must not be reported, got: ${r.stdout}`,
+        );
+        ok(
+          !/No findings\./.test(r.stdout),
+          `scanning nothing must not be reported as clean, got: ${r.stdout}`,
+        );
+      } finally {
+        rmSync(outsideDir, { recursive: true, force: true, maxRetries: 3 });
+      }
     });
   });
 });

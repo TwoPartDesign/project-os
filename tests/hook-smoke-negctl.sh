@@ -122,8 +122,14 @@ STUB_SURVIVORS_OK='_(exitsZero|notOnStdout|doesNotIndex|noHint|indexerNeverInvok
 # vacuously (see the comment above it in hook-smoke.sh). It is therefore
 # invariant across every mutant here, stub included: nothing this script builds
 # changes what it checks, so it is always expected to survive.
+#
+# notifyPhaseChange_windowsTerminalOnly_exit0StderrLineNoStdout is the same
+# shape: notify-phase-change.sh is not in HOOK_NAMES, so it is never copied
+# into a mutant dir, and the assertion runs it from $PROJECT_ROOT/.claude/hooks
+# directly rather than $REAL_HOOKS. It is therefore invariant here too.
 STUB_STATIC_SURVIVORS="payloadSchema_fixturesInThisFile_nameToolInputAndToolResponse
-payloadSchema_hookScripts_readToolInputAndToolResponse"
+payloadSchema_hookScripts_readToolInputAndToolResponse
+notifyPhaseChange_windowsTerminalOnly_exit0StderrLineNoStdout"
 
 echo "=== mutant 1: all hooks stubbed to \`exit 0\` ==="
 STUB_STATUS=0
