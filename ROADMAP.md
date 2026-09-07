@@ -188,7 +188,7 @@ Small quality items surfaced during self-maintenance / #T9 reviews (2026-07-17).
 - [x] skill-edit: reflect.md — add-op proposed text must not repeat the anchor (applied 1ec83b7) #T96
   <!-- maint-fp: skill-edit:.claude/commands/tools/reflect.md:add-op-anchor-duplication -->
   <!-- proposal: docs/specs/skill-optimization-loop/skill-edits.md Proposal 3 -->
-- [ ] Investigate recurring Bash failures (6 since 2026-07-30T21:11:49Z) #T152
+- [x] Investigate recurring Bash failures (6 since 2026-07-30T21:11:49Z) — all six cluster with round-13 compaction/hook commits, same expected-friction classification as #T62; bugs.md 2026-09-06 entry #T152
   <!-- maint-fp: failures:Bash:6 -->
 - [ ] Run /tools:dream — 12 memory files / 42 session files, consolidation due #T153
   <!-- maint-fp: dream:12:42 -->
@@ -351,9 +351,9 @@ Two pre-existing defects found while verifying #T112's rewrite. Both make named 
 ## Feature: fable-orchestrator-alignment
 Approved in-session by the Approver on 2026-09-04 (design APPROVED, plan accepted, build authorised); tasks were recorded at `[~]` after the build rather than passing through a separate `/pm:approve` commit. Review r1 (2026-09-06) FAIL → fixes merged → PASS; see docs/specs/fable-orchestrator-alignment/review.md.
 ### Draft
-- [ ] set-models and init presets set CLAUDE_CODE_AUTO_COMPACT_WINDOW per lead model (350000 fable, 200000 opus) — review r1 HIGH 4 follow-up #T173
-- [ ] compete-review.md: weight the six axis scores so Correctness cannot be outvoted (multi-agent-judging.md R3) #T174
-- [ ] aws-access-token misses some valid AKIA-prefixed keys of the same shape as ones it catches (sample pair in docs/specs/silently-broken-fixes/review.md) — likely the entropy gate #T175
+- [~] set-models and init presets set CLAUDE_CODE_AUTO_COMPACT_WINDOW per lead model (350000 fable, 200000 opus) — review r1 HIGH 4 follow-up #T173
+- [~] compete-review.md: weight the six axis scores so Correctness cannot be outvoted (multi-agent-judging.md R3) #T174
+- [x] aws-access-token misses some valid AKIA-prefixed keys of the same shape as ones it catches (sample pair in docs/specs/silently-broken-fixes/review.md) — not a gap: the missed sample contains a `9`, outside the base32 alphabet `[A-Z2-7]` real AWS key IDs use; rule is correct as ported from gitleaks; bugs.md 2026-09-06 entry #T175
 ### Todo
 ### In Progress
 ### Review

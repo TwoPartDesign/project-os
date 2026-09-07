@@ -62,24 +62,40 @@ The 1-5 axis scores are **content**, not a replacement for the reviewer's report
 
 ## Step 3: Synthesize
 
-Create a unified comparison matrix:
+Create a unified comparison matrix. The axes are weighted so that a cosmetic
+axis cannot outvote correctness (an unweighted sum let an implementation lose
+on Correctness and still win on total — see
+`docs/knowledge/multi-agent-judging.md` R3):
 
 ```
-                  Literal   Minimal   Extensible
-Correctness       [1-5]     [1-5]     [1-5]
-Simplicity        [1-5]     [1-5]     [1-5]
-Robustness        [1-5]     [1-5]     [1-5]
-Readability       [1-5]     [1-5]     [1-5]
-Testability       [1-5]     [1-5]     [1-5]
-Convention fit    [1-5]     [1-5]     [1-5]
-──────────────────────────────────────────────
-TOTAL             [sum]     [sum]     [sum]
+                  Weight   Literal   Minimal   Extensible
+Correctness       x3       [1-5]     [1-5]     [1-5]
+Robustness        x2       [1-5]     [1-5]     [1-5]
+Testability       x2       [1-5]     [1-5]     [1-5]
+Simplicity        x1       [1-5]     [1-5]     [1-5]
+Readability       x1       [1-5]     [1-5]     [1-5]
+Convention fit    x1       [1-5]     [1-5]     [1-5]
+────────────────────────────────────────────────────────
+WEIGHTED TOTAL    /50      [sum]     [sum]     [sum]
 ```
+
+Weighted total = Σ(score × weight); the maximum is 50. Two gates apply before
+the totals are compared:
+
+- **Correctness gate**: an approach scoring below 4 on Correctness cannot
+  place first, whatever its total. Mark it `(gated)` in the matrix and rank
+  it after every approach that clears the gate.
+- **Blocking finding gate**: any CRITICAL or HIGH finding in a reviewer's
+  `SEVERITY / FILE:LINES / ISSUE / FIX` report gates that approach the same
+  way, regardless of its axis scores.
+
+If every approach is gated, say so — that is a task-spec problem (Step 4,
+third bullet), not a ranking problem.
 
 ## Step 4: Recommendation
 
-Based on the scores and the project's principle "Ship working software over perfect software":
-- Recommend the approach with the best balance
+Based on the gated, weighted scores and the project's principle "Ship working software over perfect software":
+- Recommend the approach with the best balance among those that clear both gates
 - Call out if any approach is clearly superior
 - Flag if all approaches have the same weakness (task spec issue)
 

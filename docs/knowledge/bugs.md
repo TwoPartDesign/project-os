@@ -74,3 +74,27 @@ Each entry: Date, Symptom, Root Cause, Fix, Prevention Rule
 **Fix**: None needed in `getProjectRoot()` itself — it's working as designed (walk-up marker resolution). The fix is in fixture construction: every fixture repo must create a `.claude/` dir so the walk terminates inside the fixture, not at the real machine's home directory.
 
 **Prevention Rule**: Any test that builds a throwaway repo/fixture and then calls (directly or transitively) `getProjectRoot()` must create a `.claude/` dir in that fixture as part of setup, before any containment/path assertion. Found during #T89's test authoring.
+
+### 2026-09-06 — #T152 Bash-failure log, second investigation
+
+**Symptom**: The maintenance loop filed `#T152` for 6 `Bash` failures in `.claude/logs/tool-failures.log` since 2026-07-30T21:11:49Z.
+
+**Investigation**: The six timestamps (UTC) are 2026-07-30 21:17:33, 21:34:53, 21:37:07, 23:40:55 and 2026-07-31 00:02:03, 00:03:19. All fall inside the round-13 compaction-hardening session: the first three sit between `73473ac`/`247ccae` (20:08Z, 21:02Z) and `779a921` (22:33Z, "one local gate that runs every suite"), while `tests/run-all.sh` was being built and exercised; the fourth and the last pair sit 34 and 11 minutes before `c3ccbd8` (2026-07-31 00:14Z, "make compaction ownership work on Windows"), hook-testing work. No burst (nothing closer than 76 seconds apart), no cluster without an adjacent commit.
+
+**Root Cause**: Same as #T62 — scanner friction during Bash-heavy hook and test development on Windows, not a defect.
+
+**Fix**: None. `#T152` closed as expected friction.
+
+**Prevention Rule**: Unchanged from #T62. The actionable signal remains a many-in-seconds burst or a cluster with no adjacent commit or activity event; neither appeared here.
+
+### 2026-09-06 — #T175 aws-access-token "gap" is the base32 alphabet
+
+**Symptom**: The silently-broken-fixes review reported that `scan-files` flagged the test fixture `AKIA` + `QYLPMN5HG3WKZ7TQ` but not a second key of "identical shape", `AKIA` + `Q7RZ4XB2MJVK9TWD`, and suspected the entropy gate.
+
+**Investigation**: The rule's regex is `(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16}` (`scripts/lib/scan-rules.js`, ported from gitleaks). The second sample contains a `9`, which is outside `[A-Z2-7]`, so the regex never matched and the entropy gate was never reached. Real AWS access key IDs are base32-encoded and cannot contain `0`, `1`, `8`, or `9`; the alphabet restriction is deliberate upstream and reduces false positives on hex-shaped strings.
+
+**Root Cause**: Reviewer sample error, not a scanner defect.
+
+**Fix**: None. `#T175` closed. The existing `AWS_FIXTURE` in `tests/security-scanner.test.ts` is a valid base32 key and stays the canonical fixture.
+
+**Prevention Rule**: When a "same shape" pair diverges in scanner output, diff the two strings against the rule's character class before suspecting entropy or allowlists.

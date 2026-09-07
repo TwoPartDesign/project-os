@@ -403,10 +403,20 @@ Set the models in `.claude/settings.json` (create the file if it doesn't exist, 
   "model": "[MODEL_ORCHESTRATION]",
   "fallbackModel": ["opus", "sonnet"],
   "env": {
-    "CLAUDE_CODE_SUBAGENT_MODEL": "[MODEL_SUBAGENT]"
+    "CLAUDE_CODE_SUBAGENT_MODEL": "[MODEL_SUBAGENT]",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "[COMPACT_WINDOW]"
   }
 }
 ```
+
+`[COMPACT_WINDOW]` follows `MODEL_ORCHESTRATION`: `350000` when the lead is
+`fable`, `200000` when it is `opus` or `sonnet`. The compaction chain
+(`compact-suggest.sh` and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`) measures context
+pressure against this number, so a mismatched window fires the handoff nudge
+either far too late (Fable window, Opus lead) or at about 43% of the real
+window (Opus window, Fable lead). When the session lands on a `fallbackModel`
+the window is oversized for that session — known and accepted
+(`docs/knowledge/decisions.md`, 2026-09-04 rider).
 
 - `"model"` sets the orchestration/session model (aliases like `"opus"` resolve to the current Opus)
 - `"fallbackModel"` is the safety net: an ordered list the session falls back through when the primary model is unavailable, so a plan without Fable still lands on `opus`, then `sonnet`, instead of failing

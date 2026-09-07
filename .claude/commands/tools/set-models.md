@@ -61,13 +61,23 @@ Create or update `.claude/settings.json`, preserving any existing keys:
 {
   "model": "[MODEL_ORCHESTRATION]",
   "env": {
-    "CLAUDE_CODE_SUBAGENT_MODEL": "[MODEL_SUBAGENT]"
+    "CLAUDE_CODE_SUBAGENT_MODEL": "[MODEL_SUBAGENT]",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "[COMPACT_WINDOW]"
   }
 }
 ```
 
 - `"model"` sets the orchestration/session model (aliases like `"opus"` resolve to the current Opus)
 - `env.CLAUDE_CODE_SUBAGENT_MODEL` routes sub-agent tasks
+- `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW` is the context-window size the
+  compaction chain (`compact-suggest.sh`, `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`)
+  measures against. It follows the **lead** model, so set it whenever
+  `"model"` changes: `350000` when the lead is `fable`, `200000` when the lead
+  is `opus` or `sonnet`. A Fable-sized window under an Opus lead fires the
+  handoff nudge far too late; an Opus-sized window under a Fable lead fires it
+  at about 43% of the real window. If a `fallbackModel` list is set and the
+  session lands on the fallback, the window is oversized for that session —
+  known and accepted (`docs/knowledge/decisions.md`, 2026-09-04 rider).
 - Per-task overrides remain available via `(model: <model-id>)` annotations in ROADMAP.md
 
 ## Step 4: Update `CLAUDE.md`
