@@ -92,6 +92,20 @@ in parallel worktrees produce a third task, the reconciliation, that neither
 brief anticipated. Order them, and tell the later worker to merge master
 first.
 
+Worktree workers self-ground or they fail quietly (`docs/knowledge/patterns.md`,
+"Brief Every Worktree Worker to Self-Ground First"): the brief opens with
+`git merge master`, passes absolute main-repo paths for anything under a
+gitignored directory — `docs/specs/`, `docs/memory/`, `.claude/sessions/` are
+empty inside the worktree, and output written there is deleted with it — and
+requires a commit. Glob the main repo for claimed files before the worktree
+is gone.
+
+A worker killed mid-task by a session or spend limit is resumed, not
+restarted: SendMessage to the same agent continues from its transcript, and
+the resumed worker audits its own worktree state before doing anything else.
+Three builds have confirmed this works cleanly; a fresh spawn repeats the
+work and loses the context.
+
 Workers run only the suite that covers the file they changed. You run the
 full suite once per wave as the batch gate. Never ask a worker to run the
 slow suites; never let two workers run the same slow suite concurrently.
@@ -143,6 +157,14 @@ For code with a security or correctness surface, verify with a fresh subagent
 that has not seen the work, given only the original spec and the artifact.
 For text-shaped work, your own read of the diff is the verification; a
 second agent adds cost, not confidence.
+
+Reviewer findings are claims too. Adversarial review has missed a CRITICAL
+that Codex caught, reported gaps that a five-minute script refuted, and
+needed four rounds to close one feature. Before dispatching a fix for a
+non-trivial finding, confirm it empirically — a short probe script, a
+targeted test, or your own read of the source — and record the disposition
+next to the finding. The 2026-09-06 aws-access-token "gap" (#T175) was a
+reviewer sample outside the rule's character class.
 
 When two workers conflict, do not average them or pick the more confident one.
 Identify the specific factual disagreement and resolve it by evidence: a

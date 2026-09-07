@@ -179,3 +179,15 @@ Corollary — **placeholder-scanning cannot find this class**. A setup command t
 **Example**: `build.md` dispatches `subagent_type: "implementer"` and passes only the task spec; the implementer's tier (`sonnet`, `effort: high`), its worktree isolation, its no-fan-out fence, and its evidence-first report contract all come from `.claude/agents/implementer.md`. Reviewers carry `model: inherit` so adversarial review runs at the lead's tier from every caller that spawns one.
 
 **Anti-pattern**: `subagent_type: "general-purpose"` with a hand-written role paragraph in the command — five spawn points then hold five drifting copies of the same role, and none of them can carry a tier. Also: setting `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`, which overrides frontmatter and flattens every tier back into one.
+
+---
+
+### Brief Every Worktree Worker to Self-Ground First
+
+**When to Use**: Any brief to a worktree-isolated agent (`implementer`, `documenter`) — every wave after the first, and any task whose inputs or outputs live under a gitignored path.
+
+**Pattern**: A worktree is a snapshot of master at spawn time with the gitignored tree missing. Four failure modes recur, and the brief pre-empts all four: (1) the worktree forks a stale HEAD — the brief's first instruction is `git merge master`; (2) gitignored directories (`docs/specs/`, `docs/memory/`, `docs/research/`, `.claude/sessions/`) are empty inside it — the brief passes absolute main-repo paths for anything it needs from them; (3) output written to a gitignored path is deleted with the worktree when nothing tracked changed — the brief names the absolute main-repo destination and says the worktree is not it, and the lead Globs the main repo for the claimed files before the agent is gone; (4) work sometimes lands uncommitted on the branch — the brief requires a commit, and the lead checks `git status` in the worktree before merging, integrating by copy if the branch is empty.
+
+**Example**: The 2026-09-06 dream pass wrote ten staged files under `docs/memory/.dream-output/` inside the documenter's worktree; the harness removed the worktree as unchanged and the files went with it. They were recovered by replaying the `Write` calls from the agent transcript, and `dream.md` now requires the absolute main-repo staging path. The same session's #T176 brief opened with `git merge master` and closed with a required `git commit -F`, and merged cleanly.
+
+**Anti-pattern**: A brief that says "read the spec in docs/specs/<feature>/" or "write the report to docs/specs/<feature>/tasks/TN/" with relative paths — the worker finds an empty directory, or writes into one that will not survive. Or trusting a completion report's "files written" without a Glob against the main repo.
