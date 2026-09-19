@@ -93,8 +93,9 @@ Non-Goals and Research Findings).
   calls). Keep the request under 32k tokens for `state` plus the longest
   question, 64k total.
 - Soft: thresholds live under `project_os.jev` in settings, shaped like the
-  existing `context_filter` block, and are read through
-  `scripts/lib/policy.ts`.
+  existing `context_filter` block, and are read the way
+  `scripts/knowledge-index.ts` reads that block (corrected by the design:
+  `scripts/lib/policy.ts` reads the maintenance YAML, not settings).
 
 ## Non-Goals
 
