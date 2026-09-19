@@ -388,6 +388,16 @@ Approved in-session 2026-09-06 per the plan the Approver signed off on 2026-09-0
 - [x] notify-phase-change.sh: Windows branch terminal-only, drop the MessageBox; update architecture.md wording (model: sonnet) #T172
 
 
+## Feature: jev-integration
+Jev (TypeSafe AI) as an optional, off-by-default typed-decision backend for the deterministic layer. Brief: `docs/specs/jev-integration/brief.md`.
+### Draft
+- [?] Jev integration — Brief created, awaiting design #T177
+- [?] security-scanner.ts: flag a bare `sk-[A-Za-z0-9]{20,}` token with no adjacent key name (confirmed 2026-09-19: `scan-files` returns "No findings."); prerequisite for any code that reads TYPESAFE_API_KEY #T178
+### Todo
+### In Progress
+### Review
+### Done
+
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->
 - [x] SOTA adoption — workflow ergonomics (RE-SCOPED 2026-07-17, SHIPPED same day): shipped `/goal` wave/MVP exit predicates + wave-handoff artifact + `tools:update --diff-upstream`. `tools:audit-knowledge` dropped (subsumed by self-maintenance maintain.sh/system-map); `tools:sota-scan` deferred as machine-local. Needs a short re-scoping design pass first. Revised plan: `.claude/plans/sota-adoption-2026-05.md` (see REVISED SCOPE block) #T34
