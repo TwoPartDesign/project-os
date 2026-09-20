@@ -57,7 +57,7 @@
 - `l_common` — `.claude/hooks/_common.sh` (14 dependents)
 - `l_dashboard_render` — `scripts/lib/dashboard-render.ts` (5 dependents)
 - `l_decide` — `scripts/lib/decide.ts` (1 dependent)
-- `l_egress_guard` — `scripts/lib/egress-guard.ts` (3 dependents)
+- `l_egress_guard` — `scripts/lib/egress-guard.ts` (4 dependents)
 - `l_json` — `scripts/lib/json.sh` (2 dependents)
 - `l_policy` — `scripts/lib/policy.ts` (10 dependents)
 - `l_project_root` — `scripts/lib/project-root.ts` (21 dependents)
@@ -83,7 +83,7 @@
 - `s_memory_search` — `scripts/memory-search.sh` (0 dependents)
 - `s_new_project` — `scripts/new-project.sh` (0 dependents)
 - `s_observation_parser` — `scripts/observation-parser.ts` (0 dependents)
-- `s_review_triage` — `scripts/review-triage.ts` (0 dependents)
+- `s_review_triage` — `scripts/review-triage.ts` (1 dependent)
 - `s_scrub_secrets` — `scripts/scrub-secrets.sh` (0 dependents)
 - `s_security_scanner` — `scripts/security-scanner.ts` (1 dependent)
 - `s_setup` — `scripts/setup.sh` (0 dependents)
@@ -171,6 +171,7 @@
 - `c_workflows_rebuild` --references--> `h_log_activity`
 - `c_workflows_review` --references--> `h_log_activity`
 - `c_workflows_review` --references--> `h_notify_phase_change`
+- `c_workflows_review` --references--> `s_review_triage`
 - `c_workflows_review` --references--> `s_system_map`
 - `c_workflows_ship` --references--> `h_log_activity`
 - `c_workflows_ship` --references--> `s_create_pr`
@@ -241,7 +242,6 @@
 - MEDIUM orphan-script s_install_hooks — Script scripts/install-hooks.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_memory_search — Script scripts/memory-search.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_observation_parser — Script scripts/observation-parser.ts has no incoming references and is not in the orphan allowlist.
-- MEDIUM orphan-script s_review_triage — Script scripts/review-triage.ts has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_scrub_secrets — Script scripts/scrub-secrets.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_setup — Script scripts/setup.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_validate_freshness — Script scripts/validate-freshness.sh has no incoming references and is not in the orphan allowlist.

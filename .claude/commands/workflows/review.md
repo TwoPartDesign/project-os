@@ -185,6 +185,21 @@ After gate decision:
 
 After all three reviewers complete:
 
+0. **Triage**: Write each reviewer's raw report verbatim to
+   `docs/specs/$ARGUMENTS/review-raw/architecture.md`,
+   `docs/specs/$ARGUMENTS/review-raw/security.md`, and
+   `docs/specs/$ARGUMENTS/review-raw/tests.md`. Write
+   `git diff --name-only "${BASE}...HEAD"` to
+   `docs/specs/$ARGUMENTS/review-raw/changed-files.txt`. Run:
+   ```bash
+   node scripts/review-triage.ts "docs/specs/$ARGUMENTS" --changed-files "docs/specs/$ARGUMENTS/review-raw/changed-files.txt"
+   ```
+   The printed table is advisory input to steps 1-3 below and decides
+   nothing — `review-raw/` sits under the gitignored spec directory. When the
+   written `docs/specs/$ARGUMENTS/review-triage.json` header shows
+   `"backend": "jev"`, quote its `lift` values (duplicates, scope, and
+   severity changed versus the heuristic) in the review report's summary so
+   every review records what Jev changed.
 1. **Deduplicate**: Remove findings that multiple reviewers flagged identically
 2. **Cross-validate**: For each CRITICAL/HIGH finding, verify it's accurate by checking the actual code yourself — reviewers can hallucinate
 3. **Cost-benefit**: For MEDIUM/LOW findings, assess if fixing is worth the effort for a personal project
