@@ -117,6 +117,17 @@
         "auto_detect_dates": true,
         "recency_halflife_days": 14
       }
+    },
+    "jev": {
+      "enabled": false,
+      "model": "jev-latest",
+      "timeout_ms": 5000,
+      "max_body_tokens": 60000,
+      "thresholds": {
+        "duplicate_p": 0.85,
+        "out_of_scope_p": 0.8,
+        "severity_confidence": 0.8
+      }
     }
   },
   "hooks": {
