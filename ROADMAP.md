@@ -391,12 +391,22 @@ Approved in-session 2026-09-06 per the plan the Approver signed off on 2026-09-0
 ## Feature: jev-integration
 Jev (TypeSafe AI) as an optional, off-by-default typed-decision backend for the deterministic layer. Brief: `docs/specs/jev-integration/brief.md`.
 ### Draft
-- [?] Jev integration — Brief created, awaiting design #T177
-- [?] security-scanner.ts: flag a bare `sk-[A-Za-z0-9]{20,}` token with no adjacent key name (confirmed 2026-09-19: `scan-files` returns "No findings."); prerequisite for any code that reads TYPESAFE_API_KEY #T178
+- [?] scan-rules.js: add `bare-sk-token` rule (MEDIUM, entropy-gated, excludes `sk-ant-`/`sk-proj-`/`sk-svcacct-`/`sk-admin-`) + three scan-files tests; closes the 2026-09-19 "No findings." probe #T178
+- [?] scripts/lib/decide.ts core: types, JEV_ENDPOINT constant, DEFAULT_JEV_CONFIG, readJevConfig, heuristicBackend, decide() skeleton with disabled/no-key declines, defaultLogger; tests/decide.test.ts #T179
+- [?] scripts/lib/egress-guard.ts pure part: SENSITIVE_KEY_RE ported from observation-parser.ts, escapeField/unescapeField, redactSensitivePairs, shannonEntropy, redactHighEntropyTokens, redactFields; tests/egress-guard.test.ts #T180
+- [?] settings.json `project_os.jev` block (enabled:false) + `Bash(node scripts/review-triage.ts*)` permission; create .claude/security/egress-allowlist.json for api.typesafe.ai #T181
+- [?] tests/fixtures/review-raw/{architecture,security,tests}.md + changed-files.txt: 7 findings, dup pairs A1/S1 and S2/Q2, out-of-scope S3, ` / ` inside Q1, planted ghp_ token in S2 #T182
+- [?] egress-guard.ts subprocess part: resolveEgressDir (0700, realpath-contained), guardEgressFields (wx 0600 staging, scrub, line-count check, positive scan-files re-scan, cleanup) with refusal tests (depends: #T178, #T180) #T183
+- [?] scripts/review-triage.ts heuristic path: parseFindings (last-separator split), heuristicCandidates (overlap or Jaccard >= 0.6, scope in_diff/adjacent/unrelated), applyHeuristic, renderTable, CLI with isMain guard writing review-triage.json; tests/review-triage.test.ts (depends: #T179, #T182) #T184
+- [?] decide.ts Jev backend: collectOutboundFields, guardEgressFields integration, body rebuilt from guarded fields, size cap, fetch with redirect manual + timeout, per-question response validation, jev-queried/jev-declined logging, egress-allowlist parity test (depends: #T179, #T181, #T183) #T185
+- [?] review-triage.ts Jev path: pick(), buildQuestions (dup_/scope_/sev_ questions, 160k chunking), applyAnswers with thresholds, scrubbed review-triage.json output, --calibrate table, exported runTriage(deps) (depends: #T184, #T185) #T186
+- [?] Wire review.md Synthesis step 0 (write review-raw/, run review-triage, advisory only); log-activity.sh events comment; metrics.md subsection for jev-queried/jev-declined (depends: #T186) #T187
+- [?] architecture.md rows for decide.ts/egress-guard.ts/review-triage.ts + bare-sk-token and egress-allowlist notes; decisions.md ADR "Hosted Decision API (Jev) as an Optional Addon Behind a Local Heuristic"; regenerate .claude/manifest.json (depends: #T187) #T188
 ### Todo
 ### In Progress
 ### Review
 ### Done
+- [x] Jev integration — Brief created, awaiting design (retired 2026-09-20: superseded by #T178-#T188 after design APPROVED) #T177
 
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->
