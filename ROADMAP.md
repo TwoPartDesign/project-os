@@ -194,6 +194,12 @@ Small quality items surfaced during self-maintenance / #T9 reviews (2026-07-17).
   <!-- maint-fp: dream:12:42 -->
 - [x] Run /tools:dream — 13 memory files / 44 session files, consolidation due (duplicate of #T153, retired 2026-09-06) #T165
   <!-- maint-fp: dream:13:44 -->
+- [?] skill-edit: build.md — worktree briefs merge the feature branch, not master #T190
+  <!-- maint-fp: skill-edit:.claude/commands/workflows/build.md:worktree-merge-feature-branch -->
+  <!-- proposal: docs/specs/jev-integration/skill-edits.md Proposal 1 -->
+- [?] skill-edit: ship.md — PR fallback when gh is unavailable #T191
+  <!-- maint-fp: skill-edit:.claude/commands/workflows/ship.md:pr-without-gh-cli -->
+  <!-- proposal: docs/specs/jev-integration/skill-edits.md Proposal 2 -->
 
 ### Todo
 
