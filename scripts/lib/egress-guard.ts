@@ -15,6 +15,21 @@
 // distribution. security-scanner.ts is NOT imported here — its module top
 // level runs a CLI `main()` on import, which this pure module must not
 // trigger.
+//
+// The I/O half below (staging, scrub subprocess, positive re-scan) invokes
+// security-scanner.ts as a CHILD PROCESS instead, for the same reason: its
+// module top level runs a CLI `main()` on import.
+
+import { randomBytes } from "node:crypto";
+import {
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { execFileSync } from "node:child_process";
+import { join, sep } from "node:path";
 
 /**
  * Denylist regex for sensitive key names, ported verbatim from the
@@ -162,4 +177,170 @@ export function redactFields(fields: string[]): {
     return entropy.line;
   });
   return { fields: out, redactions };
+}
+
+// ============================================================================
+// I/O half: staging, scrub subprocess, positive re-scan
+// ============================================================================
+
+/**
+ * Dependency bag for {@link guardEgressFields}: the project root the guard
+ * operates under, an optional override for the staging directory (default
+ * `<projectRoot>/.claude/logs/jev`), and optional stand-ins for the scrub
+ * and re-scan subprocess calls. Tests pass `scrubCmd`/`scanCmd` stubs to
+ * simulate scanner behavior without invoking the real CLI; production code
+ * omits them and gets the real `node scripts/security-scanner.ts ...`
+ * subprocess calls.
+ */
+export type GuardDeps = {
+  projectRoot: string;
+  egressDir?: string;
+  scrubCmd?: (file: string) => { status: number };
+  scanCmd?: (file: string) => { status: number };
+};
+
+/**
+ * Resolves and creates the private staging directory for outbound-egress
+ * scrubbing, refusing it unless it is genuinely inside `projectRoot`. A
+ * symlinked or relocated directory — or a sibling whose path merely shares
+ * `projectRoot`'s string prefix (e.g. `<root>-evil/...`) — must decline,
+ * not silently stage text outside the project.
+ *
+ * Creates `egressDir` (default `<projectRoot>/.claude/logs/jev`) with
+ * `mkdirSync(..., { recursive: true, mode: 0o700 })`, then compares the
+ * `realpathSync` of the directory against the `realpathSync` of
+ * `projectRoot`: the resolved directory must equal the resolved root or
+ * start with the resolved root plus a path separator. Returns the resolved
+ * directory path on success, or `null` if containment fails or any step
+ * throws (e.g. the path cannot be created or resolved).
+ */
+export function resolveEgressDir(
+  projectRoot: string,
+  egressDir: string = join(projectRoot, ".claude/logs/jev"),
+): string | null {
+  try {
+    mkdirSync(egressDir, { recursive: true, mode: 0o700 });
+    const real = realpathSync(egressDir);
+    const root = realpathSync(projectRoot);
+    if (real === root || real.startsWith(root + sep)) return real;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Runs `node scripts/security-scanner.ts <args>` from `projectRoot` and
+ * reports its exit status without ever throwing: a nonzero exit surfaces as
+ * that status, and any other failure (a thrown error with no numeric
+ * `status`, e.g. a spawn failure) maps to status `1`. This is the default
+ * `scrubCmd`/`scanCmd` implementation for {@link guardEgressFields}.
+ */
+function runScannerCommand(
+  projectRoot: string,
+  args: string[],
+): { status: number } {
+  try {
+    execFileSync(
+      process.execPath,
+      [join(projectRoot, "scripts/security-scanner.ts"), ...args],
+      { cwd: projectRoot, stdio: "pipe" },
+    );
+    return { status: 0 };
+  } catch (err) {
+    const status = (err as { status?: number | null } | undefined)?.status;
+    return { status: typeof status === "number" ? status : 1 };
+  }
+}
+
+/**
+ * Stages `fields` one per line in a private file under the project's
+ * egress-scrub directory, runs the project's security scanner on that file
+ * in a subprocess to scrub any secrets it recognizes, and trusts the
+ * result only after re-reading the file and positively re-scanning it
+ * clean. Only then are the pure redactions from {@link redactFields}
+ * applied on top of the scrubbed text.
+ *
+ * Fails closed: an unsafe staging directory, a staging-file write failure,
+ * a scrub/scan subprocess that throws, a line-count mismatch after
+ * scrubbing (proof the file was not read back honestly), or a non-clean
+ * re-scan all refuse the whole call — never a partially-scrubbed result.
+ * The scrub subprocess's own exit status is never trusted by itself (step
+ * 3 of the design); only the positive re-scan in step 4 is. The staging
+ * file and any `.tmp`/`.tmp.bak` residue the scanner may leave behind are
+ * always removed before returning, on every path including a thrown
+ * `scrubCmd`/`scanCmd`.
+ */
+export function guardEgressFields(
+  fields: string[],
+  deps: GuardDeps,
+):
+  | { fields: string[]; redactions: number }
+  | { refused: "egress-dir-unsafe" | "scrub-failed" } {
+  const dir = resolveEgressDir(deps.projectRoot, deps.egressDir);
+  if (dir === null) return { refused: "egress-dir-unsafe" };
+
+  const fileName = `egress-${process.pid}-${randomBytes(6).toString("hex")}.txt`;
+  const path = join(dir, fileName);
+
+  const scrub =
+    deps.scrubCmd ??
+    ((file: string) => runScannerCommand(deps.projectRoot, ["scrub", file]));
+  const scan =
+    deps.scanCmd ??
+    ((file: string) =>
+      runScannerCommand(deps.projectRoot, ["scan-files", "--quiet", file]));
+
+  try {
+    try {
+      const text = fields.map(escapeField).join("\n") + "\n";
+      writeFileSync(path, text, { flag: "wx", mode: 0o600 });
+    } catch {
+      return { refused: "scrub-failed" };
+    }
+
+    try {
+      // The scrub subprocess's own exit status is not trusted — only the
+      // positive re-scan below decides whether the file is clean.
+      scrub(path);
+    } catch {
+      return { refused: "scrub-failed" };
+    }
+
+    let raw: string;
+    try {
+      raw = readFileSync(path, "utf8");
+    } catch {
+      return { refused: "scrub-failed" };
+    }
+
+    const stripped = raw.endsWith("\n") ? raw.slice(0, -1) : raw;
+    const lines = stripped.split("\n");
+    if (lines.length !== fields.length) {
+      return { refused: "scrub-failed" };
+    }
+
+    let scanResult: { status: number };
+    try {
+      scanResult = scan(path);
+    } catch {
+      return { refused: "scrub-failed" };
+    }
+    if (scanResult.status !== 0) {
+      return { refused: "scrub-failed" };
+    }
+
+    const { fields: redactedFields, redactions } = redactFields(
+      lines.map(unescapeField),
+    );
+    return { fields: redactedFields, redactions };
+  } finally {
+    for (const p of [path, path + ".tmp", path + ".tmp.bak"]) {
+      try {
+        rmSync(p, { force: true });
+      } catch {
+        // Best-effort cleanup; a locked file must not mask the real result.
+      }
+    }
+  }
 }
