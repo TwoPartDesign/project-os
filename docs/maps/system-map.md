@@ -57,6 +57,7 @@
 - `l_common` — `.claude/hooks/_common.sh` (14 dependents)
 - `l_dashboard_render` — `scripts/lib/dashboard-render.ts` (5 dependents)
 - `l_decide` — `scripts/lib/decide.ts` (0 dependents)
+- `l_egress_guard` — `scripts/lib/egress-guard.ts` (0 dependents)
 - `l_json` — `scripts/lib/json.sh` (2 dependents)
 - `l_policy` — `scripts/lib/policy.ts` (10 dependents)
 - `l_project_root` — `scripts/lib/project-root.ts` (18 dependents)
@@ -100,6 +101,7 @@
 - `s_decide_test` — `tests/decide.test.ts` (0 dependents)
 - `s_detect_stack_test` — `tests/detect-stack.test.ts` (0 dependents)
 - `s_dream_accept_smoke` — `tests/dream-accept-smoke.sh` (0 dependents)
+- `s_egress_guard_test` — `tests/egress-guard.test.ts` (0 dependents)
 - `s_entropy_threshold_test` — `tests/entropy-threshold.test.ts` (0 dependents)
 - `s_hook_smoke_negctl` — `tests/hook-smoke-negctl.sh` (0 dependents)
 - `s_hook_smoke` — `tests/hook-smoke.sh` (0 dependents)
@@ -224,6 +226,7 @@
 - LOW bloat docs/knowledge/patterns.md — docs/knowledge/patterns.md is approximately 5489 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/windows-bash-scanner.md — docs/knowledge/windows-bash-scanner.md is approximately 2678 tokens, exceeding the 2500-token warn threshold.
 - MEDIUM manifest-gap l_decide — scripts/lib/decide.ts is missing from the manifest's files map.
+- MEDIUM manifest-gap l_egress_guard — scripts/lib/egress-guard.ts is missing from the manifest's files map.
 - MEDIUM orphan-script s_audit_context — Script scripts/audit-context.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_context_filter — Script scripts/context-filter.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_install_hooks — Script scripts/install-hooks.sh has no incoming references and is not in the orphan allowlist.
