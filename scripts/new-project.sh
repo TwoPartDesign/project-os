@@ -361,6 +361,7 @@ FRAMEWORK_FILES_OPTIONAL=(
   "scripts/skill-apply.ts"
   "scripts/skill-ledger.ts"
   "scripts/review-triage.ts"
+  "scripts/compaction-metrics.ts"
 )
 # Content class: never executed by any tool -- the user's file always wins
 # the canonical path in adopt mode. Entries are "SRC_REL|DST_REL".
