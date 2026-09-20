@@ -57,10 +57,10 @@
 - `l_common` — `.claude/hooks/_common.sh` (14 dependents)
 - `l_dashboard_render` — `scripts/lib/dashboard-render.ts` (5 dependents)
 - `l_decide` — `scripts/lib/decide.ts` (1 dependent)
-- `l_egress_guard` — `scripts/lib/egress-guard.ts` (2 dependents)
+- `l_egress_guard` — `scripts/lib/egress-guard.ts` (3 dependents)
 - `l_json` — `scripts/lib/json.sh` (2 dependents)
 - `l_policy` — `scripts/lib/policy.ts` (10 dependents)
-- `l_project_root` — `scripts/lib/project-root.ts` (20 dependents)
+- `l_project_root` — `scripts/lib/project-root.ts` (21 dependents)
 - `l_scan_rules` — `scripts/lib/scan-rules.js` (0 dependents)
 - `l_skill_apply_lib` — `scripts/lib/skill-apply-lib.ts` (4 dependents)
 - `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (5 dependents)
@@ -207,7 +207,10 @@
 - `s_maintain_draft` --imports--> `l_dashboard_render`
 - `s_maintain_draft` --imports--> `l_project_root`
 - `s_policy_test` --imports--> `l_policy`
-- `s_review_triage` --imports--> `l_decide`
+- `s_review_triage` --imports--> `l_egress_guard`
+- `s_review_triage` --imports--> `l_project_root`
+- `s_review_triage_test` --imports--> `l_decide`
+- `s_review_triage_test` --imports--> `l_project_root`
 - `s_skill_apply` --imports--> `l_policy`
 - `s_skill_apply` --imports--> `l_project_root`
 - `s_skill_apply` --imports--> `l_skill_apply_lib`
