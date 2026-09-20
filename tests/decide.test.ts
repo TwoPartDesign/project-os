@@ -520,6 +520,7 @@ describe("decide (Jev backend)", () => {
       strictEqual((result.answers.is_urgent as { noul: number }).noul, 0.92);
       strictEqual(result.declined, "malformed-response");
       strictEqual(result.backend, "jev");
+      deepStrictEqual(result.rejected, ["department"]);
     } finally {
       rmSync(egressDir, { recursive: true, force: true });
     }
@@ -561,6 +562,8 @@ describe("decide (Jev backend)", () => {
 
       const heuristic = heuristicBackend("some state", threeQuestions);
       deepStrictEqual(result.answers.is_urgent, heuristic.is_urgent);
+      deepStrictEqual(result.rejected, ["is_urgent"]);
+      strictEqual(result.declined, "malformed-response");
     } finally {
       rmSync(egressDir, { recursive: true, force: true });
     }

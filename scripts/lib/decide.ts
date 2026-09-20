@@ -85,6 +85,12 @@ export type DecisionResult = {
   answers: Record<string, Answer>;
   backend: "heuristic" | "jev";
   declined?: DeclineReason;
+  /**
+   * Question names whose Jev answer failed validation and were replaced by
+   * the heuristic stub. Consumers must not treat those entries in `answers`
+   * as Jev-derived. Empty on the heuristic backend.
+   */
+  rejected: string[];
   redactions: number;
   usage?: { input_tokens: number; output_tokens: number };
   duration_ms: number;
@@ -157,7 +163,7 @@ export function readJevConfig(settingsPath?: string): JevConfig {
     return {
       enabled: jev.enabled === true,
       model:
-        typeof jev.model === "string" && jev.model.length > 0
+        typeof jev.model === "string" && MODEL_ID_RE.test(jev.model)
           ? jev.model
           : DEFAULT_JEV_CONFIG.model,
       timeout_ms: isFiniteNonNegative(jev.timeout_ms)
@@ -182,6 +188,13 @@ export function readJevConfig(settingsPath?: string): JevConfig {
     return DEFAULT_JEV_CONFIG;
   }
 }
+
+/**
+ * Shape a settings-supplied `model` must match to be serialized into the
+ * request body — it is the one config string that reaches the wire without
+ * passing the egress guard.
+ */
+const MODEL_ID_RE = /^[A-Za-z0-9._-]{1,64}$/;
 
 /** True if `n` is a finite number that is >= 0. */
 function isFiniteNonNegative(n: unknown): n is number {
@@ -378,8 +391,8 @@ function validateAnswer(question: Question, candidate: unknown): Answer | null {
     }
     const probabilities: Record<string, number> = {};
     for (const k of keys) {
-      if (!Number.isFinite(rawProbs[k])) return null;
-      probabilities[k] = rawProbs[k] as number;
+      if (!isUnitInterval(rawProbs[k])) return null;
+      probabilities[k] = rawProbs[k];
     }
     if (!isUnitInterval(c.confidence)) return null;
     return {
@@ -406,8 +419,8 @@ function validateAnswer(question: Question, candidate: unknown): Answer | null {
   const rawProbs = c.probabilities as Record<string, unknown>;
   const probabilities: Record<string, number> = {};
   for (const [k, v] of Object.entries(rawProbs)) {
-    if (!Number.isFinite(v)) return null;
-    probabilities[k] = v as number;
+    if (!isUnitInterval(v)) return null;
+    probabilities[k] = v;
   }
   if (!isUnitInterval(c.confidence)) return null;
   return {
@@ -474,6 +487,7 @@ export async function decide(
       answers: heuristicBackend(state, questions),
       backend: "heuristic",
       declined: reason,
+      rejected: [],
       redactions,
       duration_ms,
     };
@@ -551,7 +565,7 @@ export async function decide(
   const heuristic = heuristicBackend(state, questions);
   const answers: Record<string, Answer> = {};
   let anyAccepted = false;
-  let anyRejected = false;
+  const rejected: string[] = [];
 
   for (const [name, question] of Object.entries(questions)) {
     const validated = validateAnswer(question, rawAnswers[name]);
@@ -560,9 +574,10 @@ export async function decide(
       anyAccepted = true;
     } else {
       answers[name] = heuristic[name];
-      anyRejected = true;
+      rejected.push(name);
     }
   }
+  const anyRejected = rejected.length > 0;
 
   if (!anyAccepted) {
     return declineWith("malformed-response", guarded.redactions);
@@ -590,6 +605,7 @@ export async function decide(
     consumer,
     questions: questionCount,
     backend,
+    ...(declined ? { declined, rejected: String(rejected.length) } : {}),
     redactions: String(guarded.redactions),
     input_tokens: usage ? String(usage.input_tokens) : "",
     output_tokens: usage ? String(usage.output_tokens) : "",
@@ -605,6 +621,7 @@ export async function decide(
     answers,
     backend,
     declined,
+    rejected,
     redactions: guarded.redactions,
     ...(usage ? { usage } : {}),
     duration_ms,

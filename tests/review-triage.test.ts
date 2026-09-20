@@ -29,6 +29,7 @@ import {
   runTriage,
   buildQuestions,
   applyAnswers,
+  jevAnswers,
   type Finding,
   type TriagedFinding,
   type Candidates,
@@ -853,6 +854,183 @@ describe("applyAnswers", () => {
     const rows = applyAnswers(findings, candidates, results, thresholds);
     strictEqual(rows[0].calibrated_severity, rows[0].severity);
     strictEqual(rows[0].severity_confidence, 0.5);
+  });
+
+  it("applyAnswers_declinedChunk_keepsHeuristicRows", () => {
+    const findings: Finding[] = [
+      {
+        id: "a-1",
+        reviewer: "a",
+        severity: "LOW",
+        file: "x.ts",
+        lines: "1",
+        issue: "i1",
+        fix: "f1",
+      },
+      {
+        id: "b-1",
+        reviewer: "b",
+        severity: "LOW",
+        file: "x.ts",
+        lines: "1",
+        issue: "i2",
+        fix: "f2",
+      },
+      {
+        id: "c-1",
+        reviewer: "c",
+        severity: "HIGH",
+        file: "y.ts",
+        lines: "1",
+        issue: "i3",
+        fix: "f3",
+      },
+    ];
+    const candidates: Candidates = {
+      pairs: [["a-1", "b-1"]],
+      scope: { "a-1": "in_diff", "b-1": "in_diff", "c-1": "adjacent" },
+    };
+    const thresholds = {
+      duplicate_p: 0.85,
+      out_of_scope_p: 0.8,
+      severity_confidence: 0.8,
+    };
+    // Chunk 1 timed out: its answers are heuristic stubs (noul 0.5, first
+    // choice with confidence 0) and must NOT override applyHeuristic's rows.
+    const declined: DecisionResult = {
+      answers: {
+        "dup_a-1__b-1": { type: "noul", noul: 0.5 },
+        "scope_b-1": {
+          type: "choice",
+          choice: "in_diff",
+          probabilities: { in_diff: 0.34, adjacent: 0.33, unrelated: 0.33 },
+          confidence: 0,
+        },
+      },
+      backend: "heuristic",
+      declined: "timeout",
+      rejected: [],
+      redactions: 0,
+      duration_ms: 1,
+    };
+    // Chunk 2 answered: its sev answer is applied.
+    const answered: DecisionResult = {
+      answers: {
+        "sev_c-1": {
+          type: "score",
+          score: 3,
+          probabilities: {},
+          confidence: 0.95,
+        },
+      },
+      backend: "jev",
+      rejected: [],
+      redactions: 0,
+      duration_ms: 1,
+    };
+
+    const rows = applyAnswers(
+      findings,
+      candidates,
+      [declined, answered],
+      thresholds,
+    );
+    const byId: Record<string, TriagedFinding> = {};
+    for (const r of rows) byId[r.id] = r;
+
+    strictEqual(byId["b-1"].duplicate_of, "a-1");
+    strictEqual(byId["b-1"].duplicate_p, 1);
+    strictEqual(byId["b-1"].in_scope, "in_diff");
+    strictEqual(byId["b-1"].in_scope_p, 1);
+    strictEqual(byId["c-1"].calibrated_severity, "CRITICAL");
+    strictEqual(byId["c-1"].severity_confidence, 0.95);
+  });
+
+  it("applyAnswers_rejectedName_keepsHeuristicRow", () => {
+    const findings: Finding[] = [
+      {
+        id: "a-1",
+        reviewer: "a",
+        severity: "LOW",
+        file: "x.ts",
+        lines: "1",
+        issue: "i1",
+        fix: "f1",
+      },
+      {
+        id: "b-1",
+        reviewer: "b",
+        severity: "LOW",
+        file: "x.ts",
+        lines: "1",
+        issue: "i2",
+        fix: "f2",
+      },
+    ];
+    const candidates: Candidates = {
+      pairs: [["a-1", "b-1"]],
+      scope: { "a-1": "in_diff", "b-1": "in_diff" },
+    };
+    const thresholds = {
+      duplicate_p: 0.85,
+      out_of_scope_p: 0.8,
+      severity_confidence: 0.8,
+    };
+    // Jev answered the chunk, but the dup question failed validation and
+    // decide() substituted the heuristic stub (noul 0.5) and listed it in
+    // `rejected`. The stub must not clear applyHeuristic's duplicate verdict.
+    const results: DecisionResult[] = [
+      {
+        answers: {
+          "dup_a-1__b-1": { type: "noul", noul: 0.5 },
+          "sev_b-1": {
+            type: "score",
+            score: 0,
+            probabilities: {},
+            confidence: 0.9,
+          },
+        },
+        backend: "jev",
+        declined: "malformed-response",
+        rejected: ["dup_a-1__b-1"],
+        redactions: 0,
+        duration_ms: 1,
+      },
+    ];
+
+    const rows = applyAnswers(findings, candidates, results, thresholds);
+    const byId: Record<string, TriagedFinding> = {};
+    for (const r of rows) byId[r.id] = r;
+
+    strictEqual(byId["b-1"].duplicate_of, "a-1");
+    strictEqual(byId["b-1"].duplicate_p, 1);
+    strictEqual(byId["b-1"].calibrated_severity, "LOW");
+    strictEqual(byId["b-1"].severity_confidence, 0.9);
+  });
+
+  it("jevAnswers_mixedResults_onlyAcceptedJevAnswers", () => {
+    const results: DecisionResult[] = [
+      {
+        answers: { q_h: { type: "noul", noul: 0.5 } },
+        backend: "heuristic",
+        declined: "disabled",
+        rejected: [],
+        redactions: 0,
+        duration_ms: 0,
+      },
+      {
+        answers: {
+          q_ok: { type: "noul", noul: 0.9 },
+          q_bad: { type: "noul", noul: 0.5 },
+        },
+        backend: "jev",
+        declined: "malformed-response",
+        rejected: ["q_bad"],
+        redactions: 0,
+        duration_ms: 1,
+      },
+    ];
+    deepStrictEqual(Object.keys(jevAnswers(results)), ["q_ok"]);
   });
 });
 

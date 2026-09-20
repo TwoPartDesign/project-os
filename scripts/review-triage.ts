@@ -469,6 +469,26 @@ function scoreToLevel(score: number): number {
  * the heuristic rows are returned unchanged (T184 already set them
  * correctly, and there is nothing Jev-derived to apply).
  */
+/**
+ * Collects the answers that Jev actually produced across `results`: only
+ * results from the `jev` backend contribute, and within those the names in
+ * `rejected` (validation failures back-filled with heuristic stubs) are
+ * skipped. A chunk that declined (timeout, network, guard refusal) carries
+ * only stubs and contributes nothing, so its findings keep the consumer's
+ * own heuristic verdicts.
+ */
+export function jevAnswers(results: DecisionResult[]): Record<string, Answer> {
+  const answers: Record<string, Answer> = {};
+  for (const r of results) {
+    if (r.backend !== "jev") continue;
+    const rejected = new Set(r.rejected ?? []);
+    for (const [name, answer] of Object.entries(r.answers)) {
+      if (!rejected.has(name)) answers[name] = answer;
+    }
+  }
+  return answers;
+}
+
 export function applyAnswers(
   findings: Finding[],
   c: Candidates,
@@ -480,8 +500,7 @@ export function applyAnswers(
     return rows;
   }
 
-  const answers: Record<string, Answer> = {};
-  for (const r of results) Object.assign(answers, r.answers);
+  const answers = jevAnswers(results);
 
   const byId = new Map(rows.map((row) => [row.id, row]));
 
@@ -809,6 +828,11 @@ export async function runTriage(
 
   const extraReviews = opts.extraReviews ?? [];
   for (const reviewPath of extraReviews) {
+    if (!existsSync(reviewPath)) {
+      throw new Error(
+        `review-triage: calibration review not found: ${reviewPath}`,
+      );
+    }
     const text = readFileSync(reviewPath, "utf-8");
     allFindings.push(...parseFindings(text, "mixed"));
   }
@@ -850,8 +874,7 @@ export async function runTriage(
   const decideRedactions = results.reduce((sum, r) => sum + r.redactions, 0);
 
   if (opts.calibrate) {
-    const answers: Record<string, Answer> = {};
-    for (const r of results) Object.assign(answers, r.answers);
+    const answers = jevAnswers(results);
 
     const calRows = buildCalibrationRows(
       allFindings,
@@ -889,7 +912,6 @@ export async function runTriage(
       "utf-8",
     );
 
-    process.stdout.write(text + "\n");
     return { json: calibrationJson, table: text };
   }
 
@@ -1053,5 +1075,9 @@ const isMain =
   process.argv[1] && resolve(process.argv[1]) === resolve(__filename);
 
 if (isMain) {
-  main();
+  main().catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`${message}\n`);
+    process.exit(1);
+  });
 }
