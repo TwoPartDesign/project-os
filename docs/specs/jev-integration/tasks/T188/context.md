@@ -23,10 +23,12 @@ Common rules for every task:
 - **Implementation**:
   - `architecture.md`: rows for `lib/decide.ts` (typed decision interface, heuristic default, opt-in Jev backend, sole outbound caller), `lib/egress-guard.ts` (scrub + re-scan + denylist + entropy guard for outbound text), `review-triage.ts` (advisory triage of reviewer findings). In Security Scanning, add the `bare-sk-token` rule note and an "Egress allowlist" bullet pointing at `.claude/security/egress-allowlist.json`.
   - `decisions.md`: append `## 2026-09-20 — Hosted Decision API (Jev) as an Optional Addon Behind a Local Heuristic` covering: endpoint constant; scrub-then-verify via subprocess because `cmdScrub` exits 0 on write failure; entropy floor for bare credentials; heuristic ships first, Jev gated on the calibration procedure and the key-shape check (copy both procedures from design.md Testing Strategy verbatim); alternatives rejected (SDK, TypeSafe skill, Claude backend in v1, PreToolUse consumer).
+  - Ship the new scripts: add `"scripts/review-triage.ts"` to the quoted file list in `scripts/new-project.sh` next to the other `scripts/*.ts` entries (`scripts/lib/**` ships wholesale, so `decide.ts` and `egress-guard.ts` need no entry). Then add `"Bash(node scripts/review-triage.ts*)"` to `permissions.allow` in `.claude/settings.json` directly after `"Bash(node scripts/skill-ledger.ts*)"` — `tests/shipped-settings.test.ts` rejects a permission for a script `new-project.sh` does not copy, which is why this line was deferred from T181.
   - Run `bash scripts/generate-manifest.sh` and commit the regenerated `.claude/manifest.json`.
 - **Tests**: none. Run `node scripts/system-map.ts report` and confirm no new HIGH finding names the three new scripts.
 - **Acceptance Criteria**:
   - [ ] `.claude/manifest.json` lists `scripts/lib/decide.ts`, `scripts/lib/egress-guard.ts`, `scripts/review-triage.ts`, `.claude/security/egress-allowlist.json`
+  - [ ] `node --test tests/shipped-settings.test.ts` passes with the `review-triage.ts` permission present
   - [ ] `node scripts/system-map.ts report` shows no new HIGH finding for the new files
   - [ ] `bash scripts/validate-roadmap.sh` passes
 - **Size**: Small

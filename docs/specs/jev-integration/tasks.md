@@ -116,7 +116,7 @@ T187 → T188                                  (Group 4)
 - **Files**: `.claude/settings.json` (modify: `permissions.allow` array and `project_os` object), `.claude/security/egress-allowlist.json` (create)
 - **Pattern**: `project_os.context_filter` block at `.claude/settings.json` lines 108-120 for shape; `.claude/security/mcp-allowlist.json` for the allowlist file's field style.
 - **Implementation**:
-  - Add to `permissions.allow`, directly after `"Bash(node scripts/skill-ledger.ts*)"`: `"Bash(node scripts/review-triage.ts*)"`.
+  - (Moved to T188 at build time: the `"Bash(node scripts/review-triage.ts*)"` permission fails `tests/shipped-settings.test.ts` until `scripts/new-project.sh` ships the script.)
   - Add to `project_os`, after `context_filter`: `"jev": { "enabled": false, "model": "jev-latest", "timeout_ms": 5000, "max_body_tokens": 60000, "thresholds": { "duplicate_p": 0.85, "out_of_scope_p": 0.8, "severity_confidence": 0.8 } }`.
   - Create `.claude/security/egress-allowlist.json` with exactly: `description` ("Allowlist of hosts that project scripts may send data to directly over HTTPS. Sibling of mcp-allowlist.json, which governs MCP servers only."), `approved_egress` → `"api.typesafe.ai"` → `{ "caller": "scripts/lib/decide.ts", "endpoint": "https://api.typesafe.ai/v1/systemone", "data_classes": ["finding.severity", "finding.reviewer", "finding.file", "finding.lines", "finding.issue", "finding.fix", "changed_files"], "guards": ["scrub+rescan", "key-denylist", "entropy>=4.0"], "risk_level": "low", "rationale": "Typed decisions over already-local review findings; no file contents or diffs; off by default.", "audit_date": "2026-09-20" }`, `blocked_capabilities: ["endpoint_override", "file_content_egress", "diff_egress"]`, `review_cadence: "monthly"`.
   - Keep JSON formatted as the existing files are (two-space indent). Do not reorder existing keys.
@@ -301,10 +301,12 @@ T187 → T188                                  (Group 4)
 - **Implementation**:
   - `architecture.md`: rows for `lib/decide.ts` (typed decision interface, heuristic default, opt-in Jev backend, sole outbound caller), `lib/egress-guard.ts` (scrub + re-scan + denylist + entropy guard for outbound text), `review-triage.ts` (advisory triage of reviewer findings). In Security Scanning, add the `bare-sk-token` rule note and an "Egress allowlist" bullet pointing at `.claude/security/egress-allowlist.json`.
   - `decisions.md`: append `## 2026-09-20 — Hosted Decision API (Jev) as an Optional Addon Behind a Local Heuristic` covering: endpoint constant; scrub-then-verify via subprocess because `cmdScrub` exits 0 on write failure; entropy floor for bare credentials; heuristic ships first, Jev gated on the calibration procedure and the key-shape check (copy both procedures from design.md Testing Strategy verbatim); alternatives rejected (SDK, TypeSafe skill, Claude backend in v1, PreToolUse consumer).
+  - Ship the new scripts: add `"scripts/review-triage.ts"` to the quoted file list in `scripts/new-project.sh` next to the other `scripts/*.ts` entries (`scripts/lib/**` ships wholesale, so `decide.ts` and `egress-guard.ts` need no entry). Then add `"Bash(node scripts/review-triage.ts*)"` to `permissions.allow` in `.claude/settings.json` directly after `"Bash(node scripts/skill-ledger.ts*)"` — `tests/shipped-settings.test.ts` rejects a permission for a script `new-project.sh` does not copy, which is why this line was deferred from T181.
   - Run `bash scripts/generate-manifest.sh` and commit the regenerated `.claude/manifest.json`.
 - **Tests**: none. Run `node scripts/system-map.ts report` and confirm no new HIGH finding names the three new scripts.
 - **Acceptance Criteria**:
   - [ ] `.claude/manifest.json` lists `scripts/lib/decide.ts`, `scripts/lib/egress-guard.ts`, `scripts/review-triage.ts`, `.claude/security/egress-allowlist.json`
+  - [ ] `node --test tests/shipped-settings.test.ts` passes with the `review-triage.ts` permission present
   - [ ] `node scripts/system-map.ts report` shows no new HIGH finding for the new files
   - [ ] `bash scripts/validate-roadmap.sh` passes
 - **Size**: Small
