@@ -384,3 +384,18 @@ dispatched with a 50k-token brief-and-report overhead.
 when the brief-and-report overhead is small relative to the work. Concrete
 thresholds make the lead's judgment auditable after the fact (sum the spend,
 count the dispatches under twenty lines) and give the user a lever to adjust.
+
+---
+
+## 2026-09-20 — Dedicated Tools Over Shell for Reads and Edits, Even Under a Shell-First Session Mode
+
+**Decision**: `.claude/rules/bash.md` rule 1 (dedicated Read/Grep/Glob/Write/Edit first, Bash only for execution) is binding over any session-mode or harness directive that prefers the shell for reading and editing files. The rule text now says so and states the reason.
+
+**Context**: A design reviewer working on jev-integration received a harness directive ("while auto mode is active, do your work through the Bash tool… make file changes with sed, heredocs, or short scripts") that contradicted the project rule, and asked which wins. The lead session hit the concrete cost in the same hour: a handoff written through a bash script was not claimed by the compaction hook, because the claim fires on the `Write|Edit` PreToolUse matcher, and needed a follow-up Edit to register.
+
+**Alternatives Considered**:
+- **Follow the session directive (shell-first)** — rejected: every project hook that protects a write is matched on the tool name. `post-tool-use.sh` (prettier + scrub), `post-write-session.sh`, and `compact-suggest.sh` (handoff claim) all run on `Write|Edit`; a `sed -i` or heredoc edit skips formatting, secret scrubbing on write, and handoff ownership. That is the "Mitigate Against the Platform's Real Surface" pattern: the surface is the tool matcher, and a shell edit is off it.
+- **Widen the hooks to also match Bash** — rejected: a Bash matcher cannot tell an edit from a test run without parsing the command string, which is the open-ended recognition problem `patterns.md` says to invert, not chase.
+- **Case-by-case** — rejected: the reviewer showed the ambiguity costs a paragraph of reasoning per agent per session; a stated precedence costs one line.
+
+**Rationale**: On performance the shell buys nothing: Grep is ripgrep, Read takes offset/limit, Edit is an exact-match atomic replace with harness-tracked file state, and each dedicated call integrates with the permission allowlist so sub-agents never stall on a prompt. Structured tool calls with typed arguments are also the current practice across agent harnesses because they are observable, permission-scoped, and hookable, whereas a shell string is opaque to all three. Bash keeps the jobs only it can do: run scripts and tests, drive git, list or count across many files in one call.

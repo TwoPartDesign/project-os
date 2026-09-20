@@ -1,7 +1,7 @@
 # Design: Jev Integration
 Created: 2026-09-19
-Updated: 2026-09-19 (round 1 review folded in)
-Status: DRAFT
+Updated: 2026-09-20 (approved)
+Status: APPROVED
 Brief: ./brief.md
 
 ## Architecture Decision
