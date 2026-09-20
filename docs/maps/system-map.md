@@ -68,6 +68,7 @@
 ### script
 - `s_audit_context` — `scripts/audit-context.sh` (0 dependents)
 - `s_codex_review` — `scripts/codex-review.sh` (1 dependent)
+- `s_compaction_metrics` — `scripts/compaction-metrics.ts` (1 dependent)
 - `s_context_filter` — `scripts/context-filter.sh` (0 dependents)
 - `s_create_pr` — `scripts/create-pr.sh` (1 dependent)
 - `s_dashboard_server` — `scripts/dashboard-server.ts` (1 dependent)
@@ -96,6 +97,7 @@
 - `s_validate_roadmap` — `scripts/validate-roadmap.sh` (4 dependents)
 - `s_agent_roster_test` — `tests/agent-roster.test.ts` (0 dependents)
 - `s_compaction_hooks` — `tests/compaction-hooks.sh` (0 dependents)
+- `s_compaction_metrics_test` — `tests/compaction-metrics.test.ts` (0 dependents)
 - `s_critical_rules_test` — `tests/critical-rules.test.ts` (0 dependents)
 - `s_dashboard_render_test` — `tests/dashboard-render.test.ts` (0 dependents)
 - `s_dashboard_smoke` — `tests/dashboard-smoke.sh` (0 dependents)
@@ -154,6 +156,7 @@
 - `c_tools_maintain` --references--> `s_knowledge_index`
 - `c_tools_maintain` --references--> `s_maintain`
 - `c_tools_maintain` --references--> `s_system_map`
+- `c_tools_metrics` --references--> `s_compaction_metrics`
 - `c_tools_new_project` --references--> `s_detect_stack`
 - `c_tools_reflect` --references--> `s_maintain_draft`
 - `c_tools_reflect` --references--> `s_skill_apply`
@@ -234,6 +237,7 @@
 - LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 3985 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/patterns.md — docs/knowledge/patterns.md is approximately 5489 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/windows-bash-scanner.md — docs/knowledge/windows-bash-scanner.md is approximately 2678 tokens, exceeding the 2500-token warn threshold.
+- MEDIUM manifest-gap s_compaction_metrics — scripts/compaction-metrics.ts is missing from the manifest's files map.
 - MEDIUM orphan-script s_audit_context — Script scripts/audit-context.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_context_filter — Script scripts/context-filter.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_install_hooks — Script scripts/install-hooks.sh has no incoming references and is not in the orphan allowlist.

@@ -99,6 +99,21 @@ grep '"event": "review-triaged"' .claude/logs/activity.jsonl | grep -o '"scope_c
 grep '"event": "review-triaged"' .claude/logs/activity.jsonl | grep -o '"severity_changed": "[0-9]*"' | grep -o '[0-9]*' | awk '{s+=$1} END {print "severity_changed total:", s}'
 ```
 
+### Compaction metrics
+
+`scripts/compaction-metrics.ts` measures what auto-compaction costs a long
+lead session: per-cycle turns, peak context and cache spend, tool-error rate
+by context decile, a what-if simulation of other fire points, and the
+configured fire point pinned against the ones the runtime actually used.
+
+```bash
+node scripts/compaction-metrics.ts ~/.claude/projects/<slug>/<session>.jsonl
+node scripts/compaction-metrics.ts ~/.claude/projects/<slug>/ --window 350000 --pct 80 --json
+```
+
+`docs/knowledge/compaction-metrics.md` is the recorded result and the
+keep-or-lower recommendation; re-run the script to refresh it.
+
 `docs/specs/<feature>/review-triage-calibration.json` is the per-run
 calibration record written by `--calibrate`. The measured lift is written
 down in the "Calibration record" table in `docs/knowledge/decisions.md`.

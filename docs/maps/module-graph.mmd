@@ -63,6 +63,7 @@ flowchart LR
   subgraph script
     s_audit_context["scripts/audit-context.sh"]
     s_codex_review["scripts/codex-review.sh"]
+    s_compaction_metrics["scripts/compaction-metrics.ts"]
     s_context_filter["scripts/context-filter.sh"]
     s_create_pr["scripts/create-pr.sh"]
     s_dashboard_server["scripts/dashboard-server.ts"]
@@ -91,6 +92,7 @@ flowchart LR
     s_validate_roadmap["scripts/validate-roadmap.sh"]
     s_agent_roster_test["tests/agent-roster.test.ts"]
     s_compaction_hooks["tests/compaction-hooks.sh"]
+    s_compaction_metrics_test["tests/compaction-metrics.test.ts"]
     s_critical_rules_test["tests/critical-rules.test.ts"]
     s_dashboard_render_test["tests/dashboard-render.test.ts"]
     s_dashboard_smoke["tests/dashboard-smoke.sh"]
@@ -147,6 +149,7 @@ flowchart LR
   c_tools_maintain -->|references| s_knowledge_index
   c_tools_maintain -->|references| s_maintain
   c_tools_maintain -->|references| s_system_map
+  c_tools_metrics -->|references| s_compaction_metrics
   c_tools_new_project -->|references| s_detect_stack
   c_tools_reflect -->|references| s_maintain_draft
   c_tools_reflect -->|references| s_skill_apply
