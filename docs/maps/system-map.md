@@ -57,10 +57,10 @@
 - `l_common` — `.claude/hooks/_common.sh` (14 dependents)
 - `l_dashboard_render` — `scripts/lib/dashboard-render.ts` (5 dependents)
 - `l_decide` — `scripts/lib/decide.ts` (1 dependent)
-- `l_egress_guard` — `scripts/lib/egress-guard.ts` (0 dependents)
+- `l_egress_guard` — `scripts/lib/egress-guard.ts` (2 dependents)
 - `l_json` — `scripts/lib/json.sh` (2 dependents)
 - `l_policy` — `scripts/lib/policy.ts` (10 dependents)
-- `l_project_root` — `scripts/lib/project-root.ts` (19 dependents)
+- `l_project_root` — `scripts/lib/project-root.ts` (20 dependents)
 - `l_scan_rules` — `scripts/lib/scan-rules.js` (0 dependents)
 - `l_skill_apply_lib` — `scripts/lib/skill-apply-lib.ts` (4 dependents)
 - `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (5 dependents)
@@ -194,12 +194,14 @@
 - `h_pre_compact` --sources--> `l_common`
 - `h_session_end_cleanup` --sources--> `l_common`
 - `h_tool_failure_log` --sources--> `l_common`
+- `l_decide` --imports--> `l_egress_guard`
 - `l_decide` --imports--> `l_project_root`
 - `l_policy` --imports--> `l_project_root`
 - `s_compaction_hooks` --sources--> `l_common`
 - `s_dashboard` --sources--> `l_json`
 - `s_dashboard_render_test` --imports--> `l_dashboard_render`
 - `s_dashboard_server` --imports--> `l_dashboard_render`
+- `s_decide_test` --imports--> `l_project_root`
 - `s_detect_stack_test` --imports--> `s_detect_stack`
 - `s_knowledge_index` --imports--> `l_project_root`
 - `s_maintain_draft` --imports--> `l_dashboard_render`
