@@ -403,7 +403,7 @@ Jev (TypeSafe AI) as an optional, off-by-default typed-decision backend for the 
 - [~] decide.ts Jev backend: collectOutboundFields, guardEgressFields integration, body rebuilt from guarded fields, size cap, fetch with redirect manual + timeout, per-question response validation, jev-queried/jev-declined logging, egress-allowlist parity test (depends: #T179, #T181, #T183) #T185
 - [~] review-triage.ts Jev path: pick(), buildQuestions (dup_/scope_/sev_ questions, 160k chunking), applyAnswers with thresholds, scrubbed review-triage.json output, --calibrate table + review-triage-calibration.json, lift summary in header + review-triaged log event, exported runTriage(deps) (depends: #T184, #T185) #T186
 - [~] Wire review.md Synthesis step 0 (write review-raw/, run review-triage, advisory only); log-activity.sh events comment; metrics.md subsection for jev-queried/jev-declined/review-triaged with lift grep (depends: #T186) #T187
-- [ ] architecture.md rows for decide.ts/egress-guard.ts/review-triage.ts + bare-sk-token and egress-allowlist notes; decisions.md ADR "Hosted Decision API (Jev) as an Optional Addon Behind a Local Heuristic" with Calibration record table; new-project.sh entry + review-triage permission; regenerate .claude/manifest.json (depends: #T187) #T188
+- [-] architecture.md rows for decide.ts/egress-guard.ts/review-triage.ts + bare-sk-token and egress-allowlist notes; decisions.md ADR "Hosted Decision API (Jev) as an Optional Addon Behind a Local Heuristic" with Calibration record table; new-project.sh entry + review-triage permission; regenerate .claude/manifest.json (depends: #T187) #T188
 ### In Progress
 ### Review
 ### Done
