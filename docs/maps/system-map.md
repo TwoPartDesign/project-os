@@ -56,11 +56,11 @@
 ### lib
 - `l_common` — `.claude/hooks/_common.sh` (14 dependents)
 - `l_dashboard_render` — `scripts/lib/dashboard-render.ts` (5 dependents)
-- `l_decide` — `scripts/lib/decide.ts` (0 dependents)
+- `l_decide` — `scripts/lib/decide.ts` (1 dependent)
 - `l_egress_guard` — `scripts/lib/egress-guard.ts` (0 dependents)
 - `l_json` — `scripts/lib/json.sh` (2 dependents)
 - `l_policy` — `scripts/lib/policy.ts` (10 dependents)
-- `l_project_root` — `scripts/lib/project-root.ts` (18 dependents)
+- `l_project_root` — `scripts/lib/project-root.ts` (19 dependents)
 - `l_scan_rules` — `scripts/lib/scan-rules.js` (0 dependents)
 - `l_skill_apply_lib` — `scripts/lib/skill-apply-lib.ts` (4 dependents)
 - `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (5 dependents)
@@ -83,6 +83,7 @@
 - `s_memory_search` — `scripts/memory-search.sh` (0 dependents)
 - `s_new_project` — `scripts/new-project.sh` (0 dependents)
 - `s_observation_parser` — `scripts/observation-parser.ts` (0 dependents)
+- `s_review_triage` — `scripts/review-triage.ts` (0 dependents)
 - `s_scrub_secrets` — `scripts/scrub-secrets.sh` (0 dependents)
 - `s_security_scanner` — `scripts/security-scanner.ts` (1 dependent)
 - `s_setup` — `scripts/setup.sh` (0 dependents)
@@ -111,6 +112,7 @@
 - `s_new_project_smoke` — `tests/new-project-smoke.sh` (0 dependents)
 - `s_observation_parser_test` — `tests/observation-parser.test.ts` (0 dependents)
 - `s_policy_test` — `tests/policy.test.ts` (0 dependents)
+- `s_review_triage_test` — `tests/review-triage.test.ts` (0 dependents)
 - `s_run_all` — `tests/run-all.sh` (0 dependents)
 - `s_scan_rules_node22_test` — `tests/scan-rules-node22.test.ts` (0 dependents)
 - `s_scan_rules_restored_test` — `tests/scan-rules-restored.test.ts` (0 dependents)
@@ -203,6 +205,7 @@
 - `s_maintain_draft` --imports--> `l_dashboard_render`
 - `s_maintain_draft` --imports--> `l_project_root`
 - `s_policy_test` --imports--> `l_policy`
+- `s_review_triage` --imports--> `l_decide`
 - `s_skill_apply` --imports--> `l_policy`
 - `s_skill_apply` --imports--> `l_project_root`
 - `s_skill_apply` --imports--> `l_skill_apply_lib`
@@ -227,11 +230,13 @@
 - LOW bloat docs/knowledge/windows-bash-scanner.md — docs/knowledge/windows-bash-scanner.md is approximately 2678 tokens, exceeding the 2500-token warn threshold.
 - MEDIUM manifest-gap l_decide — scripts/lib/decide.ts is missing from the manifest's files map.
 - MEDIUM manifest-gap l_egress_guard — scripts/lib/egress-guard.ts is missing from the manifest's files map.
+- MEDIUM manifest-gap s_review_triage — scripts/review-triage.ts is missing from the manifest's files map.
 - MEDIUM orphan-script s_audit_context — Script scripts/audit-context.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_context_filter — Script scripts/context-filter.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_install_hooks — Script scripts/install-hooks.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_memory_search — Script scripts/memory-search.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_observation_parser — Script scripts/observation-parser.ts has no incoming references and is not in the orphan allowlist.
+- MEDIUM orphan-script s_review_triage — Script scripts/review-triage.ts has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_scrub_secrets — Script scripts/scrub-secrets.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_setup — Script scripts/setup.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_validate_freshness — Script scripts/validate-freshness.sh has no incoming references and is not in the orphan allowlist.
