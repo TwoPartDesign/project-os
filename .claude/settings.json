@@ -68,6 +68,7 @@
       "Bash(node scripts/detect-stack.ts*)",
       "Bash(node scripts/skill-apply.ts*)",
       "Bash(node scripts/skill-ledger.ts*)",
+      "Bash(node scripts/review-triage.ts*)",
       "Bash((cd * && *))",
       "Bash((cd * ; *))",
       "Read",
