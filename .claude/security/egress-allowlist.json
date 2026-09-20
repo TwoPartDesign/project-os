@@ -13,7 +13,11 @@
         "finding.fix",
         "changed_files"
       ],
-      "guards": ["scrub+rescan", "key-denylist", "entropy>=4.0"],
+      "guards": [
+        "scrub+rescan",
+        "key-denylist",
+        "entropy>=4.0, or >=3.0 for an all-hex token of >=32 chars"
+      ],
       "risk_level": "low",
       "rationale": "Typed decisions over already-local review findings; no file contents or diffs; off by default.",
       "audit_date": "2026-09-20"

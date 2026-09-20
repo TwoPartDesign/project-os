@@ -77,12 +77,26 @@ export function unescapeField(s: string): string {
 }
 
 /**
- * Redacts the value half of `key=value` and `"key": "value"` / `"key": value`
- * pairs whose key matches {@link isSensitiveKey}. The key charset is
- * `[A-Za-z0-9_.-]+`; the value is the run up to whitespace, `,`, `;`, or a
- * closing quote. Only matched key/value pairs are touched — prose is never
- * scanned for the denylist words, so "missing authentication" is untouched.
- * Returns the redacted line and the number of pairs redacted.
+ * Redacts the value half of key/value pairs whose key matches
+ * {@link isSensitiveKey}. The key charset is `[A-Za-z0-9_.-]+`. Two passes:
+ *
+ * 1. JSON-style quoted keys — `"key": "value"` / `"key": value` — replaced
+ *    with `"key": "[REDACTED:key]"` / `"key": [REDACTED:key]`.
+ * 2. Bare keys with a `=` or `:` separator, with optional whitespace on
+ *    either side, and a bare, single-quoted, or double-quoted value:
+ *    `key=value`, `KEY="value"`, `key = 'value'`, `key: value`. The
+ *    separator is preserved exactly as written and any quotes around the
+ *    value are dropped, so these become `key=[REDACTED:key]`,
+ *    `key = [REDACTED:key]`, `key: [REDACTED:key]`.
+ *
+ * A bare value runs up to whitespace, `,`, `;`, or a double quote; a quoted
+ * value runs to its matching closing quote. The bare-key pass refuses a key
+ * immediately preceded by `"` so a JSON pair already handled by pass 1 is
+ * never counted or rewritten twice. Only matched key/value pairs are touched
+ * — prose is never scanned for the denylist words, so "missing
+ * authentication" is untouched, as are non-sensitive keys (`file: x.ts`,
+ * `path=foo`, `https://host:8443/x`). Returns the redacted line and the
+ * number of pairs redacted.
  */
 export function redactSensitivePairs(line: string): {
   line: string;
@@ -102,12 +116,16 @@ export function redactSensitivePairs(line: string): {
       : `"${key}": [REDACTED:key]`;
   });
 
-  // key=value (bare, not already consumed as part of a JSON-style match)
-  const barePairRe = /(^|[\s,;])([A-Za-z0-9_.-]+)=([^\s,;"]+)/g;
-  result = result.replace(barePairRe, (match, lead, key, value) => {
+  // key=value / key = 'value' / key: value (bare key, not already consumed
+  // as part of a JSON-style match above). The `(?<!")` pins the no-double-
+  // redaction invariant: a quoted key belongs to pass 1 only, and the guard
+  // holds even if the leading character class is ever widened.
+  const barePairRe =
+    /(^|[\s,;])(?<!")([A-Za-z0-9_.-]+)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;"]+)/g;
+  result = result.replace(barePairRe, (match, lead, key, sep, value) => {
     if (!isSensitiveKey(key)) return match;
     count++;
-    return `${lead}${key}=[REDACTED:key]`;
+    return `${lead}${key}${sep}[REDACTED:key]`;
   });
 
   return { line: result, count };
@@ -131,16 +149,39 @@ export function shannonEntropy(s: string): number {
 }
 
 /**
+ * Minimum length for the hex-charset branch of {@link redactHighEntropyTokens}.
+ * A 32-hex run is the shortest shape a real key (MD5-width, or a 128-bit
+ * API key rendered as hex) takes.
+ */
+export const HEX_MIN_LEN = 32;
+
+/**
+ * Entropy floor for the hex-charset branch of {@link redactHighEntropyTokens}.
+ * The general 4.0 bits/char floor is unreachable for a hex token — a
+ * 16-symbol alphabet caps at log2(16) = 4.0, hit only by a perfectly uniform
+ * distribution — so random 32/40/64-hex keys scored ~3.6–3.9 and passed
+ * straight through. 3.0 clears a random hex run while leaving a degenerate
+ * one (e.g. 40 repeated characters, entropy 0) alone.
+ */
+export const HEX_MIN_ENTROPY = 3.0;
+
+/**
  * Context-free entropy floor. Replaces any token matching
- * `[A-Za-z0-9_\-/+=]{minLen,}` whose {@link shannonEntropy} is at or above
- * `minEntropy` with `[REDACTED:entropy]`. The token charset excludes `:`,
- * `[`, and `]`, so a prior `[REDACTED:...]` marker's fragments (`REDACTED`,
- * the reason word) can never themselves join into one match spanning the
- * marker — at the default `minLen` of 24 both fragments fall well short,
- * so an existing marker is left unchanged and never double-wrapped.
- * Over-redaction of a git SHA or hash is accepted by design: a missed
- * observation never leaks, a missed secret does. Returns the redacted line
- * and the number of tokens redacted.
+ * `[A-Za-z0-9_\-/+=]{minLen,}` with `[REDACTED:entropy]` when either its
+ * {@link shannonEntropy} is at or above `minEntropy`, or it is entirely
+ * hex (`[0-9a-fA-F]`) of at least {@link HEX_MIN_LEN} characters with
+ * entropy at or above {@link HEX_MIN_ENTROPY}. The hex branch exists
+ * because the general floor is mathematically unreachable for a hex
+ * charset (see {@link HEX_MIN_ENTROPY}).
+ *
+ * The token charset excludes `:`, `[`, and `]`, so a prior `[REDACTED:...]`
+ * marker's fragments (`REDACTED`, the reason word) can never themselves join
+ * into one match spanning the marker — at the default `minLen` of 24 both
+ * fragments fall well short, so an existing marker is left unchanged and
+ * never double-wrapped. Over-redaction of a git SHA or hash is accepted by
+ * design (and the hex branch widens it): a missed observation never leaks, a
+ * missed secret does. Returns the redacted line and the number of tokens
+ * redacted.
  */
 export function redactHighEntropyTokens(
   line: string,
@@ -151,7 +192,12 @@ export function redactHighEntropyTokens(
   const tokenRe = new RegExp(`[A-Za-z0-9_\\-/+=]{${minLen},}`, "g");
 
   const result = line.replace(tokenRe, (match) => {
-    if (shannonEntropy(match) < minEntropy) return match;
+    const entropy = shannonEntropy(match);
+    const hexKeyShaped =
+      match.length >= HEX_MIN_LEN &&
+      /^[0-9a-fA-F]+$/.test(match) &&
+      entropy >= HEX_MIN_ENTROPY;
+    if (entropy < minEntropy && !hexKeyShaped) return match;
     count++;
     return "[REDACTED:entropy]";
   });
@@ -182,6 +228,22 @@ export function redactFields(fields: string[]): {
 // ============================================================================
 // I/O half: staging, scrub subprocess, positive re-scan
 // ============================================================================
+
+/**
+ * Defuses the security scanner's inline allow marker inside outbound text by
+ * rewriting every case-insensitive occurrence of `scan:allow` to
+ * `scan-allow`.
+ *
+ * The scanner honours `scan:allow` on a staged line (its inline marker, see
+ * `scripts/security-scanner.ts`), which would make it skip that line in BOTH
+ * the scrub pass and the positive re-scan — so a field carrying the marker
+ * would come back "verified clean" without ever having been examined.
+ * Neutralizing it before staging closes that hole. The rewrite is a
+ * defusal, not a redaction: it is never counted as one.
+ */
+export function neutralizeScanMarkers(field: string): string {
+  return field.replace(/scan:allow/gi, "scan-allow");
+}
 
 /**
  * Dependency bag for {@link guardEgressFields}: the project root the guard
@@ -254,12 +316,16 @@ function runScannerCommand(
 }
 
 /**
- * Stages `fields` one per line in a private file under the project's
- * egress-scrub directory, runs the project's security scanner on that file
- * in a subprocess to scrub any secrets it recognizes, and trusts the
- * result only after re-reading the file and positively re-scanning it
- * clean. Only then are the pure redactions from {@link redactFields}
- * applied on top of the scrubbed text.
+ * Runs every field through {@link neutralizeScanMarkers} so no field can
+ * carry the scanner's inline `scan:allow` marker into staging and buy itself
+ * a skipped scrub and a vacuously clean re-scan, then stages the neutralized
+ * fields one per line in a private file under the project's egress-scrub
+ * directory, runs the project's security scanner on that file in a
+ * subprocess to scrub any secrets it recognizes, and trusts the result only
+ * after re-reading the file and positively re-scanning it clean. Only then
+ * are the pure redactions from {@link redactFields} applied on top of the
+ * scrubbed text. The returned fields carry the neutralized marker text; the
+ * neutralization itself is not counted as a redaction.
  *
  * Fails closed: an unsafe staging directory, a staging-file write failure,
  * a scrub/scan subprocess that throws, a line-count mismatch after
@@ -277,6 +343,8 @@ export function guardEgressFields(
 ):
   | { fields: string[]; redactions: number }
   | { refused: "egress-dir-unsafe" | "scrub-failed" } {
+  const safeFields = fields.map(neutralizeScanMarkers);
+
   const dir = resolveEgressDir(deps.projectRoot, deps.egressDir);
   if (dir === null) return { refused: "egress-dir-unsafe" };
 
@@ -293,7 +361,7 @@ export function guardEgressFields(
 
   try {
     try {
-      const text = fields.map(escapeField).join("\n") + "\n";
+      const text = safeFields.map(escapeField).join("\n") + "\n";
       writeFileSync(path, text, { flag: "wx", mode: 0o600 });
     } catch {
       return { refused: "scrub-failed" };
@@ -316,7 +384,7 @@ export function guardEgressFields(
 
     const stripped = raw.endsWith("\n") ? raw.slice(0, -1) : raw;
     const lines = stripped.split("\n");
-    if (lines.length !== fields.length) {
+    if (lines.length !== safeFields.length) {
       return { refused: "scrub-failed" };
     }
 

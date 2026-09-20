@@ -30,6 +30,7 @@ import {
   shannonEntropy,
   redactHighEntropyTokens,
   redactFields,
+  neutralizeScanMarkers,
   resolveEgressDir,
   guardEgressFields,
 } from "../scripts/lib/egress-guard.ts";
@@ -127,7 +128,55 @@ describe("redactSensitivePairs", () => {
     strictEqual(line, input);
     strictEqual(count, 0);
   });
+
+  it("redactSensitivePairs_quotedValueAfterEquals_redacts", () => {
+    const { line, count } = redactSensitivePairs('TOKEN="abc123def456"');
+    strictEqual(line, "TOKEN=[REDACTED:key]");
+    strictEqual(count, 1);
+  });
+
+  it("redactSensitivePairs_spacedEquals_redactsKeepingSpaces", () => {
+    const { line, count } = redactSensitivePairs("api_key = 'abc123def456'");
+    strictEqual(line, "api_key = [REDACTED:key]");
+    strictEqual(count, 1);
+  });
+
+  it("redactSensitivePairs_colonBareKey_redacts", () => {
+    const { line, count } = redactSensitivePairs(
+      "privateKey: abcdefghij1234567890",
+    );
+    strictEqual(line, "privateKey: [REDACTED:key]");
+    strictEqual(count, 1);
+  });
+
+  it("redactSensitivePairs_nonSensitiveShapes_untouched", () => {
+    const input = "file: scripts/x.ts path=foo https://host:8443/x";
+    const { line, count } = redactSensitivePairs(input);
+    strictEqual(line, input);
+    strictEqual(count, 0);
+  });
+
+  it("redactSensitivePairs_jsonPairNotDoubleRedacted", () => {
+    const { line, count } = redactSensitivePairs('{"api_key": "abc"}');
+    strictEqual(line, '{"api_key": "[REDACTED:key]"}');
+    strictEqual(count, 1);
+  });
 });
+
+/**
+ * Builds a run of `count` hex characters with maximal variety (a stride of 7
+ * is coprime with the 16-symbol hex alphabet, so it visits every digit before
+ * repeating). Computed at runtime — never a key-shaped string literal in this
+ * file's source.
+ */
+function hexRun(count: number): string {
+  const alphabet = "0123456789abcdef";
+  let out = "";
+  for (let i = 0; i < count; i++) {
+    out += alphabet[(i * 7 + 3) % alphabet.length];
+  }
+  return out;
+}
 
 describe("redactHighEntropyTokens", () => {
   it("redactHighEntropyTokens_base64Like40Chars_redacted", () => {
@@ -174,6 +223,46 @@ describe("redactHighEntropyTokens", () => {
     strictEqual(count, 1);
   });
 
+  it("redactHighEntropyTokens_randomHex40_redacts", () => {
+    const hex = hexRun(40);
+    strictEqual(hex.length, 40);
+    // A 40-slot hex run cannot reach the general 4.0 floor, so this token is
+    // redacted only by the hex branch (>=32 chars, entropy >=3.0).
+    ok(
+      shannonEntropy(hex) < 4.0,
+      `expected entropy < 4.0, got ${shannonEntropy(hex)}`,
+    );
+    ok(
+      shannonEntropy(hex) >= 3.0,
+      `expected entropy >= 3.0, got ${shannonEntropy(hex)}`,
+    );
+    const { line, count } = redactHighEntropyTokens(`hash ${hex}`);
+    strictEqual(line, "hash [REDACTED:entropy]");
+    strictEqual(count, 1);
+  });
+
+  it("redactHighEntropyTokens_repeatedHex_untouched", () => {
+    const degenerate = "a".repeat(40);
+    // A single-symbol distribution sums to -0, so compare the magnitude.
+    strictEqual(Math.abs(shannonEntropy(degenerate)), 0);
+    const { line, count } = redactHighEntropyTokens(degenerate);
+    strictEqual(line, degenerate);
+    strictEqual(count, 0);
+  });
+
+  it("redactHighEntropyTokens_hex31_untouched", () => {
+    const hex = hexRun(31);
+    strictEqual(hex.length, 31);
+    // Below the 32-char hex floor and below the general 4.0 floor.
+    ok(
+      shannonEntropy(hex) < 4.0,
+      `expected entropy < 4.0, got ${shannonEntropy(hex)}`,
+    );
+    const { line, count } = redactHighEntropyTokens(`hash ${hex}`);
+    strictEqual(line, `hash ${hex}`);
+    strictEqual(count, 0);
+  });
+
   it("redactHighEntropyTokens_alreadyRedacted_notDoubleWrapped", () => {
     const input = "[REDACTED:bare-sk-token]";
     const { line, count } = redactHighEntropyTokens(input);
@@ -185,10 +274,15 @@ describe("redactHighEntropyTokens", () => {
 describe("redactFields", () => {
   it("redactFields_countsAcrossFields_sumsBothFields", () => {
     const sample = "aB3xQ9zK7mN2pR8vC1tW6yU4hL5jF0gS9dEoIuY7";
-    const fields = ["privateKey=abcdefghij1234567890 rest", `token: ${sample}`];
+    // The prefix is "sha: ", not "token: ": `token` is a sensitive key and
+    // `redactSensitivePairs` now also recognizes a `key: value` pair, so a
+    // "token: " prefix would be consumed by the key pass before the entropy
+    // pass ever saw the value. This field must reach the entropy pass for
+    // the test to still cover both passes.
+    const fields = ["privateKey=abcdefghij1234567890 rest", `sha: ${sample}`];
     const { fields: outFields, redactions } = redactFields(fields);
     strictEqual(outFields[0], "privateKey=[REDACTED:key] rest");
-    strictEqual(outFields[1], "token: [REDACTED:entropy]");
+    strictEqual(outFields[1], "sha: [REDACTED:entropy]");
     strictEqual(redactions, 2);
   });
 });
@@ -523,6 +617,45 @@ describe("guardEgressFields — refusal paths", () => {
       if (process.platform !== "win32") {
         strictEqual(stat.mode & 0o777, 0o700);
       }
+    });
+  });
+});
+
+describe("neutralizeScanMarkers", () => {
+  it("neutralizeScanMarkers_mixedCase_replacesAll", () => {
+    // Built at runtime so this source line does not itself carry the
+    // scanner's inline allow marker.
+    const marker = "scan" + ":" + "allow";
+    const input = `x ${marker} y ${marker.toUpperCase()}`;
+    strictEqual(neutralizeScanMarkers(input), "x scan-allow y scan-allow");
+  });
+});
+
+describe("guardEgressFields — scan marker neutralization", () => {
+  it("guardEgressFields_scanAllowInField_stagedTextHasNoMarker", () => {
+    withTempRoot((root) => {
+      const marker = "scan" + ":" + "allow";
+      let stagedContent: string | undefined;
+      const result = guardEgressFields([`leave ${marker} here`], {
+        projectRoot: root,
+        scrubCmd: (file) => {
+          stagedContent = readFileSync(file, "utf8");
+          return { status: 0 };
+        },
+        scanCmd: () => ({ status: 0 }),
+      });
+      strictEqual(stagedContent, "leave scan-allow here\n");
+      ok(
+        !stagedContent.includes(marker),
+        `staged text must not carry the inline allow marker, got: ${stagedContent}`,
+      );
+      ok(
+        !("refused" in result),
+        `expected success, got: ${JSON.stringify(result)}`,
+      );
+      if ("refused" in result) return;
+      strictEqual(result.fields[0], "leave scan-allow here");
+      strictEqual(result.redactions, 0);
     });
   });
 });
