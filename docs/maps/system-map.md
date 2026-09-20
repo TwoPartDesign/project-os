@@ -56,9 +56,10 @@
 ### lib
 - `l_common` — `.claude/hooks/_common.sh` (14 dependents)
 - `l_dashboard_render` — `scripts/lib/dashboard-render.ts` (5 dependents)
+- `l_decide` — `scripts/lib/decide.ts` (0 dependents)
 - `l_json` — `scripts/lib/json.sh` (2 dependents)
 - `l_policy` — `scripts/lib/policy.ts` (10 dependents)
-- `l_project_root` — `scripts/lib/project-root.ts` (17 dependents)
+- `l_project_root` — `scripts/lib/project-root.ts` (18 dependents)
 - `l_scan_rules` — `scripts/lib/scan-rules.js` (0 dependents)
 - `l_skill_apply_lib` — `scripts/lib/skill-apply-lib.ts` (4 dependents)
 - `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (5 dependents)
@@ -96,6 +97,7 @@
 - `s_critical_rules_test` — `tests/critical-rules.test.ts` (0 dependents)
 - `s_dashboard_render_test` — `tests/dashboard-render.test.ts` (0 dependents)
 - `s_dashboard_smoke` — `tests/dashboard-smoke.sh` (0 dependents)
+- `s_decide_test` — `tests/decide.test.ts` (0 dependents)
 - `s_detect_stack_test` — `tests/detect-stack.test.ts` (0 dependents)
 - `s_dream_accept_smoke` — `tests/dream-accept-smoke.sh` (0 dependents)
 - `s_entropy_threshold_test` — `tests/entropy-threshold.test.ts` (0 dependents)
@@ -188,6 +190,7 @@
 - `h_pre_compact` --sources--> `l_common`
 - `h_session_end_cleanup` --sources--> `l_common`
 - `h_tool_failure_log` --sources--> `l_common`
+- `l_decide` --imports--> `l_project_root`
 - `l_policy` --imports--> `l_project_root`
 - `s_compaction_hooks` --sources--> `l_common`
 - `s_dashboard` --sources--> `l_json`
@@ -220,6 +223,7 @@
 - LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 3985 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/patterns.md — docs/knowledge/patterns.md is approximately 5489 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/windows-bash-scanner.md — docs/knowledge/windows-bash-scanner.md is approximately 2678 tokens, exceeding the 2500-token warn threshold.
+- MEDIUM manifest-gap l_decide — scripts/lib/decide.ts is missing from the manifest's files map.
 - MEDIUM orphan-script s_audit_context — Script scripts/audit-context.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_context_filter — Script scripts/context-filter.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_install_hooks — Script scripts/install-hooks.sh has no incoming references and is not in the orphan allowlist.

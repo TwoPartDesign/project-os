@@ -51,6 +51,7 @@ flowchart LR
   subgraph lib
     l_common[".claude/hooks/_common.sh"]
     l_dashboard_render["scripts/lib/dashboard-render.ts"]
+    l_decide["scripts/lib/decide.ts"]
     l_json["scripts/lib/json.sh"]
     l_policy["scripts/lib/policy.ts"]
     l_project_root["scripts/lib/project-root.ts"]
@@ -91,6 +92,7 @@ flowchart LR
     s_critical_rules_test["tests/critical-rules.test.ts"]
     s_dashboard_render_test["tests/dashboard-render.test.ts"]
     s_dashboard_smoke["tests/dashboard-smoke.sh"]
+    s_decide_test["tests/decide.test.ts"]
     s_detect_stack_test["tests/detect-stack.test.ts"]
     s_dream_accept_smoke["tests/dream-accept-smoke.sh"]
     s_entropy_threshold_test["tests/entropy-threshold.test.ts"]
@@ -181,6 +183,7 @@ flowchart LR
   h_pre_compact -->|sources| l_common
   h_session_end_cleanup -->|sources| l_common
   h_tool_failure_log -->|sources| l_common
+  l_decide -->|imports| l_project_root
   l_policy -->|imports| l_project_root
   s_compaction_hooks -->|sources| l_common
   s_dashboard -->|sources| l_json
