@@ -366,6 +366,25 @@ nudge and the runtime agree on every model and every plan at the cost of the
 1M window, versus keeping 350k and doing #T197). Until one lands, confirm the
 real window with `/context` before trusting the nudge in a Fable session.
 
+**Resolved (2026-09-16, #T198)**: measured, not assumed. The 2026-09-16 lead
+session's transcript carried a live context of ~245k tokens
+(`cache_read_input_tokens` 236,809 + creation 8,032) on `model: fable` — above
+200k, so this plan runs Fable 5.1 at its native 1M window. Decision: **keep
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW=350000`, reframed as an early-compaction
+budget cap**, not a model fact. It is consistent because the runtime caps the
+setting at the model's real window and every model in the fallback chain
+(Fable 5.1, Opus 5, Sonnet 5) is 1M-native on this plan, so nudge (60% → 210k)
+and auto-compaction (80% → 280k) agree on every model the session can land
+on. Rejected: `CLAUDE_CODE_DISABLE_1M_CONTEXT=1` + 200k (gives up the window
+the plan provides for no consistency gain here); raising the cap to 1M
+(compacting at 800k of a $10/Mtok model contradicts "context is noise" and
+the handoff chain already makes early compaction cheap). #T197 (a
+`PostModelSwitch` hook deriving the window per model) is retired: a hook can
+map model → nominal window but not model → *plan* window, which is the only
+thing that varies, and on this plan nothing in the chain drops below the cap.
+Rule that survives: the cap must not exceed the smallest real window in the
+chain — a plan where any chain model runs at 200k sets it to `200000`.
+
 ---
 
 ## 2026-09-06 — Orchestration Cost Controls

@@ -472,6 +472,16 @@ assert_contains "context_nudge_reportsMeasuredPercentage" \
     "$OUT" "Context is at 65% of the 200000-token window"
 assert_contains "context_nudge_reportsCompactionThreshold" "$OUT" "auto-compaction fires at 75%"
 
+# context_nudge_isValidJson — the nudge is a `hookSpecificOutput` object on
+# stdout. Since Claude Code 2.1.248 a `{…}` on hook stdout that does not parse
+# is reported as a hook ERROR rather than passed through as text, so a
+# malformed emit would surface as a failing hook, not merely a lost nudge.
+# The SIGNAL is interpolated into a hand-built printf format, which is exactly
+# the kind of thing a stray quote breaks. Parse the whole line, not a substring.
+JSON_OK=0
+printf '%s' "$OUT" | node -e 'JSON.parse(require("fs").readFileSync(0, "utf8"))' 2>/dev/null || JSON_OK=$?
+assert_eq "context_nudge_isValidJson" "$JSON_OK" "0"
+
 # context_belowNudgeThreshold_staysSilent — 100000 / 200000 = 50%, under 60%.
 new_sandbox
 make_token_transcript "$SB/transcript.jsonl" 100000 0 0

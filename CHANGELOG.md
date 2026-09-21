@@ -71,7 +71,18 @@ Remediation of the 2026-07-11 repo staleness audit (`docs/audits/2026-07-11-stal
 - **Doc corrections** — the 350k Fable compaction window has no source (docs: native 1M,
   plan-dependent; runtime caps the window at the model's real size); `effort:` frontmatter on
   Fable was inert until 2.1.267; worktree self-grounding pattern records its dependency on the
-  2.1.222+ isolation model. Larger follow-ups drafted as #T197–#T201.
+  2.1.222+ isolation model.
+- **Compaction window policy decided (2026-09-16, #T198)** — `350000` stays, reframed as an
+  early-compaction budget cap ("never above the smallest real window in the model chain").
+  Evidence: a live Fable session at ~245k context, i.e. this plan runs the 1M window.
+  `CLAUDE_CODE_DISABLE_1M_CONTEXT` rejected; the PostModelSwitch window hook (#T197) retired as
+  unnecessary. `init.md` / `set-models.md` scaffolds reworded to the rule.
+- **bash.md Core Rule 7** — change files with Write/Edit only; `sed -i`, heredocs and `>` bypass
+  the format, secret-scrub and handoff-claim hooks silently (#T199; hook extension is #T202).
+- **windows-bash-scanner.md cross-check table** — eight triggers mapped to the 2.1.221–2.1.269
+  permission-checker changes with likely status; nothing deleted without default-mode
+  re-verification (#T200).
+- **Test** — `context_nudge_isValidJson` in `tests/compaction-hooks.sh` (#T201).
 
 ### Model Routing (Claude 5 lineup)
 - **settings.json** — sub-agent model → `claude-sonnet-5`; hook matchers drop removed `MultiEdit` tool

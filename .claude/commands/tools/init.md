@@ -410,15 +410,17 @@ Set the models in `.claude/settings.json` (create the file if it doesn't exist, 
 }
 ```
 
-`[COMPACT_WINDOW]` follows `MODEL_ORCHESTRATION`: `350000` when the lead is
-`fable`, `200000` when it is `opus` or `sonnet`. The compaction chain
-(`compact-suggest.sh` and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`) measures context
-pressure against this number, so a mismatched window fires the handoff nudge
-either far too late (Fable window, Opus lead) or at about 43% of the real
-window (Opus window, Fable lead). When the session lands on a `fallbackModel`
-the window is oversized for that session — known and accepted
-(`docs/knowledge/decisions.md`, 2026-09-04 rider; the 2026-09-12 update there
-notes the Fable window is plan-dependent and the policy is under #T198).
+`[COMPACT_WINDOW]` is an **early-compaction budget cap**, not the model's
+window. The compaction chain (`compact-suggest.sh` and
+`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`) measures context pressure against it, and
+the runtime caps it at the real window, so the one rule is: **it must not
+exceed the smallest real window of any model the session can land on** —
+the lead *and* every `fallbackModel` entry. `350000` when the whole chain
+runs at 1M (Fable 5.1 / Opus 5 / Sonnet 5 on a plan with 1M context — check
+with `/context`); `200000` when any model in the chain runs at 200k. A cap
+above a chain member's real window makes the handoff nudge fire past the end
+of that window, i.e. never (`docs/knowledge/decisions.md`, 2026-09-04 rider
+and its 2026-09-16 resolution).
 
 - `"model"` sets the orchestration/session model (aliases like `"opus"` resolve to the current Opus)
 - `"fallbackModel"` is the safety net: an ordered list the session falls back through when the primary model is unavailable, so a plan without Fable still lands on `opus`, then `sonnet`, instead of failing

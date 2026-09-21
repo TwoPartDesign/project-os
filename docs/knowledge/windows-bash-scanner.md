@@ -25,6 +25,28 @@ prompts, extend the hook's allowlist once instead of re-teaching agents.
 
 ---
 
+## Changelog cross-check (2026-09-16, Claude Code 2.1.221 → 2.1.269)
+
+The catalog below was reverse-engineered on 2.1.2xx builds from July. These
+release notes changed the permission checker since; each entry says what moved
+and whether the catalogued trigger is likely stale. **None has been re-verified
+in default (non-auto) mode on Windows** — do that in a throwaway session before
+deleting an entry; in auto mode the classifier, not the scanner, decides, so a
+command that sails through there proves nothing about the scanner (#T200).
+
+| Catalog entry | What changed | Likely status |
+|---|---|---|
+| `cd "path" && cmd` prompts | 2.1.232 regressed auto mode on Windows into prompting for ordinary `cd <dir> && <cmd> > file`; 2.1.233 fixed it. 2.1.259 applied `Read()` deny rules to Bash arguments, which "made `cd … && grep` prompt even in auto mode"; 2.1.260 reverted that. | Still valid for the **scanner** in default mode (the "bare repository attack" / "ambiguous syntax" strings were never reported fixed). No longer a reliable auto-mode trigger. |
+| `< file` input redirection | 2.1.232 permission-checked `< file` like its argument spelling; 2.1.233 reverted it on Windows (Cygwin symlinks and `< file`) "a narrower version will return"; 2.1.257 reinstated `Read()`/`Edit()` deny coverage of `< file` and readers like `tac`/`egrep`. | Only bites when a `Read()`/`Edit()` deny rule matches the file. This repo has an empty deny list — not a trigger here. |
+| Worktree-isolation refusals ("too complex to verify that it stays inside the worktree") | 2.1.257 stopped refusing loops, `$VAR` reads, `"$(…)"` and heredocs that never touch git; 2.1.259 stopped refusing common loops, xargs pipelines and launcher-wrapped commands that cannot reach the main checkout. | Worktree workers (`implementer`, `documenter`) should see fewer refusals than the `$()`/loop entries below imply. The scanner entries themselves are unchanged. |
+| `rm -rf` safety prompt | 2.1.261 widened it to `rm -rf` on positional parameters and inside double-quoted `sh -c` scripts. | **New trigger**, not yet catalogued: `sh -c "rm -rf $1"` shapes now prompt. |
+| `Bash(tee:*)` allow rule | 2.1.269: `Edit()` deny rules and the write-path check now apply to `tee`'s destination; a `Bash(tee:*)` allow no longer covers destinations outside the working directories. | Not in this repo's allow list. Note for projects that add it. |
+| Allow rules with a wildcard before the subcommand (`Bash(git * main)`) | 2.1.246 added a startup warning: they also match options inserted before the subcommand. | `settings.local.json` has `Bash(for * in *)` and `Bash(MSYS_NO_PATHCONV=1 git *)` — expect the warning; harmless. |
+| Malformed compound commands (dangling `&&` / `\|\|`) | 2.1.246: always require approval. | New trigger; consistent with "one command per call". |
+| zsh-specific bypasses (`[[ ]]` regex conditionals, `REPORTTIME=` assignments, arithmetic integer assignments) | 2.1.221 / 2.1.251 / 2.1.257 / 2.1.260 each closed one and now prompt. | Git Bash is bash, not zsh — not reachable here. |
+
+---
+
 ## Security Prompt Triggers
 
 The scanner flags these patterns - mostly false positives on machines with spaces in paths:

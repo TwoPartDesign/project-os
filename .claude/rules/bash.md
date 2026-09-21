@@ -48,6 +48,15 @@ even when conceptually allowed.
    the parenthesized form is pre-approved via `Bash((cd * && *))` in
    `.claude/settings.json`. The parens are the discriminator: bare
    `cd "path" && cmd` stays forbidden.
+7. **Change files with Write/Edit, never with `sed -i`, heredocs, or `>`
+   redirection.** Three hooks are matched on `Write|Edit` only: the formatter
+   (`post-tool-use.sh`), the session-file secret scrub
+   (`post-write-session.sh`), and the PreToolUse handoff claim in
+   `compact-suggest.sh`. A file changed by a Bash command bypasses all three
+   with no error anywhere — unformatted code, an unscrubbed handoff, or an
+   unclaimed handoff that `pre-compact.sh` will never forward. Claude Code
+   2.1.269's `bashEditDiffEnabled` adds a diff of Bash-changed files to the
+   tool result but does not fire those hooks (extending them is #T202).
 
 ## Where the Rest Went
 
@@ -75,3 +84,4 @@ prompt.
 - Never embed programs in `-c` / `-e` / `-Command` / `-lc` arguments — same fix: script file.
 - Use `git -C "<path>" <subcommand>` instead of `cd "path" && git`; commit with `git commit -F <msgfile>`.
 - Use forward slashes in paths; double-quote paths with spaces; never backslash-escape spaces; use `--flag "value"`, not `--flag="value"`.
+- Change files with Write/Edit, never with `sed -i`, heredocs, or `>` redirection — the format, secret-scrub, and handoff-claim hooks fire only on Write/Edit, and a Bash-made change bypasses them silently.
