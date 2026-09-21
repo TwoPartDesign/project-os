@@ -84,6 +84,7 @@ User (Approver) ──→ Workflow Commands ──→ Lead ──→ Sub-agents 
 | `maintain.sh` | Deterministic maintenance loop — checks, drafts, ledger; never mutates canonical state |
 | `memory-search.sh` | Full-text search across knowledge files |
 | `setup.sh` | Idempotent project activation — installs git hooks + generates the initial map; run by new-project.sh, the SessionStart hook, and once per clone; `--adopt` runs hook install in quarantine mode (`--no-chain`) for in-place adoption targets |
+| `compaction-metrics.ts` | Offline transcript analyzer for the auto-compaction constraint — per-cycle context and cache spend, tool-error rate by context decile, threshold replay (ignores real boundaries, resets to the observed re-seed floor), configured-vs-observed fire point; markdown or `--json`; result recorded in `docs/knowledge/compaction-metrics.md` |
 | `lib/project-root.ts` | Shared project-root resolution (imported by knowledge-index/system-map/maintain-draft) |
 | `new-project.sh` | Bootstrap a new Project OS project, or adopt Project OS in place into a pre-existing repo via `--adopt <target-dir>` (two-class collision policy, orphan quarantine, `--dry-run` plan preview) |
 | `observation-parser.ts` | Extract 5 typed observations from tool output (sensitive-key denylist) |

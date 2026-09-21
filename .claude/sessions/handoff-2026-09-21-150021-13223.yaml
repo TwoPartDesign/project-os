@@ -1,0 +1,101 @@
+timestamp: 2026-09-21T15:00:21Z
+phase: ship
+feature: compaction-gate
+
+objective: |
+  Close the remote session: review, ship and merge #T189 (compaction metrics),
+  approve and apply the two ship-reflection drafts, and leave master carrying
+  everything so the owner can continue locally.
+
+progress:
+  completed:
+    - description: jev-integration shipped and merged (PR #2, merge commit 3e0af72); #T190/#T191 drafts applied
+      files: ROADMAP.md
+    - description: "#T189 review: two verified HIGHs fixed in review (replay stacked re-seed context across real cycles; process.exit(0) truncated piped --json), six SHOULD FIX closed, doc regenerated, PASSED WITH NOTES, #T189 [x]"
+      files: scripts/compaction-metrics.ts:396-440, scripts/compaction-metrics.ts:529-541, scripts/compaction-metrics.ts:700-720, tests/compaction-metrics.test.ts, docs/knowledge/compaction-metrics.md, docs/specs/compaction-gate/review.md
+    - description: "#T189 shipped: architecture table row, manifest regenerated, ADR, metrics snapshot, memory entry, PR #3 opened"
+      files: docs/knowledge/architecture.md:87, docs/knowledge/decisions.md (2026-09-21 entry), docs/knowledge/metrics.md (compaction-gate entry), docs/memory/2026-09-21-compaction-gate-ship.md
+    - description: ship reflection filed #T192 and #T193; owner approved all; both applied by skill-apply (a2617de, d02419f) and marked [x]
+      files: .claude/commands/workflows/review.md:27-32, .claude/commands/workflows/review.md:204-205, ROADMAP.md:203-208
+  in_progress:
+    - description: commit ROADMAP approvals plus this handoff, push, merge PR #3
+      files: ROADMAP.md, .claude/sessions/handoff-2026-09-21-150021-13223.yaml
+      state: handoff written; commit, push and mcp__github__merge_pull_request(pullNumber 3) still to run
+
+decisions:
+  - decision: Keep CLAUDE_CODE_AUTO_COMPACT_WINDOW 350000 / CLAUDE_AUTOCOMPACT_PCT_OVERRIDE 80; never narrow the window; 70% is the spend-first option after a second session's data
+    rationale: corrected replay projects ~18% less cache read at 70% for one extra compaction per ~300 turns, on an 8%-error projection from one session; context length not compaction count drives spend (cache read 97% of input)
+    alternatives_rejected: lower to 70 now; narrow to 200k (seven extra compactions for 34%)
+  - decision: The threshold replay ignores real compaction boundaries (adds only positive turn-to-turn growth) and resets only when the simulated threshold fires, to the observed re-seed floor (~88k), not the boundary's summary-only postTokens
+    rationale: the first build stacked each cycle's re-seed on the previous total; its "reproduces 3 compactions" self-validation was circular (session peak 263k was below the 280k threshold)
+    alternatives_rejected: reset at each real boundary (bakes the real fire point into every simulation); reset to postTokens 12-19k (understates every post-compaction cycle by ~70k)
+  - decision: Review sized to reviewer-security (opus) + reviewer-tests (sonnet) + lead drift check; both HIGHs fixed by the lead inside the review rather than a rebuild cycle
+    rationale: single-script diff; each fix under twenty lines (lead.md); now codified by #T192 in review.md
+    alternatives_rejected: three-reviewer inherit-tier pass; GATE FAILED → /workflows:rebuild
+
+modified_files:
+  - path: scripts/compaction-metrics.ts
+    focus_range: 396-440
+    change_type: modified
+    summary: simulateThreshold iterates all turns with prev carried across cycles; no segmentCycles call
+  - path: scripts/compaction-metrics.ts
+    focus_range: 700-720
+    change_type: modified
+    summary: main validates window>0, 0<pct<=100, wraps analyze in try/catch (exit 2), no process.exit after stdout.write
+  - path: tests/compaction-metrics.test.ts
+    focus_range: 124-144
+    change_type: modified
+    summary: three new tests (collapse, replay continuity, CLI error paths); 11/11
+  - path: docs/knowledge/compaction-metrics.md
+    focus_range: 1-160
+    change_type: modified
+    summary: regenerated on 305 turns / 5 compactions; single simulation table; recommendation restated
+  - path: .claude/commands/workflows/review.md
+    focus_range: 27-32
+    change_type: modified
+    summary: sized pass + lead drift check may stand in for the ship gate on a single-task feature (#T192)
+  - path: .claude/commands/workflows/review.md
+    focus_range: 204-205
+    change_type: modified
+    summary: cross-validate a circular self-validation CONCERN like a HIGH (#T193)
+  - path: ROADMAP.md
+    focus_range: 203-208
+    change_type: modified
+    summary: "#T192 #T193 [x] (applied a2617de / d02419f); #T189 [x] under compaction-gate Done"
+
+blockers: []
+
+next_steps:
+  - priority: 1
+    action: If PR #3 is not yet merged when you read this, merge it (merge method merge, base master) and delete nothing; the branch equals master afterwards
+    context: gh CLI is absent in the remote session; merge via the GitHub MCP merge_pull_request tool or the web UI
+  - priority: 2
+    action: Locally, git fetch and reset to origin/master; run bash scripts/setup.sh once
+    context: all session work is on master after the merge; docs/specs, docs/memory and .claude/sessions were force-added and are in git
+  - priority: 3
+    action: Optional follow-ups from docs/specs/compaction-gate/review.md notes
+    context: empty/multi-file transcript tests, pinCompactionPoint timestamp fallback, analyze()/cycleStats duplication, per-file replay in directory mode, CLAUDE.md nudge figure 60% vs hook 65%
+  - priority: 4
+    action: Run review-triage --calibrate once a TYPESAFE_API_KEY exists
+    context: decisions.md Calibration record row is a placeholder; project_os.jev.enabled stays false until then
+
+context_notes: |
+  The remote session's auto-mode classifier denied force pushes, some worktree
+  removals and scripts; plain single commands succeeded on retry. `node --test
+  tests/` (directory form) fails; use `node --test tests/*.test.ts` or the
+  gate script (`npm run verify` equivalent). A live transcript keeps growing
+  during the session, so two compaction-metrics runs minutes apart differ in
+  the tail cycle. Tool-error deciles count permission denials as errors.
+
+compact_instruction: |
+  This session is closing. Preserve: PR #3 (compaction-gate) is open against
+  master from branch claude/jev-integration-project-os-x9t11q and must be
+  merged with mcp__github__merge_pull_request (owner TwoPartDesign, repo
+  project-os, pullNumber 3, merge_method merge); before that, commit
+  ROADMAP.md and .claude/sessions/handoff-2026-09-21-150021-13223.yaml with
+  a git commit -F message file ending in the Co-Authored-By and
+  Claude-Session trailers, and push with git push -u origin
+  claude/jev-integration-project-os-x9t11q. Preserve that #T192 and #T193
+  are already applied (a2617de, d02419f) and marked [x], and that #T189 is
+  [x]. Safe to drop: reviewer report bodies, the regenerated metrics tables,
+  and all earlier jev-integration build detail (already merged in PR #2).

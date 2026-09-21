@@ -1,0 +1,11 @@
+.claude/commands/tools/metrics.md
+.claude/settings.json
+docs/knowledge/compaction-metrics.md
+docs/maps/.maps.lock
+docs/maps/module-graph.mmd
+docs/maps/system-map.md
+scripts/compaction-metrics.ts
+tests/compaction-metrics.test.ts
+scripts/generate-manifest.sh
+scripts/new-project.sh
+.claude/manifest.json

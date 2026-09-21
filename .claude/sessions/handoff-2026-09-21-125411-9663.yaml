@@ -1,0 +1,70 @@
+timestamp: 2026-09-21T12:54:11Z
+phase: ship
+feature: jev-integration
+
+objective: |
+  Close out the jev-integration session: PR #2 merged, the two ship
+  reflection drafts applied, stray agent worktrees removed.
+
+progress:
+  completed:
+    - description: PR #2 merged into master (merge commit 3e0af72); branch claude/jev-integration-project-os-x9t11q restarted from origin/master for follow-up work
+      files: https://github.com/TwoPartDesign/project-os/pull/2
+    - description: "#T190 and #T191 approved and staged-applied (b3e49d7 build.md worktree merge target, 968daa8 ship.md PR fallback); both [x] in ROADMAP"
+      files: .claude/commands/workflows/build.md, .claude/commands/workflows/ship.md, ROADMAP.md:197-202
+    - description: All 16 agent worktrees removed and their worktree-agent-* branches deleted; every worker commit had been cherry-picked
+      files: .claude/worktrees/
+  in_progress: []
+
+decisions:
+  - decision: Merge PR #2 as one unit, riders included (bash.md rule ADR, #T189 compaction-metrics)
+    rationale: owner said yes to merging as is
+    alternatives_rejected: splitting the riders onto their own branch
+  - decision: Restart the feature branch from origin/master after the merge rather than stacking on merged history
+    rationale: a merged PR is finished; follow-up work needs a fresh base
+    alternatives_rejected: committing this handoff on top of the merged commits
+
+modified_files:
+  - path: .claude/commands/workflows/build.md
+    focus_range: 127-129
+    change_type: modified
+    summary: worktree-base paragraph — briefs merge the current branch, not master
+  - path: .claude/commands/workflows/ship.md
+    focus_range: 86-87
+    change_type: modified
+    summary: PR fallback via GitHub MCP create_pull_request when gh is absent
+  - path: ROADMAP.md
+    focus_range: 197-202
+    change_type: modified
+    summary: "#T190/#T191 [x] with applied hashes"
+
+blockers: []
+
+next_steps:
+  - priority: 1
+    action: Run /workflows:review compaction-gate to promote #T189 from [~] to [x]
+    context: single task; completion report at docs/specs/compaction-gate/tasks/T189/completion-report.md; the knowledge doc's verdict is keep 350k/80%
+  - priority: 2
+    action: Decide which review notes in docs/specs/jev-integration/review.md (Round 2, SHOULD FIX) to act on, on a follow-up branch
+    context: system-map multi-line-import extractor gap, runTriage/decide length, computeAgreement duplication, projectRoot in DecideDeps, boundary tests, review-triage permission argv scope, PAT-shaped fixture literal
+  - priority: 3
+    action: When a TYPESAFE_API_KEY is available, run `node scripts/review-triage.ts <spec-dir> --calibrate` and fill the ADR calibration table
+    context: Jev never ran live this feature; the ADR row is a placeholder
+
+context_notes: |
+  This branch now equals origin/master plus this handoff commit. The Claude
+  Code auto-mode classifier denied a few worktree-removal commands on the
+  first try and allowed the same command on retry; nothing was worked
+  around. gh is absent in the remote session; PRs go through the GitHub
+  MCP tools (create_pull_request, merge_pull_request).
+
+compact_instruction: |
+  The jev-integration feature is merged (PR #2, master 3e0af72) and the
+  session is closed. Preserve verbatim: the three next_steps above
+  (review #T189, triage the review.md notes on a follow-up branch, run
+  --calibrate when a key exists); that the feature branch was restarted
+  from origin/master; that gh is absent and PRs use the GitHub MCP tools.
+  Safe to drop: everything about the build batches, review rounds,
+  cherry-picks, and worktree cleanup — those are recorded in
+  docs/specs/jev-integration/review.md, docs/knowledge/metrics.md, and
+  docs/memory/2026-09-20-jev-integration-ship.md.

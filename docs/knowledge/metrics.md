@@ -36,6 +36,20 @@ Track per-feature implementation metrics. Updated by `/workflows:ship` and query
 - **Notable**: the feature was exercised on its own review — the Synthesis step 0 triage run over this feature's reviewer reports showed the `scan:allow` neutralization and entropy over-redaction working before the review record was written. Jev itself stayed off (no key), so the calibration table in the ADR holds a placeholder row until `--calibrate` runs with a key. Every worktree brief needed `git merge <feature-branch>` because Agent-tool worktrees branch from the merge-base (reflection draft #T190).
 - **PR**: [#2](https://github.com/TwoPartDesign/project-os/pull/2) (branch `claude/jev-integration-project-os-x9t11q` → master)
 
+### Feature: compaction-gate (#T189 rider)
+
+- **Duration**: 2026-09-20 13:00Z (task-spawned) → 2026-09-21 (shipped); built as a rider on the jev-integration branch, reviewed and shipped on its own after PR #2 merged
+- **Tasks**: 1 total (#T189), 1 completed, 0 blocked
+- **Waves**: 1 dispatch (one `implementer` on Opus per the `(model: opus)` annotation)
+- **Revisions**: 1 review cycle (PASSED WITH NOTES); two verified HIGH correctness bugs found by reviewer-security and fixed by the lead in review (replay stacked re-seed context across cycles; `process.exit(0)` truncated piped `--json`), plus six SHOULD FIX closed in the same commit
+- **First-pass review rate**: 0/1 untouched — the one task needed fixes, all under twenty lines each
+- **Review sizing**: two reviewers (reviewer-security on Opus, reviewer-tests on Sonnet) plus the lead's drift check, not the three-reviewer gate; ~240k reviewer tokens (security 113k reported, tests ~125k by final context)
+- **Compete usage**: 0
+- **Model split**: orchestration Fable 5.1; build Opus 5 (judgment tier); reviewers Opus 5 + Sonnet 5
+- **Lines changed**: +778 / -120 across 11 files vs origin/master (review commit + closing handoff; the original T189 build shipped inside PR #2)
+- **Tests**: `tests/compaction-metrics.test.ts` 8 → 11; full verification 10/10 suites in 125s
+- **Notable**: the doc's headline recommendation moved once the replay was corrected — from "lowering the percentage is strictly a loss" to "80% by default, 70% is the spend-first option, never narrow the window". A reviewer's CONCERN that a self-validation claim was circular turned out to be the most valuable finding of the review; the matching compaction count was produced by the bug it was meant to validate.
+
 ### Feature: template-content-leakage + clone-run-defects
 
 - **Duration**: 2026-07-24 → 2026-07-25 (single continuous remote session; brief → design → implementation → owner approval → autonomous completion)
