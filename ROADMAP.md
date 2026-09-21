@@ -200,10 +200,10 @@ Small quality items surfaced during self-maintenance / #T9 reviews (2026-07-17).
 - [x] skill-edit: ship.md — PR fallback when gh is unavailable (applied 968daa8) #T191
   <!-- maint-fp: skill-edit:.claude/commands/workflows/ship.md:pr-without-gh-cli -->
   <!-- proposal: docs/specs/jev-integration/skill-edits.md Proposal 2 -->
-- [?] skill-edit: review.md — sized pass plus Lead drift check may stand in for the ship gate on a single-task feature #T192
+- [x] skill-edit: review.md — sized pass plus Lead drift check may stand in for the ship gate on a single-task feature (applied a2617de) #T192
   <!-- maint-fp: skill-edit:.claude/commands/workflows/review.md:sized-pass-ship-gate -->
   <!-- proposal: docs/specs/compaction-gate/skill-edits.md Proposal 1 -->
-- [?] skill-edit: review.md — cross-validate a circular self-validation CONCERN like a HIGH #T193
+- [x] skill-edit: review.md — cross-validate a circular self-validation CONCERN like a HIGH (applied d02419f) #T193
   <!-- maint-fp: skill-edit:.claude/commands/workflows/review.md:circular-self-validation -->
   <!-- proposal: docs/specs/compaction-gate/skill-edits.md Proposal 2 -->
 

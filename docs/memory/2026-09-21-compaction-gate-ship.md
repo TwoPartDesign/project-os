@@ -34,6 +34,7 @@
   `pinCompactionPoint` timestamp fallback, `analyze()`/`cycleStats`
   duplication, per-file replay in directory mode, prefix-wildcard
   permission form, CLAUDE.md's 60% nudge figure (hook fires at 65%).
-- Reflection drafts filed: #T192 (sized pass + lead drift check may stand
-  in for the ship gate), #T193 (cross-validate a circularity CONCERN like a
-  HIGH). Both `[?]`, awaiting `/pm:approve`.
+- Reflection drafts filed and approved by the owner the same session: #T192
+  (sized pass + lead drift check may stand in for the ship gate, applied
+  a2617de), #T193 (cross-validate a circularity CONCERN like a HIGH, applied
+  d02419f). PR #3 merged to master; session moves local from here.
