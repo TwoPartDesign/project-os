@@ -117,6 +117,8 @@ export type DecideDeps = {
   scrubCmd?: (file: string) => { status: number };
   scanCmd?: (file: string) => { status: number };
   egressDir?: string;
+  /** Project root the outbound egress guard operates under. Defaults to `getProjectRoot()`. */
+  projectRoot?: string;
   log?: (event: string, kv: Record<string, string>) => void;
   now?: () => number;
   consumer?: string;
@@ -432,6 +434,249 @@ function validateAnswer(question: Question, candidate: unknown): Answer | null {
 }
 
 /**
+ * The fixed per-call context the decline and log helpers below need: the
+ * call's `state`/`questions`, its resolved config, and the consumer, logger,
+ * and clock `decide()` resolved from its deps.
+ */
+type DecideContext = {
+  state: string;
+  questions: QuestionMap;
+  config: JevConfig;
+  consumer: string;
+  log: (event: string, kv: Record<string, string>) => void;
+  start: number;
+  now: () => number;
+};
+
+/** The three configured thresholds, rendered as the `threshold_*` fields every jev log event carries. */
+function thresholdFields(config: JevConfig): Record<string, string> {
+  return {
+    threshold_duplicate_p: String(config.thresholds.duplicate_p),
+    threshold_out_of_scope_p: String(config.thresholds.out_of_scope_p),
+    threshold_severity_confidence: String(
+      config.thresholds.severity_confidence,
+    ),
+  };
+}
+
+/** Logs `jev-declined` and returns the heuristic-backend `DecisionResult` for `reason`. */
+function declineResult(
+  ctx: DecideContext,
+  reason: DeclineReason,
+  redactions = 0,
+): DecisionResult {
+  const duration_ms = ctx.now() - ctx.start;
+  ctx.log("jev-declined", {
+    consumer: ctx.consumer,
+    reason,
+    questions: String(Object.keys(ctx.questions).length),
+    backend: "heuristic",
+    redactions: String(redactions),
+    duration_ms: String(duration_ms),
+    ...thresholdFields(ctx.config),
+  });
+  return {
+    answers: heuristicBackend(ctx.state, ctx.questions),
+    backend: "heuristic",
+    declined: reason,
+    rejected: [],
+    redactions,
+    duration_ms,
+  };
+}
+
+/**
+ * Guards every outbound text field through `guardEgressFields` and builds the
+ * request body from the guarded fields only. Refuses with the guard's own
+ * reason (redaction count 0, since nothing was guarded) or with `"too-large"`
+ * when the built body would exceed `config.max_body_tokens`.
+ */
+function prepareRequest(
+  state: string,
+  questions: QuestionMap,
+  config: JevConfig,
+  deps: DecideDeps,
+):
+  | { body: string; redactions: number }
+  | { refused: DeclineReason; redactions: number } {
+  const guarded = guardEgressFields(collectOutboundFields(state, questions), {
+    projectRoot: deps.projectRoot ?? getProjectRoot(),
+    egressDir: deps.egressDir,
+    scrubCmd: deps.scrubCmd,
+    scanCmd: deps.scanCmd,
+  });
+  if ("refused" in guarded) return { refused: guarded.refused, redactions: 0 };
+
+  const rebuilt = rebuildFromFields(guarded.fields, questions);
+  const body = JSON.stringify({
+    state: rebuilt.state,
+    model: config.model,
+    questions: rebuilt.questions,
+  });
+
+  if (Math.ceil(body.length / 4) > config.max_body_tokens) {
+    return { refused: "too-large", redactions: guarded.redactions };
+  }
+  return { body, redactions: guarded.redactions };
+}
+
+/**
+ * POSTs `body` to {@link JEV_ENDPOINT} with a manual-redirect policy and a
+ * `config.timeout_ms` abort signal, mapping an abort to `"timeout"`, any other
+ * throw to `"network"`, a 3xx to `"redirect"`, and any other non-2xx status to
+ * `` `http-<status>` ``. The API key reaches only the `Authorization` header.
+ */
+async function postToJev(
+  body: string,
+  apiKey: string,
+  config: JevConfig,
+  fetchImpl?: typeof fetch,
+): Promise<{ response: Response } | { refused: DeclineReason }> {
+  const doFetch = fetchImpl ?? globalThis.fetch;
+  let response: Response;
+  try {
+    response = await doFetch(JEV_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + apiKey,
+        "Content-Type": "application/json",
+      },
+      body,
+      redirect: "manual",
+      signal: AbortSignal.timeout(config.timeout_ms),
+    });
+  } catch (err) {
+    const name = (err as { name?: string } | undefined)?.name;
+    return {
+      refused:
+        name === "AbortError" || name === "TimeoutError"
+          ? "timeout"
+          : "network",
+    };
+  }
+
+  if (response.status >= 300 && response.status < 400) {
+    return { refused: "redirect" };
+  }
+  if (response.status < 200 || response.status >= 300) {
+    return { refused: `http-${response.status}` as DeclineReason };
+  }
+  return { response };
+}
+
+/** Parses the response body, returning the document and its `answers` map, or `null` when the body is not JSON or carries no `answers` object. */
+async function readAnswersDocument(response: Response): Promise<{
+  doc: Record<string, unknown>;
+  rawAnswers: Record<string, unknown>;
+} | null> {
+  let doc: unknown;
+  try {
+    doc = await response.json();
+  } catch {
+    return null;
+  }
+
+  if (
+    typeof doc !== "object" ||
+    doc === null ||
+    typeof (doc as { answers?: unknown }).answers !== "object" ||
+    (doc as { answers?: unknown }).answers === null
+  ) {
+    return null;
+  }
+
+  return {
+    doc: doc as Record<string, unknown>,
+    rawAnswers: (doc as { answers: Record<string, unknown> }).answers,
+  };
+}
+
+/** Validates each question's raw answer, substituting the heuristic stub for any that fails and naming it in `rejected`. */
+function gradeAnswers(
+  state: string,
+  questions: QuestionMap,
+  rawAnswers: Record<string, unknown>,
+): {
+  answers: Record<string, Answer>;
+  rejected: string[];
+  anyAccepted: boolean;
+} {
+  const heuristic = heuristicBackend(state, questions);
+  const answers: Record<string, Answer> = {};
+  const rejected: string[] = [];
+  let anyAccepted = false;
+
+  for (const [name, question] of Object.entries(questions)) {
+    const validated = validateAnswer(question, rawAnswers[name]);
+    if (validated) {
+      answers[name] = validated;
+      anyAccepted = true;
+    } else {
+      answers[name] = heuristic[name];
+      rejected.push(name);
+    }
+  }
+
+  return { answers, rejected, anyAccepted };
+}
+
+/** Reads `usage` from the response document, ignoring it unless both token counts are finite numbers. */
+function extractUsage(
+  doc: Record<string, unknown>,
+): { input_tokens: number; output_tokens: number } | undefined {
+  const rawUsage = doc.usage;
+  if (!rawUsage || typeof rawUsage !== "object") return undefined;
+  const u = rawUsage as Record<string, unknown>;
+  if (!Number.isFinite(u.input_tokens) || !Number.isFinite(u.output_tokens)) {
+    return undefined;
+  }
+  return {
+    input_tokens: u.input_tokens as number,
+    output_tokens: u.output_tokens as number,
+  };
+}
+
+/**
+ * Assembles the `"jev"`-backend `DecisionResult` for a call that had at least
+ * one answer accepted, logging `jev-queried` with the consumer, question
+ * count, backend, redactions, usage, duration, and configured thresholds.
+ * `declined` is `"malformed-response"` when any single question was rejected.
+ */
+function acceptedResult(
+  ctx: DecideContext,
+  graded: { answers: Record<string, Answer>; rejected: string[] },
+  doc: Record<string, unknown>,
+  redactions: number,
+): DecisionResult {
+  const usage = extractUsage(doc);
+  const duration_ms = ctx.now() - ctx.start;
+  const declined: DeclineReason | undefined =
+    graded.rejected.length > 0 ? "malformed-response" : undefined;
+
+  ctx.log("jev-queried", {
+    consumer: ctx.consumer,
+    questions: String(Object.keys(ctx.questions).length),
+    backend: "jev",
+    ...(declined ? { declined, rejected: String(graded.rejected.length) } : {}),
+    redactions: String(redactions),
+    input_tokens: usage ? String(usage.input_tokens) : "",
+    output_tokens: usage ? String(usage.output_tokens) : "",
+    duration_ms: String(duration_ms),
+    ...thresholdFields(ctx.config),
+  });
+
+  return {
+    answers: graded.answers,
+    backend: "jev",
+    declined,
+    rejected: graded.rejected,
+    redactions,
+    ...(usage ? { usage } : {}),
+    duration_ms,
+  };
+}
+
+/**
  * Answers `questions` against `state`. Resolution order: if
  * `config.enabled` is not strictly `true`, declines `"disabled"`; else if
  * `env.TYPESAFE_API_KEY` is unset, declines `"no-key"`; else every outbound
@@ -459,171 +704,39 @@ export async function decide(
   const config = deps.config ?? readJevConfig();
   const env = deps.env ?? process.env;
   const now = deps.now ?? Date.now;
-  const consumer = deps.consumer ?? "unknown";
-  const log = deps.log ?? defaultLogger;
-
-  const start = now();
-  const questionCount = String(Object.keys(questions).length);
-
-  const declineWith = (
-    reason: DeclineReason,
-    redactions = 0,
-  ): DecisionResult => {
-    const duration_ms = now() - start;
-    log("jev-declined", {
-      consumer,
-      reason,
-      questions: questionCount,
-      backend: "heuristic",
-      redactions: String(redactions),
-      duration_ms: String(duration_ms),
-      threshold_duplicate_p: String(config.thresholds.duplicate_p),
-      threshold_out_of_scope_p: String(config.thresholds.out_of_scope_p),
-      threshold_severity_confidence: String(
-        config.thresholds.severity_confidence,
-      ),
-    });
-    return {
-      answers: heuristicBackend(state, questions),
-      backend: "heuristic",
-      declined: reason,
-      rejected: [],
-      redactions,
-      duration_ms,
-    };
+  const ctx: DecideContext = {
+    state,
+    questions,
+    config,
+    consumer: deps.consumer ?? "unknown",
+    log: deps.log ?? defaultLogger,
+    start: now(),
+    now,
   };
 
-  if (config.enabled !== true) return declineWith("disabled");
-  if (!env.TYPESAFE_API_KEY) return declineWith("no-key");
+  if (config.enabled !== true) return declineResult(ctx, "disabled");
+  const apiKey = env.TYPESAFE_API_KEY;
+  if (!apiKey) return declineResult(ctx, "no-key");
 
-  const guarded = guardEgressFields(collectOutboundFields(state, questions), {
-    projectRoot: getProjectRoot(),
-    egressDir: deps.egressDir,
-    scrubCmd: deps.scrubCmd,
-    scanCmd: deps.scanCmd,
-  });
-  if ("refused" in guarded) return declineWith(guarded.refused);
+  const prepared = prepareRequest(state, questions, config, deps);
+  if ("refused" in prepared) {
+    return declineResult(ctx, prepared.refused, prepared.redactions);
+  }
+  const redactions = prepared.redactions;
 
-  const rebuilt = rebuildFromFields(guarded.fields, questions);
-  const body = JSON.stringify({
-    state: rebuilt.state,
-    model: config.model,
-    questions: rebuilt.questions,
-  });
+  const posted = await postToJev(prepared.body, apiKey, config, deps.fetchImpl);
+  if ("refused" in posted)
+    return declineResult(ctx, posted.refused, redactions);
 
-  if (Math.ceil(body.length / 4) > config.max_body_tokens) {
-    return declineWith("too-large", guarded.redactions);
+  const parsed = await readAnswersDocument(posted.response);
+  if (parsed === null) {
+    return declineResult(ctx, "malformed-response", redactions);
   }
 
-  const fetch = deps.fetchImpl ?? globalThis.fetch;
-  let response: Response;
-  try {
-    response = await fetch(JEV_ENDPOINT, {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer " + env.TYPESAFE_API_KEY,
-        "Content-Type": "application/json",
-      },
-      body,
-      redirect: "manual",
-      signal: AbortSignal.timeout(config.timeout_ms),
-    });
-  } catch (err) {
-    const name = (err as { name?: string } | undefined)?.name;
-    const reason: DeclineReason =
-      name === "AbortError" || name === "TimeoutError" ? "timeout" : "network";
-    return declineWith(reason, guarded.redactions);
+  const graded = gradeAnswers(state, questions, parsed.rawAnswers);
+  if (!graded.anyAccepted) {
+    return declineResult(ctx, "malformed-response", redactions);
   }
 
-  if (response.status >= 300 && response.status < 400) {
-    return declineWith("redirect", guarded.redactions);
-  }
-  if (response.status < 200 || response.status >= 300) {
-    return declineWith(
-      `http-${response.status}` as DeclineReason,
-      guarded.redactions,
-    );
-  }
-
-  let doc: unknown;
-  try {
-    doc = await response.json();
-  } catch {
-    return declineWith("malformed-response", guarded.redactions);
-  }
-
-  if (
-    typeof doc !== "object" ||
-    doc === null ||
-    typeof (doc as { answers?: unknown }).answers !== "object" ||
-    (doc as { answers?: unknown }).answers === null
-  ) {
-    return declineWith("malformed-response", guarded.redactions);
-  }
-
-  const rawAnswers = (doc as { answers: Record<string, unknown> }).answers;
-  const heuristic = heuristicBackend(state, questions);
-  const answers: Record<string, Answer> = {};
-  let anyAccepted = false;
-  const rejected: string[] = [];
-
-  for (const [name, question] of Object.entries(questions)) {
-    const validated = validateAnswer(question, rawAnswers[name]);
-    if (validated) {
-      answers[name] = validated;
-      anyAccepted = true;
-    } else {
-      answers[name] = heuristic[name];
-      rejected.push(name);
-    }
-  }
-  const anyRejected = rejected.length > 0;
-
-  if (!anyAccepted) {
-    return declineWith("malformed-response", guarded.redactions);
-  }
-
-  let usage: { input_tokens: number; output_tokens: number } | undefined;
-  const rawUsage = (doc as { usage?: unknown }).usage;
-  if (rawUsage && typeof rawUsage === "object") {
-    const u = rawUsage as Record<string, unknown>;
-    if (Number.isFinite(u.input_tokens) && Number.isFinite(u.output_tokens)) {
-      usage = {
-        input_tokens: u.input_tokens as number,
-        output_tokens: u.output_tokens as number,
-      };
-    }
-  }
-
-  const duration_ms = now() - start;
-  const backend: "heuristic" | "jev" = "jev";
-  const declined: DeclineReason | undefined = anyRejected
-    ? "malformed-response"
-    : undefined;
-
-  log("jev-queried", {
-    consumer,
-    questions: questionCount,
-    backend,
-    ...(declined ? { declined, rejected: String(rejected.length) } : {}),
-    redactions: String(guarded.redactions),
-    input_tokens: usage ? String(usage.input_tokens) : "",
-    output_tokens: usage ? String(usage.output_tokens) : "",
-    duration_ms: String(duration_ms),
-    threshold_duplicate_p: String(config.thresholds.duplicate_p),
-    threshold_out_of_scope_p: String(config.thresholds.out_of_scope_p),
-    threshold_severity_confidence: String(
-      config.thresholds.severity_confidence,
-    ),
-  });
-
-  return {
-    answers,
-    backend,
-    declined,
-    rejected,
-    redactions: guarded.redactions,
-    ...(usage ? { usage } : {}),
-    duration_ms,
-  };
+  return acceptedResult(ctx, graded, parsed.doc, redactions);
 }

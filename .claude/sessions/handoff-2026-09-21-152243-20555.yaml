@@ -1,0 +1,90 @@
+timestamp: 2026-09-21T15:22:43Z
+phase: ship
+feature: jev-integration, compaction-gate (review-note closure)
+
+objective: |
+  Close every open review note from the jev-integration and compaction-gate
+  reviews (fix or close by owner decision), leaving only the Jev calibration
+  run open, and land the result on master so the session can move local.
+
+progress:
+  completed:
+    - description: Owner dispositions recorded for every open note in both reviews
+      files: docs/specs/compaction-gate/review.md:104-109, docs/specs/jev-integration/review.md:156-162
+    - description: CLAUDE.md compact-suggest nudge figure corrected (fire point minus 15, 65% with the 80% override)
+      files: CLAUDE.md:47-50
+    - description: system-map extractor handles multi-line TypeScript imports; map healed, edges review-triage->decide and decide.test->decide present
+      files: scripts/lib/system-map-lib.ts, tests/system-map.test.ts, docs/maps/system-map.md:209-219
+    - description: compaction-metrics.ts review notes closed (sumUsage, per-file replay/pin, render helpers, constants, responseId sanitize, isMainThread on isSidechain only); CLI output byte-identical; 17/17 tests
+      files: scripts/compaction-metrics.ts, tests/compaction-metrics.test.ts
+    - description: jev-integration review notes closed (runTriage 190->50 lines, decide() 172->44, shared thresholds, projectRoot dep, boundary tests, fixture PAT built by concatenation, design line amended); 70/70 tests
+      files: scripts/review-triage.ts, scripts/lib/decide.ts, tests/decide.test.ts, tests/review-triage.test.ts, tests/fixtures/review-raw/security.md, docs/specs/jev-integration/design.md:296
+    - description: Full gate green (10/10 suites, 125 s), scan-diff master clean, map fresh, ROADMAP valid (190 tasks)
+      files: scripts/verify.sh
+  in_progress: []
+
+decisions:
+  - decision: Close security-7 (prefix-wildcard permission) and security-8 (streaming) on compaction-gate, and security-8 (argv scope) plus every CONSIDER item on jev-integration, without change
+    rationale: Each is either a repo-wide policy call outside the feature, an unrealistic input size, or hygiene on a path that is off by default; dispositions are recorded in each review.md
+    alternatives_rejected: Narrowing one permission entry (inconsistent with the other ten); streaming transcripts (no realistic input near 512 MB)
+  - decision: isMainThread tests isSidechain only
+    rationale: 0 of 4716 transcript records carry agentId, so the extra condition was dead and the spec did not ask for it
+    alternatives_rejected: Keeping the agentId check as defence in depth (untestable against real data)
+  - decision: Directory mode replays and pins per file, then merges
+    rationale: Concatenated replay fired a false compaction across file boundaries (1 vs 0 at the 160k threshold in the regression test)
+    alternatives_rejected: Documenting the concatenation as a known limitation
+
+modified_files:
+  - path: docs/specs/compaction-gate/review.md
+    focus_range: 104-109
+    change_type: modified
+    summary: Disposition of the notes section
+  - path: docs/specs/jev-integration/review.md
+    focus_range: 156-162
+    change_type: modified
+    summary: Disposition of the notes section
+  - path: CLAUDE.md
+    focus_range: 47-50
+    change_type: modified
+    summary: Nudge figure matches compact-suggest.sh:106
+  - path: scripts/lib/system-map-lib.ts
+    focus_range: extractTsImports
+    change_type: modified
+    summary: Bounded line-by-line lookahead for multi-line imports (max 20 lines)
+  - path: scripts/compaction-metrics.ts
+    focus_range: whole file
+    change_type: modified
+    summary: Review-note refactor, same CLI output
+  - path: scripts/review-triage.ts
+    focus_range: runTriage and helpers
+    change_type: modified
+    summary: Pipeline split into helpers
+  - path: scripts/lib/decide.ts
+    focus_range: decide and helpers
+    change_type: modified
+    summary: Pipeline split, DecideDeps.projectRoot added, shared threshold constants
+
+blockers: []
+
+next_steps:
+  - priority: 1
+    action: Run the Jev calibration locally with a TYPESAFE_API_KEY set and project_os.jev.enabled true
+    context: "node scripts/review-triage.ts docs/specs/jev-integration --changed-files docs/specs/jev-integration/review-raw/changed-files.txt --calibrate; record the lift in review.md. This is the only item left open by owner decision."
+  - priority: 2
+    action: Remove the three worker worktrees and branches if they survive the session
+    context: worktree-agent-a21f3c07c3c67089b, worktree-agent-a41d05416ddd0fb5d, worktree-agent-a61bf1971f76bafae; all three commits are cherry-picked onto the branch already
+
+context_notes: |
+  docs/specs/ is tracked in this repo (git check-ignore exits 1), so the
+  "gitignored spec dir" wording in the build/review commands is stale for
+  Project OS itself; worktree workers can see design.md. Cherry-picking
+  worker commits conflicts on docs/maps/*; resolve with --ours and let
+  pre-commit heal, then run system-map.ts check.
+
+compact_instruction: |
+  Preserve the disposition sections in docs/specs/compaction-gate/review.md:104-109
+  and docs/specs/jev-integration/review.md:156-162, and the reason each
+  closed-without-change item was closed. Preserve that the only open item is
+  the Jev calibration run (local, needs TYPESAFE_API_KEY). Preserve the
+  cherry-pick conflict recipe for docs/maps (checkout --ours, pre-commit
+  heals). Safe to drop: worker transcripts and per-test names.

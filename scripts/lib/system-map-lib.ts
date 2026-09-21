@@ -329,19 +329,63 @@ export function extractScriptRefs(
 
 const TS_IMPORT_RE = /^import\s[^'"]*\sfrom\s+['"](\.\.?\/[^'"]+)['"]\s*;?\s*$/;
 
-/** Extracts relative TS imports (resolved to repo-relative paths) from a `.ts` source's text. */
+/** A line that opens an import statement but defers its `from` clause to a later line — a
+ * braced named-import list spanning multiple lines. Excludes bare side-effect imports
+ * (`import "./x.ts";`) via the negative lookahead, since those have no `from` clause to find. */
+const TS_IMPORT_START_RE = /^import\b(?!\s*['"])/;
+
+/** The closing line of a multi-line import: an optional leading `}` then the `from` clause. */
+const TS_IMPORT_FROM_CLOSE_RE =
+  /^\}?\s*from\s+['"](\.\.?\/[^'"]+)['"]\s*;?\s*$/;
+
+/** Bounded forward lookahead (lines) when accumulating a multi-line import before giving up. */
+const MULTILINE_IMPORT_MAX_LOOKAHEAD = 20;
+
+/**
+ * Extracts relative TS imports (resolved to repo-relative paths) from a `.ts` source's text.
+ * A single-line `import ... from "./x"` matches {@link TS_IMPORT_RE} directly. A line that
+ * opens an import (`^import\b`, no quote immediately after) but carries no `from` clause on
+ * the same line is treated as the start of a multi-line import (e.g. a braced named-import
+ * list spanning several lines); the scan then looks ahead line-by-line, bounded to
+ * {@link MULTILINE_IMPORT_MAX_LOOKAHEAD} lines, for a closing line matching
+ * {@link TS_IMPORT_FROM_CLOSE_RE}. Each lookahead step is still a single anchored,
+ * bounded-quantifier regex run against one line — no unbounded or multi-line regex is ever run
+ * over the raw text, per this module's LINEAR-PARSE MANDATE.
+ */
 function extractTsImports(
   text: string,
   sourcePath: string,
 ): { target: string }[] {
   const dir = posix.dirname(sourcePath);
   const targets = new Set<string>();
-  for (const rawLine of normalizeContent(text).split("\n")) {
-    const line = rawLine.trim();
-    const m = TS_IMPORT_RE.exec(line);
-    if (!m) continue;
-    const resolved = posix.normalize(posix.join(dir, m[1]));
-    targets.add(resolved);
+  const lines = normalizeContent(text).split("\n");
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i].trim();
+    const single = TS_IMPORT_RE.exec(line);
+    if (single) {
+      targets.add(posix.normalize(posix.join(dir, single[1])));
+      i++;
+      continue;
+    }
+    if (TS_IMPORT_START_RE.test(line) && !line.includes("from ")) {
+      const limit = Math.min(
+        lines.length,
+        i + 1 + MULTILINE_IMPORT_MAX_LOOKAHEAD,
+      );
+      let matched = false;
+      for (let j = i + 1; j < limit; j++) {
+        const m = TS_IMPORT_FROM_CLOSE_RE.exec(lines[j].trim());
+        if (m) {
+          targets.add(posix.normalize(posix.join(dir, m[1])));
+          i = j + 1;
+          matched = true;
+          break;
+        }
+      }
+      if (matched) continue;
+    }
+    i++;
   }
   return Array.from(targets)
     .sort()

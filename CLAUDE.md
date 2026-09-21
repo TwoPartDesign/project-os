@@ -45,8 +45,9 @@ worktrees → completion reports → batch-drain re-derives state from ROADMAP
 markers.
 
 **Compaction handoff chain** (3 stages, 2 hooks): (1) `compact-suggest.sh`
-nudges Claude via PostToolUse `additionalContext` once context passes 60%
-of the window, and claims handoff-file writes by session id on PreToolUse so
+nudges Claude via PostToolUse `additionalContext` once context passes the
+configured fire point minus 15 points (65% with the 80% override; floor 20%),
+and claims handoff-file writes by session id on PreToolUse so
 ownership is known before compaction; (2) Claude runs `/tools:handoff`, the
 only stage that can author rationale; (3) `pre-compact.sh` (PreCompact) reads
 only this session's claimed handoff and prints its `compact_instruction` on

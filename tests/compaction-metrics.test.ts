@@ -229,11 +229,18 @@ describe("compaction-metrics", () => {
     strictEqual(dropping[0].cutBy, "usage-drop");
     strictEqual(dropping[0].preTokens, 120000);
     strictEqual(dropping[0].postTokens, 20000);
+  });
 
+  it("segmentCycles_usageDropBelowFloor_doesNotCut", () => {
+    // 40000 is under the 50000 minPrevContext floor, so the drop to 10000
+    // is ordinary shrinkage rather than a compaction.
     const belowFloor = segmentCycles(turnsFromContexts([40000, 10000]));
+
     strictEqual(belowFloor.length, 1);
     strictEqual(belowFloor[0].turns.length, 2);
     strictEqual(belowFloor[0].cutBy, "end");
+    strictEqual(belowFloor[0].preTokens, null);
+    strictEqual(belowFloor[0].postTokens, null);
   });
 
   it("cycleStats_sumsUsageAndCountsOver200k", () => {
@@ -390,6 +397,56 @@ describe("compaction-metrics", () => {
     deepStrictEqual(pin.observedLastContext, [263000]);
   });
 
+  it("pinCompactionPoint_boundariesSharingTimestamp_pinToDistinctTurns", () => {
+    // Both boundaries carry the same timestamp, so matching by timestamp
+    // string would pin them both to the first marked turn.
+    const shared = "2026-09-20T00:30:00.000Z";
+    const lines = [
+      ctxLine("a1", 120000, "2026-09-20T00:00:00.000Z"),
+      ctxLine("a2", 260000, "2026-09-20T00:20:00.000Z"),
+      boundaryLine(290000, 12000, shared),
+      ctxLine("a3", 70000, "2026-09-20T00:40:00.000Z"),
+      ctxLine("a4", 255000, "2026-09-20T01:00:00.000Z"),
+      boundaryLine(270000, 14000, shared),
+      ctxLine("a5", 60000, "2026-09-20T01:20:00.000Z"),
+    ];
+    const turns = parseTranscript(lines);
+    const boundaries = parseBoundaries(lines);
+    strictEqual(boundaries.length, 2);
+    strictEqual(boundaries[0].timestamp, boundaries[1].timestamp);
+
+    const pin = pinCompactionPoint(turns, boundaries, 350000, 80);
+
+    deepStrictEqual(pin.observedPreTokens, [290000, 270000]);
+    deepStrictEqual(pin.gapTokens, [10000, -10000]);
+    deepStrictEqual(pin.observedLastContext, [260000, 255000]);
+  });
+
+  it("pinCompactionPoint_trailingBoundary_reportsLastTurnContext", () => {
+    // The boundary is the transcript's last record: no turn follows it, so
+    // no turn carries it as `boundaryBefore`.
+    const lines = [
+      ctxLine("a1", 120000, "2026-09-20T00:00:00.000Z"),
+      ctxLine("a2", 263000, "2026-09-20T00:20:00.000Z"),
+      boundaryLine(292984, 12817, "2026-09-20T00:30:00.000Z"),
+    ];
+    const turns = parseTranscript(lines);
+    const boundaries = parseBoundaries(lines);
+    strictEqual(turns.length, 2);
+    strictEqual(boundaries.length, 1);
+    strictEqual(
+      turns.filter((t) => t.boundaryBefore !== null).length,
+      0,
+      "no turn follows the trailing boundary",
+    );
+
+    const pin = pinCompactionPoint(turns, boundaries, 350000, 80);
+
+    deepStrictEqual(pin.observedPreTokens, [292984]);
+    deepStrictEqual(pin.gapTokens, [12984]);
+    deepStrictEqual(pin.observedLastContext, [263000]);
+  });
+
   it("cli_jsonFlag_printsParseableResult", () => {
     const dir = mkdtempSync(join(tmpdir(), "compaction-metrics-cli-"));
     try {
@@ -415,6 +472,117 @@ describe("compaction-metrics", () => {
       strictEqual(result.window, 350000);
       strictEqual(result.configured, 280000);
       strictEqual(result.files.length, 1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("cli_emptyTranscript_reportsZeroTurnsWithoutError", () => {
+    const dir = mkdtempSync(join(tmpdir(), "compaction-metrics-cli-"));
+    try {
+      const file = join(dir, "empty.jsonl");
+      writeFileSync(file, "", "utf8");
+
+      const res = spawnSync("node", [SCRIPT, file, "--json"], {
+        encoding: "utf8",
+      });
+
+      strictEqual(res.status, 0);
+      strictEqual(res.stderr, "");
+      const result = JSON.parse(res.stdout);
+      strictEqual(result.turns, 0);
+      strictEqual(result.cycles.length, 0);
+      strictEqual(result.files.length, 1);
+      strictEqual(result.totals.meanContext, 0);
+      strictEqual(result.totals.errors, 0);
+      deepStrictEqual(result.pin.observedPreTokens, []);
+      deepStrictEqual(result.pin.observedLastContext, []);
+      strictEqual(result.simulations[0].compactions, 0);
+      strictEqual(result.simulations[0].projectedMeanContext, 0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("cli_userAndSystemLinesOnly_reportsZeroTurnsWithoutError", () => {
+    const dir = mkdtempSync(join(tmpdir(), "compaction-metrics-cli-"));
+    try {
+      const userLine = JSON.stringify({
+        type: "user",
+        isSidechain: false,
+        uuid: "u1",
+        timestamp: "2026-09-20T00:00:00.000Z",
+        message: { role: "user", content: [{ type: "text", text: "hello" }] },
+      });
+      const systemLine = JSON.stringify({
+        type: "system",
+        subtype: "info",
+        isSidechain: false,
+        uuid: "s1",
+        timestamp: "2026-09-20T00:00:01.000Z",
+        content: "session started",
+      });
+      const file = join(dir, "no-assistant.jsonl");
+      writeFileSync(file, [userLine, systemLine].join("\n") + "\n", "utf8");
+
+      const res = spawnSync("node", [SCRIPT, file, "--json"], {
+        encoding: "utf8",
+      });
+
+      strictEqual(res.status, 0);
+      strictEqual(res.stderr, "");
+      const result = JSON.parse(res.stdout);
+      strictEqual(result.turns, 0);
+      strictEqual(result.cycles.length, 0);
+      strictEqual(result.files.length, 1);
+      strictEqual(result.totals.meanContext, 0);
+      deepStrictEqual(result.pin.observedPreTokens, []);
+      strictEqual(result.simulations[0].compactions, 0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("cli_directoryOfTwoTranscripts_replaysEachFileSeparately", () => {
+    const dir = mkdtempSync(join(tmpdir(), "compaction-metrics-cli-"));
+    try {
+      // Written b first so the sorted listing is doing real work.
+      writeFileSync(
+        join(dir, "b.jsonl"),
+        [ctxLine("b1", 100000), ctxLine("b2", 150000)].join("\n") + "\n",
+        "utf8",
+      );
+      writeFileSync(
+        join(dir, "a.jsonl"),
+        [ctxLine("a1", 100000), ctxLine("a2", 150000)].join("\n") + "\n",
+        "utf8",
+      );
+
+      const stdout = execFileSync("node", [SCRIPT, dir, "--json"], {
+        encoding: "utf8",
+      });
+      const result = JSON.parse(stdout);
+
+      strictEqual(result.files.length, 2);
+      strictEqual(result.files[0].endsWith("a.jsonl"), true);
+      strictEqual(result.files[1].endsWith("b.jsonl"), true);
+      // Both files' turns are present: two turns each, one cycle each.
+      strictEqual(result.turns, 4);
+      strictEqual(result.cycles.length, 2);
+      strictEqual(result.cycles[0].stats.turns, 2);
+      strictEqual(result.cycles[1].stats.turns, 2);
+      strictEqual(result.totals.cacheRead, 500000);
+
+      // The 200000 x 80% row fires at 160000. Each file is replayed on its
+      // own — 100000 then 150000 — so neither fires. Concatenating the two
+      // files would carry a.jsonl's 150000 into b.jsonl and fire once.
+      const narrow = result.simulations[3];
+      strictEqual(narrow.window, 200000);
+      strictEqual(narrow.threshold, 160000);
+      strictEqual(narrow.compactions, 0);
+      strictEqual(narrow.projectedCacheRead, 500000);
+      // Mean over all four turns, not the mean of the two per-file means.
+      strictEqual(narrow.projectedMeanContext, 125000);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

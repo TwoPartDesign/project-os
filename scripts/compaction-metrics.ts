@@ -143,9 +143,18 @@ const DEFAULT_POST_TOKENS = 15000;
 const DEFAULT_WINDOW = 350000;
 const DEFAULT_PCT = 80;
 
+/** Number of context buckets in the error-rate table. */
+const DECILE_COUNT = 10;
+
+/** Percentages simulated against the configured window. */
+const SIM_PCTS = [60, 70, 80];
+
+/** The narrower window simulated alongside the configured one. */
+const SIM_NARROW_WINDOW = 200000;
+
 /** Returns `true` for a main-thread (non sub-agent) transcript record. */
 function isMainThread(rec: Record<string, unknown>): boolean {
-  return rec.isSidechain !== true && rec.agentId === undefined;
+  return rec.isSidechain !== true;
 }
 
 /** Reads a record's numeric usage field, defaulting to 0. */
@@ -199,7 +208,11 @@ export function parseTranscript(lines: string[]): TurnRecord[] {
       const usage = message.usage as Record<string, unknown>;
       // Never fall back to the per-record uuid: it would defeat the
       // per-response collapse and count every content block as a turn.
-      const responseId = String(message.id ?? rec.requestId ?? `line-${i}`);
+      // The id reaches `--json` output, so it is reduced to a fixed
+      // character class first — the collapse still keys on a consistent id.
+      const responseId = String(
+        message.id ?? rec.requestId ?? `line-${i}`,
+      ).replace(/[^A-Za-z0-9_-]/g, "_");
       let turn = last;
       if (!turn || turn.responseId !== responseId) {
         const parts: UsageParts = {
@@ -341,32 +354,58 @@ export function segmentCycles(
   return cycles;
 }
 
-/** Sums one cycle's context and spend numbers against the given window. */
-export function cycleStats(cycle: Cycle, window: number): CycleStats {
+/** A turn list's aggregate stats, plus the raw context sum and error count. */
+type UsageSummary = {
+  stats: CycleStats;
+  contextSum: number;
+  errors: number;
+};
+
+/**
+ * Sums a turn list's context and spend numbers against the given window.
+ *
+ * Shared by `cycleStats` (which needs only `stats`) and the totals row in
+ * `analyze` (which also needs the context sum and the error count), so the
+ * two can never drift apart.
+ */
+function sumUsage(turns: TurnRecord[], window: number): UsageSummary {
   let peak = 0;
   let cacheRead = 0;
   let cacheCreate = 0;
   let uncached = 0;
   let output = 0;
   let turnsOver200k = 0;
-  for (const t of cycle.turns) {
+  let contextSum = 0;
+  let errors = 0;
+  for (const t of turns) {
     if (t.context > peak) peak = t.context;
     cacheRead += t.usage.cacheRead;
     cacheCreate += t.usage.cacheCreate;
     uncached += t.usage.uncached;
     output += t.usage.output;
+    errors += t.errors;
+    contextSum += t.context;
     if (t.context > OVER_CONTEXT) turnsOver200k += 1;
   }
   return {
-    turns: cycle.turns.length,
-    peak,
-    peakPct: window > 0 ? (peak / window) * 100 : 0,
-    cacheRead,
-    cacheCreate,
-    uncached,
-    output,
-    turnsOver200k,
+    stats: {
+      turns: turns.length,
+      peak,
+      peakPct: window > 0 ? (peak / window) * 100 : 0,
+      cacheRead,
+      cacheCreate,
+      uncached,
+      output,
+      turnsOver200k,
+    },
+    contextSum,
+    errors,
   };
+}
+
+/** Sums one cycle's context and spend numbers against the given window. */
+export function cycleStats(cycle: Cycle, window: number): CycleStats {
+  return sumUsage(cycle.turns, window).stats;
 }
 
 /**
@@ -378,12 +417,13 @@ export function errorRateByDecile(
   window: number,
 ): DecileStat[] {
   const buckets: DecileStat[] = [];
-  for (let d = 0; d < 10; d++) {
+  for (let d = 0; d < DECILE_COUNT; d++) {
     buckets.push({ decile: d, turns: 0, errors: 0, rate: 0 });
   }
   for (const t of turns) {
-    const raw = window > 0 ? Math.floor((t.context / window) * 10) : 0;
-    const d = Math.max(0, Math.min(9, raw));
+    const raw =
+      window > 0 ? Math.floor((t.context / window) * DECILE_COUNT) : 0;
+    const d = Math.max(0, Math.min(DECILE_COUNT - 1, raw));
     buckets[d].turns += 1;
     buckets[d].errors += t.errors;
   }
@@ -410,6 +450,27 @@ export function simulateThreshold(
   turns: TurnRecord[],
   opts: { window: number; pct: number; postTokens?: number },
 ): ThresholdSim {
+  return replayThreshold(turns, opts).sim;
+}
+
+/** One replay's public result plus the accumulators behind its mean. */
+type SimRun = {
+  sim: ThresholdSim;
+  /** Sum of the running context over every counted turn. */
+  contextSum: number;
+  /** Number of turns counted into `contextSum`. */
+  counted: number;
+};
+
+/**
+ * Replays one turn list against a threshold, keeping the mean-context
+ * accumulators so several files' replays can be merged into one mean over
+ * all their turns rather than a mean of per-file means.
+ */
+function replayThreshold(
+  turns: TurnRecord[],
+  opts: { window: number; pct: number; postTokens?: number },
+): SimRun {
   const window = opts.window;
   const pct = opts.pct;
   const postTokens = opts.postTokens ?? DEFAULT_POST_TOKENS;
@@ -440,20 +501,74 @@ export function simulateThreshold(
   }
 
   return {
-    window,
-    pct,
-    threshold,
-    postTokens,
+    sim: {
+      window,
+      pct,
+      threshold,
+      postTokens,
+      compactions,
+      projectedCacheRead,
+      projectedMeanContext: counted > 0 ? contextSum / counted : 0,
+    },
+    contextSum,
+    counted,
+  };
+}
+
+/**
+ * Replays each file's turns separately and merges the results, so a
+ * directory run never carries one session's running context into the next.
+ *
+ * Compaction counts and projected cache read add up; the projected mean
+ * context is the mean over every turn in every file.
+ */
+function simulateAcrossFiles(
+  perFile: TurnRecord[][],
+  opts: { window: number; pct: number; postTokens?: number },
+): ThresholdSim {
+  let compactions = 0;
+  let projectedCacheRead = 0;
+  let contextSum = 0;
+  let counted = 0;
+  for (const turns of perFile) {
+    const run = replayThreshold(turns, opts);
+    compactions += run.sim.compactions;
+    projectedCacheRead += run.sim.projectedCacheRead;
+    contextSum += run.contextSum;
+    counted += run.counted;
+  }
+  return {
+    window: opts.window,
+    pct: opts.pct,
+    threshold: (opts.window * opts.pct) / 100,
+    postTokens: opts.postTokens ?? DEFAULT_POST_TOKENS,
     compactions,
     projectedCacheRead,
     projectedMeanContext: counted > 0 ? contextSum / counted : 0,
   };
 }
 
+/** Returns `true` when a turn's attached boundary is this boundary. */
+function sameBoundary(a: BoundaryMarker | null, b: BoundaryMarker): boolean {
+  return (
+    a !== null &&
+    a.trigger === b.trigger &&
+    a.preTokens === b.preTokens &&
+    a.postTokens === b.postTokens &&
+    a.timestamp === b.timestamp
+  );
+}
+
 /**
  * Pins the configured fire point (`window * pct / 100`) against each observed
  * compaction: the runtime's own `preTokens` and the last usage-based context
  * seen before the boundary.
+ *
+ * Boundaries are matched to turns by position, not by timestamp: each
+ * boundary takes the next turn — at or after the previous match — whose
+ * `boundaryBefore` is that boundary, so two boundaries carrying the same (or
+ * an empty) timestamp still resolve to distinct turns. A trailing boundary
+ * that no turn follows reports the last turn's context instead.
  */
 export function pinCompactionPoint(
   turns: TurnRecord[],
@@ -466,22 +581,34 @@ export function pinCompactionPoint(
   const observedLastContext: number[] = [];
   const gapTokens: number[] = [];
 
+  // Positions of the turns that carry a boundary, in transcript order.
+  const marked: number[] = [];
+  for (let i = 0; i < turns.length; i++) {
+    if (turns[i].boundaryBefore !== null) marked.push(i);
+  }
+
+  let cursor = 0;
   for (const b of boundaries) {
     observedPreTokens.push(b.preTokens);
     gapTokens.push(b.preTokens - configured);
 
-    let lastContext = 0;
-    const marked = turns.findIndex(
-      (t) =>
-        t.boundaryBefore !== null && t.boundaryBefore.timestamp === b.timestamp,
-    );
-    if (marked > 0) {
-      lastContext = turns[marked - 1].context;
-    } else {
-      for (const t of turns) {
-        if (b.timestamp && t.timestamp && t.timestamp > b.timestamp) break;
-        lastContext = t.context;
+    let found = -1;
+    for (let k = cursor; k < marked.length; k++) {
+      if (sameBoundary(turns[marked[k]].boundaryBefore, b)) {
+        found = k;
+        break;
       }
+    }
+
+    let lastContext = 0;
+    if (found >= 0) {
+      // Only advance on a hit, so a boundary with no turn of its own does
+      // not consume the next boundary's match.
+      cursor = found + 1;
+      const at = marked[found];
+      if (at > 0) lastContext = turns[at - 1].context;
+    } else if (turns.length > 0) {
+      lastContext = turns[turns.length - 1].context;
     }
     observedLastContext.push(lastContext);
   }
@@ -511,13 +638,14 @@ export function analyze(
   const files = resolveTranscriptFiles(target);
 
   const allTurns: TurnRecord[] = [];
-  const allBoundaries: BoundaryMarker[] = [];
+  const perFile: Array<{ turns: TurnRecord[]; boundaries: BoundaryMarker[] }> =
+    [];
   const cycles: Array<Cycle & { stats: CycleStats }> = [];
 
   for (const file of files) {
     const lines = readFileSync(file, "utf8").split("\n");
     const turns = parseTranscript(lines);
-    allBoundaries.push(...parseBoundaries(lines));
+    perFile.push({ turns, boundaries: parseBoundaries(lines) });
     for (const cycle of segmentCycles(turns)) {
       cycles.push({
         ...cycle,
@@ -542,31 +670,35 @@ export function analyze(
         )
       : DEFAULT_POST_TOKENS;
 
+  // Each file is replayed and pinned on its own: one session's running
+  // context must not seed the next file's growth, and a boundary only ever
+  // matches a turn from its own transcript.
+  const turnsPerFile = perFile.map((f) => f.turns);
   const simulations = [
-    simulateThreshold(allTurns, { window, pct: 60, postTokens }),
-    simulateThreshold(allTurns, { window, pct: 70, postTokens }),
-    simulateThreshold(allTurns, { window, pct: 80, postTokens }),
-    simulateThreshold(allTurns, { window: 200000, pct: 80, postTokens }),
+    ...SIM_PCTS.map((simPct) =>
+      simulateAcrossFiles(turnsPerFile, { window, pct: simPct, postTokens }),
+    ),
+    simulateAcrossFiles(turnsPerFile, {
+      window: SIM_NARROW_WINDOW,
+      pct: DEFAULT_PCT,
+      postTokens,
+    }),
   ];
 
-  let cacheRead = 0;
-  let cacheCreate = 0;
-  let uncached = 0;
-  let output = 0;
-  let turnsOver200k = 0;
-  let peak = 0;
-  let contextSum = 0;
-  let errors = 0;
-  for (const t of allTurns) {
-    cacheRead += t.usage.cacheRead;
-    cacheCreate += t.usage.cacheCreate;
-    uncached += t.usage.uncached;
-    output += t.usage.output;
-    errors += t.errors;
-    contextSum += t.context;
-    if (t.context > peak) peak = t.context;
-    if (t.context > OVER_CONTEXT) turnsOver200k += 1;
+  const pin: PinResult = {
+    configured: (window * pct) / 100,
+    observedPreTokens: [],
+    observedLastContext: [],
+    gapTokens: [],
+  };
+  for (const f of perFile) {
+    const filePin = pinCompactionPoint(f.turns, f.boundaries, window, pct);
+    pin.observedPreTokens.push(...filePin.observedPreTokens);
+    pin.observedLastContext.push(...filePin.observedLastContext);
+    pin.gapTokens.push(...filePin.gapTokens);
   }
+
+  const summary = sumUsage(allTurns, window);
 
   return {
     files,
@@ -577,18 +709,12 @@ export function analyze(
     cycles,
     deciles: errorRateByDecile(allTurns, window),
     simulations,
-    pin: pinCompactionPoint(allTurns, allBoundaries, window, pct),
+    pin,
     totals: {
-      turns: allTurns.length,
-      peak,
-      peakPct: window > 0 ? (peak / window) * 100 : 0,
-      cacheRead,
-      cacheCreate,
-      uncached,
-      output,
-      turnsOver200k,
-      meanContext: allTurns.length > 0 ? contextSum / allTurns.length : 0,
-      errors,
+      ...summary.stats,
+      meanContext:
+        allTurns.length > 0 ? summary.contextSum / allTurns.length : 0,
+      errors: summary.errors,
     },
   };
 }
@@ -598,16 +724,9 @@ function n(v: number): string {
   return Math.round(v).toLocaleString("en-US");
 }
 
-/** Renders an analysis result as the markdown tables the CLI prints. */
-export function renderMarkdown(result: AnalysisResult): string {
+/** Renders the per-cycle table, its totals row, and the summary line. */
+function renderCycleTable(result: AnalysisResult): string[] {
   const out: string[] = [];
-  out.push(
-    `Window ${n(result.window)} x ${result.pct}% = configured fire point ${n(result.configured)}`,
-  );
-  out.push(
-    `Turns ${n(result.turns)} across ${result.cycles.length} cycle(s), ${result.files.length} file(s)`,
-  );
-  out.push("");
   out.push("### Per cycle");
   out.push("");
   out.push(
@@ -627,20 +746,31 @@ export function renderMarkdown(result: AnalysisResult): string {
   out.push(
     `Mean context per turn: ${n(t.meanContext)}. Tool errors: ${t.errors}.`,
   );
-  out.push("");
+  return out;
+}
+
+/** Renders the tool-error rate by context decile. */
+function renderDecileTable(result: AnalysisResult): string[] {
+  const out: string[] = [];
   out.push("### Tool-error rate by context decile");
   out.push("");
   out.push("| Decile | Context range | Turns | Errors | Rate |");
   out.push("|---|---|---|---|---|");
   for (const d of result.deciles) {
-    const lo = (result.window / 10) * d.decile;
-    const hi = (result.window / 10) * (d.decile + 1);
-    const range = d.decile === 9 ? `${n(lo)}+` : `${n(lo)}-${n(hi)}`;
+    const lo = (result.window / DECILE_COUNT) * d.decile;
+    const hi = (result.window / DECILE_COUNT) * (d.decile + 1);
+    const range =
+      d.decile === DECILE_COUNT - 1 ? `${n(lo)}+` : `${n(lo)}-${n(hi)}`;
     out.push(
       `| ${d.decile} | ${range} | ${d.turns} | ${d.errors} | ${(d.rate * 100).toFixed(1)}% |`,
     );
   }
-  out.push("");
+  return out;
+}
+
+/** Renders the hypothetical-threshold projections. */
+function renderSimulationTable(result: AnalysisResult): string[] {
+  const out: string[] = [];
   out.push("### Threshold simulation");
   out.push("");
   out.push(
@@ -652,7 +782,12 @@ export function renderMarkdown(result: AnalysisResult): string {
       `| ${n(s.window)} | ${s.pct}% | ${n(s.threshold)} | ${s.compactions} | ${n(s.projectedCacheRead)} | ${n(s.projectedMeanContext)} |`,
     );
   }
-  out.push("");
+  return out;
+}
+
+/** Renders the configured fire point against each observed compaction. */
+function renderPinTable(result: AnalysisResult): string[] {
+  const out: string[] = [];
   out.push("### Compaction point pin");
   out.push("");
   out.push(
@@ -664,6 +799,26 @@ export function renderMarkdown(result: AnalysisResult): string {
       `| ${i + 1} | ${n(result.pin.configured)} | ${n(result.pin.observedPreTokens[i])} | ${result.pin.gapTokens[i] >= 0 ? "+" : ""}${n(result.pin.gapTokens[i])} | ${n(result.pin.observedLastContext[i])} |`,
     );
   }
+  return out;
+}
+
+/** Renders an analysis result as the markdown tables the CLI prints. */
+export function renderMarkdown(result: AnalysisResult): string {
+  const out: string[] = [];
+  out.push(
+    `Window ${n(result.window)} x ${result.pct}% = configured fire point ${n(result.configured)}`,
+  );
+  out.push(
+    `Turns ${n(result.turns)} across ${result.cycles.length} cycle(s), ${result.files.length} file(s)`,
+  );
+  out.push("");
+  out.push(...renderCycleTable(result));
+  out.push("");
+  out.push(...renderDecileTable(result));
+  out.push("");
+  out.push(...renderSimulationTable(result));
+  out.push("");
+  out.push(...renderPinTable(result));
   return out.join("\n");
 }
 

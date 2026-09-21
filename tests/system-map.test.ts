@@ -28,7 +28,11 @@ import {
   pathToId,
   collectBloatFiles,
 } from "../scripts/lib/system-map-lib.ts";
-import type { MapNode, MapEdge, BloatContentSource } from "../scripts/lib/system-map-lib.ts";
+import type {
+  MapNode,
+  MapEdge,
+  BloatContentSource,
+} from "../scripts/lib/system-map-lib.ts";
 
 // ==========================================================================
 // normalizeContent
@@ -74,7 +78,10 @@ describe("sha256", () => {
   });
 
   it("sha256_output_is64CharHex", () => {
-    ok(/^[0-9a-f]{64}$/.test(sha256("abc\n")), "expected 64-char lowercase hex digest");
+    ok(
+      /^[0-9a-f]{64}$/.test(sha256("abc\n")),
+      "expected 64-char lowercase hex digest",
+    );
   });
 });
 
@@ -89,20 +96,36 @@ describe("extractHookWiring", () => {
         PreToolUse: [
           {
             matcher: "Bash",
-            hooks: [{ type: "command", command: "bash .claude/hooks/pre-tool-use.sh" }],
+            hooks: [
+              {
+                type: "command",
+                command: "bash .claude/hooks/pre-tool-use.sh",
+              },
+            ],
           },
         ],
         PostToolUse: [
           {
             matcher: "Write|Edit",
             hooks: [
-              { type: "command", command: "bash .claude/hooks/post-tool-use.sh" },
-              { type: "command", command: "bash .claude/hooks/post-write-session.sh" },
+              {
+                type: "command",
+                command: "bash .claude/hooks/post-tool-use.sh",
+              },
+              {
+                type: "command",
+                command: "bash .claude/hooks/post-write-session.sh",
+              },
             ],
           },
           {
             matcher: "Bash",
-            hooks: [{ type: "command", command: "bash .claude/hooks/pre-tool-use.sh" }],
+            hooks: [
+              {
+                type: "command",
+                command: "bash .claude/hooks/pre-tool-use.sh",
+              },
+            ],
           },
         ],
       },
@@ -137,7 +160,10 @@ describe("extractScriptRefs", () => {
       "Use `node scripts/deploy.ts` to run the deploy step.",
     ].join("\n");
     const result = extractScriptRefs(md, "docs/example.md");
-    deepStrictEqual(result, [{ target: "scripts/build.sh" }, { target: "scripts/deploy.ts" }]);
+    deepStrictEqual(result, [
+      { target: "scripts/build.sh" },
+      { target: "scripts/deploy.ts" },
+    ]);
   });
 
   it("extractScriptRefs_libAndHookRefs_bothExtracted", () => {
@@ -158,7 +184,10 @@ describe("extractScriptRefs", () => {
     const result = extractScriptRefs(md, "docs/big.md");
     const elapsed = Date.now() - start;
     deepStrictEqual(result, [{ target: "scripts/build.sh" }]);
-    ok(elapsed < 100, `expected extractScriptRefs to run in <100ms, took ${elapsed}ms`);
+    ok(
+      elapsed < 100,
+      `expected extractScriptRefs to run in <100ms, took ${elapsed}ms`,
+    );
   });
 });
 
@@ -179,6 +208,21 @@ describe("extractImports", () => {
     ]);
   });
 
+  it("extractImports_tsMultiLineImport_resolvedRepoRelative", () => {
+    const ts = [
+      "import {",
+      "  decide,",
+      "  type DecideDeps,",
+      '} from "./lib/decide.ts";',
+      'import { esc } from "../dashboard-render.ts";',
+    ].join("\n");
+    const result = extractImports(ts, "scripts/sub/foo.ts");
+    deepStrictEqual(result, [
+      { target: "scripts/dashboard-render.ts" },
+      { target: "scripts/sub/lib/decide.ts" },
+    ]);
+  });
+
   it("extractImports_tsPackageImport_ignored", () => {
     const ts = [
       'import { readFileSync } from "node:fs";',
@@ -186,7 +230,10 @@ describe("extractImports", () => {
     ].join("\n");
     const result = extractImports(ts, "scripts/sub/foo.ts");
     strictEqual(result.length, 1);
-    ok(!result.some((r) => r.target === "node:fs"), "package import must not be resolved as a target");
+    ok(
+      !result.some((r) => r.target === "node:fs"),
+      "package import must not be resolved as a target",
+    );
     deepStrictEqual(result, [{ target: "scripts/dashboard-render.ts" }]);
   });
 
@@ -224,8 +271,12 @@ describe("buildGraph", () => {
     const graph = buildGraph(nodes, edges);
     strictEqual(graph.nodes.length, 2);
     strictEqual(graph.edges.length, 1);
-    deepStrictEqual(graph.incoming.get("a"), [{ from: "b", to: "a", kind: "references" }]);
-    deepStrictEqual(graph.outgoing.get("b"), [{ from: "b", to: "a", kind: "references" }]);
+    deepStrictEqual(graph.incoming.get("a"), [
+      { from: "b", to: "a", kind: "references" },
+    ]);
+    deepStrictEqual(graph.outgoing.get("b"), [
+      { from: "b", to: "a", kind: "references" },
+    ]);
     deepStrictEqual(graph.incoming.get("b"), []);
     deepStrictEqual(graph.outgoing.get("a"), []);
   });
@@ -264,12 +315,22 @@ describe("dependents", () => {
 describe("findUnwiredHooks", () => {
   it("findUnwiredHooks_zeroIncomingHook_flaggedHigh_wiredAndLibIgnored", () => {
     const nodes: MapNode[] = [
-      { id: "h_pre_tool_use", kind: "hook", path: ".claude/hooks/pre-tool-use.sh" },
-      { id: "h_post_tool_use", kind: "hook", path: ".claude/hooks/post-tool-use.sh" },
+      {
+        id: "h_pre_tool_use",
+        kind: "hook",
+        path: ".claude/hooks/pre-tool-use.sh",
+      },
+      {
+        id: "h_post_tool_use",
+        kind: "hook",
+        path: ".claude/hooks/post-tool-use.sh",
+      },
       { id: "l_common", kind: "lib", path: ".claude/hooks/_common.sh" },
       { id: "c_settings", kind: "config", path: ".claude/settings.json" },
     ];
-    const edges: MapEdge[] = [{ from: "c_settings", to: "h_post_tool_use", kind: "wires" }];
+    const edges: MapEdge[] = [
+      { from: "c_settings", to: "h_post_tool_use", kind: "wires" },
+    ];
     const graph = buildGraph(nodes, edges);
     const findings = findUnwiredHooks(graph);
     deepStrictEqual(findings, [
@@ -287,10 +348,20 @@ describe("findUnwiredHooks", () => {
     // log-activity.sh-style hooks: invoked by workflow commands (`references`
     // edge), never event-wired in settings.json — must NOT be flagged.
     const nodes: MapNode[] = [
-      { id: "h_log_activity", kind: "hook", path: ".claude/hooks/log-activity.sh" },
-      { id: "cmd_build", kind: "command", path: ".claude/commands/workflows/build.md" },
+      {
+        id: "h_log_activity",
+        kind: "hook",
+        path: ".claude/hooks/log-activity.sh",
+      },
+      {
+        id: "cmd_build",
+        kind: "command",
+        path: ".claude/commands/workflows/build.md",
+      },
     ];
-    const edges: MapEdge[] = [{ from: "cmd_build", to: "h_log_activity", kind: "references" }];
+    const edges: MapEdge[] = [
+      { from: "cmd_build", to: "h_log_activity", kind: "references" },
+    ];
     const graph = buildGraph(nodes, edges);
     deepStrictEqual(findUnwiredHooks(graph), []);
   });
@@ -307,7 +378,9 @@ describe("findOrphanScripts", () => {
       { id: "s_deploy", kind: "script", path: "scripts/deploy.sh" },
       { id: "s_legacy", kind: "script", path: "scripts/legacy.sh" },
     ];
-    const edges: MapEdge[] = [{ from: "m_readme", to: "s_build", kind: "references" }];
+    const edges: MapEdge[] = [
+      { from: "m_readme", to: "s_build", kind: "references" },
+    ];
     const graph = buildGraph(nodes, edges);
     const findings = findOrphanScripts(graph, ["s_legacy"]);
     deepStrictEqual(findings, [
@@ -315,7 +388,8 @@ describe("findOrphanScripts", () => {
         severity: "MEDIUM",
         kind: "orphan-script",
         subject: "s_deploy",
-        detail: "Script scripts/deploy.sh has no incoming references and is not in the orphan allowlist.",
+        detail:
+          "Script scripts/deploy.sh has no incoming references and is not in the orphan allowlist.",
       },
     ]);
   });
@@ -327,7 +401,9 @@ describe("findOrphanScripts", () => {
 
 describe("findDanglingRefs", () => {
   it("findDanglingRefs_missingTarget_flaggedHigh_validEdgeIgnored", () => {
-    const nodes: MapNode[] = [{ id: "a", kind: "script", path: "scripts/a.sh" }];
+    const nodes: MapNode[] = [
+      { id: "a", kind: "script", path: "scripts/a.sh" },
+    ];
     const edges: MapEdge[] = [
       { from: "a", to: "a", kind: "references" },
       { from: "a", to: "missing_node", kind: "references" },
@@ -390,7 +466,8 @@ describe("findBloat", () => {
         severity: "LOW",
         kind: "bloat",
         subject: "a.md",
-        detail: "a.md is approximately 100 tokens, exceeding the 50-token warn threshold.",
+        detail:
+          "a.md is approximately 100 tokens, exceeding the 50-token warn threshold.",
       },
     ]);
   });
@@ -422,10 +499,13 @@ describe("pathToId", () => {
       ok(e instanceof Error, "expected an Error to be thrown");
       ok(
         (e as Error).message.includes("docs/random-notes.md"),
-        "expected error message to name the offending path"
+        "expected error message to name the offending path",
       );
     }
-    ok(threw, "expected pathToId to throw for a path outside classify()'s discovery set");
+    ok(
+      threw,
+      "expected pathToId to throw for a path outside classify()'s discovery set",
+    );
   });
 });
 
@@ -437,12 +517,19 @@ describe("pathToId", () => {
 function fixtureSource(files: Record<string, string>): BloatContentSource {
   return {
     readInput(path: string): string | null {
-      return Object.prototype.hasOwnProperty.call(files, path) ? files[path] : null;
+      return Object.prototype.hasOwnProperty.call(files, path)
+        ? files[path]
+        : null;
     },
     listDir(dirPath: string): string[] {
       const prefix = dirPath + "/";
       return Object.keys(files)
-        .filter((p) => p.startsWith(prefix) && p.endsWith(".md") && !p.slice(prefix.length).includes("/"))
+        .filter(
+          (p) =>
+            p.startsWith(prefix) &&
+            p.endsWith(".md") &&
+            !p.slice(prefix.length).includes("/"),
+        )
         .sort();
     },
   };
@@ -456,14 +543,17 @@ describe("collectBloatFiles", () => {
       ".claude/rules/big.md": bigContent,
     });
     const files = collectBloatFiles(source);
-    deepStrictEqual(files, [{ path: ".claude/rules/big.md", content: bigContent }]);
+    deepStrictEqual(files, [
+      { path: ".claude/rules/big.md", content: bigContent },
+    ]);
     const findings = findBloat(files, warnTokens);
     deepStrictEqual(findings, [
       {
         severity: "LOW",
         kind: "bloat",
         subject: ".claude/rules/big.md",
-        detail: ".claude/rules/big.md is approximately 100 tokens, exceeding the 50-token warn threshold.",
+        detail:
+          ".claude/rules/big.md is approximately 100 tokens, exceeding the 50-token warn threshold.",
       },
     ]);
   });
@@ -475,7 +565,9 @@ describe("collectBloatFiles", () => {
       ".claude/rules/small.md": smallContent,
     });
     const files = collectBloatFiles(source);
-    deepStrictEqual(files, [{ path: ".claude/rules/small.md", content: smallContent }]);
+    deepStrictEqual(files, [
+      { path: ".claude/rules/small.md", content: smallContent },
+    ]);
     const findings = findBloat(files, warnTokens);
     deepStrictEqual(findings, []);
   });
