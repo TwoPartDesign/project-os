@@ -26,7 +26,10 @@ correctness surface — hooks, the scanner, scripts touching git or the
 filesystem — gets **one** reviewer (`reviewer-security` with `model: opus`)
 covering security and correctness together. The full three-reviewer pass below,
 at the lead's tier (`inherit`), is the **ship gate**: run it once per feature
-before `/workflows:ship`, not after every wave. Findings under about twenty
+before `/workflows:ship`, not after every wave. For a single-task feature the
+sized pass plus the Lead's own drift check (every acceptance criterion
+verified against the code) may stand in for it; say so under a "Sizing"
+heading in review.md so ship reads the substitution. Findings under about twenty
 lines in one file are the Lead's to fix directly; do not dispatch a worker for
 them.
 
