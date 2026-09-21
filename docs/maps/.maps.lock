@@ -106,7 +106,7 @@
     "tests/new-project-smoke.sh": "15626e70f6fe440f1882222638d742c728ce2e17d9af06b632c50926c6d9065e",
     "tests/observation-parser.test.ts": "231883f297af5d54c9410cc035a7e4b0bcaad239239b9f3e8b0b73928317447a",
     "tests/policy.test.ts": "ce0cc331e82a10a154915148ca42388afdb67420c80f311169890ab900b23eb1",
-    "tests/review-triage.test.ts": "5350b4581e3e0745027be0e3c4dd179e8b3d47c11d5ef2f1a2f89e32a1a720a8",
+    "tests/review-triage.test.ts": "2316dbb7e9bd328faeabed5f4affdcc8c5fce85d0b8f98228adc7051d149c7c9",
     "tests/run-all.sh": "83f1db3df9736a2f8ae81390a1f1e84c79d33442f9bcbdacb01c21133a1709f0",
     "tests/scan-rules-node22.test.ts": "3937868da107370a2412fcc8d1efe34af2476791aac3cdfb90ee19a2c1b3256d",
     "tests/scan-rules-restored.test.ts": "345d051c7c93e0d938395e0090a8cc7904d9fe66ccbb90f9d2583c6dd423bc0d",

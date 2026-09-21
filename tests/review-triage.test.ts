@@ -18,7 +18,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, relative, resolve } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import {
@@ -87,7 +87,7 @@ function listAbsoluteFiles(dir: string): string[] {
 /** Recursively lists every file path under `root`, relative to `root`, sorted. */
 function listFilesRecursive(root: string): string[] {
   return listAbsoluteFiles(root)
-    .map((f) => relative(root, f))
+    .map((f) => relative(root, f).split(sep).join("/"))
     .sort();
 }
 
