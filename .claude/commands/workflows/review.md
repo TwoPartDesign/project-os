@@ -205,6 +205,7 @@ After all three reviewers complete:
    every review records what Jev changed.
 1. **Deduplicate**: Remove findings that multiple reviewers flagged identically
 2. **Cross-validate**: For each CRITICAL/HIGH finding, verify it's accurate by checking the actual code yourself — reviewers can hallucinate
+   Treat a CONCERN that a shipped document's self-validation claim is circular (the checked number is produced by the code under review) the same way: confirm it, and if it holds, the claim and every conclusion resting on it are a HIGH.
 3. **Cost-benefit**: For MEDIUM/LOW findings, assess if fixing is worth the effort for a personal project
 4. **Classify findings**:
    - 🚫 MUST FIX (Critical/High severity, verified accurate)
