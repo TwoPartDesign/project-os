@@ -56,19 +56,19 @@
 ### lib
 - `l_common` — `.claude/hooks/_common.sh` (14 dependents)
 - `l_dashboard_render` — `scripts/lib/dashboard-render.ts` (5 dependents)
-- `l_decide` — `scripts/lib/decide.ts` (1 dependent)
-- `l_egress_guard` — `scripts/lib/egress-guard.ts` (4 dependents)
+- `l_decide` — `scripts/lib/decide.ts` (4 dependents)
+- `l_egress_guard` — `scripts/lib/egress-guard.ts` (6 dependents)
 - `l_json` — `scripts/lib/json.sh` (2 dependents)
 - `l_policy` — `scripts/lib/policy.ts` (10 dependents)
-- `l_project_root` — `scripts/lib/project-root.ts` (21 dependents)
+- `l_project_root` — `scripts/lib/project-root.ts` (22 dependents)
 - `l_scan_rules` — `scripts/lib/scan-rules.js` (0 dependents)
 - `l_skill_apply_lib` — `scripts/lib/skill-apply-lib.ts` (4 dependents)
-- `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (5 dependents)
+- `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (12 dependents)
 
 ### script
 - `s_audit_context` — `scripts/audit-context.sh` (0 dependents)
 - `s_codex_review` — `scripts/codex-review.sh` (1 dependent)
-- `s_compaction_metrics` — `scripts/compaction-metrics.ts` (1 dependent)
+- `s_compaction_metrics` — `scripts/compaction-metrics.ts` (2 dependents)
 - `s_context_filter` — `scripts/context-filter.sh` (0 dependents)
 - `s_create_pr` — `scripts/create-pr.sh` (1 dependent)
 - `s_dashboard_server` — `scripts/dashboard-server.ts` (1 dependent)
@@ -78,13 +78,13 @@
 - `s_generate_manifest` — `scripts/generate-manifest.sh` (2 dependents)
 - `s_install_global_commands` — `scripts/install-global-commands.sh` (1 dependent)
 - `s_install_hooks` — `scripts/install-hooks.sh` (0 dependents)
-- `s_knowledge_index` — `scripts/knowledge-index.ts` (5 dependents)
+- `s_knowledge_index` — `scripts/knowledge-index.ts` (6 dependents)
 - `s_maintain_draft` — `scripts/maintain-draft.ts` (1 dependent)
 - `s_maintain` — `scripts/maintain.sh` (1 dependent)
 - `s_memory_search` — `scripts/memory-search.sh` (0 dependents)
 - `s_new_project` — `scripts/new-project.sh` (0 dependents)
-- `s_observation_parser` — `scripts/observation-parser.ts` (0 dependents)
-- `s_review_triage` — `scripts/review-triage.ts` (1 dependent)
+- `s_observation_parser` — `scripts/observation-parser.ts` (1 dependent)
+- `s_review_triage` — `scripts/review-triage.ts` (2 dependents)
 - `s_scrub_secrets` — `scripts/scrub-secrets.sh` (0 dependents)
 - `s_security_scanner` — `scripts/security-scanner.ts` (1 dependent)
 - `s_setup` — `scripts/setup.sh` (0 dependents)
@@ -202,19 +202,26 @@
 - `l_decide` --imports--> `l_project_root`
 - `l_policy` --imports--> `l_project_root`
 - `s_compaction_hooks` --sources--> `l_common`
+- `s_compaction_metrics_test` --imports--> `s_compaction_metrics`
 - `s_dashboard` --sources--> `l_json`
 - `s_dashboard_render_test` --imports--> `l_dashboard_render`
 - `s_dashboard_server` --imports--> `l_dashboard_render`
+- `s_decide_test` --imports--> `l_decide`
 - `s_decide_test` --imports--> `l_project_root`
 - `s_detect_stack_test` --imports--> `s_detect_stack`
+- `s_egress_guard_test` --imports--> `l_egress_guard`
 - `s_knowledge_index` --imports--> `l_project_root`
+- `s_knowledge_index_test` --imports--> `s_knowledge_index`
 - `s_maintain_draft` --imports--> `l_dashboard_render`
 - `s_maintain_draft` --imports--> `l_project_root`
+- `s_observation_parser_test` --imports--> `s_observation_parser`
 - `s_policy_test` --imports--> `l_policy`
+- `s_review_triage` --imports--> `l_decide`
 - `s_review_triage` --imports--> `l_egress_guard`
 - `s_review_triage` --imports--> `l_project_root`
 - `s_review_triage_test` --imports--> `l_decide`
 - `s_review_triage_test` --imports--> `l_project_root`
+- `s_review_triage_test` --imports--> `s_review_triage`
 - `s_skill_apply` --imports--> `l_policy`
 - `s_skill_apply` --imports--> `l_project_root`
 - `s_skill_apply` --imports--> `l_skill_apply_lib`
@@ -223,7 +230,9 @@
 - `s_skill_ledger` --imports--> `l_project_root`
 - `s_system_map` --imports--> `l_policy`
 - `s_system_map` --imports--> `l_project_root`
+- `s_system_map` --imports--> `l_system_map_lib`
 - `s_system_map_test` --imports--> `l_system_map_lib`
+- `s_template_residue_test` --imports--> `l_system_map_lib`
 - `s_template_seeds_test` --imports--> `l_system_map_lib`
 - `sk_context_filter_skill` --references--> `s_knowledge_index`
 
@@ -241,7 +250,6 @@
 - MEDIUM orphan-script s_context_filter — Script scripts/context-filter.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_install_hooks — Script scripts/install-hooks.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_memory_search — Script scripts/memory-search.sh has no incoming references and is not in the orphan allowlist.
-- MEDIUM orphan-script s_observation_parser — Script scripts/observation-parser.ts has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_scrub_secrets — Script scripts/scrub-secrets.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_setup — Script scripts/setup.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_validate_freshness — Script scripts/validate-freshness.sh has no incoming references and is not in the orphan allowlist.

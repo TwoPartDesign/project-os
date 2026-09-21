@@ -70,7 +70,7 @@
     "scripts/lib/project-root.ts": "5afd74f2af4d65ab8c491e1bf85ad9642c32035c9a53b20447ee4547c7a2e122",
     "scripts/lib/scan-rules.js": "5dd55830cc0076b6840107d55b8425b7d9e144a27bd8231d84cb1f589b571dca",
     "scripts/lib/skill-apply-lib.ts": "585064be29fe3cdd6f782640fe9c5cc68e35580c3d41297604ba5c94e1b3533a",
-    "scripts/lib/system-map-lib.ts": "52bbb6435da2d0221043824694c4d41b51248a4fc864be9522c8c8c7a7b0cdaf",
+    "scripts/lib/system-map-lib.ts": "f4897d272de62dae261d75c16d3db23a67fd11fe115783b5f4aaedcfbe427421",
     "scripts/maintain-draft.ts": "ceb0092afa2f720e9fc0b7910fe4dd68a04931b5dc8cd8d6ac95cee71f6dd379",
     "scripts/maintain.sh": "0b0feee68a391281a1083092dea44120ab543461ee0be1765fc1d69cb5745fee",
     "scripts/memory-search.sh": "d267f24d2eaeb23ba78abfcd160bdac6876ddb6016bec651d5dcd84e742dee90",
@@ -118,7 +118,7 @@
     "tests/skill-apply.test.ts": "1d06eecfe16441ce20c27925e08038b68e75f9beec3a0c7dbc1ca0c8dea435b7",
     "tests/skill-ledger.test.ts": "d5534858538ff812bec7d29609768466fc60cd365994c4a56035534f8aec9431",
     "tests/system-map-smoke.sh": "c9d83f43eb1bd3ad806c47a18c1628dff41e1ca57599345816bf6b084f32e991",
-    "tests/system-map.test.ts": "59951846b2162689867a13764681ac390cbf893fb98b7f984aeec2241f2a015e",
+    "tests/system-map.test.ts": "5ddb2242862e60a74c5b54924369a3acf64c7de7d65c9bb75abd1de5fd902dba",
     "tests/template-residue.test.ts": "47d1f39cfa06db7f4cc9891696598679d7d41419d2b1e77bffe27eed7f4e43eb",
     "tests/template-seeds.test.ts": "a69e80a0a15c84ebe00e955305f989503fc0e51ba1d5843744052d00905976c3",
     "tests/test-hygiene.test.ts": "121058e57cf3448826ec4766f06c0271c911a95afbeec25f13ccde013033adaf"
