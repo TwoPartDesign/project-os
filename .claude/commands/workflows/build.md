@@ -126,6 +126,8 @@ For each task in the batch, assemble ONLY:
 
 DO NOT give agents: full spec history, other tasks, the brief, research findings, or review comments. Context isolation is critical.
 
+**Worktree base:** an Agent-tool worktree branches from the merge-base with the default branch, not from the current HEAD. When the build runs on a feature branch, the brief's first command must be `git -C "<worktree>" merge <current-branch> --no-edit` (the branch `git branch --show-current` prints), not `git merge master` — otherwise the worker builds against a tree missing every prior batch's integration.
+
 **3. Dispatch sub-agents (parallel)**
 Dispatch up to `max_concurrent_agents` (default: 4) sub-agents simultaneously.
 Each agent is dispatched via the Agent tool with `isolation: "worktree"`, which automatically creates an isolated git worktree in `.claude/worktrees/` and cleans it up after the agent completes (kept with a branch name if changes were made).
