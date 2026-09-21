@@ -197,9 +197,9 @@ export function parseTranscript(lines: string[]): TurnRecord[] {
 
     if (rec.type === "assistant" && message.usage) {
       const usage = message.usage as Record<string, unknown>;
-      const responseId = String(
-        message.id ?? rec.requestId ?? rec.uuid ?? `line-${i}`,
-      );
+      // Never fall back to the per-record uuid: it would defeat the
+      // per-response collapse and count every content block as a turn.
+      const responseId = String(message.id ?? rec.requestId ?? `line-${i}`);
       let turn = last;
       if (!turn || turn.responseId !== responseId) {
         const parts: UsageParts = {
@@ -400,6 +400,11 @@ export function errorRateByDecile(
  * Projected cache-read is an approximation: the running context each turn
  * minus that turn's own uncached and cache-creation tokens, which assumes
  * everything else in the prompt was a cache hit.
+ *
+ * The replay ignores the transcript's real compactions: only positive
+ * turn-to-turn growth is added, so the drop at a real boundary contributes
+ * nothing and the post-compaction re-seed is never counted as new growth.
+ * The only resets are the ones the simulated threshold itself fires.
  */
 export function simulateThreshold(
   turns: TurnRecord[],
@@ -409,32 +414,29 @@ export function simulateThreshold(
   const pct = opts.pct;
   const postTokens = opts.postTokens ?? DEFAULT_POST_TOKENS;
   const threshold = (window * pct) / 100;
-  const cycles = segmentCycles(turns);
 
   let running = 0;
   let compactions = 0;
   let projectedCacheRead = 0;
   let contextSum = 0;
   let counted = 0;
+  let prev: TurnRecord | null = null;
 
-  for (const cycle of cycles) {
-    let prev: TurnRecord | null = null;
-    for (const turn of cycle.turns) {
-      const delta =
-        prev === null ? turn.context : Math.max(0, turn.context - prev.context);
-      running += delta;
-      contextSum += running;
-      counted += 1;
-      projectedCacheRead += Math.max(
-        0,
-        running - turn.usage.uncached - turn.usage.cacheCreate,
-      );
-      if (running > threshold) {
-        compactions += 1;
-        running = postTokens;
-      }
-      prev = turn;
+  for (const turn of turns) {
+    const delta =
+      prev === null ? turn.context : Math.max(0, turn.context - prev.context);
+    running += delta;
+    contextSum += running;
+    counted += 1;
+    projectedCacheRead += Math.max(
+      0,
+      running - turn.usage.uncached - turn.usage.cacheCreate,
+    );
+    if (running > threshold) {
+      compactions += 1;
+      running = postTokens;
     }
+    prev = turn;
   }
 
   return {
@@ -526,13 +528,17 @@ export function analyze(
     allTurns.push(...turns);
   }
 
-  const observedPost = allBoundaries
-    .map((b) => b.postTokens)
-    .filter((n) => n > 0);
+  // A simulated compaction resets to the observed re-seed floor: the context
+  // of the first turn after each real boundary (system prompt, tools,
+  // CLAUDE.md and the summary), not the boundary's summary-only postTokens.
+  const observedReseed = allTurns
+    .filter((t) => t.boundaryBefore !== null)
+    .map((t) => t.context)
+    .filter((c) => c > 0);
   const postTokens =
-    observedPost.length > 0
+    observedReseed.length > 0
       ? Math.round(
-          observedPost.reduce((a, b) => a + b, 0) / observedPost.length,
+          observedReseed.reduce((a, b) => a + b, 0) / observedReseed.length,
         )
       : DEFAULT_POST_TOKENS;
 
@@ -702,15 +708,22 @@ function usageAndExit(): never {
 function main(): void {
   const args = parseCliArgs(process.argv.slice(2));
   if (args.unknown || !args.target) usageAndExit();
-  if (!Number.isFinite(args.window) || !Number.isFinite(args.pct))
-    usageAndExit();
+  if (!(args.window > 0) || !(args.pct > 0) || args.pct > 100) usageAndExit();
 
-  const result = analyze(args.target, { window: args.window, pct: args.pct });
+  let result: AnalysisResult;
+  try {
+    result = analyze(args.target, { window: args.window, pct: args.pct });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`compaction-metrics: ${message}\n`);
+    process.exit(2);
+  }
+  // No process.exit after the write: a piped stdout flushes asynchronously
+  // and an explicit exit truncates anything past the pipe buffer.
   process.stdout.write(
     (args.json ? JSON.stringify(result, null, 2) : renderMarkdown(result)) +
       "\n",
   );
-  process.exit(0);
 }
 
 const isMain =

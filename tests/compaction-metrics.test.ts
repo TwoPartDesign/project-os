@@ -6,7 +6,7 @@
 
 import { describe, it } from "node:test";
 import { strictEqual, deepStrictEqual } from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -121,6 +121,27 @@ function turnsFromContexts(contexts: number[]): TurnRecord[] {
 }
 
 describe("compaction-metrics", () => {
+  it("parseTranscript_recordsSharingResponseId_collapseToOneTurn", () => {
+    const usage = { input: 2, cacheRead: 90159, cacheCreate: 424, output: 4 };
+    const lines = [
+      assistantLine({ id: "a1", ...usage, toolUseId: "tu-1" }),
+      assistantLine({ id: "a1", ...usage }),
+      assistantLine({ id: "a1", ...usage, toolUseId: "tu-2" }),
+      toolErrorLine("tu-2"),
+      assistantLine({ id: "a2", ...usage }),
+    ];
+
+    const turns = parseTranscript(lines);
+
+    strictEqual(turns.length, 2);
+    strictEqual(turns[0].responseId, "a1");
+    strictEqual(turns[0].context, 2 + 90159 + 424);
+    strictEqual(turns[0].usage.cacheRead, 90159);
+    strictEqual(turns[0].errors, 1);
+    strictEqual(turns[1].responseId, "a2");
+    strictEqual(turns[1].index, 1);
+  });
+
   it("parseTranscript_skipsSidechainAndNonJson_returnsLeadTurnsOnly", () => {
     const sidechain = JSON.stringify({
       type: "assistant",
@@ -301,6 +322,53 @@ describe("compaction-metrics", () => {
     strictEqual(low.compactions, 2);
     strictEqual(low.projectedCacheRead, 885000);
     strictEqual(low.projectedCacheRead < high.projectedCacheRead, true);
+  });
+
+  it("simulateThreshold_realBoundary_doesNotAddReseedContext", () => {
+    // Three real cycles, each climbing 100000..260000 in 20000 steps and
+    // then compacting back to an 86000 re-seed. Under a 280000 fire point
+    // the replay must treat the re-seed as already-present context, not as
+    // new growth stacked on the previous cycle's running total.
+    const climb = (): number[] => {
+      const out: number[] = [];
+      for (let c = 100000; c <= 260000; c += 20000) out.push(c);
+      return out;
+    };
+    const contexts = [...climb(), 86000, ...climb(), 86000, ...climb()];
+    const turns = turnsFromContexts(contexts);
+
+    const sim = simulateThreshold(turns, {
+      window: 350000,
+      pct: 80,
+      postTokens: 86000,
+    });
+
+    // Running: 100k..260k, drop adds 0, 86k→100k adds 14k (274k), 120k adds
+    // 20k (294k > 280k: fire 1, reset 86k), then 106k..226k, drop 0, 240k,
+    // 260k, 280k, 300k (fire 2, reset 86k), 106k..186k. Exactly 2 — the
+    // stacked-re-seed bug reported 3 here.
+    strictEqual(sim.threshold, 280000);
+    strictEqual(sim.compactions, 2);
+  });
+
+  it("cli_badWindow_exitsTwoWithUsage", () => {
+    const dir = mkdtempSync(join(tmpdir(), "compaction-metrics-cli-"));
+    try {
+      writeFileSync(join(dir, "s.jsonl"), ctxLine("a1", 1000) + "\n", "utf8");
+      const res = spawnSync("node", [SCRIPT, dir, "--window", "abc"], {
+        encoding: "utf8",
+      });
+      strictEqual(res.status, 2);
+      strictEqual(res.stderr.startsWith("usage: node scripts/"), true);
+
+      const missing = spawnSync("node", [SCRIPT, join(dir, "nope.jsonl")], {
+        encoding: "utf8",
+      });
+      strictEqual(missing.status, 2);
+      strictEqual(missing.stderr.startsWith("compaction-metrics: "), true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("pinCompactionPoint_reportsGapAgainstConfigured", () => {
