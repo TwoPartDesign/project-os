@@ -435,3 +435,19 @@ Generate with: `node scripts/review-triage.ts docs/specs/<feature> --changed-fil
 | Date | Sources | Findings | Pairs | Dup agreement | Scope agreement | Severity agreement | Thresholds chosen | Lift (decisions changed) | Flag decision |
 |------|---------|----------|-------|----------------|------------------|---------------------|--------------------|---------------------------|----------------|
 | not yet run — requires TYPESAFE_API_KEY and enabled: true | — | — | — | — | — | — | — | — | — |
+
+---
+
+## 2026-09-21 — Compaction Constraint Stays at 350k / 80%; the Threshold Replay Ignores Real Boundaries
+
+**Decision**: `CLAUDE_CODE_AUTO_COMPACT_WINDOW` stays 350000 and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` stays 80. The window is never narrowed; the percentage is the only knob, and 70 is the spend-first option to revisit once a second session's transcript has been measured. `scripts/compaction-metrics.ts` is the measuring instrument, and its threshold replay models "what if the fire point were X" by adding only positive turn-to-turn context growth, ignoring the transcript's real compaction drops, and resetting only when the simulated threshold fires — to the observed re-seed floor (context of the first turn after each real boundary), never to the boundary's summary-only `postTokens`.
+
+**Context**: #T189 asked whether the constraint helps or hurts Fable sessions. The first build's replay carried its running total across real cycles, stacking each cycle's ~88k re-seed on the previous cycle's total; the resulting tables reproduced the session's real compaction count, which the doc took as validation. Review (reviewer-security, Opus) showed the match was circular: the session's peak was 263k, under the 280k threshold, so every simulated compaction at 80% came from the stacking bug. The same review found `process.exit(0)` after `stdout.write` truncating piped `--json` at 64 KB.
+
+**Alternatives Considered**:
+- **Reset the replay at each real boundary** — rejected: it bakes the real fire point into every simulated one, so a higher threshold can never show fewer compactions than reality; the question the tool exists to answer becomes unaskable.
+- **Reset to the boundary's `postTokens` (12-19k)** — rejected: the first call after a compaction re-seeds the system prompt, tool definitions, CLAUDE.md and the summary, measured at 72-89k; a 15k reset understates every post-compaction cycle by ~70k and flatters lower thresholds.
+- **Lower the percentage to 70 now** — rejected for this session: the corrected replay projects ~18% less cache read for one extra compaction per ~300 turns, on a projection with 8% calibration error against the billed total and one session of evidence. Recorded as the option; not acted on.
+- **Narrow the window to 200k** — rejected on the numbers: seven extra compactions (~81 s each of dead wall clock) for a 34% saving, and every long build becomes a chain of handoffs.
+
+**Rationale**: Context length, not compaction count, drives Fable input spend (cache read is 97% of input tokens; uncached input was 7,724 tokens across 305 turns), so the percentage is a genuine trade between cache read and handoff count, and the doc says so with the corrected numbers instead of calling lowering "strictly a loss". The tool-error decile table shows no quality penalty deep in the window once the closing phase's permission-classifier denials are set aside. Calibration replaced the circular claim: at the configured threshold the replay fires 4 compactions and projects 56.6M cache read against 5 real compactions and 52.4M billed, and the gap has one named cause (the runtime fires at ~263k, not 280k). Result and method: `docs/knowledge/compaction-metrics.md`; review: `docs/specs/compaction-gate/review.md`.
