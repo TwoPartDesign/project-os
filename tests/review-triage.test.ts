@@ -33,9 +33,9 @@ import {
   type Finding,
   type TriagedFinding,
   type Candidates,
+  type Severity,
 } from "../scripts/review-triage.ts";
-import { getProjectRoot } from "../scripts/lib/project-root.ts";
-import type { DecisionResult } from "../scripts/lib/decide.ts";
+import type { Answer, DecisionResult } from "../scripts/lib/decide.ts";
 
 /** Walks up from this test file to find the nearest ancestor with `.claude` — the project root. */
 function findProjectRoot(): string {
@@ -112,17 +112,6 @@ function setupCliFixture(tmp: string): {
 }
 
 /**
- * A fresh, real-repo-relative egress-scrub directory, mirroring
- * tests/decide.test.ts's own `freshEgressDir`: `decide()` always resolves
- * its outbound-guard's project root via `getProjectRoot()` internally (it
- * takes no `projectRoot` dep), so a Jev-enabled test must stage under the
- * real repo — never a temp root — and clean up after itself.
- */
-function freshEgressDir(): string {
-  return mkdtempSync(resolve(getProjectRoot(), ".claude/logs", "jev-test-"));
-}
-
-/**
  * Copies the real security scanner (`scripts/security-scanner.ts`,
  * `scripts/lib/scan-rules.js`, `.claude/security/allowlist.json`) into
  * `tmp` so `guardEgressFields`'s default (real) scrub/scan commands can run
@@ -144,6 +133,34 @@ function copyScannerInto(tmp: string): void {
     resolve(PROJECT_ROOT, ".claude/security/allowlist.json"),
     resolve(tmp, ".claude/security/allowlist.json"),
   );
+}
+
+/**
+ * The PAT-shaped literal the redaction test needs, assembled from two halves
+ * so the scannable shape exists only in memory. `tests/fixtures/review-raw/
+ * security.md` carries the placeholder `__PLANTED_TOKEN__` instead of a real
+ * token, so the fixture on disk holds nothing the security scanner would
+ * flag (it is only path-ignored, not clean, if a literal lives there).
+ */
+function plantedSecret(): string {
+  return "ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789";
+}
+
+/**
+ * Substitutes {@link plantedSecret} for the `__PLANTED_TOKEN__` placeholder
+ * in the COPIED fixture under `specDir`, so the triage run scrubs a real
+ * token shape. Returns the token it planted.
+ */
+function plantSecretInFixture(specDir: string): string {
+  const path = resolve(specDir, "review-raw/security.md");
+  const secret = plantedSecret();
+  const text = readFileSync(path, "utf-8");
+  ok(
+    text.includes("__PLANTED_TOKEN__"),
+    "expected the security.md fixture to carry the __PLANTED_TOKEN__ placeholder",
+  );
+  writeFileSync(path, text.replace("__PLANTED_TOKEN__", secret), "utf-8");
+  return secret;
 }
 
 /** A `JevConfig`-shaped object with jev enabled, for tests that stub the Jev HTTP call. */
@@ -347,6 +364,35 @@ describe("heuristicCandidates", () => {
     ];
     const { pairs } = heuristicCandidates(findings, []);
     strictEqual(pairs.length, 0);
+  });
+
+  it("heuristicCandidates_jaccardExactlyAtThreshold_pairsThem", () => {
+    // Different files with non-overlapping lines, so only the Jaccard rule
+    // can pair these: {alpha,beta,gamma,delta} vs {alpha,beta,gamma,epsilon}
+    // is 3 shared of 5 distinct = exactly 0.6, and the comparison in
+    // heuristicCandidates is `>= 0.6`, so they pair.
+    const findings: Finding[] = [
+      {
+        id: "a-1",
+        reviewer: "a",
+        severity: "LOW",
+        file: "one.ts",
+        lines: "1",
+        issue: "ISSUE: alpha beta gamma delta",
+        fix: "f",
+      },
+      {
+        id: "b-1",
+        reviewer: "b",
+        severity: "LOW",
+        file: "two.ts",
+        lines: "2",
+        issue: "ISSUE: alpha beta gamma epsilon",
+        fix: "f",
+      },
+    ];
+    const { pairs } = heuristicCandidates(findings, []);
+    deepStrictEqual(pairs, [["a-1", "b-1"]]);
   });
 
   it("heuristicCandidates_scope_inDiffAdjacentUnrelated", () => {
@@ -700,6 +746,51 @@ describe("buildQuestions", () => {
   });
 });
 
+/** A fresh one-finding fixture (id `a-1`, scope `in_diff`, no pairs) at `severity`, for the threshold-boundary tests below. */
+function singleFindingFixture(severity: Severity): {
+  findings: Finding[];
+  candidates: Candidates;
+} {
+  return {
+    findings: [
+      {
+        id: "a-1",
+        reviewer: "a",
+        severity,
+        file: "x.ts",
+        lines: "1",
+        issue: "i",
+        fix: "f",
+      },
+    ],
+    candidates: { pairs: [], scope: { "a-1": "in_diff" } },
+  };
+}
+
+/** A fresh `jev`-backend `DecisionResult` carrying exactly `answers`, as `decide()` returns on an accepted call. */
+function jevResult(answers: Record<string, Answer>): DecisionResult {
+  return {
+    answers,
+    backend: "jev",
+    rejected: [],
+    redactions: 0,
+    duration_ms: 1,
+  };
+}
+
+/** A fresh copy of the shipped default thresholds (0.85 / 0.8 / 0.8), so no test mutates another's. */
+function defaultThresholds(): {
+  duplicate_p: number;
+  out_of_scope_p: number;
+  severity_confidence: number;
+} {
+  return {
+    duplicate_p: 0.85,
+    out_of_scope_p: 0.8,
+    severity_confidence: 0.8,
+  };
+}
+
 describe("applyAnswers", () => {
   it("applyAnswers_dupAboveThreshold_merged_belowCleared", () => {
     const findings: Finding[] = [
@@ -1032,12 +1123,206 @@ describe("applyAnswers", () => {
     ];
     deepStrictEqual(Object.keys(jevAnswers(results)), ["q_ok"]);
   });
+
+  it("applyAnswers_dupExactlyAtThreshold_merged", () => {
+    // The rule is `noul >= duplicate_p`, so a noul of exactly 0.85 merges.
+    const findings: Finding[] = [
+      {
+        id: "a-1",
+        reviewer: "a",
+        severity: "LOW",
+        file: "x.ts",
+        lines: "1",
+        issue: "i1",
+        fix: "f1",
+      },
+      {
+        id: "b-1",
+        reviewer: "b",
+        severity: "LOW",
+        file: "x.ts",
+        lines: "1",
+        issue: "i2",
+        fix: "f2",
+      },
+    ];
+    const candidates: Candidates = {
+      pairs: [["a-1", "b-1"]],
+      scope: { "a-1": "in_diff", "b-1": "in_diff" },
+    };
+    const rows = applyAnswers(
+      findings,
+      candidates,
+      [jevResult({ "dup_a-1__b-1": { type: "noul", noul: 0.85 } })],
+      defaultThresholds(),
+    );
+
+    const hi = rows.find((r) => r.id === "b-1")!;
+    strictEqual(hi.duplicate_of, "a-1");
+    strictEqual(hi.duplicate_p, 0.85);
+  });
+
+  it("applyAnswers_unrelatedExactlyAtThreshold_appliesUnrelated", () => {
+    // The rule is `probabilities.unrelated >= out_of_scope_p`, so exactly
+    // 0.8 overrides the heuristic's `in_diff`.
+    const { findings, candidates } = singleFindingFixture("LOW");
+    const rows = applyAnswers(
+      findings,
+      candidates,
+      [
+        jevResult({
+          "scope_a-1": {
+            type: "choice",
+            choice: "unrelated",
+            probabilities: { in_diff: 0.1, adjacent: 0.1, unrelated: 0.8 },
+            confidence: 0.9,
+          },
+        }),
+      ],
+      defaultThresholds(),
+    );
+
+    strictEqual(rows[0].in_scope, "unrelated");
+    strictEqual(rows[0].in_scope_p, 0.8);
+  });
+
+  it("applyAnswers_severityConfidenceExactlyAtThreshold_appliesCalibrated", () => {
+    // The rule is `confidence >= severity_confidence`, so exactly 0.8 applies.
+    const { findings, candidates } = singleFindingFixture("LOW");
+    const rows = applyAnswers(
+      findings,
+      candidates,
+      [
+        jevResult({
+          "sev_a-1": {
+            type: "score",
+            score: 3,
+            probabilities: {},
+            confidence: 0.8,
+          },
+        }),
+      ],
+      defaultThresholds(),
+    );
+
+    strictEqual(rows[0].calibrated_severity, "CRITICAL");
+    strictEqual(rows[0].severity_confidence, 0.8);
+  });
+
+  it("applyAnswers_scoreExactlyPointFive_mapsToLow", () => {
+    // scoreToLevel: round(0.5 - 0.5) = 0 -> LOW, below the finding's own HIGH.
+    const { findings, candidates } = singleFindingFixture("HIGH");
+    const rows = applyAnswers(
+      findings,
+      candidates,
+      [
+        jevResult({
+          "sev_a-1": {
+            type: "score",
+            score: 0.5,
+            probabilities: {},
+            confidence: 0.9,
+          },
+        }),
+      ],
+      defaultThresholds(),
+    );
+
+    strictEqual(rows[0].calibrated_severity, "LOW");
+  });
+
+  it("applyAnswers_scoreExactlyTwoPointFive_mapsToHigh", () => {
+    // scoreToLevel: round(2.5 - 0.5) = 2 -> HIGH (the half rounds down).
+    const { findings, candidates } = singleFindingFixture("LOW");
+    const rows = applyAnswers(
+      findings,
+      candidates,
+      [
+        jevResult({
+          "sev_a-1": {
+            type: "score",
+            score: 2.5,
+            probabilities: {},
+            confidence: 0.9,
+          },
+        }),
+      ],
+      defaultThresholds(),
+    );
+
+    strictEqual(rows[0].calibrated_severity, "HIGH");
+  });
+
+  it("applyAnswers_scoreExactlyThree_mapsToCritical", () => {
+    // scoreToLevel: round(3 - 0.5) = 3 -> CRITICAL, the top level index.
+    const { findings, candidates } = singleFindingFixture("LOW");
+    const rows = applyAnswers(
+      findings,
+      candidates,
+      [
+        jevResult({
+          "sev_a-1": {
+            type: "score",
+            score: 3,
+            probabilities: {},
+            confidence: 0.9,
+          },
+        }),
+      ],
+      defaultThresholds(),
+    );
+
+    strictEqual(rows[0].calibrated_severity, "CRITICAL");
+  });
+
+  it("applyAnswers_scoreAboveTopIndex_clampsToCritical", () => {
+    // scoreToLevel clamps with Math.min(3, ...).
+    const { findings, candidates } = singleFindingFixture("LOW");
+    const rows = applyAnswers(
+      findings,
+      candidates,
+      [
+        jevResult({
+          "sev_a-1": {
+            type: "score",
+            score: 9,
+            probabilities: {},
+            confidence: 0.9,
+          },
+        }),
+      ],
+      defaultThresholds(),
+    );
+
+    strictEqual(rows[0].calibrated_severity, "CRITICAL");
+  });
+
+  it("applyAnswers_scoreBelowZero_clampsToLow", () => {
+    // scoreToLevel clamps with Math.max(0, ...).
+    const { findings, candidates } = singleFindingFixture("HIGH");
+    const rows = applyAnswers(
+      findings,
+      candidates,
+      [
+        jevResult({
+          "sev_a-1": {
+            type: "score",
+            score: -1,
+            probabilities: {},
+            confidence: 0.9,
+          },
+        }),
+      ],
+      defaultThresholds(),
+    );
+
+    strictEqual(rows[0].calibrated_severity, "LOW");
+  });
 });
 
 describe("runTriage — Jev path", () => {
   it("runTriage_fixture_jevStub_appliesThresholds", async () => {
     const tmp = freshTempDir();
-    const egressDir = freshEgressDir();
     try {
       const specDir = resolve(tmp, "docs/specs/fx");
       mkdirSync(resolve(specDir, "review-raw"), { recursive: true });
@@ -1052,7 +1337,10 @@ describe("runTriage — Jev path", () => {
         fetchImpl: jevFetchStub(),
         scrubCmd: () => ({ status: 0 }),
         scanCmd: () => ({ status: 0 }),
-        egressDir,
+        // `decide()` takes the project root as a dep, so this run's
+        // egress-guard staging stays inside the test's own temp root
+        // instead of the real repo's .claude/logs/.
+        projectRoot: tmp,
         log: () => {},
       });
 
@@ -1066,7 +1354,6 @@ describe("runTriage — Jev path", () => {
       strictEqual(parsed.backend, "jev");
     } finally {
       rmSync(tmp, { recursive: true, force: true });
-      rmSync(egressDir, { recursive: true, force: true });
     }
   });
 
@@ -1075,6 +1362,10 @@ describe("runTriage — Jev path", () => {
     try {
       const { specDir, changedFiles } = setupCliFixture(tmp);
       copyScannerInto(tmp);
+      // The fixture on disk holds a placeholder; the real token shape is
+      // planted into this test's own copy of it, so the scanner subprocess
+      // has a genuine `ghp_` token to scrub.
+      const secret = plantSecretInFixture(specDir);
 
       const { json } = await runTriage(specDir, changedFiles, {
         config: DISABLED_CONFIG,
@@ -1088,11 +1379,8 @@ describe("runTriage — Jev path", () => {
         raw.includes("[REDACTED:"),
         `expected a redaction marker in the written JSON, got:\n${raw}`,
       );
-      // Built by concatenation (never as a literal) so this planted
-      // fixture secret itself never lands in the diff.
-      const plantedSecret = "ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789";
       ok(
-        !raw.includes(plantedSecret),
+        !raw.includes(secret),
         "the planted ghp_ token must not appear in the written JSON",
       );
 
@@ -1108,7 +1396,6 @@ describe("runTriage — Jev path", () => {
 
   it("runTriage_calibrate_printsProbabilitiesWithoutApplying", async () => {
     const tmp = freshTempDir();
-    const egressDir = freshEgressDir();
     try {
       const specDir = resolve(tmp, "docs/specs/fx");
       mkdirSync(resolve(specDir, "review-raw"), { recursive: true });
@@ -1123,7 +1410,10 @@ describe("runTriage — Jev path", () => {
         fetchImpl: jevFetchStub(),
         scrubCmd: () => ({ status: 0 }),
         scanCmd: () => ({ status: 0 }),
-        egressDir,
+        // `decide()` takes the project root as a dep, so this run's
+        // egress-guard staging stays inside the test's own temp root
+        // instead of the real repo's .claude/logs/.
+        projectRoot: tmp,
         calibrate: true,
         log: () => {},
       });
@@ -1157,13 +1447,11 @@ describe("runTriage — Jev path", () => {
       strictEqual(calibration.rows.length, 7);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
-      rmSync(egressDir, { recursive: true, force: true });
     }
   });
 
   it("runTriage_jevStub_recordsLiftInHeaderAndLog", async () => {
     const tmp = freshTempDir();
-    const egressDir = freshEgressDir();
     try {
       const specDir = resolve(tmp, "docs/specs/fx");
       mkdirSync(resolve(specDir, "review-raw"), { recursive: true });
@@ -1179,7 +1467,10 @@ describe("runTriage — Jev path", () => {
         fetchImpl: jevFetchStub(),
         scrubCmd: () => ({ status: 0 }),
         scanCmd: () => ({ status: 0 }),
-        egressDir,
+        // `decide()` takes the project root as a dep, so this run's
+        // egress-guard staging stays inside the test's own temp root
+        // instead of the real repo's .claude/logs/.
+        projectRoot: tmp,
         log: (event, kv) => logged.push({ event, kv }),
       });
 
@@ -1204,7 +1495,6 @@ describe("runTriage — Jev path", () => {
       strictEqual(triagedEvents[0].kv.severity_changed, "0");
     } finally {
       rmSync(tmp, { recursive: true, force: true });
-      rmSync(egressDir, { recursive: true, force: true });
     }
   });
 

@@ -13,6 +13,7 @@ import {
   doesNotThrow,
 } from "node:assert/strict";
 import {
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -79,6 +80,27 @@ describe("readJevConfig", () => {
         project_os: { jev: { enabled: "true" } },
       });
       strictEqual(readJevConfig(path).enabled, false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("readJevConfig_noJevBlock_returnsDefaults", () => {
+    const dir = freshTempDir();
+    try {
+      const path = writeSettings(dir, { project_os: { other: true } });
+      deepStrictEqual(readJevConfig(path), DEFAULT_JEV_CONFIG);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("readJevConfig_unparseableSettings_returnsDefaults", () => {
+    const dir = freshTempDir();
+    try {
+      const path = resolve(dir, "settings.json");
+      writeFileSync(path, '{"project_os": {"jev": {', "utf8");
+      deepStrictEqual(readJevConfig(path), DEFAULT_JEV_CONFIG);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -261,14 +283,22 @@ const happyDoc = {
   usage: { input_tokens: 312, output_tokens: 48 },
 };
 
-/** Creates a fresh egress-scrub directory inside the project root. Caller must rmSync it in a finally. */
-function freshEgressDir(): string {
-  return mkdtempSync(resolve(getProjectRoot(), ".claude/logs", "jev-test-"));
+/**
+ * Creates a throwaway project root with an empty `.claude/logs/` inside it.
+ * `decide()` takes the root as a dep (`projectRoot`), so a Jev-path test
+ * stages its egress-guard file under this temp root instead of the real
+ * repo's own `.claude/logs/` (pattern: Test Behaviour in a Copied Project
+ * Root). Caller must rmSync it in a finally.
+ */
+function freshProjectRoot(): string {
+  const root = mkdtempSync(resolve(tmpdir(), "decide-root-"));
+  mkdirSync(resolve(root, ".claude/logs"), { recursive: true });
+  return root;
 }
 
 describe("decide (Jev backend)", () => {
   it("decide_happyPath_returnsJevAnswersAndUsage", async () => {
-    const egressDir = freshEgressDir();
+    const root = freshProjectRoot();
     try {
       const fetchImpl = (async () =>
         new Response(JSON.stringify(happyDoc), {
@@ -281,7 +311,7 @@ describe("decide (Jev backend)", () => {
         fetchImpl,
         scrubCmd: () => ({ status: 0 }),
         scanCmd: () => ({ status: 0 }),
-        egressDir,
+        projectRoot: root,
         log: () => {},
       });
 
@@ -295,12 +325,12 @@ describe("decide (Jev backend)", () => {
       strictEqual(result.usage?.input_tokens, 312);
       strictEqual(result.declined, undefined);
     } finally {
-      rmSync(egressDir, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("decide_requestShape_matchesContract", async () => {
-    const egressDir = freshEgressDir();
+    const root = freshProjectRoot();
     try {
       let capturedUrl: string | URL | undefined;
       let capturedInit: RequestInit | undefined;
@@ -316,7 +346,7 @@ describe("decide (Jev backend)", () => {
         fetchImpl,
         scrubCmd: () => ({ status: 0 }),
         scanCmd: () => ({ status: 0 }),
-        egressDir,
+        projectRoot: root,
         log: () => {},
       });
 
@@ -336,12 +366,12 @@ describe("decide (Jev backend)", () => {
       ]);
       strictEqual(parsedBody.model, "jev-latest");
     } finally {
-      rmSync(egressDir, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("decide_networkError_returnsHeuristicIdentically", async () => {
-    const egressDir = freshEgressDir();
+    const root = freshProjectRoot();
     try {
       const logs: Array<{ event: string; kv: Record<string, string> }> = [];
       const fetchImpl = (async () => {
@@ -354,7 +384,7 @@ describe("decide (Jev backend)", () => {
         fetchImpl,
         scrubCmd: () => ({ status: 0 }),
         scanCmd: () => ({ status: 0 }),
-        egressDir,
+        projectRoot: root,
         log: (event, kv) => logs.push({ event, kv }),
       });
 
@@ -369,12 +399,12 @@ describe("decide (Jev backend)", () => {
         for (const v of Object.values(kv)) ok(!v.includes("boom"));
       }
     } finally {
-      rmSync(egressDir, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("decide_timeout_declinesTimeout", async () => {
-    const egressDir = freshEgressDir();
+    const root = freshProjectRoot();
     try {
       const fetchImpl = ((_url: string, init?: RequestInit) => {
         return new Promise((_resolve, reject) => {
@@ -397,19 +427,19 @@ describe("decide (Jev backend)", () => {
         fetchImpl,
         scrubCmd: () => ({ status: 0 }),
         scanCmd: () => ({ status: 0 }),
-        egressDir,
+        projectRoot: root,
         log: () => {},
       });
 
       strictEqual(result.declined, "timeout");
       ok(result.duration_ms < 1000);
     } finally {
-      rmSync(egressDir, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("decide_redirect_declinesAndDoesNotFollow", async () => {
-    const egressDir = freshEgressDir();
+    const root = freshProjectRoot();
     try {
       let calls = 0;
       const fetchImpl = (async () => {
@@ -426,19 +456,19 @@ describe("decide (Jev backend)", () => {
         fetchImpl,
         scrubCmd: () => ({ status: 0 }),
         scanCmd: () => ({ status: 0 }),
-        egressDir,
+        projectRoot: root,
         log: () => {},
       });
 
       strictEqual(result.declined, "redirect");
       strictEqual(calls, 1);
     } finally {
-      rmSync(egressDir, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("decide_http429_declinesHttp429", async () => {
-    const egressDir = freshEgressDir();
+    const root = freshProjectRoot();
     try {
       const fetchImpl = (async () =>
         new Response("rate limited", { status: 429 })) as typeof fetch;
@@ -449,18 +479,18 @@ describe("decide (Jev backend)", () => {
         fetchImpl,
         scrubCmd: () => ({ status: 0 }),
         scanCmd: () => ({ status: 0 }),
-        egressDir,
+        projectRoot: root,
         log: () => {},
       });
 
       strictEqual(result.declined, "http-429");
     } finally {
-      rmSync(egressDir, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("decide_http529_declinesHttp529", async () => {
-    const egressDir = freshEgressDir();
+    const root = freshProjectRoot();
     try {
       const fetchImpl = (async () =>
         new Response("overloaded", { status: 529 })) as typeof fetch;
@@ -471,18 +501,18 @@ describe("decide (Jev backend)", () => {
         fetchImpl,
         scrubCmd: () => ({ status: 0 }),
         scanCmd: () => ({ status: 0 }),
-        egressDir,
+        projectRoot: root,
         log: () => {},
       });
 
       strictEqual(result.declined, "http-529");
     } finally {
-      rmSync(egressDir, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("decide_malformedChoice_keepsHeuristicForThatQuestion", async () => {
-    const egressDir = freshEgressDir();
+    const root = freshProjectRoot();
     try {
       const badDoc = {
         answers: {
@@ -511,7 +541,7 @@ describe("decide (Jev backend)", () => {
         fetchImpl,
         scrubCmd: () => ({ status: 0 }),
         scanCmd: () => ({ status: 0 }),
-        egressDir,
+        projectRoot: root,
         log: () => {},
       });
 
@@ -522,12 +552,12 @@ describe("decide (Jev backend)", () => {
       strictEqual(result.backend, "jev");
       deepStrictEqual(result.rejected, ["department"]);
     } finally {
-      rmSync(egressDir, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("decide_probabilityOutOfRange_rejected", async () => {
-    const egressDir = freshEgressDir();
+    const root = freshProjectRoot();
     try {
       const badDoc = {
         answers: {
@@ -556,7 +586,7 @@ describe("decide (Jev backend)", () => {
         fetchImpl,
         scrubCmd: () => ({ status: 0 }),
         scanCmd: () => ({ status: 0 }),
-        egressDir,
+        projectRoot: root,
         log: () => {},
       });
 
@@ -565,12 +595,12 @@ describe("decide (Jev backend)", () => {
       deepStrictEqual(result.rejected, ["is_urgent"]);
       strictEqual(result.declined, "malformed-response");
     } finally {
-      rmSync(egressDir, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("decide_guardRefused_declinesWithGuardReason", async () => {
-    const egressDir = freshEgressDir();
+    const root = freshProjectRoot();
     try {
       let calls = 0;
       const fetchImpl = (async () => {
@@ -584,25 +614,21 @@ describe("decide (Jev backend)", () => {
         fetchImpl,
         scrubCmd: () => ({ status: 0 }),
         scanCmd: () => ({ status: 1 }),
-        egressDir,
+        projectRoot: root,
         log: () => {},
       });
 
       strictEqual(result.declined, "scrub-failed");
       strictEqual(calls, 0);
     } finally {
-      rmSync(egressDir, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("decide_egressDirSymlinkOutsideRoot_declinesEgressDirUnsafe", async () => {
-    const projectRoot = getProjectRoot();
+    const root = freshProjectRoot();
     const outsideDir = mkdtempSync(resolve(tmpdir(), "decide-outside-"));
-    const linkPath = resolve(
-      projectRoot,
-      ".claude/logs",
-      `jev-symlink-test-${process.pid}-${Date.now()}`,
-    );
+    const linkPath = resolve(root, ".claude/logs/jev-symlink");
     try {
       symlinkSync(outsideDir, linkPath, "dir");
       let calls = 0;
@@ -617,6 +643,7 @@ describe("decide (Jev backend)", () => {
         fetchImpl,
         scrubCmd: () => ({ status: 0 }),
         scanCmd: () => ({ status: 0 }),
+        projectRoot: root,
         egressDir: linkPath,
         log: () => {},
       });
@@ -624,13 +651,13 @@ describe("decide (Jev backend)", () => {
       strictEqual(result.declined, "egress-dir-unsafe");
       strictEqual(calls, 0);
     } finally {
-      rmSync(linkPath, { force: true });
+      rmSync(root, { recursive: true, force: true });
       rmSync(outsideDir, { recursive: true, force: true });
     }
   });
 
   it("decide_bodyBuiltFromGuardedFields", async () => {
-    const egressDir = freshEgressDir();
+    const root = freshProjectRoot();
     try {
       const secretValue = "abcdefghij1234567890";
       const state = "privateKey=" + secretValue;
@@ -646,7 +673,7 @@ describe("decide (Jev backend)", () => {
         fetchImpl,
         scrubCmd: () => ({ status: 0 }),
         scanCmd: () => ({ status: 0 }),
-        egressDir,
+        projectRoot: root,
         log: () => {},
       });
 
@@ -655,12 +682,12 @@ describe("decide (Jev backend)", () => {
       ok(!body.includes(secretValue));
       strictEqual(result.redactions, 1);
     } finally {
-      rmSync(egressDir, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("decide_oversizedBody_declinesTooLarge", async () => {
-    const egressDir = freshEgressDir();
+    const root = freshProjectRoot();
     try {
       let calls = 0;
       const fetchImpl = (async () => {
@@ -675,19 +702,19 @@ describe("decide (Jev backend)", () => {
         fetchImpl,
         scrubCmd: () => ({ status: 0 }),
         scanCmd: () => ({ status: 0 }),
-        egressDir,
+        projectRoot: root,
         log: () => {},
       });
 
       strictEqual(result.declined, "too-large");
       strictEqual(calls, 0);
     } finally {
-      rmSync(egressDir, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("decide_keyNeverInBodyLogsOrResult", async () => {
-    const egressDir = freshEgressDir();
+    const root = freshProjectRoot();
     try {
       const keyPart1 = "SECRET";
       const keyPart2 = "KEY123";
@@ -705,7 +732,7 @@ describe("decide (Jev backend)", () => {
         fetchImpl: fetchImplHappy,
         scrubCmd: () => ({ status: 0 }),
         scanCmd: () => ({ status: 0 }),
-        egressDir,
+        projectRoot: root,
         log: (event, kv) => logs.push({ event, kv }),
       });
 
@@ -725,7 +752,7 @@ describe("decide (Jev backend)", () => {
         fetchImpl: fetchImplErr,
         scrubCmd: () => ({ status: 0 }),
         scanCmd: () => ({ status: 0 }),
-        egressDir,
+        projectRoot: root,
         log: (event, kv) => logs.push({ event, kv }),
       });
       ok(!JSON.stringify(resultErr).includes(key));
@@ -734,12 +761,12 @@ describe("decide (Jev backend)", () => {
         for (const v of Object.values(kv)) ok(!v.includes(key));
       }
     } finally {
-      rmSync(egressDir, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("decide_logsQueriedEventWithMetadata", async () => {
-    const egressDir = freshEgressDir();
+    const root = freshProjectRoot();
     try {
       const logs: Array<{ event: string; kv: Record<string, string> }> = [];
       const fetchImpl = (async () =>
@@ -753,7 +780,7 @@ describe("decide (Jev backend)", () => {
         fetchImpl,
         scrubCmd: () => ({ status: 0 }),
         scanCmd: () => ({ status: 0 }),
-        egressDir,
+        projectRoot: root,
         consumer: "test",
         log: (event, kv) => logs.push({ event, kv }),
       });
@@ -766,7 +793,150 @@ describe("decide (Jev backend)", () => {
       strictEqual(queried[0].kv.threshold_out_of_scope_p, "0.8");
       strictEqual(queried[0].kv.consumer, "test");
     } finally {
-      rmSync(egressDir, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("decide_nonJsonBody_declinesMalformedResponse", async () => {
+    const root = freshProjectRoot();
+    try {
+      const fetchImpl = (async () =>
+        new Response("<html>not json</html>", {
+          status: 200,
+        })) as typeof fetch;
+
+      const result = await decide("some state", threeQuestions, {
+        config: { ...DEFAULT_JEV_CONFIG, enabled: true },
+        env: { TYPESAFE_API_KEY: "k" },
+        fetchImpl,
+        scrubCmd: () => ({ status: 0 }),
+        scanCmd: () => ({ status: 0 }),
+        projectRoot: root,
+        log: () => {},
+      });
+
+      strictEqual(result.declined, "malformed-response");
+      strictEqual(result.backend, "heuristic");
+      deepStrictEqual(
+        result.answers,
+        heuristicBackend("some state", threeQuestions),
+      );
+      deepStrictEqual(result.rejected, []);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("decide_answersKeyAbsent_declinesMalformedResponse", async () => {
+    const root = freshProjectRoot();
+    try {
+      const fetchImpl = (async () =>
+        new Response(JSON.stringify({ usage: { input_tokens: 1 } }), {
+          status: 200,
+        })) as typeof fetch;
+
+      const result = await decide("some state", threeQuestions, {
+        config: { ...DEFAULT_JEV_CONFIG, enabled: true },
+        env: { TYPESAFE_API_KEY: "k" },
+        fetchImpl,
+        scrubCmd: () => ({ status: 0 }),
+        scanCmd: () => ({ status: 0 }),
+        projectRoot: root,
+        log: () => {},
+      });
+
+      strictEqual(result.declined, "malformed-response");
+      strictEqual(result.backend, "heuristic");
+      deepStrictEqual(
+        result.answers,
+        heuristicBackend("some state", threeQuestions),
+      );
+      strictEqual(result.usage, undefined);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("decide_everyAnswerRejected_declinesToHeuristicBackend", async () => {
+    const root = freshProjectRoot();
+    try {
+      // Every answer fails validation: wrong type, choice outside criteria,
+      // score above the top level index.
+      const allBadDoc = {
+        answers: {
+          is_urgent: { type: "choice", choice: "billing" },
+          department: {
+            type: "choice",
+            choice: "nope",
+            probabilities: { billing: 0.1, technical: 0.85, sales: 0.05 },
+            confidence: 0.85,
+          },
+          frustration: {
+            type: "score",
+            score: 9,
+            probabilities: { "0": 1 },
+            confidence: 0.7,
+          },
+        },
+      };
+      const fetchImpl = (async () =>
+        new Response(JSON.stringify(allBadDoc), {
+          status: 200,
+        })) as typeof fetch;
+
+      const result = await decide("some state", threeQuestions, {
+        config: { ...DEFAULT_JEV_CONFIG, enabled: true },
+        env: { TYPESAFE_API_KEY: "k" },
+        fetchImpl,
+        scrubCmd: () => ({ status: 0 }),
+        scanCmd: () => ({ status: 0 }),
+        projectRoot: root,
+        log: () => {},
+      });
+
+      strictEqual(result.backend, "heuristic");
+      strictEqual(result.declined, "malformed-response");
+      deepStrictEqual(
+        result.answers,
+        heuristicBackend("some state", threeQuestions),
+      );
+      deepStrictEqual(result.rejected, []);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("decide_scrubSubprocessNonZeroButRescanClean_proceeds", async () => {
+    const root = freshProjectRoot();
+    try {
+      // The guard deliberately ignores the scrub subprocess's own exit
+      // status (scripts/lib/egress-guard.ts) and trusts only the positive
+      // re-scan, which is fail-closed: a leftover secret fails that re-scan.
+      // So a non-zero scrub status alone must NOT decline. The converse —
+      // a failing re-scan — is covered by
+      // decide_guardRefused_declinesWithGuardReason above.
+      let calls = 0;
+      const fetchImpl = (async () => {
+        calls++;
+        return new Response(JSON.stringify(happyDoc), { status: 200 });
+      }) as typeof fetch;
+
+      const result = await decide("some state", threeQuestions, {
+        config: { ...DEFAULT_JEV_CONFIG, enabled: true },
+        env: { TYPESAFE_API_KEY: "k" },
+        fetchImpl,
+        scrubCmd: () => ({ status: 1 }),
+        scanCmd: () => ({ status: 0 }),
+        projectRoot: root,
+        log: () => {},
+      });
+
+      strictEqual(result.declined, undefined);
+      strictEqual(result.backend, "jev");
+      strictEqual((result.answers.is_urgent as { noul: number }).noul, 0.92);
+      strictEqual(calls, 1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

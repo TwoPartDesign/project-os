@@ -452,6 +452,48 @@ function scoreToLevel(score: number): number {
   return Math.min(3, Math.max(0, Math.round(score - 0.5 + Number.EPSILON)));
 }
 
+// The three threshold rules below are the single definition each of
+// {@link applyAnswers} (which mutates rows) and {@link computeAgreement}
+// (which only counts) applies, so the two can never drift apart.
+
+/** True when a `dup_` noul answer is at or above the configured duplicate threshold. */
+function isDuplicateAtThreshold(
+  noul: number,
+  thresholds: JevConfig["thresholds"],
+): boolean {
+  return noul >= thresholds.duplicate_p;
+}
+
+/**
+ * The scope a `scope_` choice answer resolves to: any choice other than
+ * `unrelated` is applied as-is, while `unrelated` is applied only when its
+ * probability is at or above `out_of_scope_p` — otherwise `fallback` (the
+ * heuristic scope) is kept.
+ */
+function resolveScopeAtThreshold(
+  choice: "in_diff" | "adjacent" | "unrelated",
+  unrelatedP: number,
+  fallback: "in_diff" | "adjacent" | "unrelated",
+  thresholds: JevConfig["thresholds"],
+): "in_diff" | "adjacent" | "unrelated" {
+  if (choice !== "unrelated") return choice;
+  return unrelatedP >= thresholds.out_of_scope_p ? "unrelated" : fallback;
+}
+
+/**
+ * The calibrated severity a `sev_` score answer resolves to: `level` when the
+ * answer's `confidence` is at or above `severity_confidence`, otherwise
+ * `fallback` (the finding's own severity).
+ */
+function resolveSeverityAtThreshold(
+  level: Severity,
+  confidence: number,
+  fallback: Severity,
+  thresholds: JevConfig["thresholds"],
+): Severity {
+  return confidence >= thresholds.severity_confidence ? level : fallback;
+}
+
 /**
  * Applies one or more `decide()` results (one per {@link buildQuestions}
  * chunk, merged by question name) on top of {@link applyHeuristic}'s rows.
@@ -509,7 +551,9 @@ export function applyAnswers(
     if (!answer || answer.type !== "noul") continue;
     const hiRow = byId.get(hi);
     if (!hiRow) continue;
-    hiRow.duplicate_of = answer.noul >= thresholds.duplicate_p ? lo : null;
+    hiRow.duplicate_of = isDuplicateAtThreshold(answer.noul, thresholds)
+      ? lo
+      : null;
     hiRow.duplicate_p = answer.noul;
   }
 
@@ -517,22 +561,24 @@ export function applyAnswers(
     const answer = answers[`scope_${row.id}`];
     if (!answer || answer.type !== "choice") continue;
     const choice = answer.choice as "in_diff" | "adjacent" | "unrelated";
-    if (choice !== "unrelated") {
-      row.in_scope = choice;
-    } else if (
-      (answer.probabilities.unrelated ?? 0) >= thresholds.out_of_scope_p
-    ) {
-      row.in_scope = "unrelated";
-    }
+    row.in_scope = resolveScopeAtThreshold(
+      choice,
+      answer.probabilities.unrelated ?? 0,
+      row.in_scope,
+      thresholds,
+    );
     row.in_scope_p = answer.probabilities[choice] ?? row.in_scope_p;
   }
 
   for (const row of rows) {
     const answer = answers[`sev_${row.id}`];
     if (!answer || answer.type !== "score") continue;
-    if (answer.confidence >= thresholds.severity_confidence) {
-      row.calibrated_severity = SEVERITY_LEVELS[scoreToLevel(answer.score)];
-    }
+    row.calibrated_severity = resolveSeverityAtThreshold(
+      SEVERITY_LEVELS[scoreToLevel(answer.score)],
+      answer.confidence,
+      row.calibrated_severity,
+      thresholds,
+    );
     row.severity_confidence = answer.confidence;
   }
 
@@ -695,35 +741,37 @@ function computeAgreement(
     if (!row) continue;
     const wasDup = row.heuristic_dup !== null;
     const thresholdedDup =
-      row.jev_dup_p !== null ? row.jev_dup_p >= thresholds.duplicate_p : wasDup;
+      row.jev_dup_p !== null
+        ? isDuplicateAtThreshold(row.jev_dup_p, thresholds)
+        : wasDup;
     if (thresholdedDup === wasDup) dupAgreed++;
   }
 
   let scopeAgreed = 0;
   for (const row of rows) {
-    let thresholded: string = row.heuristic_scope;
-    if (row.jev_scope !== null) {
-      if (row.jev_scope === "unrelated") {
-        thresholded =
-          (row.jev_scope_p ?? 0) >= thresholds.out_of_scope_p
-            ? "unrelated"
-            : row.heuristic_scope;
-      } else {
-        thresholded = row.jev_scope;
-      }
-    }
+    const thresholded =
+      row.jev_scope !== null
+        ? resolveScopeAtThreshold(
+            row.jev_scope as "in_diff" | "adjacent" | "unrelated",
+            row.jev_scope_p ?? 0,
+            row.heuristic_scope,
+            thresholds,
+          )
+        : row.heuristic_scope;
     if (thresholded === row.heuristic_scope) scopeAgreed++;
   }
 
   let severityAgreed = 0;
   for (const row of rows) {
-    let thresholded: Severity = row.severity;
-    if (
-      row.jev_severity !== null &&
-      (row.jev_conf ?? 0) >= thresholds.severity_confidence
-    ) {
-      thresholded = row.jev_severity;
-    }
+    const thresholded =
+      row.jev_severity !== null
+        ? resolveSeverityAtThreshold(
+            row.jev_severity,
+            row.jev_conf ?? 0,
+            row.severity,
+            thresholds,
+          )
+        : row.severity;
     if (thresholded === row.severity) severityAgreed++;
   }
 
@@ -768,6 +816,269 @@ function renderCalibrationSummary(
   ].join("\n");
 }
 
+/** The options bag {@link runTriage} and its pipeline helpers below share. */
+type TriageOpts = {
+  jsonOnly?: boolean;
+  config?: JevConfig;
+  env?: Record<string, string | undefined>;
+  log?: (e: string, kv: Record<string, string>) => void;
+  fetchImpl?: typeof fetch;
+  scrubCmd?: (file: string) => { status: number };
+  scanCmd?: (file: string) => { status: number };
+  egressDir?: string;
+  projectRoot?: string;
+  calibrate?: boolean;
+  extraReviews?: string[];
+};
+
+/**
+ * One triage run's derived inputs, shared by the two output builders
+ * ({@link calibrationOutput} and {@link writeTriageOutput}) so neither takes
+ * the same six parameters separately.
+ */
+type TriageRun = {
+  specDir: string;
+  findings: Finding[];
+  candidates: Candidates;
+  heuristicRows: TriagedFinding[];
+  config: JevConfig;
+  results: DecisionResult[];
+  extraReviews: string[];
+};
+
+/**
+ * Reads every finding for one triage run, in a fixed order: the three
+ * reviewer reports in `<specDir>/review-raw/` (a missing file warns on stderr
+ * and contributes nothing), then each `extraReviews` path, parsed with
+ * reviewer name `"mixed"`. A missing `extraReviews` path throws.
+ */
+function readAllFindings(specDir: string, extraReviews: string[]): Finding[] {
+  const allFindings: Finding[] = [];
+  for (const reviewer of REVIEWERS) {
+    const path = resolve(specDir, "review-raw", `${reviewer}.md`);
+    if (!existsSync(path)) {
+      process.stderr.write(`review-triage: missing ${path}\n`);
+      continue;
+    }
+    allFindings.push(...parseFindings(readFileSync(path, "utf-8"), reviewer));
+  }
+
+  for (const reviewPath of extraReviews) {
+    if (!existsSync(reviewPath)) {
+      throw new Error(
+        `review-triage: calibration review not found: ${reviewPath}`,
+      );
+    }
+    allFindings.push(
+      ...parseFindings(readFileSync(reviewPath, "utf-8"), "mixed"),
+    );
+  }
+
+  return allFindings;
+}
+
+/** Reads the changed-files list: one path per line, trimmed, blank lines dropped; a missing file yields an empty list. */
+function readChangedFiles(changedFilesPath: string): string[] {
+  if (!existsSync(changedFilesPath)) return [];
+  return readFileSync(changedFilesPath, "utf-8")
+    .split(/\r\n|\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+}
+
+/** Calls `decide()` once per {@link buildQuestions} chunk with `consumer: "review-triage"`, threading the caller's deps into every call. */
+async function decideChunks(
+  chunks: { state: string; questions: QuestionMap }[],
+  config: JevConfig,
+  opts: TriageOpts,
+): Promise<DecisionResult[]> {
+  const results: DecisionResult[] = [];
+  for (const chunk of chunks) {
+    results.push(
+      await decide(chunk.state, chunk.questions, {
+        consumer: "review-triage",
+        config,
+        env: opts.env,
+        log: opts.log,
+        fetchImpl: opts.fetchImpl,
+        scrubCmd: opts.scrubCmd,
+        scanCmd: opts.scanCmd,
+        egressDir: opts.egressDir,
+        projectRoot: opts.projectRoot,
+      }),
+    );
+  }
+  return results;
+}
+
+/**
+ * Builds the `--calibrate` output: the raw (un-thresholded) Jev answers next
+ * to the heuristic's, the agreement summary computed at `config.thresholds`
+ * (which never changes a row), and the `review-triage-calibration.json` file
+ * written beside the spec. `review-triage.json` is never written here.
+ */
+function calibrationOutput(
+  run: TriageRun,
+  backend: "heuristic" | "jev",
+): { json: object; table: string } {
+  const { specDir, findings, candidates, config } = run;
+  const calRows = buildCalibrationRows(
+    findings,
+    run.heuristicRows,
+    jevAnswers(run.results),
+    candidates.pairs,
+  );
+  const agreement = computeAgreement(
+    calRows,
+    candidates.pairs,
+    config.thresholds,
+  );
+  const text =
+    renderCalibrationTable(calRows) +
+    "\n\n" +
+    renderCalibrationSummary(
+      findings.length,
+      candidates.pairs.length,
+      agreement,
+    );
+
+  const calibrationJson = {
+    generated_at: new Date().toISOString(),
+    backend,
+    sources: run.extraReviews.length > 0 ? run.extraReviews : ["review-raw"],
+    findings: findings.length,
+    pairs: candidates.pairs.length,
+    agreement,
+    thresholds: config.thresholds,
+    rows: calRows,
+  };
+
+  writeFileSync(
+    resolve(specDir, "review-triage-calibration.json"),
+    JSON.stringify(calibrationJson, null, 2) + "\n",
+    "utf-8",
+  );
+
+  return { json: calibrationJson, table: text };
+}
+
+/**
+ * Scrubs every row's `issue` and `fix` through `guardEgressFields` (one call
+ * across all rows' fields) before they ever reach disk. A guard refusal
+ * replaces both fields on every row with `"[WITHHELD:scrub-failed]"` and
+ * counts every field as redacted. Otherwise each field is compared
+ * before/after, so a secret the scanner subprocess scrubbed in place — which
+ * `guarded.redactions` does not count — is still counted here.
+ */
+function scrubRows(
+  triaged: TriagedFinding[],
+  projectRoot: string,
+  opts: TriageOpts,
+): { rows: TriagedFinding[]; redactions: number } {
+  const outboundFields: string[] = [];
+  for (const row of triaged) outboundFields.push(row.issue, row.fix);
+  if (outboundFields.length === 0) return { rows: triaged, redactions: 0 };
+
+  const guarded = guardEgressFields(outboundFields, {
+    projectRoot,
+    egressDir: opts.egressDir,
+    scrubCmd: opts.scrubCmd,
+    scanCmd: opts.scanCmd,
+  });
+
+  if ("refused" in guarded) {
+    return {
+      rows: triaged.map((row) => ({
+        ...row,
+        issue: "[WITHHELD:scrub-failed]",
+        fix: "[WITHHELD:scrub-failed]",
+      })),
+      redactions: outboundFields.length,
+    };
+  }
+
+  let redactions = 0;
+  for (let i = 0; i < outboundFields.length; i++) {
+    if (guarded.fields[i] !== outboundFields[i]) redactions++;
+  }
+  return {
+    rows: triaged.map((row, i) => ({
+      ...row,
+      issue: guarded.fields[i * 2],
+      fix: guarded.fields[i * 2 + 1],
+    })),
+    redactions,
+  };
+}
+
+/**
+ * Summarizes the per-chunk `decide()` results: `backend` is `"jev"` once any
+ * chunk reached the Jev backend, `declined` is the first chunk's decline
+ * reason when none did, and `redactions` is every chunk's redaction count
+ * summed.
+ */
+function summarizeResults(results: DecisionResult[]): {
+  backend: "heuristic" | "jev";
+  declined: DecisionResult["declined"];
+  redactions: number;
+} {
+  const backend: "heuristic" | "jev" = results.some((r) => r.backend === "jev")
+    ? "jev"
+    : "heuristic";
+  return {
+    backend,
+    declined: backend === "heuristic" ? results[0]?.declined : undefined,
+    redactions: results.reduce((sum, r) => sum + r.redactions, 0),
+  };
+}
+
+/**
+ * Logs one `review-triaged` event, writes the advisory
+ * `<specDir>/review-triage.json`, and returns that JSON object with the
+ * rendered markdown table of the same rows.
+ */
+function writeTriageOutput(
+  run: TriageRun,
+  rows: TriagedFinding[],
+  header: {
+    backend: "heuristic" | "jev";
+    declined: DecisionResult["declined"];
+    redactions: number;
+    lift: ReturnType<typeof liftSummary> | null;
+  },
+  log: (e: string, kv: Record<string, string>) => void,
+): { json: object; table: string } {
+  const specDir = run.specDir;
+  log("review-triaged", {
+    feature: basename(specDir),
+    backend: header.backend,
+    findings: String(run.findings.length),
+    dup_pairs: String(run.candidates.pairs.length),
+    dup_changed: String(header.lift?.dup_changed ?? 0),
+    scope_changed: String(header.lift?.scope_changed ?? 0),
+    severity_changed: String(header.lift?.severity_changed ?? 0),
+    redactions: String(header.redactions),
+  });
+
+  const json = {
+    feature: basename(specDir),
+    advisory: true,
+    backend: header.backend,
+    declined: header.declined,
+    redactions: header.redactions,
+    lift: header.lift,
+    findings: rows,
+  };
+
+  writeFileSync(
+    resolve(specDir, "review-triage.json"),
+    JSON.stringify(json, null, 2) + "\n",
+    "utf-8",
+  );
+
+  return { json, table: renderTable(rows) };
+}
+
 /**
  * Runs the full triage for the feature at `specDir`: reads
  * `<specDir>/review-raw/{architecture,security,tests}.md` (a missing file
@@ -801,195 +1112,52 @@ function renderCalibrationSummary(
 export async function runTriage(
   specDir: string,
   changedFilesPath: string,
-  opts: {
-    jsonOnly?: boolean;
-    config?: JevConfig;
-    env?: Record<string, string | undefined>;
-    log?: (e: string, kv: Record<string, string>) => void;
-    fetchImpl?: typeof fetch;
-    scrubCmd?: (file: string) => { status: number };
-    scanCmd?: (file: string) => { status: number };
-    egressDir?: string;
-    projectRoot?: string;
-    calibrate?: boolean;
-    extraReviews?: string[];
-  } = {},
+  opts: TriageOpts = {},
 ): Promise<{ json: object; table: string }> {
-  const allFindings: Finding[] = [];
-  for (const reviewer of REVIEWERS) {
-    const path = resolve(specDir, "review-raw", `${reviewer}.md`);
-    if (!existsSync(path)) {
-      process.stderr.write(`review-triage: missing ${path}\n`);
-      continue;
-    }
-    const text = readFileSync(path, "utf-8");
-    allFindings.push(...parseFindings(text, reviewer));
-  }
-
   const extraReviews = opts.extraReviews ?? [];
-  for (const reviewPath of extraReviews) {
-    if (!existsSync(reviewPath)) {
-      throw new Error(
-        `review-triage: calibration review not found: ${reviewPath}`,
-      );
-    }
-    const text = readFileSync(reviewPath, "utf-8");
-    allFindings.push(...parseFindings(text, "mixed"));
-  }
-
-  let changedFiles: string[] = [];
-  if (existsSync(changedFilesPath)) {
-    changedFiles = readFileSync(changedFilesPath, "utf-8")
-      .split(/\r\n|\n/)
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
-  }
-
-  const candidates = heuristicCandidates(allFindings, changedFiles);
-  const heuristicRows = applyHeuristic(allFindings, candidates);
+  const findings = readAllFindings(specDir, extraReviews);
+  const changedFiles = readChangedFiles(changedFilesPath);
+  const candidates = heuristicCandidates(findings, changedFiles);
   const config = opts.config ?? readJevConfig();
-  const log = opts.log ?? defaultLogger;
 
-  const chunks = buildQuestions(allFindings, candidates, changedFiles);
-  const results: DecisionResult[] = [];
-  for (const chunk of chunks) {
-    results.push(
-      await decide(chunk.state, chunk.questions, {
-        consumer: "review-triage",
-        config,
-        env: opts.env,
-        log: opts.log,
-        fetchImpl: opts.fetchImpl,
-        scrubCmd: opts.scrubCmd,
-        scanCmd: opts.scanCmd,
-        egressDir: opts.egressDir,
-      }),
-    );
-  }
+  const chunks = buildQuestions(findings, candidates, changedFiles);
+  const results = await decideChunks(chunks, config, opts);
+  const run: TriageRun = {
+    specDir,
+    findings,
+    candidates,
+    heuristicRows: applyHeuristic(findings, candidates),
+    config,
+    results,
+    extraReviews,
+  };
+  const summary = summarizeResults(results);
 
-  const backend: "heuristic" | "jev" = results.some((r) => r.backend === "jev")
-    ? "jev"
-    : "heuristic";
-  const declined = backend === "heuristic" ? results[0]?.declined : undefined;
-  const decideRedactions = results.reduce((sum, r) => sum + r.redactions, 0);
-
-  if (opts.calibrate) {
-    const answers = jevAnswers(results);
-
-    const calRows = buildCalibrationRows(
-      allFindings,
-      heuristicRows,
-      answers,
-      candidates.pairs,
-    );
-    const agreement = computeAgreement(
-      calRows,
-      candidates.pairs,
-      config.thresholds,
-    );
-    const table = renderCalibrationTable(calRows);
-    const summary = renderCalibrationSummary(
-      allFindings.length,
-      candidates.pairs.length,
-      agreement,
-    );
-    const text = table + "\n\n" + summary;
-
-    const calibrationJson = {
-      generated_at: new Date().toISOString(),
-      backend,
-      sources: extraReviews.length > 0 ? extraReviews : ["review-raw"],
-      findings: allFindings.length,
-      pairs: candidates.pairs.length,
-      agreement,
-      thresholds: config.thresholds,
-      rows: calRows,
-    };
-
-    writeFileSync(
-      resolve(specDir, "review-triage-calibration.json"),
-      JSON.stringify(calibrationJson, null, 2) + "\n",
-      "utf-8",
-    );
-
-    return { json: calibrationJson, table: text };
-  }
+  if (opts.calibrate) return calibrationOutput(run, summary.backend);
 
   const triaged =
     results.length > 0
-      ? applyAnswers(allFindings, candidates, results, config.thresholds)
-      : heuristicRows;
-  const lift = backend === "jev" ? liftSummary(triaged, heuristicRows) : null;
-
-  const projectRoot = opts.projectRoot ?? getProjectRoot();
-  const outboundFields: string[] = [];
-  for (const row of triaged) outboundFields.push(row.issue, row.fix);
-
-  let outputRedactions = 0;
-  let scrubbedRows = triaged;
-  if (outboundFields.length > 0) {
-    const guarded = guardEgressFields(outboundFields, {
-      projectRoot,
-      egressDir: opts.egressDir,
-      scrubCmd: opts.scrubCmd,
-      scanCmd: opts.scanCmd,
-    });
-    if ("refused" in guarded) {
-      outputRedactions = outboundFields.length;
-      scrubbedRows = triaged.map((row) => ({
-        ...row,
-        issue: "[WITHHELD:scrub-failed]",
-        fix: "[WITHHELD:scrub-failed]",
-      }));
-    } else {
-      // `guarded.redactions` only counts guardEgressFields's own final
-      // pure-regex pass (redactSensitivePairs + redactHighEntropyTokens);
-      // a secret the external scanner subprocess already scrubbed in
-      // place (e.g. a `ghp_...` token, replaced with its own
-      // `[REDACTED:<rule>]` marker before that pass ever runs) never
-      // shows up in that count. Comparing before/after per field instead
-      // counts every field genuinely changed, by either step.
-      for (let i = 0; i < outboundFields.length; i++) {
-        if (guarded.fields[i] !== outboundFields[i]) outputRedactions++;
-      }
-      scrubbedRows = triaged.map((row, i) => ({
-        ...row,
-        issue: guarded.fields[i * 2],
-        fix: guarded.fields[i * 2 + 1],
-      }));
-    }
-  }
-
-  const totalRedactions = decideRedactions + outputRedactions;
-
-  log("review-triaged", {
-    feature: basename(specDir),
-    backend,
-    findings: String(allFindings.length),
-    dup_pairs: String(candidates.pairs.length),
-    dup_changed: String(lift?.dup_changed ?? 0),
-    scope_changed: String(lift?.scope_changed ?? 0),
-    severity_changed: String(lift?.severity_changed ?? 0),
-    redactions: String(totalRedactions),
-  });
-
-  const json = {
-    feature: basename(specDir),
-    advisory: true,
-    backend,
-    declined,
-    redactions: totalRedactions,
-    lift,
-    findings: scrubbedRows,
-  };
-
-  writeFileSync(
-    resolve(specDir, "review-triage.json"),
-    JSON.stringify(json, null, 2) + "\n",
-    "utf-8",
+      ? applyAnswers(findings, candidates, results, config.thresholds)
+      : run.heuristicRows;
+  const lift =
+    summary.backend === "jev" ? liftSummary(triaged, run.heuristicRows) : null;
+  const scrubbed = scrubRows(
+    triaged,
+    opts.projectRoot ?? getProjectRoot(),
+    opts,
   );
 
-  return { json, table: renderTable(scrubbedRows) };
+  return writeTriageOutput(
+    run,
+    scrubbed.rows,
+    {
+      backend: summary.backend,
+      declined: summary.declined,
+      redactions: summary.redactions + scrubbed.redactions,
+      lift,
+    },
+    opts.log ?? defaultLogger,
+  );
 }
 
 /**
