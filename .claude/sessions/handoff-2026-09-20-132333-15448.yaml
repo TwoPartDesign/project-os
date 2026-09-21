@@ -1,0 +1,109 @@
+timestamp: 2026-09-20T13:23:33Z
+phase: ship
+feature: jev-integration
+
+objective: |
+  Finish the jev-integration lifecycle (build → review → ship) on branch
+  claude/jev-integration-project-os-x9t11q, including the rider task #T189
+  (compaction-gate), and close the session with PR #2 open against master.
+
+progress:
+  completed:
+    - description: Build — 11/11 tasks #T178–#T188 in 5 dispatch batches, 0 blocked
+      files: ROADMAP.md:392-410, docs/specs/jev-integration/tasks/*/completion-report.md
+    - description: "#T189 compaction-metrics built (opus worker), integrated, ship lists + manifest updated, [~] awaiting review"
+      files: scripts/compaction-metrics.ts, docs/knowledge/compaction-metrics.md, tests/compaction-metrics.test.ts, scripts/generate-manifest.sh, scripts/new-project.sh
+    - description: Review round 1 FAILED (1 HIGH, 3 security MEDIUM); fixes landed in 4c75006 (lead) and db38e74 (opus worker); round 2 PASSED WITH NOTES; T178–T188 marked [x]
+      files: docs/specs/jev-integration/review.md, docs/specs/jev-integration/review-raw/, scripts/lib/decide.ts, scripts/review-triage.ts, scripts/lib/egress-guard.ts
+    - description: Ship — hygiene clean, scanner test-rules 12/12 + scan-diff clean, system-map fresh, full suite 10/10 (142s), node 450/450, metrics snapshot, reflection drafts #T190/#T191, memory, feature-shipped + pr-created logged
+      files: docs/knowledge/metrics.md:24-38, docs/specs/jev-integration/skill-edits.md, docs/memory/2026-09-20-jev-integration-ship.md
+    - description: PR #2 opened via GitHub MCP (no gh CLI in the remote session); branch pushed at c9a7b1d
+      files: https://github.com/TwoPartDesign/project-os/pull/2
+  in_progress: []
+
+decisions:
+  - decision: Fix the review HIGH directly as lead (DecisionResult.rejected + jevAnswers accessor) instead of dispatching
+    rationale: under 100 lines across two files; a brief would have cost more than the edit
+    alternatives_rejected: implementer worker on opus (used only for the three egress-guard MEDIUMs)
+  - decision: Defer /tools:reflect --trigger review-fail to the ship trigger
+    rationale: the fix landed in-session; the ship reflection saw the same evidence and filed #T190/#T191
+    alternatives_rejected: a separate review-fail reflection run (duplicate evidence, extra drafts)
+  - decision: Leave worker-authored commit trailers (Opus/Sonnet Co-Authored-By) as cherry-picked
+    rationale: truthful attribution; consistent with the already-pushed batch commits
+    alternatives_rejected: rewriting unpushed history to the lead's trailer
+  - decision: Keep the 16 stray agent worktrees under .claude/worktrees/
+    rationale: every worker commit was cherry-picked; removal is the user's call (ship.md only sanctions prune)
+    alternatives_rejected: git worktree remove for each
+
+modified_files:
+  - path: scripts/lib/decide.ts
+    focus_range: 1-612
+    change_type: modified
+    summary: rejected[] on DecisionResult, MODEL_ID_RE allowlist, [0,1] probability checks, declined/rejected in jev-queried log
+  - path: scripts/review-triage.ts
+    focus_range: 478-540
+    change_type: modified
+    summary: jevAnswers() filters to backend jev minus rejected names; calibrate no double print; missing review hard error; main() exit 1
+  - path: scripts/lib/egress-guard.ts
+    focus_range: 77-250
+    change_type: modified
+    summary: pair shapes KEY="v"/key = v/key: v; hex entropy branch (32 chars, 3.0); neutralizeScanMarkers before staging
+  - path: tests/review-triage.test.ts
+    focus_range: 857-1034
+    change_type: modified
+    summary: declined-chunk, rejected-name, jevAnswers regression tests
+  - path: tests/decide.test.ts
+    focus_range: 484-567
+    change_type: modified
+    summary: assert result.rejected on malformed and out-of-range responses
+  - path: ROADMAP.md
+    focus_range: 392-412
+    change_type: modified
+    summary: T178–T188 [x] under Done; #T190/#T191 skill-edit drafts filed under maintenance-inbox; #T189 [~]
+  - path: docs/knowledge/metrics.md
+    focus_range: 24-38
+    change_type: modified
+    summary: jev-integration ship metrics entry
+
+blockers: []
+
+next_steps:
+  - priority: 1
+    action: Merge PR #2 (or request review) — https://github.com/TwoPartDesign/project-os/pull/2
+    context: branch is green (10/10 suites, scanner clean, map fresh); PR body calls out the two out-of-scope riders (bash.md ADR, #T189)
+  - priority: 2
+    action: Run /workflows:review compaction-gate to promote #T189 from [~] to [x]
+    context: one task; completion report at docs/specs/compaction-gate/tasks/T189/completion-report.md; verdict is keep 350k/80%
+  - priority: 3
+    action: /pm:approve maintenance-inbox for skill-edit drafts #T190 (build.md worktree merge target) and #T191 (ship.md PR fallback without gh)
+    context: proposals in docs/specs/jev-integration/skill-edits.md; both standard tier, add operations
+  - priority: 4
+    action: Triage the review notes left for the user in docs/specs/jev-integration/review.md "Round 2"
+    context: system-map multi-line-import gap (pre-existing), runTriage/decide length, computeAgreement duplication, projectRoot in DecideDeps, boundary tests, review-triage permission argv scope, PAT-shaped fixture literal
+  - priority: 5
+    action: Optionally remove the 16 stray agent worktrees (git worktree list)
+    context: all worker commits are integrated; the worktree branches are safe to delete
+
+context_notes: |
+  Agent-tool worktrees branch from the merge-base: every worktree brief must
+  open with `git -C "<worktree>" merge claude/jev-integration-project-os-x9t11q --no-edit`.
+  pick.sh in the scratchpad resolves docs/maps conflicts with --ours; pre-commit
+  heals the map. Jev stayed off all session (no TYPESAFE_API_KEY); the ADR
+  calibration table holds a placeholder row. The triage run over this
+  feature's own reviewer reports is the end-to-end evidence that marker
+  neutralization and entropy redaction work (see review.md "Triage").
+  Base branch is master (no main). gh CLI is absent here; PRs go through the
+  GitHub MCP create_pull_request tool. Scratchpad scripts: gate.sh (full
+  suite), pick.sh <hash>, mark-done.mjs.
+
+compact_instruction: |
+  The jev-integration feature is shipped: PR #2 open, branch
+  claude/jev-integration-project-os-x9t11q pushed at c9a7b1d, working tree
+  clean. Preserve verbatim: the next_steps list above (merge PR #2, review
+  compaction-gate #T189, approve #T190/#T191, the review.md notes left for
+  the user); the rule that worktree briefs must merge the feature branch
+  first; that PRs are created with the GitHub MCP tool because gh is
+  absent; that commit messages end with the Co-Authored-By and
+  Claude-Session trailers. Safe to drop: per-batch build narration,
+  reviewer raw findings (they live in docs/specs/jev-integration/review-raw/),
+  the cherry-pick conflict details, and the gate log output.

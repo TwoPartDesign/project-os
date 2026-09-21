@@ -6,7 +6,7 @@
 # Events: task-spawned, task-completed, task-failed, review-started,
 #         review-passed, review-failed, revision-started, compete-spawned,
 #         compete-selected, pr-created, feature-shipped, plan-approved,
-#         session-preserved
+#         session-preserved, jev-queried, jev-declined, review-triaged
 #
 # Example:
 #   bash .claude/hooks/log-activity.sh task-spawned feature=auth task_id=T3 agent=implementer

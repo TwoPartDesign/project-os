@@ -74,7 +74,9 @@ User (Approver) ──→ Workflow Commands ──→ Lead ──→ Sub-agents 
 | `install-global-commands.sh` | Install `/tools:new-project` globally |
 | `install-hooks.sh` | Install git pre-commit/pre-push security-scanner hooks |
 | `knowledge-index.ts` | FTS5 knowledge indexing and search (`node:sqlite`) |
-| `lib/json.sh` / `lib/scan-rules.js` | Shared JSON helpers / scanner rule database (233 rules) |
+| `lib/decide.ts` | Typed decision interface (`decide(state, questions, deps)`) — deterministic heuristic backend always answers; optional Jev (TypeSafe) backend gated on `project_os.jev.enabled` + `TYPESAFE_API_KEY`, never throws, every fallback carries a `DeclineReason`; sole outbound HTTP caller in the repo |
+| `lib/egress-guard.ts` | Three content guards over every outbound text field before serialization — scrub subprocess + positive re-scan, key-name denylist redaction, Shannon-entropy floor; staged in `.claude/logs/jev` (0700, realpath-contained); fail-closed for egress |
+| `lib/json.sh` / `lib/scan-rules.js` | Shared JSON helpers / scanner rule database (234 rules) |
 | `lib/policy.ts` | Shared reader for `.claude/maintenance-policy.yaml` — flat `key: value` parsing kept in lockstep with `maintain.sh`'s `policy_raw_value` and `system-map.ts`'s `loadBloatThreshold` (no YAML library, linear-parse mandate) |
 | `lib/skill-apply-lib.ts` | Pure proposal parser + anchored-op core for the skill-optimization loop — parses `## Run:`/`### Proposal N:` sections out of a skill-edit proposal doc and applies an anchored add/delete/replace to target-file content; no fs/git access |
 | `lib/system-map-lib.ts` | Extractors + graph builder + readiness scoring for the system map |
@@ -85,6 +87,7 @@ User (Approver) ──→ Workflow Commands ──→ Lead ──→ Sub-agents 
 | `lib/project-root.ts` | Shared project-root resolution (imported by knowledge-index/system-map/maintain-draft) |
 | `new-project.sh` | Bootstrap a new Project OS project, or adopt Project OS in place into a pre-existing repo via `--adopt <target-dir>` (two-class collision policy, orphan quarantine, `--dry-run` plan preview) |
 | `observation-parser.ts` | Extract 5 typed observations from tool output (sensitive-key denylist) |
+| `review-triage.ts` | Advisory triage of the three reviewers' raw reports — heuristic duplicate/scope detection plus optional Jev-scored questions; writes scrubbed `review-triage.json`; run by `/workflows:review` Synthesis step 0; decides nothing |
 | `scrub-secrets.sh` | Scrub secret patterns from a file (delegates to scanner) |
 | `security-scanner.ts` | Zero-dep secrets/PII scanner (8 subcommands) |
 | `skill-apply.ts` | Anchored apply engine for skill-edit proposals — standard tier via `/pm:approve`, plus a narrow `--auto` tier gated by six deterministic conditions (policy flag, delete/replace only, `.claude/commands/`/`.claude/skills/` containment, non-increasing size, live `system-map.ts` dangling-ref evidence, edit-content correspondence) |
@@ -302,11 +305,13 @@ Use `node scripts/knowledge-index.ts validate <source>` to reset the stale clock
 Defense-in-depth secret detection with three enforcement layers:
 
 - **Scanner engine**: `scripts/security-scanner.ts` — zero-dep Node.js scanner with 8 subcommands (scan-files, scan-staged, scan-diff, scrub, list-rules, test-rules, test-pattern, install-hooks)
-- **Rule database**: `scripts/lib/scan-rules.js` — 233 rules (219 ported from gitleaks@256f6479, 14 custom PII/privacy). ESM module, keyword pre-filter, Shannon entropy detection (threshold 4.5)
+- **Rule database**: `scripts/lib/scan-rules.js` — 234 rules (219 ported from gitleaks@256f6479, 15 custom PII/privacy incl. `bare-sk-token`). ESM module, keyword pre-filter, Shannon entropy detection (threshold 4.5)
 - **Allowlist**: `.claude/security/allowlist.json` — path ignores, rule disables, inline `// scan:allow` suppression, stopwords
 - **Hook chain**: pre-commit (scan-staged) → pre-push (scan-diff) → ship workflow step 1.5 (scan-diff against base)
 - **Scrub mode**: `scrub-secrets.sh` delegates to scanner's `scrub` subcommand (atomic temp+rename), with inline bash fallback when Node unavailable
 - **Hook installer**: `scripts/install-hooks.sh` — validates rules, writes pre-commit and pre-push hooks to `.git/hooks/`
+- **Egress allowlist**: `.claude/security/egress-allowlist.json` — the only approved outbound HTTP caller (`scripts/lib/decide.ts` → `api.typesafe.ai`), its data classes and guards; reviewed monthly
+- **Egress guard**: `scripts/lib/egress-guard.ts` — scrub-then-positive-rescan subprocess, key-name denylist, entropy floor over every outbound text field; refusal is fail-closed for egress
 
 Shell safety: all git operations use `execFileSync("git", [args])` (no string templates). Path traversal guard on all user-supplied paths.
 

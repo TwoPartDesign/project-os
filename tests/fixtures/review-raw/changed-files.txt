@@ -1,0 +1,3 @@
+scripts/alpha.ts
+scripts/lib/beta.ts
+tests/alpha.test.ts

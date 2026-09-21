@@ -84,6 +84,7 @@ git merge --no-ff "feature/$ARGUMENTS" -m "feat: [Feature Name] — [one-line su
 ### PR Generation (preferred):
 Run `bash scripts/create-pr.sh "$ARGUMENTS"` to create a pull request with auto-generated description.
 This uses `gh` CLI and pulls context from tasks.md, review.md, and commit history.
+If `gh` is not installed (remote sessions), build the same description by hand from tasks.md, review.md, and `git log --oneline "${BASE}...HEAD"`, and open the PR with the GitHub MCP `create_pull_request` tool (base `$BASE`, head the current branch). Never skip the PR step because the script cannot run.
 
 Log: `bash .claude/hooks/log-activity.sh pr-created feature=$ARGUMENTS`
 

@@ -56,9 +56,11 @@
 ### lib
 - `l_common` — `.claude/hooks/_common.sh` (14 dependents)
 - `l_dashboard_render` — `scripts/lib/dashboard-render.ts` (5 dependents)
+- `l_decide` — `scripts/lib/decide.ts` (1 dependent)
+- `l_egress_guard` — `scripts/lib/egress-guard.ts` (4 dependents)
 - `l_json` — `scripts/lib/json.sh` (2 dependents)
 - `l_policy` — `scripts/lib/policy.ts` (10 dependents)
-- `l_project_root` — `scripts/lib/project-root.ts` (17 dependents)
+- `l_project_root` — `scripts/lib/project-root.ts` (21 dependents)
 - `l_scan_rules` — `scripts/lib/scan-rules.js` (0 dependents)
 - `l_skill_apply_lib` — `scripts/lib/skill-apply-lib.ts` (4 dependents)
 - `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (5 dependents)
@@ -66,6 +68,7 @@
 ### script
 - `s_audit_context` — `scripts/audit-context.sh` (0 dependents)
 - `s_codex_review` — `scripts/codex-review.sh` (1 dependent)
+- `s_compaction_metrics` — `scripts/compaction-metrics.ts` (1 dependent)
 - `s_context_filter` — `scripts/context-filter.sh` (0 dependents)
 - `s_create_pr` — `scripts/create-pr.sh` (1 dependent)
 - `s_dashboard_server` — `scripts/dashboard-server.ts` (1 dependent)
@@ -81,6 +84,7 @@
 - `s_memory_search` — `scripts/memory-search.sh` (0 dependents)
 - `s_new_project` — `scripts/new-project.sh` (0 dependents)
 - `s_observation_parser` — `scripts/observation-parser.ts` (0 dependents)
+- `s_review_triage` — `scripts/review-triage.ts` (1 dependent)
 - `s_scrub_secrets` — `scripts/scrub-secrets.sh` (0 dependents)
 - `s_security_scanner` — `scripts/security-scanner.ts` (1 dependent)
 - `s_setup` — `scripts/setup.sh` (0 dependents)
@@ -93,11 +97,14 @@
 - `s_validate_roadmap` — `scripts/validate-roadmap.sh` (4 dependents)
 - `s_agent_roster_test` — `tests/agent-roster.test.ts` (0 dependents)
 - `s_compaction_hooks` — `tests/compaction-hooks.sh` (0 dependents)
+- `s_compaction_metrics_test` — `tests/compaction-metrics.test.ts` (0 dependents)
 - `s_critical_rules_test` — `tests/critical-rules.test.ts` (0 dependents)
 - `s_dashboard_render_test` — `tests/dashboard-render.test.ts` (0 dependents)
 - `s_dashboard_smoke` — `tests/dashboard-smoke.sh` (0 dependents)
+- `s_decide_test` — `tests/decide.test.ts` (0 dependents)
 - `s_detect_stack_test` — `tests/detect-stack.test.ts` (0 dependents)
 - `s_dream_accept_smoke` — `tests/dream-accept-smoke.sh` (0 dependents)
+- `s_egress_guard_test` — `tests/egress-guard.test.ts` (0 dependents)
 - `s_entropy_threshold_test` — `tests/entropy-threshold.test.ts` (0 dependents)
 - `s_hook_smoke_negctl` — `tests/hook-smoke-negctl.sh` (0 dependents)
 - `s_hook_smoke` — `tests/hook-smoke.sh` (0 dependents)
@@ -107,6 +114,7 @@
 - `s_new_project_smoke` — `tests/new-project-smoke.sh` (0 dependents)
 - `s_observation_parser_test` — `tests/observation-parser.test.ts` (0 dependents)
 - `s_policy_test` — `tests/policy.test.ts` (0 dependents)
+- `s_review_triage_test` — `tests/review-triage.test.ts` (0 dependents)
 - `s_run_all` — `tests/run-all.sh` (0 dependents)
 - `s_scan_rules_node22_test` — `tests/scan-rules-node22.test.ts` (0 dependents)
 - `s_scan_rules_restored_test` — `tests/scan-rules-restored.test.ts` (0 dependents)
@@ -148,6 +156,7 @@
 - `c_tools_maintain` --references--> `s_knowledge_index`
 - `c_tools_maintain` --references--> `s_maintain`
 - `c_tools_maintain` --references--> `s_system_map`
+- `c_tools_metrics` --references--> `s_compaction_metrics`
 - `c_tools_new_project` --references--> `s_detect_stack`
 - `c_tools_reflect` --references--> `s_maintain_draft`
 - `c_tools_reflect` --references--> `s_skill_apply`
@@ -165,6 +174,7 @@
 - `c_workflows_rebuild` --references--> `h_log_activity`
 - `c_workflows_review` --references--> `h_log_activity`
 - `c_workflows_review` --references--> `h_notify_phase_change`
+- `c_workflows_review` --references--> `s_review_triage`
 - `c_workflows_review` --references--> `s_system_map`
 - `c_workflows_ship` --references--> `h_log_activity`
 - `c_workflows_ship` --references--> `s_create_pr`
@@ -188,16 +198,23 @@
 - `h_pre_compact` --sources--> `l_common`
 - `h_session_end_cleanup` --sources--> `l_common`
 - `h_tool_failure_log` --sources--> `l_common`
+- `l_decide` --imports--> `l_egress_guard`
+- `l_decide` --imports--> `l_project_root`
 - `l_policy` --imports--> `l_project_root`
 - `s_compaction_hooks` --sources--> `l_common`
 - `s_dashboard` --sources--> `l_json`
 - `s_dashboard_render_test` --imports--> `l_dashboard_render`
 - `s_dashboard_server` --imports--> `l_dashboard_render`
+- `s_decide_test` --imports--> `l_project_root`
 - `s_detect_stack_test` --imports--> `s_detect_stack`
 - `s_knowledge_index` --imports--> `l_project_root`
 - `s_maintain_draft` --imports--> `l_dashboard_render`
 - `s_maintain_draft` --imports--> `l_project_root`
 - `s_policy_test` --imports--> `l_policy`
+- `s_review_triage` --imports--> `l_egress_guard`
+- `s_review_triage` --imports--> `l_project_root`
+- `s_review_triage_test` --imports--> `l_decide`
+- `s_review_triage_test` --imports--> `l_project_root`
 - `s_skill_apply` --imports--> `l_policy`
 - `s_skill_apply` --imports--> `l_project_root`
 - `s_skill_apply` --imports--> `l_skill_apply_lib`
@@ -212,13 +229,13 @@
 
 ## Findings
 
-- LOW bloat .claude/rules/lead.md — .claude/rules/lead.md is approximately 2969 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 6981 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat .claude/rules/lead.md — .claude/rules/lead.md is approximately 3290 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 7293 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/bugs.md — docs/knowledge/bugs.md is approximately 2701 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 12620 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 14992 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/design-principles.md — docs/knowledge/design-principles.md is approximately 2639 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 3985 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/patterns.md — docs/knowledge/patterns.md is approximately 5004 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 4564 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/patterns.md — docs/knowledge/patterns.md is approximately 5489 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/windows-bash-scanner.md — docs/knowledge/windows-bash-scanner.md is approximately 2678 tokens, exceeding the 2500-token warn threshold.
 - MEDIUM orphan-script s_audit_context — Script scripts/audit-context.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_context_filter — Script scripts/context-filter.sh has no incoming references and is not in the orphan allowlist.

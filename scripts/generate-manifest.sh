@@ -190,6 +190,8 @@ TEMPLATE_SCRIPTS=(
     "scripts/detect-stack.ts"
     "scripts/skill-apply.ts"
     "scripts/skill-ledger.ts"
+    "scripts/review-triage.ts"
+    "scripts/compaction-metrics.ts"
 )
 
 # Escape a string for JSON (handles \, ", and control chars)

@@ -45,6 +45,10 @@ const SCANNER = resolve(ROOT, "scripts/security-scanner.ts");
 // the CRITICAL aws-access-token rule matches.
 const AWS_FIXTURE = "AKIA" + "QYLPMN5HG3WKZ7TQ";
 
+// Same split, same reason: joined at runtime it is a bare sk- token shape
+// (T178), which the MEDIUM bare-sk-token rule matches.
+const BARE_SK_FIXTURE = "sk-" + "aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3zA5bC7d";
+
 interface Run {
   status: number;
   stdout: string;
@@ -324,6 +328,70 @@ describe("scan-staged reads every staged blob", () => {
         `expected exit 0, got ${r.status}: ${r.stdout}${r.stderr}`,
       );
       match(r.stdout, /No findings\./);
+    });
+  });
+});
+
+// #T178: a bare `sk-` token (no vendor infix, no adjacent key= name) used to
+// report "No findings." — the generic-api-key-custom rule requires a nearby
+// `api_key`/`secret`-shaped keyword, and no vendor-specific rule matches a
+// plain sk- prefix. The bare-sk-token rule closes that gap without firing on
+// the Anthropic-shaped `sk-ant-` prefix or on placeholder text.
+describe("scan-files flags a bare sk- token", () => {
+  it("scanFiles_bareSkToken_flagged", () => {
+    withProbeDir((dir) => {
+      const file = join(dir, "creds.txt");
+      writeFileSync(file, `${BARE_SK_FIXTURE}\n`, "utf-8");
+
+      const r = runScanner(["scan-files", "--format", "json", file], ROOT);
+      strictEqual(
+        r.status,
+        1,
+        `expected exit 1 (findings), got ${r.status}: ${r.stdout}${r.stderr}`,
+      );
+      const parsed = JSON.parse(r.stdout);
+      strictEqual(
+        parsed.findings.length,
+        1,
+        `expected exactly one finding, got ${parsed.findings.length}: ${r.stdout}`,
+      );
+      strictEqual(parsed.findings[0].ruleId, "bare-sk-token");
+    });
+  });
+
+  it("scanFiles_anthropicShapedKey_notFlaggedByBareRule", () => {
+    withProbeDir((dir) => {
+      const file = join(dir, "creds.txt");
+      writeFileSync(file, "sk-ant-" + "a".repeat(40) + "\n", "utf-8");
+
+      const r = runScanner(["scan-files", "--format", "json", file], ROOT);
+      const parsed = JSON.parse(r.stdout);
+      ok(
+        !parsed.findings.some(
+          (f: { ruleId: string }) => f.ruleId === "bare-sk-token",
+        ),
+        `bare-sk-token must not fire on an sk-ant- shaped token, got: ${r.stdout}`,
+      );
+    });
+  });
+
+  it("scanFiles_skPlaceholder_notFlagged", () => {
+    withProbeDir((dir) => {
+      const file = join(dir, "creds.txt");
+      writeFileSync(file, "sk-example-placeholder-token-000000\n", "utf-8");
+
+      const r = runScanner(["scan-files", "--format", "json", file], ROOT);
+      strictEqual(
+        r.status,
+        0,
+        `expected exit 0, got ${r.status}: ${r.stdout}${r.stderr}`,
+      );
+      const parsed = JSON.parse(r.stdout);
+      strictEqual(
+        parsed.findings.length,
+        0,
+        `expected zero findings, got ${parsed.findings.length}: ${r.stdout}`,
+      );
     });
   });
 });

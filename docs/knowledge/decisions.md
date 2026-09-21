@@ -384,3 +384,54 @@ dispatched with a 50k-token brief-and-report overhead.
 when the brief-and-report overhead is small relative to the work. Concrete
 thresholds make the lead's judgment auditable after the fact (sum the spend,
 count the dispatches under twenty lines) and give the user a lever to adjust.
+
+---
+
+## 2026-09-20 — Dedicated Tools Over Shell for Reads and Edits, Even Under a Shell-First Session Mode
+
+**Decision**: `.claude/rules/bash.md` rule 1 (dedicated Read/Grep/Glob/Write/Edit first, Bash only for execution) is binding over any session-mode or harness directive that prefers the shell for reading and editing files. The rule text now says so and states the reason.
+
+**Context**: A design reviewer working on jev-integration received a harness directive ("while auto mode is active, do your work through the Bash tool… make file changes with sed, heredocs, or short scripts") that contradicted the project rule, and asked which wins. The lead session hit the concrete cost in the same hour: a handoff written through a bash script was not claimed by the compaction hook, because the claim fires on the `Write|Edit` PreToolUse matcher, and needed a follow-up Edit to register.
+
+**Alternatives Considered**:
+- **Follow the session directive (shell-first)** — rejected: every project hook that protects a write is matched on the tool name. `post-tool-use.sh` (prettier + scrub), `post-write-session.sh`, and `compact-suggest.sh` (handoff claim) all run on `Write|Edit`; a `sed -i` or heredoc edit skips formatting, secret scrubbing on write, and handoff ownership. That is the "Mitigate Against the Platform's Real Surface" pattern: the surface is the tool matcher, and a shell edit is off it.
+- **Widen the hooks to also match Bash** — rejected: a Bash matcher cannot tell an edit from a test run without parsing the command string, which is the open-ended recognition problem `patterns.md` says to invert, not chase.
+- **Case-by-case** — rejected: the reviewer showed the ambiguity costs a paragraph of reasoning per agent per session; a stated precedence costs one line.
+
+**Rationale**: On performance the shell buys nothing: Grep is ripgrep, Read takes offset/limit, Edit is an exact-match atomic replace with harness-tracked file state, and each dedicated call integrates with the permission allowlist so sub-agents never stall on a prompt. Structured tool calls with typed arguments are also the current practice across agent harnesses because they are observable, permission-scoped, and hookable, whereas a shell string is opaque to all three. Bash keeps the jobs only it can do: run scripts and tests, drive git, list or count across many files in one call.
+
+---
+
+## 2026-09-20 — Hosted Decision API (Jev) as an Optional Addon Behind a Local Heuristic
+
+**Decision**: `scripts/lib/decide.ts` exposes a typed `decide(state, questions, deps)` interface backed by a deterministic heuristic that always answers. A second backend, Jev (TypeSafe), calls the fixed endpoint constant `JEV_ENDPOINT` (`POST https://api.typesafe.ai/v1/systemone`) — never configurable — and runs only when `project_os.jev.enabled` is `true` in `.claude/settings.json` **and** `TYPESAFE_API_KEY` is set. `decide()` never throws; every fallback path carries a typed `DeclineReason` (`disabled`, `no-key`, `egress-dir-unsafe`, `scrub-failed`, `too-large`, `timeout`, `network`, `redirect`, `http-<status>`, `malformed-response`) and logs `jev-queried` / `jev-declined`. `scripts/lib/decide.ts` is the sole outbound HTTP caller in the repo. Every outbound text field passes through `scripts/lib/egress-guard.ts` before serialization: a scanner scrub subprocess (`node scripts/security-scanner.ts scrub`) verified by a positive re-scan (`scan-files --quiet`) — required because `cmdScrub` exits 0 on a write failure and a bare exit-code check would silently ship unscrubbed content; a key-name denylist redaction (`[REDACTED:key]`, regex ported from `observation-parser.ts`); and a context-free Shannon-entropy floor (≥ 4.0 bits/char on tokens of 24+ chars, `[REDACTED:entropy]`) for bare credentials no naming rule can see. Staging happens in `.claude/logs/jev` (mode 0700, realpath-contained inside the project root), files written mode 0600 with `wx`, and `.tmp`/`.tmp.bak` residue is cleaned up. Any guard failure refuses the send — fail-open for the calling workflow (the heuristic answers instead), fail-closed for egress (nothing partial goes out). The first and only consumer is `scripts/review-triage.ts`, which asks optional `dup_`/`scope_`/`sev_` questions against thresholds `duplicate_p 0.85`, `out_of_scope_p 0.8`, `severity_confidence 0.8`, offline and advisory — the triage table it writes decides nothing.
+
+**Context**: `/workflows:review` synthesizes three independent reviewers' raw reports by hand. A calibrated decision layer can flag likely-duplicate findings and out-of-scope/severity calls before the lead reads them, but any hosted call means finding text and file paths leaving the machine. The design has to hold even when the flag is off (the default), even when the key is missing, and even when the network fails mid-call — the workflow must never block or throw on a Jev outage.
+
+**Alternatives Considered**:
+- **TypeSafe SDK / npm package** — rejected: the project has a zero-runtime-dependency policy (`security-scanner.ts`, `knowledge-index.ts`, `system-map.ts` are all zero-dep); a raw `fetch` against a constant endpoint keeps that intact and keeps the egress surface auditable in one file.
+- **A TypeSafe "skill" (prompt-level)** — rejected: a skill has no typed contract and no place to hang an egress guard; the decision either goes through a code path that can be scanned and tested or it doesn't happen.
+- **A Claude-backed decision backend in v1** — rejected: same egress surface (finding text still leaves the process boundary) with no calibrated probabilities to gate on; it would ship the risk without the measured benefit.
+- **A PreToolUse consumer** — rejected: the first consumer is review triage, which runs offline and advisory, after the fact; a PreToolUse hook would put an uncalibrated, possibly-networked decision in the synchronous tool-approval path.
+
+**Rationale**: The heuristic ships first and always answers, so Jev is strictly additive — turning it off (or leaving it off, the default) costs nothing but the calibrated lift. Gating on both a settings flag and a present API key means a cloned or forked project is silent by default. The three content guards target three different leak shapes (a whole file/diff dumped, a key referenced by name, a bare high-entropy credential no name or pattern catches), and the scrub-then-verify subprocess exists specifically because a scrub that reports success without having scrubbed anything is worse than no scrub at all. The flag stays off in any given repo until both procedures below have been run.
+
+### Key-shape check at issuance
+
+Before `project_os.jev.enabled` is flipped to `true` in a repo, write a synthetic token to a throwaway file with the same prefix, length, and character class as the actual issued `TYPESAFE_API_KEY`, then run `node scripts/security-scanner.ts scan-files` on that file. If the scanner does not flag it, add or adjust a rule (see `bare-sk-token` below) before proceeding — an unflagged key shape means the egress guard's own scanner-scrub step cannot see the credential it is meant to catch either.
+
+### Calibration procedure
+
+Run `node scripts/review-triage.ts docs/specs/<feature> --changed-files docs/specs/<feature>/review-raw/changed-files.txt --calibrate docs/specs/adaptive-memory/review.md <two more past review.md files>` over at least twenty findings drawn from those past reviews. Compare the heuristic's and Jev's answers on each finding to the lead's final disposition as recorded in each `review.md`, and choose thresholds (`duplicate_p`, `out_of_scope_p`, `severity_confidence`) that produce zero false merges — a false merge (marking two distinct findings as duplicates, or marking an in-scope finding out-of-scope) is worse than a missed catch, since the lead still reads everything the table doesn't collapse. Record the thresholds chosen, the per-family agreement rates, and the measured lift in the Calibration record below. If the lift is not material, the flag stays off regardless of agreement rate.
+
+Related: `scripts/lib/scan-rules.js` gained rule `bare-sk-token` (MEDIUM, entropy-gated, `/\bsk-(?!ant-|proj-|svcacct-|admin-)[A-Za-z0-9_-]{24,}\b/`) as part of this feature, raising the scanner from 233 to 234 rules (14 to 15 custom).
+
+The owner's requirement (2026-09-20): Jev is optional, but its performance increase must be both generated (the key-shape check and calibration procedure above) and recorded (the Calibration record table below, plus the `jev-queried`/`jev-declined`/`review-triaged` events read back with `grep review-triaged .claude/logs/activity.jsonl`).
+
+### Calibration record
+
+Generate with: `node scripts/review-triage.ts docs/specs/<feature> --changed-files docs/specs/<feature>/review-raw/changed-files.txt --calibrate docs/specs/adaptive-memory/review.md <two more past review.md files>`. The run writes `docs/specs/<feature>/review-triage-calibration.json`. Read the running lift back with `grep review-triaged .claude/logs/activity.jsonl`, or via `/tools:metrics` under "Jev decision events".
+
+| Date | Sources | Findings | Pairs | Dup agreement | Scope agreement | Severity agreement | Thresholds chosen | Lift (decisions changed) | Flag decision |
+|------|---------|----------|-------|----------------|------------------|---------------------|--------------------|---------------------------|----------------|
+| not yet run — requires TYPESAFE_API_KEY and enabled: true | — | — | — | — | — | — | — | — | — |

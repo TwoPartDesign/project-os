@@ -1,0 +1,32 @@
+{
+  "description": "Allowlist of hosts that project scripts may send data to directly over HTTPS. Sibling of mcp-allowlist.json, which governs MCP servers only.",
+  "approved_egress": {
+    "api.typesafe.ai": {
+      "caller": "scripts/lib/decide.ts",
+      "endpoint": "https://api.typesafe.ai/v1/systemone",
+      "data_classes": [
+        "finding.severity",
+        "finding.reviewer",
+        "finding.file",
+        "finding.lines",
+        "finding.issue",
+        "finding.fix",
+        "changed_files"
+      ],
+      "guards": [
+        "scrub+rescan",
+        "key-denylist",
+        "entropy>=4.0, or >=3.0 for an all-hex token of >=32 chars"
+      ],
+      "risk_level": "low",
+      "rationale": "Typed decisions over already-local review findings; no file contents or diffs; off by default.",
+      "audit_date": "2026-09-20"
+    }
+  },
+  "blocked_capabilities": [
+    "endpoint_override",
+    "file_content_egress",
+    "diff_egress"
+  ],
+  "review_cadence": "monthly"
+}

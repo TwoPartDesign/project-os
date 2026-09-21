@@ -194,6 +194,12 @@ Small quality items surfaced during self-maintenance / #T9 reviews (2026-07-17).
   <!-- maint-fp: dream:12:42 -->
 - [x] Run /tools:dream — 13 memory files / 44 session files, consolidation due (duplicate of #T153, retired 2026-09-06) #T165
   <!-- maint-fp: dream:13:44 -->
+- [x] skill-edit: build.md — worktree briefs merge the feature branch, not master (applied b3e49d7) #T190
+  <!-- maint-fp: skill-edit:.claude/commands/workflows/build.md:worktree-merge-feature-branch -->
+  <!-- proposal: docs/specs/jev-integration/skill-edits.md Proposal 1 -->
+- [x] skill-edit: ship.md — PR fallback when gh is unavailable (applied 968daa8) #T191
+  <!-- maint-fp: skill-edit:.claude/commands/workflows/ship.md:pr-without-gh-cli -->
+  <!-- proposal: docs/specs/jev-integration/skill-edits.md Proposal 2 -->
 
 ### Todo
 
@@ -310,6 +316,7 @@ Two pre-existing defects found while verifying #T112's rewrite. Both make named 
 ### Draft
 ### Todo
 ### In Progress
+- [~] Measure whether the 350k-window / 80% compaction constraint helps or hurts Fable sessions, on process and on spend. Build `scripts/compaction-metrics.ts` (test `tests/compaction-metrics.test.ts`) that reads the transcript JSONL files for this project (`~/.claude/projects/<slug>/*.jsonl`, path passed in, never hardcoded), segments each session into compaction cycles at compact-summary records (fallback: a >50% context drop between consecutive main-thread assistant `usage` records), and reports per cycle: turns, peak context and peak as a percentage of the configured window, cache-read / cache-creation / uncached input tokens, output tokens, turns above 200k, and tool-error rate by context decile as the quality proxy. It also simulates alternative thresholds (60 / 70 / 80% of 350k, and 80% of 200k) to project cache-read spend and compaction count from the same transcripts, and pins the observed compaction point against the configured one. Output: `docs/knowledge/compaction-metrics.md` (table + a one-paragraph recommendation: keep, lower the percentage, or lower the window) and a `compaction-metrics` note in `/tools:metrics`. Baseline measured by hand on session 696f7242 (2026-09-20, this build): 3 cycles over 486 lead turns; compaction fired at 262k and 263k (75% of 350k, although `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` is 80 — the gap between the 65% nudge and the real fire point is 35k tokens, not the 52k the config implies); mean context per turn 173k; 170 of 486 turns (35%) ran above 200k; 80.8M cache-read tokens against 3.2M cache-creation and 12k uncached. Hypothesis to test: context length, not compaction count, is the dominant input-spend driver under Fable, so a lower threshold trades a few more handoffs for a materially cheaper session; the quality side is whether tool-error rate rises in the top deciles (model: opus) #T189
 ### Review
 ### Done
 <!-- Round 13: synthesized from six parallel Claude review agents plus two independent Codex passes (over 225c3e0 and over b182681). 37 raw findings deduped to the 22 below (#T130-#T151); anything already resolved in rounds 1-12 was dropped, and the reviewers' own "verified clean" lists are recorded in each task so a later round does not re-audit settled ground. Severity is the reviewers'; CONFIRMED means reproduced end to end through the real hooks, PLAUSIBLE means the mechanism was demonstrated but reachability depends on CLI behaviour that could not be pinned. -->
@@ -387,6 +394,26 @@ Approved in-session 2026-09-06 per the plan the Approver signed off on 2026-09-0
 - [x] update-project.sh manifest check lists skill-apply.ts and skill-ledger.ts and is bidirectional #T171
 - [x] notify-phase-change.sh: Windows branch terminal-only, drop the MessageBox; update architecture.md wording (model: sonnet) #T172
 
+
+## Feature: jev-integration
+Jev (TypeSafe AI) as an optional, off-by-default typed-decision backend for the deterministic layer. Brief: `docs/specs/jev-integration/brief.md`.
+### Draft
+### Todo
+### In Progress
+### Review
+### Done
+- [x] scan-rules.js: add `bare-sk-token` rule (MEDIUM, entropy-gated, excludes `sk-ant-`/`sk-proj-`/`sk-svcacct-`/`sk-admin-`) + three scan-files tests; closes the 2026-09-19 "No findings." probe #T178
+- [x] scripts/lib/decide.ts core: types, JEV_ENDPOINT constant, DEFAULT_JEV_CONFIG, readJevConfig, heuristicBackend, decide() skeleton with disabled/no-key declines, defaultLogger; tests/decide.test.ts #T179
+- [x] scripts/lib/egress-guard.ts pure part: SENSITIVE_KEY_RE ported from observation-parser.ts, escapeField/unescapeField, redactSensitivePairs, shannonEntropy, redactHighEntropyTokens, redactFields; tests/egress-guard.test.ts #T180
+- [x] settings.json `project_os.jev` block (enabled:false) + `Bash(node scripts/review-triage.ts*)` permission; create .claude/security/egress-allowlist.json for api.typesafe.ai #T181
+- [x] tests/fixtures/review-raw/{architecture,security,tests}.md + changed-files.txt: 7 findings, dup pairs A1/S1 and S2/Q2, out-of-scope S3, ` / ` inside Q1, planted ghp_ token in S2 #T182
+- [x] egress-guard.ts subprocess part: resolveEgressDir (0700, realpath-contained), guardEgressFields (wx 0600 staging, scrub, line-count check, positive scan-files re-scan, cleanup) with refusal tests (depends: #T178, #T180) #T183
+- [x] scripts/review-triage.ts heuristic path: parseFindings (last-separator split), heuristicCandidates (overlap or Jaccard >= 0.6, scope in_diff/adjacent/unrelated), applyHeuristic, renderTable, CLI with isMain guard writing review-triage.json; tests/review-triage.test.ts (depends: #T179, #T182) #T184
+- [x] decide.ts Jev backend: collectOutboundFields, guardEgressFields integration, body rebuilt from guarded fields, size cap, fetch with redirect manual + timeout, per-question response validation, jev-queried/jev-declined logging, egress-allowlist parity test (depends: #T179, #T181, #T183) #T185
+- [x] review-triage.ts Jev path: pick(), buildQuestions (dup_/scope_/sev_ questions, 160k chunking), applyAnswers with thresholds, scrubbed review-triage.json output, --calibrate table + review-triage-calibration.json, lift summary in header + review-triaged log event, exported runTriage(deps) (depends: #T184, #T185) #T186
+- [x] Wire review.md Synthesis step 0 (write review-raw/, run review-triage, advisory only); log-activity.sh events comment; metrics.md subsection for jev-queried/jev-declined/review-triaged with lift grep (depends: #T186) #T187
+- [x] architecture.md rows for decide.ts/egress-guard.ts/review-triage.ts + bare-sk-token and egress-allowlist notes; decisions.md ADR "Hosted Decision API (Jev) as an Optional Addon Behind a Local Heuristic" with Calibration record table; new-project.sh entry + review-triage permission; regenerate .claude/manifest.json (depends: #T187) #T188
+- [x] Jev integration — Brief created, awaiting design (retired 2026-09-20: superseded by #T178-#T188 after design APPROVED) #T177
 
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->

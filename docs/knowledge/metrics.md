@@ -21,6 +21,21 @@ Track per-feature implementation metrics. Updated by `/workflows:ship` and query
 
 <!-- Entries added by /workflows:ship -->
 
+### Feature: jev-integration
+
+- **Duration**: 2026-09-19 → 2026-09-20 (one remote session: idea → design → plan → approve → build → review → ship; one overnight pause, one context compaction with a claimed handoff)
+- **Tasks**: 11 total (#T178-#T188), 11 completed, 0 blocked; rider #T189 (compaction-gate) approved, built and integrated on the same branch, left `[~]` for its own review
+- **Waves**: 5 dispatch batches (B1: T178|T179|T180|T181|T182; B2: T183|T184; B3: T185; B4: T186; B5: T187→T188), up to 4 concurrent worktree agents
+- **Revisions**: 1 review cycle before pass (r1 FAILED: 1 verified HIGH — declined-chunk heuristic stubs applied as Jev answers — plus 3 security MEDIUM in the egress guard; all four fixed in-session; r2 PASSED WITH NOTES)
+- **First-pass review rate**: 7/11 tasks untouched by fixes; the HIGH landed in T185/T186 (lead direct edit), the MEDIUMs in T180/T183 (one Opus fix worker)
+- **Compete usage**: 0
+- **Model split**: orchestration Fable 5.1; implementation sub-agents at the roster tier (Sonnet 5, high) with Opus 5 on the judgment-tier tasks and the review fix; three reviewers `inherit`
+- **Lines changed**: +9397 / -838 across 62 files vs master (+7697 / -838 across 30 files excluding spec docs; ~1,900 of the insertions are the prettier reformat of `scan-rules.js` that the rule addition triggered)
+- **Tests**: node suite 450/450 with four new suites (decide, egress-guard, review-triage, compaction-metrics); full verification 10/10 suites in 142s; scanner rules 234 (bare-sk-token added)
+- **Sub-agent spend**: ~1.36M tokens across the 11 build tasks (T185 ~189k, T186 ~261k outliers), ~117k for the review fix, ~150k for T189
+- **Notable**: the feature was exercised on its own review — the Synthesis step 0 triage run over this feature's reviewer reports showed the `scan:allow` neutralization and entropy over-redaction working before the review record was written. Jev itself stayed off (no key), so the calibration table in the ADR holds a placeholder row until `--calibrate` runs with a key. Every worktree brief needed `git merge <feature-branch>` because Agent-tool worktrees branch from the merge-base (reflection draft #T190).
+- **PR**: [#2](https://github.com/TwoPartDesign/project-os/pull/2) (branch `claude/jev-integration-project-os-x9t11q` → master)
+
 ### Feature: template-content-leakage + clone-run-defects
 
 - **Duration**: 2026-07-24 → 2026-07-25 (single continuous remote session; brief → design → implementation → owner approval → autonomous completion)

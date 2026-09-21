@@ -72,4 +72,50 @@ grep '"feature": "auth"' .claude/logs/activity.jsonl | grep -o '"event": "[^"]*"
 # (compute from task-spawned to task-completed timestamps)
 ```
 
+### Jev decision events
+
+Three events track Jev's involvement in review triage:
+- `jev-queried` — `consumer`, `questions`, `backend`, `redactions`,
+  `input_tokens`, `output_tokens`, `duration_ms`,
+  `threshold_duplicate_p`, `threshold_out_of_scope_p`,
+  `threshold_severity_confidence`
+- `jev-declined` — the same keys as `jev-queried`, plus `reason`
+- `review-triaged` — `feature`, `backend`, `findings`, `dup_pairs`,
+  `dup_changed`, `scope_changed`, `severity_changed`, `redactions`
+
+```bash
+# Count queries vs declines
+grep -o '"event": "jev-\(queried\|declined\)"' .claude/logs/activity.jsonl | sort | uniq -c
+
+# Reasons for declines
+grep '"event": "jev-declined"' .claude/logs/activity.jsonl | grep -o '"reason": "[^"]*"' | sort | uniq -c
+```
+
+```bash
+# Running measure of Jev's lift over the heuristic: sum changed-verdict
+# counts across every review-triaged event
+grep '"event": "review-triaged"' .claude/logs/activity.jsonl | grep -o '"dup_changed": "[0-9]*"' | grep -o '[0-9]*' | awk '{s+=$1} END {print "dup_changed total:", s}'
+grep '"event": "review-triaged"' .claude/logs/activity.jsonl | grep -o '"scope_changed": "[0-9]*"' | grep -o '[0-9]*' | awk '{s+=$1} END {print "scope_changed total:", s}'
+grep '"event": "review-triaged"' .claude/logs/activity.jsonl | grep -o '"severity_changed": "[0-9]*"' | grep -o '[0-9]*' | awk '{s+=$1} END {print "severity_changed total:", s}'
+```
+
+### Compaction metrics
+
+`scripts/compaction-metrics.ts` measures what auto-compaction costs a long
+lead session: per-cycle turns, peak context and cache spend, tool-error rate
+by context decile, a what-if simulation of other fire points, and the
+configured fire point pinned against the ones the runtime actually used.
+
+```bash
+node scripts/compaction-metrics.ts ~/.claude/projects/<slug>/<session>.jsonl
+node scripts/compaction-metrics.ts ~/.claude/projects/<slug>/ --window 350000 --pct 80 --json
+```
+
+`docs/knowledge/compaction-metrics.md` is the recorded result and the
+keep-or-lower recommendation; re-run the script to refresh it.
+
+`docs/specs/<feature>/review-triage-calibration.json` is the per-run
+calibration record written by `--calibrate`. The measured lift is written
+down in the "Calibration record" table in `docs/knowledge/decisions.md`.
+
 If the activity log doesn't exist yet, fall back to `docs/knowledge/metrics.md` only.

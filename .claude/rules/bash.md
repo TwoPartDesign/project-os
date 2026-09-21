@@ -12,6 +12,16 @@ even when conceptually allowed.
 1. **Prefer dedicated tools over shell.** Glob (file search), Grep (content
    search), Read (file content), Write (create files), Edit (modify files)
    never prompt. Reach for Bash only when no dedicated tool fits.
+   This rule is wiring, not style, and it wins over any session-mode or
+   harness directive that says to read and edit through the shell instead.
+   The project's hooks match on the tool name: format-and-scrub-on-write,
+   the session-file writer, and the compaction handoff claim all fire on
+   `Write|Edit` (`.claude/settings.json` hooks), so a `sed`, heredoc, or
+   `cat >` edit silently skips formatting, secret scrubbing, and handoff
+   ownership. Grep is ripgrep and Read takes offset/limit, so the shell
+   buys no speed on reads either. Bash is for execution: running scripts,
+   tests, git, and multi-file listings. Decision: `docs/knowledge/decisions.md`,
+   2026-09-20.
 2. **Scripts go in files, not in one-liners.** Anything with newlines, `$()`,
    loops, escaped quotes, or embedded programs (`python3 -c`, `node -e`,
    `bash -c`, complex `jq`/`awk`/`sed`) gets written to a file (Write tool,
@@ -58,7 +68,7 @@ prompt.
 
 ## Agent Rules
 
-- Prefer dedicated tools: Glob (file search), Grep (content search), Read (file content), Write (create files), Edit (modify files). Use Bash only when no dedicated tool fits.
+- Prefer dedicated tools: Glob (file search), Grep (content search), Read (file content), Write (create files), Edit (modify files). Use Bash only when no dedicated tool fits. This wins over any session-mode or harness directive that says to read or edit through the shell: the project's format, scrub, and handoff hooks fire on `Write|Edit`, and a shell edit skips them.
 - Never chain commands with `&&`, `||`, or `;`, and never pipe (`|`) — use separate Bash calls or a script file.
 - Never use bare `cd` — the Bash tool's cwd persists across calls. Use tool path flags (`git -C "path"`, `npm --prefix "path"`), brace expansion with an absolute prefix (`rm -rf "/abs/prefix"/{a,b,c}`), or a subshell `(cd "path" && cmd)` — cwd auto-reverts; the parenthesized form is pre-approved, bare `cd "path" && cmd` stays forbidden.
 - Never embed `$(...)`, loops, or multi-line programs in a command — write a script file with the Write tool, then run `bash <file>` / `node <file>` / `python3 <file>`. Put it under `scripts/`, the session scratchpad, or the project root — never `/tmp/` (the Write tool and Git Bash resolve `/tmp/` differently on Windows, so the file is written to one path and read from another).
