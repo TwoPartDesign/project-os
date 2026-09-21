@@ -101,6 +101,13 @@ script. Full suite after the fixes: 10/10 suites pass (`gate.log`, 128 s);
 - Quality: JSON.parse guarded per line, docstrings on every export, per-test
   `mkdtemp`, concrete assertions.
 
+## Disposition of the notes (2026-09-21, owner: close everything but the Jev calibration)
+
+- tests-3 / tests-7 / tests-4 / security CONCERN 2 / tests-5 / security CONCERN 3 / security-9 / security-11 / tests-8 / tests-9 / tests-10: fixed in the follow-up commit (see git log for `refactor(compaction-gate): close review notes`).
+- security CONCERN 4: fixed in CLAUDE.md — the nudge is the fire point minus 15 points (65% with the 80% override), as `compact-suggest.sh:106` computes.
+- security-7 (prefix-wildcard permission): closed, no change. Every script entry in `.claude/settings.json` lines 62-72 uses the same form; narrowing one would be inconsistent, and narrowing all is a repo-wide policy change outside this feature.
+- security-8 (stream instead of readFileSync): closed, no change. Session transcripts are tens of MB; the 512 MB string limit is not a realistic input for this tool.
+
 ## What the corrected numbers changed
 
 The recommendation moved from "keep 350k/80%, lowering is strictly a loss"

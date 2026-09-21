@@ -153,6 +153,14 @@ green before marking `[x]`; see the ship record for the final run.
 - Review workflow wiring (`review.md` step 0) documents that triage is
   advisory and decides nothing.
 
+### Disposition of the notes (2026-09-21, owner: close everything but the Jev calibration)
+
+- architecture-2: fixed — `TS_IMPORT_RE` now captures multi-line imports; map healed (`fix(system-map): extract multi-line TypeScript imports`).
+- tests-3 / tests-4 / tests-5 / tests-6 / tests-7 / tests-8 / tests-11 / tests-9 / security-4: fixed in `refactor(jev-integration): close review notes`; the design line for `decide_scrubSubprocessNonZero` amended to describe the fail-closed re-scan behaviour as shipped.
+- security-8 (`Bash(node scripts/review-triage.ts*)` argv scope): closed, no change. The review itself judged it acceptable for a solo repo; the tool runs attended, under the lead, and reads only the spec directory it is pointed at. Revisit only if it ever runs unattended.
+- 💡 CONSIDER (security-5/9/10/11/12, architecture-4..10, tests-12..31): considered and closed without change. They are hygiene and defence-in-depth items on a path that is off by default (`project_os.jev.enabled: false`, no key); none affects the heuristic path that runs today. Re-open the security ones together if the Jev flag is ever turned on for unattended use.
+- Still open by owner decision: the Jev calibration run (`--calibrate` with a `TYPESAFE_API_KEY`), to be done locally.
+
 ### Observations for the ship-trigger reflection (not made here)
 
 - The build-phase brief for a worktree worker should state that the
