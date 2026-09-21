@@ -38,7 +38,9 @@ drafts-only loop, `security-scanner.ts`, `setup.sh`, `dashboard-server.ts`);
 `docs/maps/system-map.md` (generated wiring map — never hand-edit).
 
 **Data flow (build)**: ROADMAP.md markers are authoritative → parsed into
-native Tasks (`addBlockedBy` from `(depends:)`) → dispatch resolution
+native Tasks (`addBlockedBy` from `(depends:)`; needs
+`CLAUDE_CODE_ENABLE_TODO_TOOLS=1` in settings `env` on Claude 5-era models,
+else an announced marker-only fallback) → dispatch resolution
 (`(model:)` annotation → `(agent: codex)` adapter → roster agent frontmatter →
 `CLAUDE_CODE_SUBAGENT_MODEL` for unnamed spawns) → sub-agents in isolated
 worktrees → completion reports → batch-drain re-derives state from ROADMAP

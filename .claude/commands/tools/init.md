@@ -404,7 +404,8 @@ Set the models in `.claude/settings.json` (create the file if it doesn't exist, 
   "fallbackModel": ["opus", "sonnet"],
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "[MODEL_SUBAGENT]",
-    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "[COMPACT_WINDOW]"
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "[COMPACT_WINDOW]",
+    "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"
   }
 }
 ```
@@ -416,11 +417,13 @@ pressure against this number, so a mismatched window fires the handoff nudge
 either far too late (Fable window, Opus lead) or at about 43% of the real
 window (Opus window, Fable lead). When the session lands on a `fallbackModel`
 the window is oversized for that session — known and accepted
-(`docs/knowledge/decisions.md`, 2026-09-04 rider).
+(`docs/knowledge/decisions.md`, 2026-09-04 rider; the 2026-09-12 update there
+notes the Fable window is plan-dependent and the policy is under #T198).
 
 - `"model"` sets the orchestration/session model (aliases like `"opus"` resolve to the current Opus)
 - `"fallbackModel"` is the safety net: an ordered list the session falls back through when the primary model is unavailable, so a plan without Fable still lands on `opus`, then `sonnet`, instead of failing
 - `env.CLAUDE_CODE_SUBAGENT_MODEL` routes sub-agent tasks that are spawned without a roster name; a named roster agent takes its own `model:` frontmatter first
+- `env.CLAUDE_CODE_ENABLE_TODO_TOOLS` keeps the native Task tools (`TaskCreate`/`TaskUpdate`/`TaskList`) available on Opus 4.8, Sonnet 5, Fable 5 and newer — Claude Code ≥ 2.1.233 withholds them there by default, and `/workflows:build` schedules on them
 
 Settings take effect on the next Claude Code session — no shell profile changes needed.
 

@@ -41,7 +41,7 @@ Corollary — **placeholder-scanning cannot find this class**. A setup command t
 - On completion: ROADMAP `[-]`→`[~]` + TaskUpdate(status: "completed") — dependents unblock automatically
 - Batch drain: re-read ROADMAP.md markers, cross-check against TaskList
 
-**Anti-pattern**: Treating native Tasks as the source of truth. If TaskCreate fails or Tasks drift from ROADMAP markers, the build falls back to scheduling from ROADMAP.md markers and `(depends:)` clauses alone.
+**Anti-pattern**: Treating native Tasks as the source of truth. If TaskCreate fails or Tasks drift from ROADMAP markers, the build falls back to scheduling from ROADMAP.md markers and `(depends:)` clauses alone. A second anti-pattern is taking that fallback silently: Claude Code 2.1.233 (2026-08-14) withheld the Task tools on Opus 4.8 / Sonnet 5 / Fable 5 unless `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` is set, and every build from then until 2026-09-12 ran on the fallback without saying so. The shipped `settings.json` now sets the flag and `build.md` pre-flight announces the fallback when the tools are missing.
 
 ---
 
@@ -191,3 +191,5 @@ Corollary — **placeholder-scanning cannot find this class**. A setup command t
 **Example**: The 2026-09-06 dream pass wrote ten staged files under `docs/memory/.dream-output/` inside the documenter's worktree; the harness removed the worktree as unchanged and the files went with it. They were recovered by replaying the `Write` calls from the agent transcript, and `dream.md` now requires the absolute main-repo staging path. The same session's #T176 brief opened with `git merge master` and closed with a required `git commit -F`, and merged cleanly.
 
 **Anti-pattern**: A brief that says "read the spec in docs/specs/<feature>/" or "write the report to docs/specs/<feature>/tasks/TN/" with relative paths — the worker finds an empty directory, or writes into one that will not survive. Or trusting a completion report's "files written" without a Glob against the main repo.
+
+**Runtime dependency**: since Claude Code 2.1.222 worktree isolation applies to file edits and Bash in every session type, and 2.1.257/2.1.259 narrowed its refusals to commands that leave the worktree. Writes to absolute main-repo paths under gitignored directories work today (the #T176 build on 2.1.260) but sit outside the isolation model's stated contract. If a worker reports a refusal that names the worktree boundary, that is the cause — not the brief — and the fix is to have the lead copy the output out, not to weaken the brief.

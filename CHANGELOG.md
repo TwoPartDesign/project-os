@@ -59,6 +59,20 @@ idea → design → plan cycle, plus two more surfaced while verifying the fixes
 
 Remediation of the 2026-07-11 repo staleness audit (`docs/audits/2026-07-11-staleness-audit.md`), tasks T17–T32 on branch `claude/repo-staleness-audit-zbnon0`.
 
+### Claude Code changelog alignment (2026-09-12, CLI 2.1.221 → 2.1.269)
+- **Native Task tools restored on Claude 5-era leads** — `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`
+  in the shipped `settings.json` `env` and both settings scaffolds. Claude Code 2.1.233
+  (2026-08-14) withheld `TaskCreate`/`TaskUpdate`/`TaskList` on Opus 4.8 / Sonnet 5 / Fable 5,
+  so `/workflows:build` had been on its silent ROADMAP-marker fallback for a month. Pre-flight
+  step 7 now announces the fallback when the tools are missing.
+- **SessionEnd hook timeout** — explicit `timeout: 30`; before 2.1.268 a SessionEnd hook with no
+  per-hook timeout was cancelled at 1.5s, which `session-end-cleanup.sh` (six `find`s + three
+  log rotations) likely exceeded on Windows.
+- **Doc corrections** — the 350k Fable compaction window has no source (docs: native 1M,
+  plan-dependent; runtime caps the window at the model's real size); `effort:` frontmatter on
+  Fable was inert until 2.1.267; worktree self-grounding pattern records its dependency on the
+  2.1.222+ isolation model. Larger follow-ups drafted as #T197–#T201.
+
 ### Model Routing (Claude 5 lineup)
 - **settings.json** — sub-agent model → `claude-sonnet-5`; hook matchers drop removed `MultiEdit` tool
 - **Tier tables & escalation ladder** — `/tools:set-models`, `/tools:init`, and `escalation.md` updated to Haiku 4.5 → Sonnet 5 → Opus 4.8 → Fable 5; inert `CLAUDE_ORCHESTRATION_MODEL` / `models.env` mechanism removed

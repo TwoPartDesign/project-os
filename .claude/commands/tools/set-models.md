@@ -62,13 +62,15 @@ Create or update `.claude/settings.json`, preserving any existing keys:
   "model": "[MODEL_ORCHESTRATION]",
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "[MODEL_SUBAGENT]",
-    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "[COMPACT_WINDOW]"
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "[COMPACT_WINDOW]",
+    "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"
   }
 }
 ```
 
 - `"model"` sets the orchestration/session model (aliases like `"opus"` resolve to the current Opus)
 - `env.CLAUDE_CODE_SUBAGENT_MODEL` routes sub-agent tasks
+- `env.CLAUDE_CODE_ENABLE_TODO_TOOLS` keeps the native Task tools available on Opus 4.8 / Sonnet 5 / Fable 5 and newer (Claude Code ≥ 2.1.233 withholds them there); `/workflows:build` schedules on them, so leave it set on every tier
 - `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW` is the context-window size the
   compaction chain (`compact-suggest.sh`, `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`)
   measures against. It follows the **lead** model, so set it whenever

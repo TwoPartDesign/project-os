@@ -401,6 +401,23 @@ Approved in-session 2026-09-06 per the plan the Approver signed off on 2026-09-0
 - [x] notify-phase-change.sh: Windows branch terminal-only, drop the MessageBox; update architecture.md wording (model: sonnet) #T172
 
 
+## Feature: changelog-alignment-2026-09
+Review of Claude Code changelog 2.1.221 → 2.1.269 (2026-08-04 → 09-11) against this repo, 2026-09-12. Config/doc items were lead-applied in-session (under the ~20-line threshold in lead.md); everything larger is drafted here for /pm:approve. Sources: changelog entries cited inline; docs/knowledge/decisions.md 2026-09-04 rider update.
+<!-- IDs renumbered 2026-09-21 on rebase onto origin: originally #T177-#T186, which collided with jev-integration's already-pushed #T177-#T188; now #T194-#T203 (old + 17). -->
+### Draft
+- [?] Derive the compaction window per session from the active model: a `PostModelSwitch` hook (Claude Code ≥ 2.1.251, receives `from_model`/`to_model`) writes `.claude/logs/.compact-window-<session_id>` (350000 for `.*fable.*`, 200000 otherwise) and logs `model-switched` via log-activity.sh; compact-suggest.sh prefers the marker over `CLAUDE_CODE_AUTO_COMPACT_WINDOW`; session-end-cleanup.sh removes it; settings.json wires the hook; init.md/CLAUDE.template.md propagate it; retire the "known and accepted" rider in set-models.md/init.md/decisions.md; tests in tests/compaction-hooks.sh. Verify first that the hook fires on a `fallbackModel` fallback, not only on `/model` and resume (docs say "including changes Claude Code makes on its own") (model: opus) #T197
+- [?] Decide the compaction-window policy for Fable leads: (a) `CLAUDE_CODE_DISABLE_1M_CONTEXT=1` + `CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000` — nudge and runtime agree on every model and plan, no hook needed, 1M window given up; or (b) keep 350000 and ship #T197. Input needed: `/context` in a Fable session to learn whether this plan runs Fable at 200k or 1M (docs: "availability varies by model and plan"; runtime caps the window at the model's real window). Approver decision; then update settings.json, init.md, set-models.md, decisions.md #T198
+- [?] Bash-driven edits bypass the Write|Edit hooks (post-tool-use.sh formatting, post-write-session.sh, compact-suggest.sh PreToolUse claim). Claude Code 2.1.269 added `bashEditDiffEnabled` (a diff of files a Bash command changed, in the tool result). Decide: (a) enable it and teach post-tool-use.sh to format the files named in the diff, or (b) document in bash.md that formatting/scrub hooks fire only on Write/Edit and auto-mode Bash edits are unformatted. Idea → design; touches the hook chain #T199
+- [?] Re-validate docs/knowledge/windows-bash-scanner.md against the 2.1.233 / 2.1.257 / 2.1.259 / 2.1.260 Bash-permission changes (Windows `cd … &&` auto-mode regression fixed, `< file` redirect rule reverted, worktree-isolation refusals narrowed to commands that leave the worktree): retire triggers that no longer fire, so bash.md can shrink. Method: replay each catalogued command in a throwaway session and record the outcome per CLI version (model: sonnet) #T200
+- [?] Test that compact-suggest.sh's `hookSpecificOutput` line parses as JSON for every SIGNAL it can emit — Claude Code 2.1.248 now reports a `{…}` on hook stdout that is not valid JSON as a hook error instead of passing it through as text, so a malformed emit would surface as a hook failure rather than a lost nudge (model: sonnet) #T201
+### Todo
+### In Progress
+### Review
+### Done
+- [x] `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` in settings.json env (and the init.md / set-models.md scaffolds); build.md pre-flight step 7 announces the marker fallback instead of taking it silently — the Task tools were withheld on Fable/Opus 4.8/Sonnet 5 since 2.1.233 (2026-08-14), so every build since ran without native `addBlockedBy` enforcement (metrics.md:180 records one such run) #T194
+- [x] SessionEnd hook gets an explicit `timeout: 30` — until 2.1.268 a SessionEnd hook with no per-hook timeout was cancelled at 1.5s regardless of `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`, and session-end-cleanup.sh runs six `find`s plus three log rotations #T195
+- [x] Doc corrections from the changelog: decisions.md 2026-09-04 rider gains a 2026-09-12 update (350k Fable window has no source; docs say 1M, plan-dependent; runtime caps the window; PostModelSwitch exists); fable-orchestrator-alignment design.md/brief.md note `effort:` on Fable was inert until 2.1.267; patterns.md worktree pattern records its dependency on the 2.1.222+ isolation model #T196
+
 ## Feature: jev-integration
 Jev (TypeSafe AI) as an optional, off-by-default typed-decision backend for the deterministic layer. Brief: `docs/specs/jev-integration/brief.md`.
 ### Draft

@@ -81,7 +81,8 @@
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "opus",
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "80",
-    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "350000"
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "350000",
+    "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"
   },
   "project_os": {
     "parallel": {
@@ -231,7 +232,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/session-end-cleanup.sh\""
+            "command": "bash \".claude/hooks/session-end-cleanup.sh\"",
+            "timeout": 30
           }
         ]
       }

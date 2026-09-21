@@ -351,6 +351,21 @@ copies the value to new projects, which is right for a Fable-led project and
 wrong (late nudge) for an Opus-led one; the `/tools:set-models` opus preset
 must set it back to `200000` alongside the model.
 
+**Update (2026-09-12, changelog review 2.1.221–2.1.269)**: the 350k figure
+has no source. Claude Code's model docs give Fable 5.1 a native 1M window
+("availability varies by model and plan"; 2.1.257 release note: "1M context"),
+and the runtime caps `CLAUDE_CODE_AUTO_COMPACT_WINDOW` at the model's real
+window, so the setting can never push auto-compaction *past* the window — but
+`compact-suggest.sh` reads the raw value, so on a 200k Fable session (a plan
+without 1M) the 60% nudge sits at 210k and never fires: the fallback defect
+above, on the primary path. The observability this rider waited for arrived in
+2.1.251 (`PreModelSwitch`/`PostModelSwitch` hooks carry `from_model`/`to_model`).
+Filed: #T197 (derive the window per session from the switched-to model) and
+#T198 (policy: `CLAUDE_CODE_DISABLE_1M_CONTEXT=1` + `200000`, which makes the
+nudge and the runtime agree on every model and every plan at the cost of the
+1M window, versus keeping 350k and doing #T197). Until one lands, confirm the
+real window with `/context` before trusting the nudge in a Fable session.
+
 ---
 
 ## 2026-09-06 — Orchestration Cost Controls

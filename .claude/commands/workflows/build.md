@@ -32,6 +32,7 @@ Before dispatching any agents:
 4. Run `bash scripts/validate-roadmap.sh` to verify dependency integrity.
 5. Run `node scripts/knowledge-index.ts index-vault` to ensure the knowledge index is current before spawning sub-agents.
 6. Run `node scripts/system-map.ts check` (heal with `--heal` if drifted) and skim `node scripts/system-map.ts report` — starting a build on top of unknown HIGH readiness findings (unwired hooks, dangling refs) compounds them. Findings that overlap this feature's task files should be flagged to the user before dispatch; unrelated findings are the maintenance loop's job, not this build's.
+7. Confirm native Tasks are actually available. Since Claude Code 2.1.233, `TaskCreate`/`TaskUpdate`/`TaskList` are withheld on Opus 4.8, Sonnet 5, Fable 5 and newer unless `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` is set in `.claude/settings.json` `env` (the shipped settings set it). If `TaskCreate` is not in your tool list, say so before dispatching — `Native Tasks unavailable (CLAUDE_CODE_ENABLE_TODO_TOOLS unset?) — scheduling from ROADMAP markers` — and continue on the marker fallback. Never take the fallback silently: that is how a month of builds ran without dependency enforcement and nobody noticed.
 
 **Agent Rules note:** The `## Agent Rules` sections in `.claude/rules/*.md` are hand-maintained distillations, included verbatim in agent prompts (see Execution Protocol). When editing a rule file, update its `## Agent Rules` section in the same edit — there is no automated freshness check.
 
@@ -63,7 +64,7 @@ Blocked:              #T7 (depends on [!] #T4 — resolve first)
 - On success: ROADMAP `[-]` → `[~]`, and `TaskUpdate(taskId, status: "completed")` — completing a task automatically unblocks its dependents; dispatch newly unblocked tasks as slots free up
 - On failure: ROADMAP `[-]` → `[!]` (authoritative); leave the native Task `in_progress`
 
-**Consistency check (each time a dispatch batch drains):** re-read ROADMAP.md markers as ground truth and cross-check against `TaskList`. On mismatch, log a warning and trust ROADMAP.md. If native Tasks are unavailable entirely (`TaskCreate` fails), fall back to scheduling directly from ROADMAP.md markers and `(depends:)` clauses — the build must not depend on the convenience layer.
+**Consistency check (each time a dispatch batch drains):** re-read ROADMAP.md markers as ground truth and cross-check against `TaskList`. On mismatch, log a warning and trust ROADMAP.md. If native Tasks are unavailable entirely (`TaskCreate` fails or is not offered), fall back to scheduling directly from ROADMAP.md markers and `(depends:)` clauses — the build must not depend on the convenience layer — and announce the fallback (Pre-flight step 7) rather than taking it silently.
 
 ## Dispatch Resolution
 
