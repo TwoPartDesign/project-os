@@ -23,7 +23,7 @@ Tasks are filed as `[?]` drafts #T205–#T219 under ROADMAP
    `project-os-guide.md` teaches the same wrong key downstream. 2.1.288:87 now also
    loads scoped rules on Write/Edit, so the fix pays off immediately. → #T205
 2. **Sub-agents *do* inherit CLAUDE.md and every `.claude/rules/*.md`.** All three
-   researchers received CLAUDE.md plus all 7 rule files (~35 KB), including the
+   researchers received CLAUDE.md plus all 6 rule files (~35 KB), including the
    lead-only `lead.md` ("You do not implement…"), which contradicts the worker role.
    `bash.md:74` and `tools/research.md:25` assert the opposite, and every brief pastes
    Agent Rules on that premise. 2.1.271:1435 adds `omitClaudeMd` agent frontmatter;
@@ -110,3 +110,95 @@ on the next replay — post-compaction context should be smaller.
 ## Cost
 
 Sub-agent spend: ~433k tokens (131k + 127k + 175k) across three researchers.
+
+---
+
+## ICM paper — round 2 (2026-10-05)
+
+**Paper**: Van Clief & McDermott, *Interpretable Context Methodology: Folder Structure
+as Agent Architecture*, arXiv 2603.16021v2 (March 2026). Reference repo now at
+`RinDig/Interpretable-Context-Methodology` (internally "MWP"; the paper's URL 404s).
+
+**Method**: three isolated Opus researchers (digest + mapping; two-way adversarial
+critique; adjacent work + new approaches, including the AHE reference repo), then a
+fresh `reviewer-architecture` pass over the merged proposal list. The lead verified
+every task-driving repo claim. Tasks: #T220–#T226 (drafts); #T208 widened.
+
+### What the paper claims
+
+For sequential, human-reviewed workflows, numbered stage folders plus markdown
+context files plus local scripts let **one orchestrating agent** replace a
+multi-agent framework. Five context layers: L0 identity (~800 tokens), L1 routing,
+L2 stage contract (Inputs / Process / Outputs, 200–500 tokens), L3 reference
+material (treated as constraints), L4 working artifacts (treated as input).
+"No agent reads everything" (p.6). §6 proposes incremental re-runs, provenance IDs,
+cross-stage `Verify`, breakpoints, and "edit the source": recurring human edits are
+debugging signal (pp.16–18), all unimplemented.
+
+### How strong is it
+
+Weak evidence, sound engineering lineage (Unix pipes, Make, multi-pass compilers).
+No controlled comparison (§4.6, p.13); token figures are "representative" (Fig. 3);
+the U-shaped editing result is self-reported by 33 of an invite-only 52 (Fig. 5); one
+model family. Its own runs delegate in parallel via Claude Code agent teams (pp.10–11),
+so "framework vs filesystem" is the wrong split — Project OS sits on the same native
+primitives. Treat every benefit below as a hypothesis.
+
+### Where it lands on Project OS
+
+Project OS already has or exceeds 11 of ICM's 23 mechanisms (plain-text state,
+review gates, seeds, local scripts, file-driven delegation, and parallelism and
+error recovery that ICM lacks). The live gaps are the ones the paper is about:
+
+- **Scoping is declared but not enforced.** `build.md:118-128` assembles "ONLY" the
+  task's context, yet workers inherit CLAUDE.md + all 6 rule files (~35 KB, lead.md
+  included), and `build.md:122-123` pastes CLAUDE.md conventions + Agent Rules on
+  top — double delivery. ICM has the same flaw (its Inputs table is an instruction,
+  not a mechanism). → #T205, #T207, #T208 (widened).
+- **Design loads everything.** `design.md:16-19` reads architecture + patterns +
+  decisions in full (119 KB ≈ 30k tokens) every run. → #T220 routes decisions.md only.
+- **Always-loaded budget already exists but isn't enforced.** reflect.md sets 2,500
+  tokens; CLAUDE.md (~2.5k) and lead.md (~3.3k) are at/over. → #T221.
+- **Nothing after design checks the brief** (stage n vs n−2). → #T222.
+- **Findings don't say which layer to fix** (edit-source principle). → #T223.
+- **Self-edits aren't falsifiable** (AHE: every harness edit carries a predicted
+  impact checked on the next run). → #T224.
+
+### Adversarial verdicts
+
+| Proposal | Outcome | Why |
+|---|---|---|
+| Inputs/Outputs contracts + index-routed knowledge | Narrowed → #T220 | FTS5 keyword search can miss an ADR worded differently, and no design reviewer checks decisions.md; index refreshes only in build preflight. Route decisions.md by heading grep; add an ADR-conflict check |
+| Slim always-loaded layer via "Agent Rules only" + dedupe test | Replaced → #T221 | Would have stripped lead.md's own instructions (CRITICAL) and reversed decisions.md:426; the dedupe test would fail on intentional Agent Rules copies. Deterministic budget check instead |
+| Stop double delivery in build packets | Merged into #T208 | Conditional on #T207(a) exactly like #T208; also dream.md:68 |
+| Review against brief | Narrowed → #T222 | Two brief schemas exist (idea.md vs prd.md) |
+| Upstream-hash staleness stamps | **Dropped** | §6.1 is speculative; design is human-approved after any brief change; LLM-written hashes are unreliable. If wanted: mtime warning in build preflight |
+| Draft snapshots + `source` field | Narrowed → #T223 | /pm:approve never reads design/tasks; a fifth ` / ` field is misparsed by review-triage.ts:124 |
+| Falsifiable reflect + auto revert drafts | Narrowed → #T224 | No applied-edit ledger yet; auto-revert deferred |
+| Retire triage/Jev, skill-apply auto tier, compaction-metrics | Decision → #T225 | Each reverses a recorded decision; compaction-metrics is the named instrument for the 70% revisit (KEEP) |
+| Phase boundary = session boundary | Idea → #T226 | Builds still need the chain (decisions.md:485) |
+
+Considered and dropped: numbered stage folders (status gates already enforce
+order), markdown breakpoints, tracking `docs/specs/` in git (Ship Seeds Not Live
+Content).
+
+### Cross-cutting caution
+
+Don't stack context cuts: #T220 keeps patterns.md in design and review because
+#T221 may move CLAUDE.md's convention one-liners out. Removing both would leave no
+context that holds the patterns.
+
+### Adjacent work
+
+- **AHE**, *Agentic Harness Engineering* (2604.25850), verified from its repo:
+  - harness components are git-tracked files;
+  - every edit carries evidence, a root cause and a predicted impact;
+  - an edit is rolled back or moved to a different component after repeated failure;
+  - reported gain: 69.7% → 77.0% on Terminal-Bench 2.
+- **Unverified, search snippets only:**
+  - **Natural-Language Agent Harnesses** (2603.25723): file-backed state and acceptance discipline were the strongest modules.
+  - **Stop Comparing LLM Agents Without Disclosing the Harness** (2605.23950): the harness explains more variance than the model.
+  - **Harness as a Language** (2609.26891): a minimal-harness counterpoint.
+
+Round-2 sub-agent spend: ~559k tokens (112k + 131k + 190k + 126k for the reviewer,
+plus lead verification).
