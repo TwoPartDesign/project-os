@@ -1,5 +1,96 @@
 # Changelog
 
+## v3.0 — 2026-10-06 — Lean Context
+
+Aligns Project OS with Claude Code 2.1.270–2.1.289 and the Opus 5.5 / Sonnet 5.5 lineup,
+and cuts what every session and worker loads. Built as one release (feature
+`changelog-alignment-2026-10`, #T205–#T228, #T231–#T232) and gated by the full
+three-reviewer pass. Also ships the never-released v2.4-dev entries below.
+
+### Lean context
+- **Workers no longer load CLAUDE.md or lead rules** — every roster agent sets
+  `omitClaudeMd: true`; briefs carry the conventions instead. A fresh-process probe
+  confirmed the roster agent loads neither CLAUDE.md nor unscoped rules (#T207, #T208).
+  The roster test now fails any agent without it.
+- **Rule scoping works** — `tests.md` and `api.md` used `globs:`, which Claude Code
+  ignores, so both loaded into every session. They now use `paths:` (#T205).
+- **Always-loaded budget is checked** — `system-map.ts report` flags CLAUDE.md or any
+  unscoped rule over the 2,500-token budget (`always-loaded-over-budget`);
+  `audit-context.sh` no longer counts every knowledge file as always-loaded; the duplicated
+  "produced documents stay local" line is down to one copy per file (#T221). CLAUDE.md and `lead.md` still exceed the budget; see Known gaps.
+- **/workflows:design reads decisions.md by section** and its reviewer checks ADR
+  conflicts; review.md passes the patterns.md path instead of pasting it (#T220).
+- **context-filter** drops the manual >5KB route (native large-output spill covers it) and
+  keeps freshness-scored search (#T218).
+
+### Native-first
+- **Build orchestration** — native `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` replaces
+  `project_os.parallel`; `worktree.baseRef: "head"` replaces the self-ground merge step.
+  Worker briefs pass absolute paths for gitignored inputs and send gitignored outputs to the
+  session scratchpad (#T216).
+- **tool-failure-log.sh** moves to the `PostToolUseFailure` event, ending the `is_error`
+  text grep that logged false positives (#T213).
+- **`verify` skill** runs `bash tests/run-all.sh --fast` before non-docs commits (#T211).
+- **Bash-made edits reach the format and scrub hooks** through `bashEditDiff`; a truncated
+  payload falls back to scrubbing recently modified session files (#T202).
+- **Model switches are logged** via `PostModelSwitch` → `model-switched` events (#T203).
+- **/tools:kv removed** in favour of native auto-memory (#T215); **/tools:set-models**
+  thinned: stale tier presets and the CLAUDE.md rewrite step are gone, and the Fable cost
+  confirmation stays (#T217).
+- **Auto mode is the standing default** (`permissions.defaultMode` unset); bash.md rules 2–5
+  are marked default-mode/Windows guidance (#T210).
+
+### Model routing
+- **Lead on `opus`**, `fallbackModel: ["sonnet"]`; `implementer`/`documenter` on `sonnet`
+  at high effort; the ladder is `sonnet` (high) → `opus` (high) → `opus` (xhigh). `fable`
+  leaves the ladder and stays an Approver-confirmed choice in `/tools:set-models` (#T209,
+  #T228).
+
+### Measurable loop
+- Review findings carry a layer tag (`DRIFT[design]:` …) so `/workflows:rebuild` fixes the
+  upstream artifact (#T223); Reviewer 1 checks the brief's success criteria (#T222).
+- `/tools:reflect` proposals carry a grep-checkable "Predicted effect"; ship metrics record
+  the harness fingerprint `git rev-parse HEAD:.claude` (#T224).
+- Build pre-flight warns when the brief is newer than the design, or the design newer than
+  the tasks (#T227).
+
+### Security & correctness
+- **Jev path retired** (Approver ruling, #T225) — `scripts/lib/decide.ts`,
+  `scripts/lib/egress-guard.ts`, the Jev code in review-triage.ts, the settings `jev` block
+  and the egress-allowlist entry. The local heuristic triage table stays.
+- **review-triage.ts** parses indented reports (#T206), re-scans its scrubbed staging file
+  and withholds every row on any finding, and redacts sensitive `key=value` pairs.
+- **security-scanner `scrub`** writes through an exclusive random temp file (#T232),
+  re-scans up to five passes, and exits 1 on any read/write/rename failure or leftover
+  finding.
+- **compaction-metrics.ts** keeps back-to-back compactions in the cycle table (#T231).
+- **new-project-smoke** — three `git log | grep -q` assertions raced SIGPIPE under
+  `pipefail`; they now use `git log --grep`.
+
+### Migration
+- **Deleted paths** — remove from downstream projects if present:
+  `.claude/commands/tools/kv.md`, `docs/knowledge/kv.md`, `templates/knowledge/kv.md`,
+  `scripts/context-filter.sh`, `scripts/lib/decide.ts`, `scripts/lib/egress-guard.ts`,
+  `docs/proposals/pre-tool-approve-hook.md`.
+- **settings.json** — drop `project_os.parallel` and `project_os.jev`; add
+  `env.CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` and `worktree.baseRef: "head"`. If the update
+  conflicts and `baseRef` is not `"head"`, worker worktrees branch from the default branch
+  instead of your HEAD (pre-flight detection is #T237).
+- **Agent files** — custom agents added under `.claude/agents/` must set
+  `omitClaudeMd: true` or `tests/agent-roster.test.ts` fails.
+- Agent-definition changes take effect only in new sessions.
+
+### Known gaps
+- **SC6, model-switch logging** — the `PostModelSwitch` hook is wired and tested, but
+  whether it fires on a `fallbackModel` fallback is unverified (#T203).
+- **Always-loaded budget** — CLAUDE.md (~2.6k tokens) and `lead.md` (~3.3k) are over the
+  2,500-token budget; the finding reports it.
+- **Deferred to drafts** — #T229, #T233–#T240 (ship-gate follow-ups: `bashEditDiff` scope on
+  merges, baseRef pre-flight, `$CLAUDE_PROJECT_DIR` hook paths, `(cd * && *)` allow rules,
+  `grep -q` under `pipefail`).
+
+---
+
 ## v2.3 — 2026-07-25 — template portability + scanner correctness
 
 Nine defects found by running a real project through a full clone → `/tools:init` →
@@ -55,7 +146,7 @@ idea → design → plan cycle, plus two more surfaced while verifying the fixes
 
 ---
 
-## Unreleased (v2.4-dev) — audit remediation
+## v2.4-dev — audit remediation (never released separately; ships in v3.0)
 
 Remediation of the 2026-07-11 repo staleness audit (`docs/audits/2026-07-11-staleness-audit.md`), tasks T17–T32 on branch `claude/repo-staleness-audit-zbnon0`.
 
