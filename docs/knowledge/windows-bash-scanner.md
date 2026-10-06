@@ -19,9 +19,10 @@ construct tripped the scanner and the known-safe alternative.
 
 **First-line defense instead of this catalog:** the slim rules in
 `.claude/rules/bash.md` (prefer dedicated tools; scripts-in-files; simple
-single commands) plus the project auto-approval policy hook proposal in
-`docs/proposals/pre-tool-approve-hook.md`. If a trusted command still
-prompts, extend the hook's allowlist once instead of re-teaching agents.
+single commands). Auto mode is the standing default (2.1.284), so this
+catalog binds in default permission mode and on Windows. If a trusted command
+still prompts, add it to `permissions.allow` once instead of re-teaching
+agents.
 
 ---
 

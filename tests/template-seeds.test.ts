@@ -358,7 +358,6 @@ describe("watched-path list sync", () => {
       "docs/knowledge/roadmap-format.md",
       "docs/knowledge/windows-bash-scanner.md",
       "docs/knowledge/design-principles.md",
-      "docs/proposals/pre-tool-approve-hook.md",
     ];
     const script = read("scripts/new-project.sh");
     const watched = new Set(RESIDUE_WATCHED.map((w) => w.path));

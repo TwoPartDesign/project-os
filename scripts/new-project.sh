@@ -399,9 +399,8 @@ CONTENT_FILES=(
   # shipped files point at them, so a clone without them has dangling refs:
   #   ROADMAP.md:3                -> roadmap-format.md
   #   .claude/rules/bash.md       -> windows-bash-scanner.md
-  #   .claude/rules/bash.md       -> docs/proposals/pre-tool-approve-hook.md
   # They describe the FRAMEWORK's own contracts (ROADMAP marker legend, the
-  # Windows scanner catalog, the auto-approve hook proposal), which are
+  # Windows scanner catalog), which are
   # identical in every project, so they are correct to ship verbatim. They are
   # deliberately NOT in RESIDUE_WATCHED: staying byte-identical to the
   # template is the expected steady state for them.
@@ -413,7 +412,6 @@ CONTENT_FILES=(
   "docs/knowledge/roadmap-format.md|docs/knowledge/roadmap-format.md"
   "docs/knowledge/windows-bash-scanner.md|docs/knowledge/windows-bash-scanner.md"
   "docs/knowledge/design-principles.md|docs/knowledge/design-principles.md"
-  "docs/proposals/pre-tool-approve-hook.md|docs/proposals/pre-tool-approve-hook.md"
 )
 
 # Paths inside a FRAMEWORK_TREES tree that CONTENT_FILES owns instead. The
@@ -999,7 +997,7 @@ sed "s/\[PROJECT_NAME\]/$PROJECT_NAME/g" "$TEMPLATE_DIR/CLAUDE.template.md" > "$
 
 # Runs AFTER the FRAMEWORK_TREES loop above, so the templates/rules seed
 # overwrites the framework's own .claude/rules/preferences.md that the tree
-# copy just placed. mkdir -p because some destinations (docs/proposals/) are
+# copy just placed. mkdir -p because some destinations may be
 # outside the scaffold's initial mkdir set.
 for pair in "${CONTENT_FILES[@]}"; do
   src_rel="${pair%%|*}"
