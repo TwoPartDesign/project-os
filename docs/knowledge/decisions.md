@@ -488,6 +488,8 @@ Generate with: `node scripts/review-triage.ts docs/specs/<feature> --changed-fil
 
 ## 2026-09-21 — Compaction Constraint Stays at 350k / 80%; the Threshold Replay Ignores Real Boundaries
 
+*Superseded 2026-10-06 by "Always-Loaded Budget 4,000 and Compaction Window 500k (#T242, #T243)": the window is now 500000; the 80% fire point and the replay design stand.*
+
 **Decision**: `CLAUDE_CODE_AUTO_COMPACT_WINDOW` stays 350000 and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` stays 80. The window is never narrowed; the percentage is the only knob, and 70 is the spend-first option to revisit once a second session's transcript has been measured. `scripts/compaction-metrics.ts` is the measuring instrument, and its threshold replay models "what if the fire point were X" by adding only positive turn-to-turn context growth, ignoring the transcript's real compaction drops, and resetting only when the simulated threshold fires — to the observed re-seed floor (context of the first turn after each real boundary), never to the boundary's summary-only `postTokens`.
 
 **Context**: #T189 asked whether the constraint helps or hurts Fable sessions. The first build's replay carried its running total across real cycles, stacking each cycle's ~88k re-seed on the previous cycle's total; the resulting tables reproduced the session's real compaction count, which the doc took as validation. Review (reviewer-security, Opus) showed the match was circular: the session's peak was 263k, under the 280k threshold, so every simulated compaction at 80% came from the stacking bug. The same review found `process.exit(0)` after `stdout.write` truncating piped `--json` at 64 KB.
@@ -613,3 +615,16 @@ Generate with: `node scripts/review-triage.ts docs/specs/<feature> --changed-fil
 - **Keep `project_os.parallel`** — rejected: the native cap does the same job without a custom setting.
 
 **Rationale**: A worker needs its brief, its Agent Rules and the conventions the lead chose to paste, not the lead's own operating rules; pasting keeps those rules while the worker's baseline load shrinks. `baseRef: "head"` makes the base correct by construction. If the setting is removed, worktrees fall back to `origin/<default>` and the brief must again start with the merge command (`build.md`, Worktree base).
+
+---
+
+## 2026-10-06 — Always-Loaded Budget 4,000 and Compaction Window 500k (#T242, #T243)
+
+**Decision**: The Approver raised two limits on 2026-10-06. The always-loaded token budget goes from 2,500 to 4,000; `bloat_warn_tokens` stays 2,500. `CLAUDE_CODE_AUTO_COMPACT_WINDOW` goes from 350000 to 500000, with `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` still 80, so the fire point is 400k and the `compact-suggest.sh` nudge (65%) fires at 325k. The rule "never above the smallest real window in the model chain" stands; the default `opus`/`sonnet` chain is all 1M. This supersedes the 2026-09-21 "Compaction Constraint Stays at 350k / 80%" entry.
+
+**Context**: v3.0 grew the always-loaded files (CLAUDE.md and the unscoped rules), so the 2,500-token budget no longer fit them and a longer window is cheaper than compacting a context that starts larger. The Approver asked to "increase total context before compaction". `scripts/compaction-metrics.ts` `DEFAULT_WINDOW`, the `--window` example in `metrics.md`, and the `set-models.md` and `init.md` scaffold prose now say 500000. `docs/knowledge/compaction-metrics.md` keeps its 350k analysis as the historical record, with a dated note.
+
+**Consequences**:
+- Compactions fire later, so each cycle carries more context and more cache read per turn; fewer compactions and fewer re-seeds. Re-measure with `compaction-metrics.ts` on a session run under 500k before changing the percentage.
+- A project whose chain includes a 200k model must still set `200000`; a 500k cap above that window would make the nudge fire past it, i.e. never.
+- The 2026-09-21 replay design is unchanged: only the configured window moved.

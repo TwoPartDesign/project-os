@@ -136,6 +136,12 @@ export type SegmentOptions = {
   dropRatio?: number;
   /** Only cut on a drop when the previous turn was above this context. */
   minPrevContext?: number;
+  /**
+   * Every boundary on the transcript, in order (`parseBoundaries`). Turns
+   * carry the boundaries that precede them; the ones left over are trailing
+   * boundaries no turn follows, which each still get a cycle.
+   */
+  boundaries?: BoundaryMarker[];
 };
 
 /** Context above which a turn is counted as an expensive turn. */
@@ -145,7 +151,7 @@ const OVER_CONTEXT = 200000;
 const DEFAULT_POST_TOKENS = 15000;
 
 /** Default window and percentage, matching `.claude/settings.json` `env`. */
-const DEFAULT_WINDOW = 350000;
+const DEFAULT_WINDOW = 500000;
 const DEFAULT_PCT = 80;
 
 /** Number of context buckets in the error-rate table. */
@@ -333,6 +339,13 @@ function boundariesFromRecords(records: ParsedRecord[]): BoundaryMarker[] {
  * A cycle is cut at a `compact_boundary` marker, and — for transcripts that
  * predate those markers — when a turn's context falls below `dropRatio` of
  * the previous turn's while that previous turn was above `minPrevContext`.
+ *
+ * Every boundary gets a boundary-cut cycle, so the table's boundary count
+ * equals `parseBoundaries`. A boundary before the first turn has no previous
+ * turn to cut: it closes its own zero-turn cycle, like the later boundaries
+ * of a back-to-back run. Trailing boundaries (pass `opts.boundaries`) that no
+ * turn follows close the running cycle, or their own zero-turn cycle; their
+ * post-compaction context is `null` because no turn followed.
  */
 export function segmentCycles(
   turns: TurnRecord[],
@@ -375,14 +388,15 @@ export function segmentCycles(
       // Each later boundary of the run closes its own zero-turn cycle. No
       // turn restarted it, so its post-compaction figure is null, never
       // borrowed from the next cycle.
-      for (const b of run.slice(1)) {
-        cycles.push({
-          index: cycles.length,
-          turns: [],
-          preTokens: b.preTokens,
-          postTokens: null,
-          cutBy: "boundary",
-        });
+      for (const b of run.slice(1)) pushEmptyBoundaryCycle(cycles, b);
+    } else if (!prev && turn.boundaryBefore) {
+      // Boundaries before the first turn: no previous turn to cut, so each
+      // one closes its own zero-turn cycle ahead of the first real cycle.
+      for (const b of [
+        ...(turn.skippedBoundaries ?? []),
+        turn.boundaryBefore,
+      ]) {
+        pushEmptyBoundaryCycle(cycles, b);
       }
     }
 
@@ -399,7 +413,40 @@ export function segmentCycles(
     current.turns.push(turn);
   }
 
+  // Trailing boundaries: the ones no turn carries. The first closes the
+  // running cycle (post-compaction context unknown, so null); later ones,
+  // and any with no running cycle, close their own zero-turn cycles.
+  const attached = turns.reduce(
+    (sum, t) =>
+      sum + (t.boundaryBefore ? 1 : 0) + (t.skippedBoundaries?.length ?? 0),
+    0,
+  );
+  for (const b of (opts.boundaries ?? []).slice(attached)) {
+    if (current) {
+      current.cutBy = "boundary";
+      current.preTokens = b.preTokens;
+      current.postTokens = null;
+      current = null;
+    } else {
+      pushEmptyBoundaryCycle(cycles, b);
+    }
+  }
+
   return cycles;
+}
+
+/**
+ * Appends a zero-turn cycle closed by `boundary`. No turn restarted it, so
+ * its post-compaction figure is `null`.
+ */
+function pushEmptyBoundaryCycle(cycles: Cycle[], boundary: BoundaryMarker) {
+  cycles.push({
+    index: cycles.length,
+    turns: [],
+    preTokens: boundary.preTokens,
+    postTokens: null,
+    cutBy: "boundary",
+  });
 }
 
 /** A turn list's aggregate stats, plus the raw context sum and error count. */
@@ -704,8 +751,9 @@ export function analyze(
     const lines = readFileSync(file, "utf8").split("\n");
     const records = parseRecords(lines);
     const turns = turnsFromRecords(records);
-    perFile.push({ turns, boundaries: boundariesFromRecords(records) });
-    for (const cycle of segmentCycles(turns)) {
+    const boundaries = boundariesFromRecords(records);
+    perFile.push({ turns, boundaries });
+    for (const cycle of segmentCycles(turns, { boundaries })) {
       cycles.push({
         ...cycle,
         index: cycles.length,

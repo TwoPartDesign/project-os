@@ -252,6 +252,174 @@ describe("compaction-metrics", () => {
     strictEqual(cycles[2].cutBy, "end");
   });
 
+  it("segmentCycles_trailingBoundary_closesCycleWithNullPostTokens", () => {
+    // A compaction fired and the transcript ends: no turn follows it.
+    const lines = [
+      ctxLine("a1", 100000),
+      ctxLine("a2", 260000),
+      boundaryLine(290000, 12000),
+    ];
+
+    const boundaries = parseBoundaries(lines);
+    const cycles = segmentCycles(parseTranscript(lines), { boundaries });
+
+    strictEqual(cycles.length, 1);
+    strictEqual(cycles[0].turns.length, 2);
+    strictEqual(cycles[0].cutBy, "boundary");
+    strictEqual(cycles[0].preTokens, 290000);
+    // No post-compaction turn exists: unknown, reported as null and not 0.
+    strictEqual(cycles[0].postTokens, null);
+  });
+
+  it("segmentCycles_trailingBackToBackBoundaries_eachGetsACycle", () => {
+    const lines = [
+      ctxLine("a1", 100000),
+      ctxLine("a2", 260000),
+      boundaryLine(290000, 12000, "2026-09-20T00:30:00.000Z"),
+      boundaryLine(280000, 11000, "2026-09-20T00:31:00.000Z"),
+    ];
+
+    const boundaries = parseBoundaries(lines);
+    const cycles = segmentCycles(parseTranscript(lines), { boundaries });
+
+    strictEqual(cycles.length, 2);
+    strictEqual(cycles[0].turns.length, 2);
+    strictEqual(cycles[0].preTokens, 290000);
+    strictEqual(cycles[0].postTokens, null);
+    strictEqual(cycles[1].turns.length, 0);
+    strictEqual(cycles[1].cutBy, "boundary");
+    strictEqual(cycles[1].preTokens, 280000);
+    strictEqual(cycles[1].postTokens, null);
+  });
+
+  it("segmentCycles_boundariesBeforeFirstTurn_carriedByFirstTurn", () => {
+    // Two compact_boundary records precede any assistant turn, so there is
+    // no previous turn for either to cut.
+    const lines = [
+      boundaryLine(290000, 12000, "2026-09-20T00:30:00.000Z"),
+      boundaryLine(280000, 11000, "2026-09-20T00:31:00.000Z"),
+      ctxLine("a1", 70000),
+      ctxLine("a2", 90000),
+    ];
+
+    const turns = parseTranscript(lines);
+    const boundaries = parseBoundaries(lines);
+    const cycles = segmentCycles(turns, { boundaries });
+
+    // The first turn carries the run: the earlier boundary as skipped.
+    strictEqual(turns[0].skippedBoundaries?.length, 1);
+    strictEqual(turns[0].skippedBoundaries?.[0].preTokens, 290000);
+    strictEqual(turns[0].boundaryBefore?.preTokens, 280000);
+
+    strictEqual(cycles.length, 3);
+    strictEqual(cycles[0].turns.length, 0);
+    strictEqual(cycles[0].cutBy, "boundary");
+    strictEqual(cycles[0].preTokens, 290000);
+    strictEqual(cycles[0].postTokens, null);
+    strictEqual(cycles[1].turns.length, 0);
+    strictEqual(cycles[1].cutBy, "boundary");
+    strictEqual(cycles[1].preTokens, 280000);
+    strictEqual(cycles[1].postTokens, null);
+    strictEqual(cycles[2].turns.length, 2);
+    strictEqual(cycles[2].cutBy, "end");
+  });
+
+  it("segmentCycles_singleBoundaryBeforeFirstTurn_getsItsOwnCycle", () => {
+    const lines = [boundaryLine(290000, 12000), ctxLine("a1", 70000)];
+
+    const cycles = segmentCycles(parseTranscript(lines), {
+      boundaries: parseBoundaries(lines),
+    });
+
+    strictEqual(cycles.length, 2);
+    strictEqual(cycles[0].turns.length, 0);
+    strictEqual(cycles[0].cutBy, "boundary");
+    strictEqual(cycles[0].preTokens, 290000);
+    strictEqual(cycles[0].postTokens, null);
+    strictEqual(cycles[1].turns.length, 1);
+    strictEqual(cycles[1].cutBy, "end");
+  });
+
+  it("segmentCycles_boundariesWithNoTurns_oneCycleEach", () => {
+    const lines = [
+      boundaryLine(290000, 12000, "2026-09-20T00:30:00.000Z"),
+      boundaryLine(280000, 11000, "2026-09-20T00:31:00.000Z"),
+    ];
+
+    const cycles = segmentCycles(parseTranscript(lines), {
+      boundaries: parseBoundaries(lines),
+    });
+
+    strictEqual(cycles.length, 2);
+    deepStrictEqual(
+      cycles.map((c) => [c.turns.length, c.cutBy, c.preTokens, c.postTokens]),
+      [
+        [0, "boundary", 290000, null],
+        [0, "boundary", 280000, null],
+      ],
+    );
+  });
+
+  it("segmentCycles_everyBoundaryShape_cycleTableCountEqualsParseBoundaries", () => {
+    const shapes: Record<string, string[]> = {
+      none: [ctxLine("a1", 100000), ctxLine("a2", 120000)],
+      middle: [
+        ctxLine("a1", 100000),
+        boundaryLine(290000, 12000),
+        ctxLine("a2", 70000),
+      ],
+      backToBack: [
+        ctxLine("a1", 100000),
+        boundaryLine(290000, 12000, "2026-09-20T00:30:00.000Z"),
+        boundaryLine(280000, 11000, "2026-09-20T00:31:00.000Z"),
+        ctxLine("a2", 70000),
+      ],
+      trailing: [ctxLine("a1", 100000), boundaryLine(290000, 12000)],
+      trailingRun: [
+        ctxLine("a1", 100000),
+        boundaryLine(290000, 12000, "2026-09-20T00:30:00.000Z"),
+        boundaryLine(280000, 11000, "2026-09-20T00:31:00.000Z"),
+        boundaryLine(270000, 10000, "2026-09-20T00:32:00.000Z"),
+      ],
+      leading: [boundaryLine(290000, 12000), ctxLine("a1", 70000)],
+      leadingRun: [
+        boundaryLine(290000, 12000, "2026-09-20T00:30:00.000Z"),
+        boundaryLine(280000, 11000, "2026-09-20T00:31:00.000Z"),
+        ctxLine("a1", 70000),
+      ],
+      leadingMiddleTrailing: [
+        boundaryLine(290000, 12000, "2026-09-20T00:30:00.000Z"),
+        ctxLine("a1", 70000),
+        ctxLine("a2", 90000),
+        boundaryLine(280000, 11000, "2026-09-20T00:31:00.000Z"),
+        boundaryLine(275000, 11500, "2026-09-20T00:32:00.000Z"),
+        ctxLine("a3", 75000),
+        boundaryLine(270000, 10000, "2026-09-20T00:33:00.000Z"),
+      ],
+      boundariesOnly: [
+        boundaryLine(290000, 12000, "2026-09-20T00:30:00.000Z"),
+        boundaryLine(280000, 11000, "2026-09-20T00:31:00.000Z"),
+      ],
+      empty: [],
+    };
+
+    for (const [name, lines] of Object.entries(shapes)) {
+      const boundaries = parseBoundaries(lines);
+      const cycles = segmentCycles(parseTranscript(lines), { boundaries });
+      strictEqual(
+        cycles.filter((c) => c.cutBy === "boundary").length,
+        boundaries.length,
+        `shape ${name}: boundary cycles must equal parseBoundaries count`,
+      );
+      // Boundaries keep transcript order in the table.
+      deepStrictEqual(
+        cycles.filter((c) => c.cutBy === "boundary").map((c) => c.preTokens),
+        boundaries.map((b) => b.preTokens),
+        `shape ${name}: boundary preTokens must follow transcript order`,
+      );
+    }
+  });
+
   it("segmentCycles_usageDropFallback_splitsWithoutBoundary", () => {
     const dropping = segmentCycles(
       turnsFromContexts([60000, 120000, 20000, 30000]),
@@ -523,9 +691,40 @@ describe("compaction-metrics", () => {
       strictEqual(result.cycles.length, 1);
       strictEqual(result.cycles[0].stats.turns, 3);
       strictEqual(result.turns, 3);
-      strictEqual(result.window, 350000);
-      strictEqual(result.configured, 280000);
+      strictEqual(result.window, 500000);
+      strictEqual(result.configured, 400000);
       strictEqual(result.files.length, 1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("cli_trailingBoundary_cycleTableCountsIt", () => {
+    const dir = mkdtempSync(join(tmpdir(), "compaction-metrics-cli-"));
+    try {
+      writeFileSync(
+        join(dir, "session.jsonl"),
+        [
+          boundaryLine(290000, 12000, "2026-09-20T00:10:00.000Z"),
+          ctxLine("a1", 100000),
+          ctxLine("a2", 260000),
+          boundaryLine(280000, 11000, "2026-09-20T00:30:00.000Z"),
+        ].join("\n") + "\n",
+        "utf8",
+      );
+
+      const stdout = execFileSync("node", [SCRIPT, dir, "--json"], {
+        encoding: "utf8",
+      });
+      const result = JSON.parse(stdout);
+
+      // One leading boundary, one trailing boundary: two boundary cycles.
+      strictEqual(
+        result.cycles.filter((c: { cutBy: string }) => c.cutBy === "boundary")
+          .length,
+        2,
+      );
+      strictEqual(result.cycles[result.cycles.length - 1].postTokens, null);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
