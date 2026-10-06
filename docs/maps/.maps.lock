@@ -20,7 +20,7 @@
     ".claude/commands/tools/research.md": "16e2a989c2f3a962361636ab4fbe6414a641005cac6f341a4abd60539f7f0d12",
     ".claude/commands/tools/set-models.md": "c7350fe44561107ae75ba616525ba0cc1ac6deeef81fb2f3491576993bbe2159",
     ".claude/commands/tools/update.md": "2965cc272eb5b90466619f863c02cacd9ead09095bd482a8e3c518317daa2136",
-    ".claude/commands/workflows/build.md": "a008e1f52154b33015d1f193a249e50c2a4271624c94bef16369bdf8b701e200",
+    ".claude/commands/workflows/build.md": "8c20e6f88b03ec433df9e2680c293d68bb2cbbe5144746082af76bc90e7439c6",
     ".claude/commands/workflows/compete-review.md": "63c60db39da4546e1eac61f3f9daf0818667bb05f2a0717e65f7a083ff453852",
     ".claude/commands/workflows/compete.md": "77ed2d3fdc87682ddbc17f8b459c21dd3142349f0c8929ec58ef5ff563351300",
     ".claude/commands/workflows/design.md": "89a346f4b669e357ce794ead6bdb16f4a847dd26d4adbcdbf2cde6223506656b",
