@@ -26,6 +26,26 @@ Additionally:
 
 Do NOT load full specs or designs unless the phase requires it.
 
+## Step 2b: Hooks active?
+
+Project hooks and the settings `env` block load only when the session starts
+in the repo root. A session started in a parent folder that Bash-`cd`s in loads
+CLAUDE.md and the rules but no hooks, and nothing warns about it: a SessionStart
+hook cannot report its own absence (`docs/knowledge/bugs.md`, 2026-10-06).
+
+By now the session has made tool calls, so check it with one deliberate failure:
+
+1. Run the Bash command `false`. It fails by design and adds one line to the
+   failure log.
+2. Read the last line of `.claude/logs/tool-failures.log`. Expect
+   `<UTC timestamp from the last minute> FAIL tool=Bash`.
+
+If the line is missing or stale, say so before Step 3:
+> "Hooks are NOT active in this session (started outside the repo root?).
+> Formatting, secret scrubbing, the failure log, and handoff claiming are not
+> running, so a handoff written now is unclaimed and `pre-compact.sh` cannot
+> forward it. Restart Claude Code from the repo root."
+
 ## Step 3: Synthesize
 
 Present to the user:

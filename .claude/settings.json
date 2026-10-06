@@ -188,12 +188,29 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/tool-failure-log.sh\""
-          },
-          {
-            "type": "command",
             "command": "bash \".claude/hooks/compact-suggest.sh\"",
             "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \".claude/hooks/tool-failure-log.sh\""
+          }
+        ]
+      }
+    ],
+    "PostModelSwitch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \".claude/hooks/log-activity.sh\" model-switched --stdin"
           }
         ]
       }

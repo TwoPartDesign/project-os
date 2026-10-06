@@ -40,7 +40,7 @@
 
 ### hook
 - `h_compact_suggest` — `.claude/hooks/compact-suggest.sh` (1 dependent)
-- `h_log_activity` — `.claude/hooks/log-activity.sh` (4 dependents)
+- `h_log_activity` — `.claude/hooks/log-activity.sh` (5 dependents)
 - `h_notify_phase_change` — `.claude/hooks/notify-phase-change.sh` (3 dependents)
 - `h_output_index` — `.claude/hooks/output-index.sh` (1 dependent)
 - `h_post_mcp_validate` — `.claude/hooks/post-mcp-validate.sh` (1 dependent)
@@ -180,6 +180,7 @@
 - `c_workflows_ship` --references--> `s_security_scanner`
 - `c_workflows_ship` --references--> `s_system_map`
 - `cfg_settings` --wires--> `h_compact_suggest`
+- `cfg_settings` --wires--> `h_log_activity`
 - `cfg_settings` --wires--> `h_output_index`
 - `cfg_settings` --wires--> `h_post_mcp_validate`
 - `cfg_settings` --wires--> `h_post_tool_use`
@@ -238,8 +239,8 @@
 
 - LOW bloat .claude/rules/lead.md — .claude/rules/lead.md is approximately 3290 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat CLAUDE.md — CLAUDE.md is approximately 2504 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 7507 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/bugs.md — docs/knowledge/bugs.md is approximately 2701 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 7583 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/bugs.md — docs/knowledge/bugs.md is approximately 3231 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 16971 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/design-principles.md — docs/knowledge/design-principles.md is approximately 2639 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 5001 tokens, exceeding the 2500-token warn threshold.

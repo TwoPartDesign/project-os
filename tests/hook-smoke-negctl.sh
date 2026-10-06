@@ -24,11 +24,12 @@
 #      postToolUse_backslashPayloadPath_stillResolved. A mutant that fails more
 #      than its one target is not isolating anything.
 #
-#   3. UNIFIED-BOUND — tool-failure-log.sh switched to the bounded read the
-#      other hooks use. This is the mutant a future tidying pass would write:
-#      the hooks look inconsistent, and making them consistent breaks the one
-#      that reads a key from the END of the payload. Must kill
-#      toolFailureLog_isErrorBeyondPayloadBound_stillLogged.
+#   3. IS-ERROR-GATE — tool-failure-log.sh gating on an `is_error` grep again,
+#      the pre-#T213 spelling from when it rode PostToolUse. The native
+#      PostToolUseFailure payload carries no `is_error`, so every assertion that
+#      expects a logged failure must die, and the mutant must kill exactly those
+#      and nothing else — the negative assertions (invalid JSON, empty JSON) and
+#      the settings-wiring check are untouched by it.
 #
 #   4. NO-DRAIN — read_hook_payload stops at the bound without consuming the
 #      rest. The hook itself still works, which is exactly why this needs a
@@ -61,7 +62,7 @@ WORK="$(mktemp -d)"
 # makes that true on the failure paths too.
 trap 'rm -rf "$WORK"' EXIT
 
-HOOK_NAMES="_common.sh output-index.sh compact-suggest.sh tool-failure-log.sh post-tool-use.sh session-end-cleanup.sh post-write-session.sh"
+HOOK_NAMES="_common.sh output-index.sh compact-suggest.sh tool-failure-log.sh post-tool-use.sh session-end-cleanup.sh post-write-session.sh log-activity.sh"
 
 CTL_FAIL=0
 
@@ -114,7 +115,7 @@ done
 # assertions, which a hook that does nothing at all trivially satisfies. Any
 # other survivor is an assertion that names an EFFECT and passed against a stub,
 # which is the exact defect this file exists to catch.
-STUB_SURVIVORS_OK='_(exitsZero|notOnStdout|doesNotIndex|noHint|indexerNeverInvoked|emitsNothing|doesNotLogOutput|writesNothing|noSideEffect|deliberatelyKept|notPruned|nothingDeleted[A-Za-z]*|doesNotCreateOne)$'
+STUB_SURVIVORS_OK='_(exitsZero|notOnStdout|doesNotIndex|noHint|indexerNeverInvoked|emitsNothing|doesNotLog[A-Za-z]*|writesNothing|noSideEffect|deliberatelyKept|notPruned|nothingDeleted[A-Za-z]*|doesNotCreateOne)$'
 
 # Explicit, not pattern-matched: hook-smoke.sh's "payload schema" block greps
 # the repo's own source (this file and $PROJECT_ROOT/.claude/hooks) rather than
@@ -129,6 +130,8 @@ STUB_SURVIVORS_OK='_(exitsZero|notOnStdout|doesNotIndex|noHint|indexerNeverInvok
 # directly rather than $REAL_HOOKS. It is therefore invariant here too.
 STUB_STATIC_SURVIVORS="payloadSchema_fixturesInThisFile_nameToolInputAndToolResponse
 payloadSchema_hookScripts_readToolInputAndToolResponse
+toolFailureLog_settingsWiring_registeredOnlyOnPostToolUseFailure
+activityLog_settingsWiring_modelSwitchedOnPostModelSwitch
 notifyPhaseChange_windowsTerminalOnly_exit0StderrLineNoStdout"
 
 echo "=== mutant 1: all hooks stubbed to \`exit 0\` ==="
@@ -202,21 +205,41 @@ fi
 run_mutant "mutant 2: post-tool-use.sh takes the payload path unconverted" \
     "$RAW" "postToolUse_backslashPayloadPath_stillResolved"
 
-# ── Mutants 3-5: the #T148 payload bound ────────────────────────────────────
-BOUND="$WORK/unified-bound"
-build_mutant "$BOUND"
-# The tidying pass, in its smallest honest form: the streaming grep replaced by
-# a bounded read of the same payload. It does not call read_hook_payload — that
-# would need _common.sh sourced earlier than this hook sources it, and the
-# mutant should differ from the original in one dimension, not two.
-sed -i 's|^FACTS=$(grep -aoE.*|FACTS=$(head -c "${PROJECT_OS_HOOK_PAYLOAD_BYTES:-262144}")|' \
-    "$BOUND/tool-failure-log.sh"
-if grep -q 'FACTS=$(grep -aoE' "$BOUND/tool-failure-log.sh"; then
-    fatal "mutant 3" "NOT APPLIED — the streaming read is still there"
+# ── Mutant 3: the #T213 failure-event move ──────────────────────────────────
+# Mutant 3 is #T213's regression: the hook is moved off PostToolUse and no longer
+# looks for `is_error`. The mutant restores the gate by rewriting the one line
+# that reads the name, in a pass over the file rather than sed, because the
+# replacement is three lines of shell full of quotes.
+GATE="$WORK/is-error-gate"
+build_mutant "$GATE"
+# stdin is single-use, so the gate slurps it once and the name is read from the
+# copy — which is also the unbounded slurp the old hook avoided; irrelevant to
+# what this mutant is for.
+cat > "$WORK/gate-block.txt" <<'GATEBLOCK'
+PAYLOAD=$(cat)
+printf '%s\n' "$PAYLOAD" | grep -qaE '"is_error"[[:space:]]*:[[:space:]]*true' || exit 0
+TOOL_NAME_RAW=$(printf '%s\n' "$PAYLOAD" | grep -aoE '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' 2>/dev/null | sed -n '1p' || true)
+GATEBLOCK
+GATE_TMP="$WORK/is-error-gate.new"
+: > "$GATE_TMP"
+while IFS= read -r line; do
+    case "$line" in
+        'TOOL_NAME_RAW=$(grep -aoE'*) cat "$WORK/gate-block.txt" >> "$GATE_TMP" ;;
+        *) printf '%s\n' "$line" >> "$GATE_TMP" ;;
+    esac
+done < "$GATE/tool-failure-log.sh"
+cp "$GATE_TMP" "$GATE/tool-failure-log.sh"
+if ! grep -q 'is_error' "$GATE/tool-failure-log.sh"; then
+    fatal "mutant 3" "NOT APPLIED — the is_error gate is not in the mutant"
 fi
-run_mutant "mutant 3: tool-failure-log.sh uses a bounded read" \
-    "$BOUND" "toolFailureLog_isErrorBeyondPayloadBound_stillLogged"
+run_mutant "mutant 3: tool-failure-log.sh gates on is_error again" \
+    "$GATE" \
+    "toolFailureLog_nativeFailure_logsToolName" \
+    "toolFailureLog_punctuationInToolName_strippedNotEscaped" \
+    "toolFailureLog_punctuationInToolName_stillOneLine" \
+    "toolFailureLog_largeToolInput_stillLogged"
 
+# ── Mutants 4-5: the #T148 payload bound ────────────────────────────────────
 NODRAIN="$WORK/no-drain"
 build_mutant "$NODRAIN"
 # Drop the `wc -c` that consumes the remainder. It also reports the count, so
