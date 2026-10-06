@@ -3,6 +3,7 @@ name: reviewer-architecture
 description: "Audits an artifact against its reference for design drift, pattern violations, and contradicted decisions. Used by /workflows:review, design, and compete-review."
 model: inherit
 effort: high
+omitClaudeMd: true
 disallowedTools: [Agent, Task]
 role: Reviewer
 permissions:

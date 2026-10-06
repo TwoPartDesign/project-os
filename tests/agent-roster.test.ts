@@ -289,6 +289,12 @@ function registrationProblems(rel: string, fm: Frontmatter): string[] {
       `${rel}: disallowedTools is ${JSON.stringify(f.disallowedTools)}, must include "Agent" — fan-out is the Lead's job`,
     );
   }
+  // The frontmatter parser keeps scalars as strings, so `true` arrives as "true".
+  if (f.omitClaudeMd !== "true") {
+    problems.push(
+      `${rel}: omitClaudeMd is ${JSON.stringify(f.omitClaudeMd)}, must be true — briefs carry the conventions (#T208)`,
+    );
+  }
   return problems;
 }
 

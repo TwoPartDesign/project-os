@@ -3,6 +3,7 @@ name: documenter
 description: "Writes and updates project documentation for one approved task — READMEs, API docs, architecture notes, research summaries. Used by /workflows:build and /tools:research."
 model: sonnet
 effort: high
+omitClaudeMd: true
 isolation: worktree
 disallowedTools: [Agent, Task]
 role: Developer

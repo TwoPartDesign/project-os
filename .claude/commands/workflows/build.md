@@ -8,7 +8,7 @@ You are the Lead for this build. You coordinate sub-agents but do not write impl
 
 ## Input
 Read `docs/specs/$ARGUMENTS/tasks.md`. Verify all tasks have status markers.
-Read `CLAUDE.md` for project conventions (this is the ONLY shared context for agents).
+Read `CLAUDE.md` for project conventions. Roster agents set `omitClaudeMd: true` and never load it, so the brief's pasted excerpt is their only copy.
 Read `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` from `.claude/settings.json` `env` (the native cap on concurrently running sub-agents; the runtime default is 20 when unset).
 
 **Runtime state:** Native Tasks (TaskCreate/TaskUpdate/TaskList) drive dependency scheduling during build execution. ROADMAP.md remains the authoritative source of truth. See "Task Scheduling (Native Tasks)" below.

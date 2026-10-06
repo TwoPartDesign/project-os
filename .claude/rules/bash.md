@@ -81,9 +81,10 @@ calls) bind in every mode.
 
 ## Sub-Agent Inheritance
 
-Sub-agents do not inherit CLAUDE.md. When spawning sub-agents that will run
-Bash commands, include the `## Agent Rules` section below in the sub-agent
-prompt.
+Roster agents set `omitClaudeMd: true`, so they load neither CLAUDE.md nor
+the unscoped `.claude/rules/*.md` files (`paths:`-scoped rules still load on
+demand). When spawning sub-agents that will run Bash commands, include the
+`## Agent Rules` section below in the sub-agent prompt.
 
 ## Agent Rules
 

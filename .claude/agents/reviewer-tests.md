@@ -3,6 +3,7 @@ name: reviewer-tests
 description: "Audits an artifact against its reference for test quality, coverage gaps, and maintainability — function length, dead code, naming, duplication. Used by /workflows:review, design, and compete-review."
 model: inherit
 effort: high
+omitClaudeMd: true
 disallowedTools: [Agent, Task]
 role: Reviewer
 permissions:

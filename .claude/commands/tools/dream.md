@@ -65,8 +65,9 @@ hand it: the worktree copy of `docs/memory/` and `.claude/sessions/` is empty,
 because both are gitignored.
 
 Before spawning, read `.claude/rules/bash.md` and `.claude/rules/lead.md` and extract
-the full content of each one's `## Agent Rules` section — sub-agents do not inherit
-CLAUDE.md, so append both verbatim to the agent prompt.
+the full content of each one's `## Agent Rules` section — roster agents set
+`omitClaudeMd: true` and load neither CLAUDE.md nor the unscoped rules, so append both
+verbatim to the agent prompt.
 
 Give the sub-agent everything gathered in Step 1 (file contents, not just paths — it
 should not need to re-read them), the volatility tiering scheme from Step 2, and this
