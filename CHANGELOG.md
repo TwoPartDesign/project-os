@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.1.1 — 2026-10-06 — v3.1 known gaps closed
+
+- **Relative hook commands are reported** — `system-map.ts report` raises a MEDIUM
+  `relative-hook-command` finding for any `.claude/settings.json` hook command that runs
+  `.claude/hooks/<x>.sh` without the `$CLAUDE_PROJECT_DIR/` prefix. A downstream project
+  whose settings.json conflicted on the v3.1 update now sees it (#T244).
+- **update-project.sh refuses links in a release archive** — every entry must be a regular
+  file or a directory; symlinks, hard links and special files abort the update before
+  anything is extracted. A closed allowlist, not a check of where links point. The repo
+  ships no symlinks, so real releases are unaffected. New `tests/update-project-smoke.sh`
+  (needs `python3`; skips without it) (#T245).
+
+### Migration
+- Run `node scripts/system-map.ts report`; a `relative-hook-command` finding names each
+  hook command to rewrite as `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/<x>.sh"`.
+
 ## v3.1 — 2026-10-06 — Lean Context follow-ups
 
 Clears the v3.0 ship-gate drafts and applies the Approver's two rulings on context size.
