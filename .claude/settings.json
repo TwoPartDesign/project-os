@@ -82,20 +82,13 @@
     "CLAUDE_CODE_SUBAGENT_MODEL": "opus",
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "80",
     "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "350000",
-    "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"
+    "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1",
+    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "4"
+  },
+  "worktree": {
+    "baseRef": "head"
   },
   "project_os": {
-    "parallel": {
-      "max_concurrent_agents": 4,
-      "worktree_base": ".claude/worktrees",
-      "auto_cleanup": true,
-      "session_handoff_location": ".claude/sessions",
-      "backoff": {
-        "initial_delay_ms": 1000,
-        "max_delay_ms": 30000,
-        "multiplier": 2
-      }
-    },
     "compete": {
       "default_approaches": 3,
       "strategies": ["literal", "minimal", "extensible"]

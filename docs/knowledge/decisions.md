@@ -552,3 +552,17 @@ Generate with: `node scripts/review-triage.ts docs/specs/<feature> --changed-fil
 - **Keep a version-pinned prose per model** — rejected: it drifted within weeks (Fable 5.1, Opus 5, Sonnet 5 across lead.md, set-models.md and init.md).
 
 **Rationale**: Claude Code 2.1.280 honours `effortLevel` on a Fable fallback; that is moot for the default chain now (Opus falls back to Sonnet) and matters only if a project opts into `fable` through `/tools:set-models`.
+
+---
+
+## 2026-10-06 — Per-Wave Review Stays on `reviewer-*`; `/code-review` Is Not a Substitute (#T219)
+
+**Decision**: The per-wave single-reviewer pass in `.claude/rules/lead.md` keeps the `reviewer-*` agents. `/code-review high` is not adopted as a replacement and is not added to the routine; a lead may still run it ad hoc as an extra correctness sweep on a code-surface wave. The ship gate is unchanged.
+
+**Context**: #T219 ran `/code-review high` headlessly on the compaction-gate feature diff (`3aec993..f135812`) and scored it against that feature's 21 triaged review findings. Strict recall was 6/21 (29%) on Fable and 3/21 (14%) on Opus; LOW 0/7 on both; no exposure finding (settings wildcard, echoed `responseId`, committed host path) on either; the pipe-truncation HIGH appeared on one model only. On the nine correctness bugs it scored 6/9 and 4/9, and it found real defects the baseline missed (filed as #T231). One Opus run cost $0.85 and 143 s. Report: `docs/specs/changelog-alignment-2026-10/code-review-probe.md` (local).
+
+**Alternatives Considered**:
+- **Replace the per-wave reviewer with `/code-review high`** — rejected: 14–29% recall, unstable across models, blind to exposure and test-coverage findings.
+- **Make `/code-review high` a mandatory extra sweep on every code wave** — not adopted: its unique finds were LOW–MEDIUM; revisit if a correctness bug escapes a per-wave review.
+
+**Rationale**: The per-wave pass exists to catch what the worker missed; a cheaper reviewer that misses most of what the current one catches trades that away, and its measured strength (correctness bugs) is a subset of what `reviewer-*` already covers.
