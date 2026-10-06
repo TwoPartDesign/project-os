@@ -40,6 +40,7 @@ import {
   findDanglingRefs,
   findManifestGaps,
   findBloat,
+  findAlwaysLoadedOverBudget,
   findTemplateResidue,
   findInitIncomplete,
   hasUnfilledPlaceholders,
@@ -421,7 +422,9 @@ function runFindings(
     }
   }
 
-  findings.push(...findBloat(collectBloatFiles(source), loadBloatThreshold()));
+  const bloatFiles = collectBloatFiles(source);
+  findings.push(...findBloat(bloatFiles, loadBloatThreshold()));
+  findings.push(...findAlwaysLoadedOverBudget(bloatFiles));
   return sortFindings(findings);
 }
 
