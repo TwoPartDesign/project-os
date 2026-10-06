@@ -49,6 +49,14 @@ Each entry: Date, Decision, Context, Alternatives Considered, Rationale
 
 **Accepted residual risk**: pre-existing non-template scripts under `scripts/**` are left in place (moving them risks breaking a repo's own build) but are enumerated in the adopt report's UNREVIEWED-EXECUTABLE section — the template's `settings.json` pre-approves `bash scripts/*` / `node scripts/*`, so a hostile doc could in principle steer a later session into running one without a fresh permission prompt. Accepted for v1 with loud reporting; recommended follow-up (narrow the blanket `scripts/*` allows to enumerated template script names) is to be filed as a `[?]` draft at ship time, not bundled into this feature. Follow-up shipped as #T76: `.claude/settings.json`'s `bash scripts/*` / `node scripts/*` / `bash .claude/hooks/*` blanket allows were replaced with one enumerated entry per template-owned script and wired hook — any new template script or hook added to `TEMPLATE_SCRIPTS` (`scripts/generate-manifest.sh`) / `FRAMEWORK_FILES(_OPTIONAL)` (`scripts/new-project.sh`) / the `hooks` block must add a matching `permissions.allow` line in the same change or it will hit a permission prompt instead of running silently.
 
+**Update 2026-10-06 (#T238)**: hook commands bypass permissions — the v3.1
+probe fired every hook for every event probed with no allow rule present — so
+an allow entry gates only a manual `bash .claude/hooks/<x>.sh` run. The ten
+entries for scripts that run only as hook commands were dropped as dead rules;
+`log-activity.sh` and `notify-phase-change.sh` keep theirs because commands
+invoke them by hand. A new hook script that a command or doc runs by hand
+still gets an enumerated entry; one that only a hook runs does not.
+
 **Context**: The threat model is a hostile repo crafted to look adoptable — it could pre-plant a `.claude/settings.json` whose hooks auto-execute next session, a `scripts/setup.sh` that the adopt sequence itself would then run, or git hooks that fire on the adopt commit. This design decision went through 3 adversarial review rounds (REJECT → REJECT → APPROVE-WITH-REVISIONS) before landing.
 
 **Alternatives Considered**:
@@ -395,6 +403,8 @@ thing that varies, and on this plan nothing in the chain drops below the cap.
 Rule that survives: the cap must not exceed the smallest real window in the
 chain — a plan where any chain model runs at 200k sets it to `200000`.
 
+**Superseded 2026-10-06 (#T243)**: window now 500000; the rule stands.
+
 **Update (2026-10-05)**: superseded by the 2026-10-05 "Lead Model Moves to Opus (#T228)" entry. The lead is `opus` at high effort, and the ladder is `sonnet` (high) → `opus` (high) → `opus` (xhigh); `fable` is no longer a rung and is available only as an Approver-confirmed choice through `/tools:set-models`. The registered roster and the `sonnet` floor stand.
 
 ---
@@ -628,3 +638,19 @@ Generate with: `node scripts/review-triage.ts docs/specs/<feature> --changed-fil
 - Compactions fire later, so each cycle carries more context and more cache read per turn; fewer compactions and fewer re-seeds. Re-measure with `compaction-metrics.ts` on a session run under 500k before changing the percentage.
 - A project whose chain includes a 200k model must still set `200000`; a 500k cap above that window would make the nudge fire past it, i.e. never.
 - The 2026-09-21 replay design is unchanged: only the configured window moved.
+
+---
+
+## 2026-10-06 — Platform Facts Behind v3.1 Hook Changes (#T236, #T238, #T239)
+
+**Decision**: the v3.1 hook changes rest on probes run on 2026-10-06 against Claude Code CLI 2.1.291 (`-p --model sonnet`, one throwaway git repo per probe, launched with `CLAUDE_PROJECT_DIR` unset so nothing was inherited). Verdicts:
+
+- **Hook cwd follows a Bash `cd`** (#T238). After `cd sub`, every later hook ran with the subdirectory as its cwd, starting with the PostToolUse of the `cd` call itself. A cwd-relative `bash .claude/hooks/x.sh` command then failed (`No such file or directory`) for PostToolUse, PreToolUse, PostToolUseFailure, Stop and SessionEnd. A resumed session starts at the project root again.
+- **`$CLAUDE_PROJECT_DIR` is set and expanded for every event probed** (#T238): SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop, SessionEnd, PreCompact and PostModelSwitch. Every shipped hook command is therefore `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/<x>.sh"`.
+- **`bashEditDiff.changedFiles` lists merges and generator-script edits** (#T236): a fast-forward `git merge`, `bash gen.sh` (overwrite and create), `git checkout <rev> -- <path>` and `git restore` all appear. `git checkout <file>` without `--` is ambiguous with a branch switch and yields `skipped:true` with no `changedFiles`. So `post-tool-use.sh` consumes `changedFiles` where present, and treats `skipped` as unknown edits, never as "nothing changed". Generated artifacts are filtered out before formatting.
+- **`Bash((cd * && *))` and `Bash((cd * ; *))` approve nothing in default mode** (#T239): the parenthesised subshell is refused by the shell-operator safety check before any allow rule is read, with or without the rules. The bare `cd <dir> && <allowed cmd>` form is matched per subcommand and passes. The rules were removed; steer default-mode users to `git -C` or absolute paths. The lead's `(cd …)` commands succeed through auto-mode classifier approval, not these rules.
+- A workspace that has not been trusted ignores project `permissions.allow` entries; a probe must supply rules through `--settings`.
+
+**Also recorded — #T229 shipped as a per-ISO-week fingerprint, not count-free.** The lead's recommendation was a count-free `failures:<tool>` fingerprint. It collided by substring (`Bash` vs `Bashful`, and old `failures:Bash:N` lines) and one closed draft would have suppressed that tool forever. The shipped fingerprint is `failures:<tool>:<ISO week>`: at most one draft per tool per week, refiled the next week if the tool keeps failing, and a changed count inside a week does not re-file. `PROJECT_OS_WEEK` pins the week for tests.
+
+**Rationale**: these are platform behaviours, not repo choices; recording the evidence keeps a later CLI release from silently invalidating a hook rule. Re-run the probes when the CLI version moves past 2.1.291.
