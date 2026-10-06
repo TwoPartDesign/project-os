@@ -69,7 +69,8 @@ calls) bind in every mode.
    bypassPermissions modes; in default mode the channel stays off unless user
    settings enable it, and the handoff claim still fires only on Write|Edit.
    When the `bashEditDiff` payload is truncated (a large stdout, `moreFiles`,
-   or an oversized `changedFiles` array), `post-write-session.sh` falls back
+   or an oversized `changedFiles` array) or the platform reports the diff as
+   skipped, `post-write-session.sh` falls back
    to scrubbing the session files modified recently instead of skipping the scrub.
 
 ## Where the Rest Went

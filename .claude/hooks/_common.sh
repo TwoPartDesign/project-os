@@ -337,11 +337,12 @@ get_project_root() {
 # - Absent key or empty list: silent.
 # - Every way of processing fewer files than the change touched says so on
 #   stderr: moreFiles > 0, more than 256 entries, the array running past the
-#   read window (payload bound or 64 KiB parse cap), and bashEditDiff lying
+#   read window (payload bound or 64 KiB parse cap), bashEditDiff lying
 #   past the bound with changedFiles unreadable (set by
-#   `read_hook_payload "" bash-edit-diff` via HOOK_PAYLOAD_TAIL_EDIT_DIFF).
+#   `read_hook_payload "" bash-edit-diff` via HOOK_PAYLOAD_TAIL_EDIT_DIFF),
+#   and bashEditDiff.skipped=true (unknown change set, not an empty one).
 #
-# Exit status: 0, or 3 (BASH_EDIT_FALLBACK_STATUS) when any of those four
+# Exit status: 0, or 3 (BASH_EDIT_FALLBACK_STATUS) when any of those five
 # skips fired, meaning the printed list is incomplete. A caller that must not
 # miss a file (post-write-session.sh's session scrub) captures the output with
 # `out=$(…) || rc=$?` and falls back to a directory sweep on 3; a caller that
@@ -363,6 +364,14 @@ bash_edit_diff_paths() {
             echo "$hook: bashEditDiff.moreFiles=$elem — the platform listed only part of the change; $skipped" >&2
             fb=$BASH_EDIT_FALLBACK_STATUS
         fi
+    fi
+
+    # `skipped:true` (the platform declined to compute the diff, e.g. after
+    # `git checkout <file>`) means the change set is unknown, not empty.
+    local skip_re='"bashEditDiff"[[:space:]]*:[[:space:]]*\{[^{}]*"skipped"[[:space:]]*:[[:space:]]*true'
+    if [[ "$INPUT" =~ $skip_re ]]; then
+        echo "$hook: bashEditDiff.skipped=true — the platform did not list the changed files; $skipped" >&2
+        fb=$BASH_EDIT_FALLBACK_STATUS
     fi
 
     if ! [[ "$INPUT" =~ $key ]]; then

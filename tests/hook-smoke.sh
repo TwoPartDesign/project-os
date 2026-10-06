@@ -1002,6 +1002,78 @@ for pair in post-tool-use.sh:postToolUse post-write-session.sh:postWriteSession;
     assert_eq "${pair#*:}_bashLargeStdoutNoEditDiff_emitsNothing" "" "$HOOK_ERR"
 done
 
+# Generated artifacts (a merge or generator script wrote them): the formatter
+# skips the closed list — docs/maps/*, .claude/manifest.json,
+# docs/specs/*/review-triage.json — and still formats the normal files beside
+# them. The .json entries would otherwise reach prettier; the .md one is listed
+# because that is what a real generator payload names.
+SB=$(new_sandbox); npx_stub "$SB"; SBP=$(cd "$SB" && pwd -P)
+mkdir -p "$SB/docs/maps" "$SB/docs/specs/feat"
+printf 'x\n' > "$SB/docs/maps/system-map.md"
+printf '{}\n' > "$SB/docs/maps/graph.json"
+printf '{}\n' > "$SB/.claude/manifest.json"
+printf '{}\n' > "$SB/docs/specs/feat/review-triage.json"
+printf '{}\n' > "$SB/docs/specs/feat/other.json"
+printf 'const a=1\n' > "$SB/real.ts"
+run_hook "$SB" post-tool-use.sh \
+    "$(bash_payload "\"$SB/docs/maps/system-map.md\",\"$SB/docs/maps/graph.json\",\"$SB/.claude/manifest.json\",\"$SB/docs/specs/feat/review-triage.json\",\"$SB/real.ts\",\"$SB/docs/specs/feat/other.json\"")" \
+    PATH="$SB/bin:$PATH"
+assert_eq "postToolUse_bashEditDiffGeneratedArtifacts_exitsZero" 0 "$HOOK_EXIT"
+assert_eq "postToolUse_bashEditDiffGeneratedArtifacts_onlyNonGeneratedFormatted" \
+    "prettier --write $SBP/real.ts
+prettier --write $SBP/docs/specs/feat/other.json" "$(npx_calls "$SB")"
+assert_eq "postToolUse_bashEditDiffGeneratedArtifacts_generatedFiles_noSideEffect" \
+    "x|{}|{}|{}" \
+    "$(cat "$SB/docs/maps/system-map.md")|$(cat "$SB/docs/maps/graph.json")|$(cat "$SB/.claude/manifest.json")|$(cat "$SB/docs/specs/feat/review-triage.json")"
+
+# The skip is Bash-branch only: the Write|Edit path still formats a file under
+# docs/maps/.
+SB=$(new_sandbox); npx_stub "$SB"; SBP=$(cd "$SB" && pwd -P)
+mkdir -p "$SB/docs/maps"
+printf '{}\n' > "$SB/docs/maps/graph.json"
+run_hook "$SB" post-tool-use.sh \
+    "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$SB/docs/maps/graph.json\"}}" PATH="$SB/bin:$PATH"
+assert_eq "postToolUse_writeToolGeneratedPath_stillFormatted" \
+    "prettier --write $SBP/docs/maps/graph.json" "$(npx_calls "$SB")"
+
+# bashEditDiff.skipped:true (e.g. after `git checkout <file>`) with no
+# changedFiles key: the change set is unknown, not empty. post-write-session.sh
+# names it on stderr and runs the recent-files fallback scrub; a stale session
+# file stays out of the sweep's window.
+SKIPPED_PAYLOAD='{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"git checkout f"},"tool_response":{"stdout":"","stderr":"","bashEditDiff":{"files":[],"moreFiles":0 , "skipped" : true}}}'
+SB=$(new_sandbox)
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/recent.yaml"
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/stale.yaml"
+touch -d '30 minutes ago' "$SB/.claude/sessions/stale.yaml"
+run_hook "$SB" post-write-session.sh "$SKIPPED_PAYLOAD"
+assert_eq "postWriteSession_bashEditDiffSkipped_exitsZero" 0 "$HOOK_EXIT"
+assert_contains "postWriteSession_bashEditDiffSkipped_noticeOnStderr" \
+    "$HOOK_ERR" "bashEditDiff.skipped=true"
+assert_contains "postWriteSession_bashEditDiffSkipped_fallbackNamedOnStderr" \
+    "$HOOK_ERR" "fallback scrub"
+assert_contains "postWriteSession_bashEditDiffSkipped_recentFileScrubbed" \
+    "$(cat "$SB/.claude/sessions/recent.yaml")" "REDACTED:OPENAI_KEY"
+assert_eq "postWriteSession_bashEditDiffSkipped_staleFile_noSideEffect" \
+    "$SECRET_LINE" "$(cat "$SB/.claude/sessions/stale.yaml")"
+
+# post-tool-use.sh reads through `< <(…)`: the status is ignored, the notice is
+# still printed, and nothing is formatted.
+SB=$(new_sandbox); npx_stub "$SB"
+printf 'const a=1\n' > "$SB/a.ts"
+run_hook "$SB" post-tool-use.sh "$SKIPPED_PAYLOAD" PATH="$SB/bin:$PATH"
+assert_eq "postToolUse_bashEditDiffSkipped_exitsZero" 0 "$HOOK_EXIT"
+assert_contains "postToolUse_bashEditDiffSkipped_noticeOnStderr" \
+    "$HOOK_ERR" "bashEditDiff.skipped=true"
+assert_eq "postToolUse_bashEditDiffSkipped_noSideEffect" "" "$(npx_calls "$SB")"
+
+# `skipped:false` is an ordinary empty diff: silent, no fallback.
+SB=$(new_sandbox)
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/recent.yaml"
+run_hook "$SB" post-write-session.sh \
+    '{"tool_name":"Bash","tool_input":{"command":"true"},"tool_response":{"stdout":"","stderr":"","bashEditDiff":{"files":[],"moreFiles":0,"skipped":false}}}'
+assert_eq "postWriteSession_bashEditDiffSkippedFalse_noSideEffect" \
+    "$SECRET_LINE|" "$(cat "$SB/.claude/sessions/recent.yaml")|$HOOK_ERR"
+
 # A Bash payload without bashEditDiff (default mode, channel off): no-op.
 SB=$(new_sandbox); npx_stub "$SB"
 printf 'const a=1\n' > "$SB/a.ts"
