@@ -155,7 +155,7 @@ See `.claude/agents/roles.md` for full definitions.
 | test, tdd, verify, coverage | tdd-workflow | Red-Green-Refactor |
 | handoff, done, end session | session-management | Auto-save protocol |
 | deploy, ship, release, external | workflows:ship | Pre-ship checklist + PR generation |
-| filter, compress, large output, stale, fresh | context-filter | Filter protocol |
+| stale, fresh, knowledge search | context-filter | Freshness-scored knowledge search |
 | drift, unwired, orphan, health check, maintenance | tools:maintain | Draft-only health sweep + `system-map.ts report` |
 
 ## Rules

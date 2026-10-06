@@ -238,8 +238,8 @@
 ## Findings
 
 - LOW bloat .claude/rules/lead.md — .claude/rules/lead.md is approximately 3290 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat CLAUDE.md — CLAUDE.md is approximately 2503 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 7480 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat CLAUDE.md — CLAUDE.md is approximately 2504 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 7509 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/bugs.md — docs/knowledge/bugs.md is approximately 2701 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 16971 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/design-principles.md — docs/knowledge/design-principles.md is approximately 2639 tokens, exceeding the 2500-token warn threshold.
