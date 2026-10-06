@@ -492,13 +492,49 @@ Generate with: `node scripts/review-triage.ts docs/specs/<feature> --changed-fil
 
 ## 2026-10-04 — Auto Mode Is the Standing Default; the Auto-Approval Hook Proposal Is Deleted
 
-**Decision**: Sessions run in auto mode. `permissions.defaultMode` stays unset in `.claude/settings.json`, which starts a session in auto mode since Claude Code 2.1.284. `docs/proposals/pre-tool-approve-hook.md` (never installed) is deleted along with its references. `.claude/rules/bash.md` Core Rules 2-6 are marked default-mode/Windows guidance; rules 1 and 7 (hook wiring) stay unconditional. `docs/knowledge/windows-bash-scanner.md` stays. Approver: Jacob Nickel (#T210).
+**Decision**: Sessions run in auto mode. `permissions.defaultMode` stays unset in `.claude/settings.json`, which starts a session in auto mode since Claude Code 2.1.284. `docs/proposals/pre-tool-approve-hook.md` (never installed) is deleted along with its references. `.claude/rules/bash.md` Core Rules 2-5 are marked default-mode/Windows guidance; rules 1 and 7 (hook wiring) and rule 6 (the Bash tool's cwd persists across calls) stay unconditional. `docs/knowledge/windows-bash-scanner.md` stays. Approver: Jacob Nickel (#T210).
 
 **Context**: The proposal described a PreToolUse hook that auto-approves sanctioned Bash commands so sub-agents never stall on prompts. It was held for owner opt-in and never wired. Since then auto mode became the default and its classifier decides in place of the prompt matcher, which is the job the hook was drafted to do; the changelog cross-check in the Windows catalog shows the scanner's prompt-avoidance triggers matter mainly in default permission mode and on Windows.
 
 **Alternatives Considered**:
 - **Install the hook** — rejected: it duplicates what the classifier does natively, adds a hook that auto-approves tool calls (the highest-trust hook class) and a policy file to maintain.
 - **Pin `permissions.defaultMode` explicitly** — rejected: leaving it unset follows the platform default and avoids a second place that can drift.
-- **Delete rules 2-6 from bash.md** — rejected: they still bind in default permission mode and on Windows, and the Agent Rules are shipped to every sub-agent prompt.
+- **Delete rules 2-5 from bash.md** — rejected: they still bind in default permission mode and on Windows, and the Agent Rules are shipped to every sub-agent prompt.
 
 **Rationale**: Native auto mode covers the proposal's purpose with no custom code, and the hook-wiring rules (1 and 7) are independent of permission mode because the format, scrub and handoff-claim hooks fire only on `Write|Edit`.
+
+---
+
+## 2026-10-06 — Native-feature probe results (#T207)
+
+**Decision**: Wave 2 of the v3.0 release (#T208 worker context, #T216 worktree base, #T202 Bash-edit hook, #T205 rule scoping) designs from these measured behaviours of CLI 2.1.290, not from changelog wording.
+
+**Context**: Each probe ran as a nested `claude -p --model sonnet` in a throwaway root, with hook payloads captured by a stdin-dump hook.
+
+**Findings**:
+- **(a) Instruction loading.** Evidence: `InstructionsLoaded` payloads plus each agent's own list of the markers it could see.
+  - The main session loads CLAUDE.md and every rule without `paths:` at `session_start`.
+  - A named subagent inherits that eager set and fires no new events for it.
+  - `omitClaudeMd: true` drops CLAUDE.md **and** every unscoped `.claude/rules/*.md`, `lead.md` included. A `paths:` rule still lazy-loads into that agent when it reads a matching file.
+  - `paths:` loads lazily on the first matching Read (`load_reason: path_glob_match`, with `agent_id`/`agent_type`/`effort`).
+  - The legacy `globs:` key is not a scope: that rule loaded eagerly at `session_start`, and reading a matching file fired nothing (#T205).
+- **(b) Worktree base.** A default isolation-worktree agent reported `origin/master`'s sha. With `worktree.baseRef: "head"`, the same agent reported the unpushed feature HEAD.
+- **(c) Compact window.**
+  - `/autocompact 300k` writes user settings at `modelSettings.<canonical-model>.autoCompactWindow`.
+  - `CLAUDE_CODE_AUTO_COMPACT_WINDOW` wins over it, including when set through a settings `env` block. Status then reads "(from CLAUDE_CODE_AUTO_COMPACT_WINDOW)", and `/autocompact <n>` refuses to save: "is set and takes precedence".
+  - Our `env` value of 350000 therefore masks every per-model `/autocompact` choice.
+- **(d) Auto-memory directory.**
+  - The relative path `"docs/memory"` is silently rejected: the validator accepts only absolute or `~/` paths, so memory went to `~/.claude/projects/<slug>/memory/` from project, local and flag settings alike.
+  - An absolute path, in local or project settings, wrote `docs/memory/<fact>.md` and indexed it in `MEMORY.md`. The pre-existing file stayed byte-identical (`cmp`).
+  - Auto-memory is off entirely when `CLAUDE_CODE_REMOTE` is set (cloud sessions), unless `CLAUDE_CODE_REMOTE_MEMORY_DIR` is set.
+- **(e) Bash-edit diff channel.**
+  - PostToolUse for a Bash edit carries `tool_response.bashEditDiff = {files:[{filePath, hunks:[{oldStart, oldLines, newStart, newLines, lines}]}], moreFiles, changedFiles:[abs paths]}`.
+  - It appears only when enabled from user, flag or policy settings, or by `CLAUDE_CODE_BASH_EDIT_DIFF`, or by default in `auto`/`bypassPermissions` mode.
+  - Project `.claude/settings.json` `true` was ignored in default mode: 0 of 1 payloads had the key, against 1 of 1 with `--settings`.
+  - A `false` anywhere turns it off.
+- **(f) Prompt audit.** `/doctor prompt-audit` runs headlessly and produced 17 findings. There is no `claude doctor` subcommand form.
+
+**Alternatives Considered**:
+- **Trust the changelog lines alone.** Rejected: they omit the relative-path rejection, the trusted-source gate on `bashEditDiffEnabled`, and `omitClaudeMd` dropping rules. Each of these changes a wave-2 design.
+
+**Rationale**: "Verify the Channel Before Designing the Gate." Setup, commands, raw payload excerpts and per-probe verdicts are in `docs/specs/changelog-alignment-2026-10/probe-results.md`; the audit report is `prompt-audit.md` in the same directory.
