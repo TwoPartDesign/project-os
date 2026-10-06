@@ -24,7 +24,7 @@ calls) bind in every mode.
    The project's hooks match on the tool name (`.claude/settings.json`
    hooks): the compaction handoff claim fires only on `Write|Edit`, and
    format-and-scrub reach a Bash-made change only through `bashEditDiff`
-   (off in default mode, Windows paths skipped). A `sed`, heredoc, or
+   (off in default mode; Windows paths need cygpath). A `sed`, heredoc, or
    `cat >` edit therefore always skips handoff ownership and can skip
    formatting and secret scrubbing. Grep is ripgrep and Read takes offset/limit, so the shell
    buys no speed on reads either. Bash is for execution: running scripts,

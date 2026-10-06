@@ -104,7 +104,7 @@ new_sandbox() {
     mkdir -p "$sb/.claude/hooks" "$sb/.claude/logs" "$sb/.claude/sessions" "$sb/scripts"
     for h in _common.sh output-index.sh compact-suggest.sh tool-failure-log.sh \
              post-tool-use.sh session-end-cleanup.sh post-write-session.sh \
-             log-activity.sh; do
+             log-activity.sh post-mcp-validate.sh; do
         cp "$REAL_HOOKS/$h" "$sb/.claude/hooks/$h" 2>/dev/null || true
     done
     cp "$PROJECT_ROOT/scripts/scrub-secrets.sh" "$sb/scripts/scrub-secrets.sh" 2>/dev/null || true
@@ -911,16 +911,31 @@ assert_eq "postToolUse_bashEditDiffRawControlChar_noSideEffect" \
 # Windows-native paths (#T233). The payload carries `C:\\proj\\src\\a.ts` (each
 # separator a JSON-escaped `\\`); `cygpath -u` is stubbed to map the C:\proj
 # prefix onto the sandbox root ($CYG_ROOT), as Git Bash's real one would map the
-# drive. The stub sits first on PATH inside the sandbox only.
+# drive. The stub sits first on PATH inside the sandbox only. It exits 2 unless
+# its first argument is `-u` (a regression to `-w` or `-m` must not pass),
+# appends its argv to $CYG_ROOT/cygpath-calls.log (so a test can assert it was,
+# or was not, reached), and CYG_MODE=fail|empty|multi makes it misbehave:
+# exit 1, print nothing, or print two lines.
 cygpath_stub() {
     mkdir -p "$1/bin"
     cat > "$1/bin/cygpath" <<'STUB'
 #!/bin/bash
+[ "$1" = "-u" ] || exit 2
+printf '%s\n' "$*" >> "$CYG_ROOT/cygpath-calls.log"
+case "${CYG_MODE:-}" in
+    fail) exit 1 ;;
+    empty) exit 0 ;;
+    multi) printf '%s\n%s\n' "$CYG_ROOT/src/a.ts" "$CYG_ROOT/in.ts"; exit 0 ;;
+esac
 p="${@: -1}"
 p="${p//\\//}"
 printf '%s\n' "$CYG_ROOT/${p#C:/proj/}"
 STUB
     chmod +x "$1/bin/cygpath"
+}
+
+cygpath_calls() {
+    cat "$1/cygpath-calls.log" 2>/dev/null || true
 }
 
 # Converted path: formatted at its canonical in-repo spelling.
@@ -950,6 +965,26 @@ run_hook "$SB" post-write-session.sh "$(bash_payload '"C:\\proj\\.claude\\sessio
 assert_eq "postWriteSession_bashEditDiffWindowsPathWithCygpath_exitsZero" 0 "$HOOK_EXIT"
 assert_contains "postWriteSession_bashEditDiffWindowsPathWithCygpath_secretScrubbed" \
     "$(cat "$SB/.claude/sessions/win.yaml" 2>/dev/null || true)" "REDACTED:OPENAI_KEY"
+# The conversion did the scrubbing, not the sweep: a successful conversion is
+# a complete list, so no fallback runs.
+assert_not_contains "postWriteSession_bashEditDiffWindowsPathWithCygpathNoSweep_noSideEffect" \
+    "$HOOK_ERR" "fallback scrub"
+
+# A rejected element names a file we cannot identify, so the scrub falls back to
+# the sweep (#S2). cygpath prints nothing: win.yaml is rejected by the parser
+# and scrubbed only because it is recent. The stub is shown to have been called.
+SB=$(new_sandbox); cygpath_stub "$SB"
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/win.yaml"
+run_hook "$SB" post-write-session.sh "$(bash_payload '"C:\\proj\\.claude\\sessions\\win.yaml"')" \
+    PATH="$SB/bin:$PATH" CYG_ROOT="$SB" CYG_MODE=empty
+assert_eq "postWriteSession_bashEditDiffWindowsPathCygpathEmpty_cygpathCalled" \
+    "-u -- C:\\proj\\.claude\\sessions\\win.yaml" "$(cygpath_calls "$SB")"
+assert_contains "postWriteSession_bashEditDiffWindowsPathCygpathEmpty_rejectedOnStderr" \
+    "$HOOK_ERR" "rejected a bashEditDiff path"
+assert_contains "postWriteSession_bashEditDiffWindowsPathCygpathEmpty_fallbackNamedOnStderr" \
+    "$HOOK_ERR" "fallback scrub"
+assert_contains "postWriteSession_bashEditDiffWindowsPathCygpathEmpty_recentFileScrubbedByFallback" \
+    "$(cat "$SB/.claude/sessions/win.yaml")" "REDACTED:OPENAI_KEY"
 
 # No cygpath on PATH: rejected with the stderr line, nothing formatted. Skipped
 # on a host that has a real cygpath (Git Bash), which cannot be hidden here.
@@ -966,7 +1001,65 @@ else
         "$HOOK_ERR" "rejected a bashEditDiff path containing a quote, backslash or control character"
     assert_eq "postToolUse_bashEditDiffWindowsPathNoCygpath_noSideEffect" \
         "const a=1|" "$(cat "$SB/src/a.ts")|$(npx_calls "$SB")"
+
+    # post-write-session.sh, same host: the rejected element sets the fallback
+    # status (#S2), so the fresh session file is scrubbed by the sweep and the
+    # sweep is named on stderr.
+    SB=$(new_sandbox)
+    printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/win.yaml"
+    run_hook "$SB" post-write-session.sh "$(bash_payload '"C:\\proj\\.claude\\sessions\\win.yaml"')" \
+        PATH="$SB/bin:$PATH" CYG_ROOT="$SB"
+    assert_contains "postWriteSession_bashEditDiffWindowsPathNoCygpath_fallbackNamedOnStderr" \
+        "$HOOK_ERR" "fallback scrub"
+    assert_contains "postWriteSession_bashEditDiffWindowsPathNoCygpath_fileScrubbedByFallback" \
+        "$(cat "$SB/.claude/sessions/win.yaml")" "REDACTED:OPENAI_KEY"
 fi
+
+# cygpath present but failing or answering with garbage: the element stays
+# rejected and the file is untouched. The stub's own call log shows the
+# conversion was attempted, so these are not the no-cygpath case in disguise.
+for pair in fail:Fails empty:Empty multi:MultiLine; do
+    mode="${pair%%:*}"; label="${pair#*:}"
+    SB=$(new_sandbox); npx_stub "$SB"; cygpath_stub "$SB"
+    mkdir -p "$SB/src"
+    printf 'const a=1\n' > "$SB/src/a.ts"
+    printf 'const a=1\n' > "$SB/in.ts"
+    run_hook "$SB" post-tool-use.sh "$(bash_payload '"C:\\proj\\src\\a.ts"')" \
+        PATH="$SB/bin:$PATH" CYG_ROOT="$SB" CYG_MODE="$mode"
+    assert_contains "postToolUse_bashEditDiffWindowsPathCygpath${label}_rejectedOnStderr" \
+        "$HOOK_ERR" "rejected a bashEditDiff path containing a quote, backslash or control character"
+    assert_eq "postToolUse_bashEditDiffWindowsPathCygpath${label}_cygpathCalled" \
+        "-u -- C:\\proj\\src\\a.ts" "$(cygpath_calls "$SB")"
+    assert_eq "postToolUse_bashEditDiffWindowsPathCygpath${label}_noSideEffect" \
+        "const a=1|const a=1|" "$(cat "$SB/src/a.ts")|$(cat "$SB/in.ts")|$(npx_calls "$SB")"
+done
+
+# A POSIX path whose element holds an escaped backslash (`/…/a\\b.ts`) is not
+# Windows-shaped (no drive letter, and it has a `/`): it never reaches cygpath
+# and is rejected, although a file of that exact name exists.
+SB=$(new_sandbox); npx_stub "$SB"; cygpath_stub "$SB"
+printf 'const a=1\n' > "$SB/a\\b.ts"
+run_hook "$SB" post-tool-use.sh "$(bash_payload "\"$SB/a\\\\b.ts\"")" \
+    PATH="$SB/bin:$PATH" CYG_ROOT="$SB"
+assert_contains "postToolUse_bashEditDiffPosixPathEscapedBackslash_rejectedOnStderr" \
+    "$HOOK_ERR" "rejected a bashEditDiff path"
+assert_eq "postToolUse_bashEditDiffPosixPathEscapedBackslash_noSideEffect" \
+    "const a=1||" "$(cat "$SB/a\\b.ts")|$(cygpath_calls "$SB")|$(npx_calls "$SB")"
+
+# cygpath is accepted only as an absolute path (#S3). A shell function named
+# cygpath (BASH_ENV defines it in the hook's shell) resolves under `command -v`
+# to the bare word `cygpath`, which is refused: nothing converted, nothing
+# formatted, and the function was never run.
+SB=$(new_sandbox); npx_stub "$SB"
+mkdir -p "$SB/src"
+printf 'const a=1\n' > "$SB/src/a.ts"
+printf 'cygpath() { printf "called\\n" >> "%s/fn-calls.log"; printf "%s/src/a.ts\\n"; }\n' "$SB" "$SB" > "$SB/fn.env"
+run_hook "$SB" post-tool-use.sh "$(bash_payload '"C:\\proj\\src\\a.ts"')" \
+    PATH="$SB/bin:$PATH" BASH_ENV="$SB/fn.env"
+assert_contains "postToolUse_bashEditDiffWindowsPathCygpathNotAbsolute_rejectedOnStderr" \
+    "$HOOK_ERR" "rejected a bashEditDiff path"
+assert_eq "postToolUse_bashEditDiffWindowsPathCygpathNotAbsolute_noSideEffect" \
+    "const a=1||" "$(cat "$SB/src/a.ts")|$(cat "$SB/fn-calls.log" 2>/dev/null || true)|$(npx_calls "$SB")"
 
 # An escaped quote inside a Windows-looking path: still rejected, never
 # unescaped — even with cygpath present and a file at the unescaped spelling.
@@ -990,6 +1083,28 @@ run_hook "$SB" post-tool-use.sh "$(bash_payload "\"C:\\\\proj\\\\..\\\\${OUTSIDE
     PATH="$SB/bin:$PATH" CYG_ROOT="$SB"
 assert_eq "postToolUse_bashEditDiffWindowsPathOutsideRoot_noSideEffect" \
     "const a=1|" "$(cat "$OUTSIDE/out.ts")|$(npx_calls "$SB")"
+# The conversion happened (the stub was reached), so it is containment, not a
+# skipped conversion, that kept the outside file alone.
+assert_contains "postToolUse_bashEditDiffWindowsPathOutsideRoot_cygpathCalled" \
+    "$(cygpath_calls "$SB")" "-u -- C:\\proj\\..\\${OUTSIDE##*/}\\out.ts"
+
+# In-bounds indirection on a converted path: the conversion lands on a symlink
+# INSIDE the root whose target is outside. Containment is checked on the
+# realpath, so the outside file is not formatted.
+SB=$(new_sandbox); npx_stub "$SB"; cygpath_stub "$SB"
+OUTSIDE=$(mktemp -d)
+SANDBOXES+=("$OUTSIDE")
+printf 'const a=1\n' > "$OUTSIDE/out.ts"
+if ln -s "$OUTSIDE/out.ts" "$SB/link-out.ts" 2>/dev/null && [ -L "$SB/link-out.ts" ]; then
+    run_hook "$SB" post-tool-use.sh "$(bash_payload '"C:\\proj\\link-out.ts"')" \
+        PATH="$SB/bin:$PATH" CYG_ROOT="$SB"
+    assert_eq "postToolUse_bashEditDiffWindowsPathSymlinkToOutside_noSideEffect" \
+        "const a=1|" "$(cat "$OUTSIDE/out.ts")|$(npx_calls "$SB")"
+    assert_contains "postToolUse_bashEditDiffWindowsPathSymlinkToOutside_cygpathCalled" \
+        "$(cygpath_calls "$SB")" "-u -- C:\\proj\\link-out.ts"
+else
+    echo "  SKIP: postToolUse_bashEditDiffWindowsPathSymlinkToOutside_noSideEffect (symlink creation unsupported)"
+fi
 
 # A large stdout with no bashEditDiff anywhere: the tail scan finds no key, so
 # both hooks stay silent — the warning must not fire on every big command.
@@ -1022,9 +1137,38 @@ assert_eq "postToolUse_bashEditDiffGeneratedArtifacts_exitsZero" 0 "$HOOK_EXIT"
 assert_eq "postToolUse_bashEditDiffGeneratedArtifacts_onlyNonGeneratedFormatted" \
     "prettier --write $SBP/real.ts
 prettier --write $SBP/docs/specs/feat/other.json" "$(npx_calls "$SB")"
-assert_eq "postToolUse_bashEditDiffGeneratedArtifacts_generatedFiles_noSideEffect" \
+assert_eq "postToolUse_bashEditDiffGeneratedArtifactsContent_noSideEffect" \
     "x|{}|{}|{}" \
     "$(cat "$SB/docs/maps/system-map.md")|$(cat "$SB/docs/maps/graph.json")|$(cat "$SB/.claude/manifest.json")|$(cat "$SB/docs/specs/feat/review-triage.json")"
+
+# The review-triage entry is one directory level only: a deeper
+# `docs/specs/a/b/review-triage.json` is an ordinary .json and is formatted.
+SB=$(new_sandbox); npx_stub "$SB"; SBP=$(cd "$SB" && pwd -P)
+mkdir -p "$SB/docs/specs/a/b"
+printf '{}\n' > "$SB/docs/specs/a/b/review-triage.json"
+run_hook "$SB" post-tool-use.sh \
+    "$(bash_payload "\"$SB/docs/specs/a/b/review-triage.json\"")" PATH="$SB/bin:$PATH"
+assert_eq "postToolUse_bashEditDiffTriageTwoLevelsDeep_formatted" \
+    "prettier --write $SBP/docs/specs/a/b/review-triage.json" "$(npx_calls "$SB")"
+
+# The same generated paths spelled under .claude/worktrees/<one segment>/ are
+# skipped; a normal file in that worktree is still formatted.
+SB=$(new_sandbox); npx_stub "$SB"; SBP=$(cd "$SB" && pwd -P)
+WT="$SB/.claude/worktrees/x"
+mkdir -p "$WT/docs/maps" "$WT/docs/specs/feat" "$WT/.claude"
+printf 'x\n' > "$WT/docs/maps/m.md"
+printf '{}\n' > "$WT/docs/maps/g.json"
+printf '{}\n' > "$WT/.claude/manifest.json"
+printf '{}\n' > "$WT/docs/specs/feat/review-triage.json"
+printf 'const a=1\n' > "$WT/real.ts"
+run_hook "$SB" post-tool-use.sh \
+    "$(bash_payload "\"$WT/docs/maps/m.md\",\"$WT/docs/maps/g.json\",\"$WT/.claude/manifest.json\",\"$WT/docs/specs/feat/review-triage.json\",\"$WT/real.ts\"")" \
+    PATH="$SB/bin:$PATH"
+assert_eq "postToolUse_bashEditDiffWorktreeGeneratedArtifacts_onlyNonGeneratedFormatted" \
+    "prettier --write $SBP/.claude/worktrees/x/real.ts" "$(npx_calls "$SB")"
+assert_eq "postToolUse_bashEditDiffWorktreeGeneratedArtifactsContent_noSideEffect" \
+    "x|{}|{}|{}" \
+    "$(cat "$WT/docs/maps/m.md")|$(cat "$WT/docs/maps/g.json")|$(cat "$WT/.claude/manifest.json")|$(cat "$WT/docs/specs/feat/review-triage.json")"
 
 # The skip is Bash-branch only: the Write|Edit path still formats a file under
 # docs/maps/.
@@ -1044,7 +1188,8 @@ SKIPPED_PAYLOAD='{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input
 SB=$(new_sandbox)
 printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/recent.yaml"
 printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/stale.yaml"
-touch -d '30 minutes ago' "$SB/.claude/sessions/stale.yaml"
+STALE_OK=1
+touch -d '30 minutes ago' "$SB/.claude/sessions/stale.yaml" 2>/dev/null || STALE_OK=0
 run_hook "$SB" post-write-session.sh "$SKIPPED_PAYLOAD"
 assert_eq "postWriteSession_bashEditDiffSkipped_exitsZero" 0 "$HOOK_EXIT"
 assert_contains "postWriteSession_bashEditDiffSkipped_noticeOnStderr" \
@@ -1053,8 +1198,55 @@ assert_contains "postWriteSession_bashEditDiffSkipped_fallbackNamedOnStderr" \
     "$HOOK_ERR" "fallback scrub"
 assert_contains "postWriteSession_bashEditDiffSkipped_recentFileScrubbed" \
     "$(cat "$SB/.claude/sessions/recent.yaml")" "REDACTED:OPENAI_KEY"
-assert_eq "postWriteSession_bashEditDiffSkipped_staleFile_noSideEffect" \
-    "$SECRET_LINE" "$(cat "$SB/.claude/sessions/stale.yaml")"
+if [ "$STALE_OK" = 1 ]; then
+    assert_eq "postWriteSession_bashEditDiffSkippedStaleFile_noSideEffect" \
+        "$SECRET_LINE" "$(cat "$SB/.claude/sessions/stale.yaml")"
+else
+    echo "  SKIP: postWriteSession_bashEditDiffSkippedStaleFile_noSideEffect (touch -d unsupported)"
+fi
+
+# skipped:true after a non-empty `files` array of OBJECTS: the platform lists
+# the object first and `skipped` last, so the detector must not stop at the
+# nested `{`. The recent session file is scrubbed by the fallback.
+SB=$(new_sandbox)
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/recent.yaml"
+run_hook "$SB" post-write-session.sh \
+    '{"tool_name":"Bash","tool_input":{"command":"git checkout f"},"tool_response":{"stdout":"","stderr":"","bashEditDiff":{"files":[{"filePath":"a","hunks":[]}],"moreFiles":0,"skipped":true}}}'
+assert_contains "postWriteSession_bashEditDiffSkippedWithFileObjects_noticeOnStderr" \
+    "$HOOK_ERR" "bashEditDiff.skipped=true"
+assert_contains "postWriteSession_bashEditDiffSkippedWithFileObjects_fallbackNamedOnStderr" \
+    "$HOOK_ERR" "fallback scrub"
+assert_contains "postWriteSession_bashEditDiffSkippedWithFileObjects_recentFileScrubbed" \
+    "$(cat "$SB/.claude/sessions/recent.yaml")" "REDACTED:OPENAI_KEY"
+
+# skipped:true together with a non-empty changedFiles: the listed file (outside
+# the sweep's 10-minute window, so only the list can scrub it) AND the unlisted
+# recent file are scrubbed.
+SB=$(new_sandbox)
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/listed.yaml"
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/recent.yaml"
+if touch -d '30 minutes ago' "$SB/.claude/sessions/listed.yaml" 2>/dev/null; then
+    run_hook "$SB" post-write-session.sh \
+        "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"x\"},\"tool_response\":{\"stdout\":\"\",\"stderr\":\"\",\"bashEditDiff\":{\"files\":[{\"filePath\":\"$SB/.claude/sessions/listed.yaml\",\"hunks\":[]}],\"moreFiles\":0,\"changedFiles\":[\"$SB/.claude/sessions/listed.yaml\"],\"skipped\":true}}}"
+    assert_contains "postWriteSession_bashEditDiffSkippedWithChangedFiles_listedFileScrubbed" \
+        "$(cat "$SB/.claude/sessions/listed.yaml")" "REDACTED:OPENAI_KEY"
+    assert_contains "postWriteSession_bashEditDiffSkippedWithChangedFiles_fallbackNamedOnStderr" \
+        "$HOOK_ERR" "fallback scrub"
+    assert_contains "postWriteSession_bashEditDiffSkippedWithChangedFiles_unlistedFileScrubbed" \
+        "$(cat "$SB/.claude/sessions/recent.yaml")" "REDACTED:OPENAI_KEY"
+else
+    echo "  SKIP: postWriteSession_bashEditDiffSkippedWithChangedFiles (touch -d unsupported)"
+fi
+
+# An escaped `\"bashEditDiff\"` inside a stdout string cannot form the key, so a
+# `skipped:true` spelled in stdout (escaped too) is not read as the flag: the
+# real bashEditDiff says skipped:false and nothing is swept.
+SB=$(new_sandbox)
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/recent.yaml"
+run_hook "$SB" post-write-session.sh \
+    '{"tool_name":"Bash","tool_input":{"command":"echo"},"tool_response":{"stdout":"\"bashEditDiff\":{\"skipped\":true}","stderr":"","bashEditDiff":{"files":[],"moreFiles":0,"skipped":false}}}'
+assert_eq "postWriteSession_bashEditDiffSkippedSpoofedInStdout_noSideEffect" \
+    "$SECRET_LINE|" "$(cat "$SB/.claude/sessions/recent.yaml")|$HOOK_ERR"
 
 # post-tool-use.sh reads through `< <(…)`: the status is ignored, the notice is
 # still printed, and nothing is formatted.
@@ -1109,6 +1301,43 @@ BASH_EDIT_WIRED=$(awk '/"matcher":/ { m = $2 } /"command".*post-(tool-use|write-
 assert_eq "bashEditDiff_settingsWiring_bothHooksOnBashMatcher" \
     '"Write|Edit|Bash",
 "Write|Edit|Bash",' "$BASH_EDIT_WIRED"
+
+# Wiring (#T238): every `"command"` under settings.json `"hooks"` runs a script
+# through "$CLAUDE_PROJECT_DIR/.claude/hooks/", so a session whose cwd is a
+# subdirectory still finds the hook. Static; the count of offenders must be 0,
+# and at least one command must have been seen (a vacuous awk reads as 0 too).
+HOOK_CMD_COUNTS=$(awk '/^  "hooks": \{/ { h = 1 } h && /"command":/ { t++; if (index($0, "$CLAUDE_PROJECT_DIR/.claude/hooks/") == 0) o++ } END { print o + 0, t + 0 }' \
+    "$PROJECT_ROOT/.claude/settings.json" 2>/dev/null || echo "x 0")
+HOOK_CMD_SEEN=none
+[ "${HOOK_CMD_COUNTS#* }" -gt 0 ] 2>/dev/null && HOOK_CMD_SEEN=some
+assert_eq "settingsWiring_hookCommandsAnchoredToProjectDir_noSideEffect" \
+    "0|some" "${HOOK_CMD_COUNTS%% *}|$HOOK_CMD_SEEN"
+
+echo ""
+
+# ── post-mcp-validate.sh ────────────────────────────────────────────────────
+# #T26: `echo "$TEXT" | grep -qi <pattern>` under `set -o pipefail` failed OPEN
+# on a large response — grep -q exits at its first match, the writer takes
+# SIGPIPE, the pipeline reads as failed, and the injection alert was skipped
+# (20 of 20 misses at 2.2 MB). The patterns now go through here-strings.
+echo "post-mcp-validate.sh:"
+
+if command -v jq >/dev/null 2>&1; then
+    MCP_FILLER=$(head -c 300000 /dev/zero | tr '\0' 'a')
+    SB=$(new_sandbox)
+    run_hook "$SB" post-mcp-validate.sh \
+        "{\"tool_name\":\"mcp__context7__query-docs\",\"tool_response\":{\"content\":[{\"type\":\"text\",\"text\":\"<script>alert(1)</script>\\n$MCP_FILLER\"}]}}"
+    assert_eq "postMcpValidate_largeResponseScriptOnLineOne_exitsTwo" 2 "$HOOK_EXIT"
+    assert_contains "postMcpValidate_largeResponseScriptOnLineOne_alertOnStderr" \
+        "$HOOK_ERR" "SECURITY ALERT: Pattern '<script>' found"
+
+    run_hook "$SB" post-mcp-validate.sh \
+        '{"tool_name":"mcp__context7__query-docs","tool_response":{"content":[{"type":"text","text":"plain docs about routing"}]}}'
+    assert_eq "postMcpValidate_cleanResponse_exitsZero" 0 "$HOOK_EXIT"
+    assert_eq "postMcpValidate_cleanResponse_noSideEffect" "" "$HOOK_ERR"
+else
+    echo "  SKIP: postMcpValidate (jq not installed)"
+fi
 
 echo ""
 

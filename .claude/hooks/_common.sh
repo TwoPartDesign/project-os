@@ -333,16 +333,21 @@ get_project_root() {
 #   any JSON escape (quote, backslash, control character, \uXXXX) is rejected
 #   with a stderr line, never unescaped. The one exception is a Windows-native
 #   path whose only escape is `\\` (#T233): it is converted with `cygpath -u`,
-#   and rejected as above when cygpath is not on PATH (fail-closed).
+#   and rejected as above when cygpath is not on PATH (fail-closed). cygpath is
+#   resolved once per call and used only when `command -v` yields an absolute
+#   path, so a PATH entry of `.` or a shell function cannot stand in for it.
 # - Absent key or empty list: silent.
 # - Every way of processing fewer files than the change touched says so on
 #   stderr: moreFiles > 0, more than 256 entries, the array running past the
 #   read window (payload bound or 64 KiB parse cap), bashEditDiff lying
 #   past the bound with changedFiles unreadable (set by
 #   `read_hook_payload "" bash-edit-diff` via HOOK_PAYLOAD_TAIL_EDIT_DIFF),
-#   and bashEditDiff.skipped=true (unknown change set, not an empty one).
+#   bashEditDiff.skipped=true (unknown change set, not an empty one), and a
+#   rejected element (quote, backslash or control character, or a Windows path
+#   cygpath could not convert): the file it named is unknown, so the scrub
+#   caller must not trust the list.
 #
-# Exit status: 0, or 3 (BASH_EDIT_FALLBACK_STATUS) when any of those five
+# Exit status: 0, or 3 (BASH_EDIT_FALLBACK_STATUS) when any of those six
 # skips fired, meaning the printed list is incomplete. A caller that must not
 # miss a file (post-write-session.sh's session scrub) captures the output with
 # `out=$(…) || rc=$?` and falls back to a directory sweep on 3; a caller that
@@ -351,7 +356,12 @@ get_project_root() {
 # Usage: while IFS= read -r p; do …; done < <(bash_edit_diff_paths <hook-name>)
 BASH_EDIT_FALLBACK_STATUS=3
 bash_edit_diff_paths() {
-    local LC_ALL=C hook="$1" before rest elem win conv tail13 i n=0 cut=0 edge=0 fb=0 seen=$'\n'
+    local LC_ALL=C hook="$1" before rest elem win conv tail13 i n=0 cut=0 edge=0 fb=0 seen=$'\n' cyg=""
+    # Resolved once per call, accepted only as an absolute path (#S3): `command
+    # -v` also answers with a bare name for a function or alias, and with a
+    # PATH-relative hit when PATH holds `.` or an empty entry.
+    cyg=$(command -v cygpath 2>/dev/null) || cyg=""
+    [[ "$cyg" == /* ]] || cyg=""
     local key='"changedFiles"[[:space:]]*:[[:space:]]*\['
     local str='^"(([^"\\]|\\.)*)"'
     local more='"moreFiles"[[:space:]]*:[[:space:]]*([0-9]+)'
@@ -367,8 +377,12 @@ bash_edit_diff_paths() {
     fi
 
     # `skipped:true` (the platform declined to compute the diff, e.g. after
-    # `git checkout <file>`) means the change set is unknown, not empty.
-    local skip_re='"bashEditDiff"[[:space:]]*:[[:space:]]*\{[^{}]*"skipped"[[:space:]]*:[[:space:]]*true'
+    # `git checkout <file>`) means the change set is unknown, not empty. It is
+    # the last field of tool_response, so it is matched anywhere after the
+    # literal `"bashEditDiff"` key, whatever objects (`files`) come between. An
+    # escaped `\"bashEditDiff\"` inside a stdout string is `"bashEditDiff\"`
+    # on the wire and cannot form the key.
+    local skip_re='"bashEditDiff"[[:space:]]*:.*"skipped"[[:space:]]*:[[:space:]]*true'
     if [[ "$INPUT" =~ $skip_re ]]; then
         echo "$hook: bashEditDiff.skipped=true — the platform did not list the changed files; $skipped" >&2
         fb=$BASH_EDIT_FALLBACK_STATUS
@@ -424,8 +438,8 @@ bash_edit_diff_paths() {
         # Without cygpath the element stays rejected (fail closed).
         if [[ "$elem" == *\\* && "${elem//\\\\/}" != *\\* && "$elem" != *[[:cntrl:]]* ]]; then
             win="${elem//\\\\/\\}"
-            if [[ "$win" =~ ^[A-Za-z]: || "$win" != */* ]] && command -v cygpath >/dev/null 2>&1; then
-                if conv=$(cygpath -u -- "$win" 2>/dev/null) && [ -n "$conv" ] && [[ "$conv" != *[[:cntrl:]]* ]]; then
+            if [[ "$win" =~ ^[A-Za-z]: || "$win" != */* ]] && [ -n "$cyg" ]; then
+                if conv=$("$cyg" -u -- "$win" 2>/dev/null) && [ -n "$conv" ] && [[ "$conv" != *[[:cntrl:]]* ]]; then
                     elem="$conv"
                 fi
             fi
@@ -434,7 +448,11 @@ bash_edit_diff_paths() {
             '') ;;
             # [[:cntrl:]]: a raw newline is invalid JSON, but would split one
             # element into two lines for the caller's `read`.
-            *\\*|*[[:cntrl:]]*) echo "$hook: rejected a bashEditDiff path containing a quote, backslash or control character" >&2 ;;
+            *\\*|*[[:cntrl:]]*)
+                echo "$hook: rejected a bashEditDiff path containing a quote, backslash or control character" >&2
+                # The file it named is unknown: a scrub caller must sweep.
+                fb=$BASH_EDIT_FALLBACK_STATUS
+                ;;
             *)
                 case "$seen" in
                     *$'\n'"$elem"$'\n'*) ;;

@@ -11,6 +11,12 @@
 # extension set. Parsing, dedupe, rejection and the stderr notices for every
 # file not processed (moreFiles > 0, caps, truncation) live in _common.sh's
 # bash_edit_diff_paths.
+#
+# Generated artifacts (Bash branch only): a path a generator or merge script
+# writes (docs/maps/*, .claude/manifest.json, docs/specs/<feature>/
+# review-triage.json, also when spelled under .claude/worktrees/<name>/) is
+# skipped, because formatting it after the fact drifts it from what the
+# generator produces. The Write|Edit branch still formats them.
 
 set -euo pipefail
 trap 'exit 0' ERR  # Advisory hook — never surface errors to Claude Code
@@ -43,20 +49,28 @@ format_file() {
     esac
 }
 
-# is_generated_artifact <resolved> — true for a project-relative path a generator
-# or merge writes (the closed list below). Formatting these after the fact
-# drifts them from what the generator produces. Bash branch only.
+# is_generated_artifact <resolved> <project-root> — true for a project-relative
+# path a generator or merge writes (the closed list below), also when spelled
+# under `.claude/worktrees/<one segment>/`. Formatting these after the fact
+# drifts them from what the generator produces. Bash branch only. The review-
+# triage entry matches exactly one directory level: `docs/specs/a/b/
+# review-triage.json` is not generated.
 is_generated_artifact() {
-    case "${1#"$(get_project_root)/"}" in
-      docs/maps/*|.claude/manifest.json|docs/specs/*/review-triage.json) return 0 ;;
+    local rel="${1#"$2"/}"
+    case "$rel" in
+      .claude/worktrees/*/*) rel="${rel#.claude/worktrees/*/}" ;;
     esac
-    return 1
+    case "$rel" in
+      docs/maps/*|.claude/manifest.json) return 0 ;;
+    esac
+    [[ "$rel" =~ ^docs/specs/[^/]+/review-triage\.json$ ]]
 }
 
 if [ "$(json_string_field "$INPUT" tool_name)" = "Bash" ]; then
+    PROJECT_ROOT=$(get_project_root)
     while IFS= read -r BASH_EDITED; do
         RESOLVED=$(resolve_project_path "$(canonicalize_payload_path "$BASH_EDITED")") || continue
-        is_generated_artifact "$RESOLVED" && continue
+        is_generated_artifact "$RESOLVED" "$PROJECT_ROOT" && continue
         format_file "$RESOLVED"
     done < <(bash_edit_diff_paths post-tool-use)
     exit 0
