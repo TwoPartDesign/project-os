@@ -113,7 +113,6 @@ For small changes (< 20 lines, single file) skip the pipeline and describe the c
 | `/tools:catchup` | Restore context from last session handoff |
 | `/tools:commit` | Quality-checked git commit with pre-flight scan |
 | `/tools:research [topic]` | Spawn parallel research agents |
-| `/tools:kv set/get/list` | Quick key-value notes in `docs/knowledge/kv.md` |
 | `/tools:dashboard [path]` | Cross-project status dashboard (CLI + live web view) |
 | `/tools:metrics [feature]` | Query activity logs and feature metrics |
 

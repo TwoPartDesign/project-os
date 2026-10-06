@@ -390,7 +390,6 @@ CONTENT_FILES=(
   "templates/knowledge/patterns.md|docs/knowledge/patterns.md"
   "templates/knowledge/bugs.md|docs/knowledge/bugs.md"
   "templates/knowledge/architecture.md|docs/knowledge/architecture.md"
-  "templates/knowledge/kv.md|docs/knowledge/kv.md"
   "templates/knowledge/metrics.md|docs/knowledge/metrics.md"
   "templates/knowledge/skill-edit-rejections.md|docs/knowledge/skill-edit-rejections.md"
   "templates/docs/product.md|docs/product.md"

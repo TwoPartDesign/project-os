@@ -33,12 +33,12 @@ User (Approver) ──→ Workflow Commands ──→ Lead ──→ Sub-agents 
 | Module | Path | Purpose |
 |--------|------|---------|
 | Workflow commands | `.claude/commands/workflows/` | Spec-driven dev lifecycle (idea→design→plan→build→review→ship, mvp, compete, rebuild) |
-| Tool commands | `.claude/commands/tools/` | Utility tools (dashboard, commit, handoff, catchup, research, metrics, kv, init, set-models, update, new-project) |
+| Tool commands | `.claude/commands/tools/` | Utility tools (dashboard, commit, handoff, catchup, research, metrics, init, set-models, update, new-project) |
 | PM commands | `.claude/commands/pm/` | Governance (prd, epic, approve, status) |
 | Agent adapters | `.claude/agents/adapters/` | External-agent dispatch only — `codex.sh` (+ `INTERFACE.md`, `_prompt-template.sh`); default path is native Task-tool dispatch |
 | Hooks | `.claude/hooks/` | Event-driven automation (11 files, see below) |
 | Scripts | `scripts/` | Standalone utilities (see below) |
-| Knowledge base | `docs/knowledge/` | Patterns, decisions, bugs, architecture, metrics, design-principles, roadmap-format, windows-bash-scanner, kv |
+| Knowledge base | `docs/knowledge/` | Patterns, decisions, bugs, architecture, metrics, design-principles, roadmap-format, windows-bash-scanner |
 | Specs | `docs/specs/<feature>/` | Per-feature lifecycle docs (design, tasks, review) |
 
 ### Hooks (`.claude/hooks/`)

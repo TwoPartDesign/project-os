@@ -50,7 +50,6 @@ TEMPLATE_FILES=(
     "docs/knowledge/patterns.md"
     "docs/knowledge/bugs.md"
     "docs/knowledge/architecture.md"
-    "docs/knowledge/kv.md"
     "docs/knowledge/metrics.md"
     "docs/knowledge/skill-edit-rejections.md"
 )
