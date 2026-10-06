@@ -156,6 +156,8 @@ Each entry: Date, Decision, Context, Alternatives Considered, Rationale
 
 **Update (2026-09-04)**: routing superseded, see the 2026-09-04 entry. Decision 2 above (the ladder and the cheapest-tier rung) is historical record only; live guidance is the registered roster and the `sonnet → opus → fable` ladder.
 
+**Update (2026-10-05)**: superseded by the 2026-10-05 "Lead Model Moves to Opus (#T228)" entry. The live ladder is `sonnet` (high) → `opus` (high) → `opus` (xhigh); `fable` is no longer a rung.
+
 ---
 
 ## 2026-07-16 — Dashboard Kanban: Shared Render Lib + Linear-Parse Mandate
@@ -393,6 +395,8 @@ thing that varies, and on this plan nothing in the chain drops below the cap.
 Rule that survives: the cap must not exceed the smallest real window in the
 chain — a plan where any chain model runs at 200k sets it to `200000`.
 
+**Update (2026-10-05)**: superseded by the 2026-10-05 "Lead Model Moves to Opus (#T228)" entry. The lead is `opus` at high effort, and the ladder is `sonnet` (high) → `opus` (high) → `opus` (xhigh); `fable` is no longer a rung and is available only as an Approver-confirmed choice through `/tools:set-models`. The registered roster and the `sonnet` floor stand.
+
 ---
 
 ## 2026-09-06 — Orchestration Cost Controls
@@ -437,7 +441,7 @@ count the dispatches under twenty lines) and give the user a lever to adjust.
 
 **Alternatives Considered**:
 - **Follow the session directive (shell-first)** — rejected: every project hook that protects a write is matched on the tool name. `post-tool-use.sh` (prettier + scrub), `post-write-session.sh`, and `compact-suggest.sh` (handoff claim) all run on `Write|Edit`; a `sed -i` or heredoc edit skips formatting, secret scrubbing on write, and handoff ownership. That is the "Mitigate Against the Platform's Real Surface" pattern: the surface is the tool matcher, and a shell edit is off it.
-- **Widen the hooks to also match Bash** — rejected: a Bash matcher cannot tell an edit from a test run without parsing the command string, which is the open-ended recognition problem `patterns.md` says to invert, not chase.
+- **Widen the hooks to also match Bash** — rejected: a Bash matcher cannot tell an edit from a test run without parsing the command string, which is the open-ended recognition problem `patterns.md` says to invert, not chase. **Update (2026-10-06)**: reversed by #T202. `settings.json` now matches `Write|Edit|Bash`, and the hooks read the structured `tool_response.bashEditDiff` channel (changed file paths and hunks) instead of parsing the command string, which answers this rejection's reason. See the 2026-10-06 probe entry (e) and `bash.md` rule 7.
 - **Case-by-case** — rejected: the reviewer showed the ambiguity costs a paragraph of reasoning per agent per session; a stated precedence costs one line.
 
 **Rationale**: On performance the shell buys nothing: Grep is ripgrep, Read takes offset/limit, Edit is an exact-match atomic replace with harness-tracked file state, and each dedicated call integrates with the permission allowlist so sub-agents never stall on a prompt. Structured tool calls with typed arguments are also the current practice across agent harnesses because they are observable, permission-scoped, and hookable, whereas a shell string is opaque to all three. Bash keeps the jobs only it can do: run scripts and tests, drive git, list or count across many files in one call.
@@ -445,6 +449,8 @@ count the dispatches under twenty lines) and give the user a lever to adjust.
 ---
 
 ## 2026-09-20 — Hosted Decision API (Jev) as an Optional Addon Behind a Local Heuristic
+
+**Update (2026-10-06)**: retired, see #T225 (the 2026-10-06 "Jev Triage Path Retired" entry). `decide.ts`, `egress-guard.ts`, the `--calibrate` mode and the settings `project_os.jev` block no longer exist; the text below is historical record only.
 
 **Decision**: `scripts/lib/decide.ts` exposes a typed `decide(state, questions, deps)` interface backed by a deterministic heuristic that always answers. A second backend, Jev (TypeSafe), calls the fixed endpoint constant `JEV_ENDPOINT` (`POST https://api.typesafe.ai/v1/systemone`) — never configurable — and runs only when `project_os.jev.enabled` is `true` in `.claude/settings.json` **and** `TYPESAFE_API_KEY` is set. `decide()` never throws; every fallback path carries a typed `DeclineReason` (`disabled`, `no-key`, `egress-dir-unsafe`, `scrub-failed`, `too-large`, `timeout`, `network`, `redirect`, `http-<status>`, `malformed-response`) and logs `jev-queried` / `jev-declined`. `scripts/lib/decide.ts` is the sole outbound HTTP caller in the repo. Every outbound text field passes through `scripts/lib/egress-guard.ts` before serialization: a scanner scrub subprocess (`node scripts/security-scanner.ts scrub`) verified by a positive re-scan (`scan-files --quiet`) — required because `cmdScrub` exits 0 on a write failure and a bare exit-code check would silently ship unscrubbed content; a key-name denylist redaction (`[REDACTED:key]`, regex ported from `observation-parser.ts`); and a context-free Shannon-entropy floor (≥ 4.0 bits/char on tokens of 24+ chars, `[REDACTED:entropy]`) for bare credentials no naming rule can see. Staging happens in `.claude/logs/jev` (mode 0700, realpath-contained inside the project root), files written mode 0600 with `wx`, and `.tmp`/`.tmp.bak` residue is cleaned up. Any guard failure refuses the send — fail-open for the calling workflow (the heuristic answers instead), fail-closed for egress (nothing partial goes out). The first and only consumer is `scripts/review-triage.ts`, which asks optional `dup_`/`scope_`/`sev_` questions against thresholds `duplicate_p 0.85`, `out_of_scope_p 0.8`, `severity_confidence 0.8`, offline and advisory — the triage table it writes decides nothing.
 
@@ -589,3 +595,21 @@ Generate with: `node scripts/review-triage.ts docs/specs/<feature> --changed-fil
 - **Keep Jev dormant** — rejected: unexercised code with an outbound data path is a liability with no measured benefit (principle: "Code is a liability").
 
 **Rationale**: The egress surface and its guard existed only to serve a backend that never ran. Removing it shrinks the security review surface and the triage code. The calibration question can come back as a new proposal if a backend is ever worth measuring.
+
+---
+
+## 2026-10-06 — Worker Context and Worktree Base (#T208, #T216)
+
+**Decision**:
+- (#T208) All six roster agents set `omitClaudeMd: true` (option A). Briefs keep pasting the `## Agent Rules` sections and the relevant CLAUDE.md conventions, because the worker no longer loads them itself.
+- (#T216) `.claude/settings.json` sets `worktree.baseRef: "head"`, so an Agent-tool worktree branches from the lead's current HEAD. The native concurrency cap `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` replaces the `project_os.parallel` setting. The brief's self-ground merge step is dropped.
+
+**Context**: Probe (a) in the 2026-10-06 probe entry measured that a named subagent inherits the main session's eager instruction set and that `omitClaudeMd: true` drops CLAUDE.md and every unscoped rule, `lead.md` included. A fresh-process probe on 2026-10-06 confirmed it on the real roster: a roster agent sees neither CLAUDE.md nor `lead.md`, while a control agent sees both. Probe (b) measured that a default isolation worktree branched from `origin/master`, and from the unpushed feature HEAD with `baseRef: "head"`.
+
+**Alternatives Considered**:
+- **Leave workers on the inherited context (no `omitClaudeMd`)** — rejected: every worker pays for the lead's orchestration rules and CLAUDE.md, which it does not act on.
+- **`omitClaudeMd` with nothing pasted** — rejected: CLAUDE.md is then the only home of the conventions workers must follow; the brief has to carry them.
+- **Keep the self-ground `git merge` step in every brief** — rejected: with `baseRef: "head"` the worktree already holds the lead's HEAD, and the step costs a command and a failure mode per worker.
+- **Keep `project_os.parallel`** — rejected: the native cap does the same job without a custom setting.
+
+**Rationale**: A worker needs its brief, its Agent Rules and the conventions the lead chose to paste, not the lead's own operating rules; pasting keeps those rules while the worker's baseline load shrinks. `baseRef: "head"` makes the base correct by construction. If the setting is removed, worktrees fall back to `origin/<default>` and the brief must again start with the merge command (`build.md`, Worktree base).

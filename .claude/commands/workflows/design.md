@@ -105,7 +105,7 @@ Agent(
 
 "You are a critical code reviewer. Read the design at `<main-repo absolute path>/docs/specs/$ARGUMENTS/design.md` (docs/specs is gitignored; worktrees cannot see it). Your job is to find flaws. Check:
 1. Are any UNVERIFIED assumptions load-bearing? Flag them.
-2. Does the approach conflict with patterns in docs/knowledge/patterns.md?
+2. Does the approach conflict with patterns in docs/knowledge/patterns.md or the conventions in `<main-repo absolute path>/CLAUDE.md` (you run with `omitClaudeMd: true`, so read it from that absolute path)?
 2a. ADR-conflict check: grep the `^## ` headings of docs/knowledge/decisions.md, open every ADR whose topic touches this design, and flag any place the design contradicts or silently reverses a recorded decision (cite the ADR heading). A deliberate departure must say so in the design's Architecture Decision.
 3. Are there security gaps in the Security Considerations section?
 4. Is the testing strategy sufficient to catch regressions?

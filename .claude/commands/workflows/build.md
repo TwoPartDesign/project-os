@@ -78,7 +78,7 @@ Resolve per task:
 2. No annotation → the `model:` (and `effort:`) frontmatter of the registered agent file in `.claude/agents/` (`implementer.md` is `sonnet`/`high`; `documenter.md` is `sonnet`/`high`)
 3. No agent-file frontmatter → the sub-agent default model (`CLAUDE_CODE_SUBAGENT_MODEL` in `.claude/settings.json`)
 
-**Tiers:** `sonnet`/`high` is the default executor — any task with a complete brief and checkable acceptance criteria. `opus`/`high` is the judgment tier: reach it with a `(model: opus)` annotation (step 0) when the task asks the worker to decide — reconciling conflicting sources, designing a test, root-causing a bug, a refactor spanning systems. Move the model, not the effort. The ladder is `sonnet` → `opus` → `fable`; raise effort `high` → `xhigh` before raising the model when the failure is reasoning depth rather than capability.
+**Tiers:** `sonnet`/`high` is the default executor — any task with a complete brief and checkable acceptance criteria. `opus`/`high` is the judgment tier: reach it with a `(model: opus)` annotation (step 0) when the task asks the worker to decide — reconciling conflicting sources, designing a test, root-causing a bug, a refactor spanning systems. Move the model, not the effort. The ladder is `sonnet` (high) → `opus` (high) → `opus` (xhigh); `fable` is not a rung and is available only as an Approver-confirmed choice through `/tools:set-models`.
 
 `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` is never set — it would override every agent file's own `model:` frontmatter and collapse the roster onto one tier.
 
