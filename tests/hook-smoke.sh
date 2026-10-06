@@ -1191,7 +1191,7 @@ NOTIFY_OUT=$(cat "$SB/notify.out" 2>/dev/null || true)
 NOTIFY_ERR=$(cat "$SB/notify.err" 2>/dev/null || true)
 
 if [ "$NOTIFY_EXIT" -eq 0 ] \
-    && printf '%s' "$NOTIFY_ERR" | grep -Eq '^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\] PROJECT-OS:' \
+    && grep -Eq '^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\] PROJECT-OS:' <<< "$NOTIFY_ERR" \
     && [ -z "$NOTIFY_OUT" ]; then
     ok "notifyPhaseChange_windowsTerminalOnly_exit0StderrLineNoStdout"
 else
