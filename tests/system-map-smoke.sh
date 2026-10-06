@@ -288,13 +288,13 @@ echo ""
 # --- Scenario 6: always-loaded budget wiring in runFindings ------------------
 # Guards the push of findAlwaysLoadedOverBudget results into `report`: the unit
 # tests cover the function, only this exercises the wiring.
-echo "Scenario 6: 10,004-byte unscoped rule -> report names it as over the always-loaded budget"
+echo "Scenario 6: 16,004-byte unscoped rule -> report names it as over the always-loaded budget"
 
 FIXTURE_6="$(mktemp -d)"
 make_fixture "$FIXTURE_6"
 mkdir -p "$FIXTURE_6/.claude/rules"
-# 10004 bytes of spaces = 2501 tokens at 4 bytes per token, one over budget.
-printf '%*s' 10004 '' > "$FIXTURE_6/.claude/rules/big.md"
+# 16004 bytes of spaces = 4001 tokens at 4 bytes per token, one over budget.
+printf '%*s' 16004 '' > "$FIXTURE_6/.claude/rules/big.md"
 (cd "$FIXTURE_6" && git add -A && git commit -q -m "fixture: big always-loaded rule")
 
 set +e
@@ -302,7 +302,7 @@ OUT_6="$(cd "$FIXTURE_6" && node "$SYSTEM_MAP" report 2>&1)"
 EXIT_6=$?
 set -e
 assert_eq "report_bigUnscopedRule_exitsZero" "0" "$EXIT_6" "$OUT_6"
-if [[ "$OUT_6" == *".claude/rules/big.md is always loaded and is approximately 2501 tokens"* ]]; then
+if [[ "$OUT_6" == *".claude/rules/big.md is always loaded and is approximately 4001 tokens"* ]]; then
     pass "report_bigUnscopedRule_namesFileAndTokens"
 else
     fail "report_bigUnscopedRule_namesFileAndTokens" "report output lacks the always-loaded finding:\n$OUT_6"

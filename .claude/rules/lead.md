@@ -127,7 +127,9 @@ Every brief contains, in this order:
 2. **Context**: the specific files, prior decisions, and constraints it needs.
    Paste the relevant excerpts; do not tell it to go find what you already
    have. Include the `## Agent Rules` sections from `bash.md`, `tests.md`,
-   `escalation.md`, and this file.
+   `escalation.md`, and this file. Fold in the `docs/knowledge/patterns.md`
+   conventions that bear on the task: workers do not load CLAUDE.md (roster
+   agents set `omitClaudeMd: true`), so the brief is their only source.
 3. **Scope fence**: what is explicitly out of scope. Targeted edits, no
    refactors, no abstractions, no cleanup of surrounding code. A better
    approach gets one sentence, then the worker proceeds as asked.

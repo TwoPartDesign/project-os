@@ -128,8 +128,8 @@ Constraints, all mandatory:
 - **Size math**: compute estimated tokens as `chars / 4` for the target
   file's content before and after the edit. If the target is an
   always-loaded file (anything under `.claude/rules/`, or `CLAUDE.md`
-  itself) and the edit would grow it past 2500 tokens — or it is already
-  past 2500 tokens — the proposal must either include a compensating
+  itself) and the edit would grow it past 4000 tokens — or it is already
+  past 4000 tokens — the proposal must either include a compensating
   deletion elsewhere in the same block, or state an explicit
   size-growth justification in the Rationale.
 

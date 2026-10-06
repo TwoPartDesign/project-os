@@ -24,13 +24,9 @@
 See `docs/knowledge/architecture.md` for full details.
 
 ## Active Conventions
-<!-- /tools:init: replace with one line per established pattern (name — rule
-     enforced) as patterns.md accumulates entries — then keep the pointer
-     line below. -->
-This project has no recorded patterns yet.
-
-See `docs/knowledge/patterns.md` for full rationale, examples, and
-anti-patterns per pattern.
+The established patterns live in `docs/knowledge/patterns.md`, one entry each
+with rationale, examples, and anti-patterns. Read it before design and build
+decisions.
 
 ## Workflow
 This project uses spec-driven development:

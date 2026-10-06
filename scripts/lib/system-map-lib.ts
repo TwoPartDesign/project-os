@@ -680,10 +680,10 @@ export function findBloat(
 /**
  * Token budget for always-loaded instruction files (CLAUDE.md and every
  * unscoped `.claude/rules/*.md`). Single named constant: the budget in
- * `.claude/commands/tools/reflect.md` ("Size math", 2500 tokens) is prose, not
+ * `.claude/commands/tools/reflect.md` ("Size math", 4000 tokens) is prose, not
  * machine-readable, so it is mirrored here.
  */
-export const ALWAYS_LOADED_BUDGET_TOKENS = 2500;
+export const ALWAYS_LOADED_BUDGET_TOKENS = 4000;
 
 /** True when `content` opens with YAML frontmatter that declares a `paths:` key (a lazily-loaded rule). */
 function hasPathsFrontmatter(content: string): boolean {
