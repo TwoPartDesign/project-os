@@ -215,13 +215,13 @@ describe("extractImports", () => {
       "import {",
       "  decide,",
       "  type DecideDeps,",
-      '} from "./lib/decide.ts";',
+      '} from "./lib/sample.ts";',
       'import { esc } from "../dashboard-render.ts";',
     ].join("\n");
     const result = extractImports(ts, "scripts/sub/foo.ts");
     deepStrictEqual(result, [
       { target: "scripts/dashboard-render.ts" },
-      { target: "scripts/sub/lib/decide.ts" },
+      { target: "scripts/sub/lib/sample.ts" },
     ]);
   });
 
