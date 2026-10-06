@@ -8,7 +8,8 @@
 # user/flag/policy settings enable it), and each gets the Write|Edit treatment:
 # canonicalize, contain, scrub only under .claude/sessions/. Parsing, dedupe,
 # rejection and the stderr notices for every file not processed (moreFiles > 0,
-# caps, truncation) live in _common.sh's bash_edit_diff_paths.
+# caps, truncation) live in _common.sh's bash_edit_diff_paths; when it exits 3
+# the list is incomplete and this hook sweeps recent files under sessions/.
 #
 # The read is bounded (read_hook_payload) because the Bash matcher puts every
 # command's stdout through this hook; `INPUT=$(cat)` cost seconds per large
@@ -35,10 +36,27 @@ scrub_if_session() {
 }
 
 if [ "$(json_string_field "$INPUT" tool_name)" = "Bash" ]; then
+    # The parser's exit status says whether its list is complete. Capture it
+    # (no process substitution, which would drop it) and, when it is not, sweep.
+    BASH_EDIT_RC=0
+    BASH_EDIT_LIST=$(bash_edit_diff_paths post-write-session) || BASH_EDIT_RC=$?
     while IFS= read -r BASH_EDITED; do
+        [ -n "$BASH_EDITED" ] || continue
         RESOLVED=$(resolve_project_path "$(canonicalize_payload_path "$BASH_EDITED")") || continue
         scrub_if_session "$RESOLVED"
-    done < <(bash_edit_diff_paths post-write-session)
+    done <<< "$BASH_EDIT_LIST"
+    if [ "$BASH_EDIT_RC" -eq "$BASH_EDIT_FALLBACK_STATUS" ]; then
+        # Fallback: some Bash-edited files were not listed to us, and a skipped
+        # scrub leaves a secret in a handoff. Scrub every regular file directly
+        # under .claude/sessions/ touched in the last 10 minutes. `-type f`
+        # does not follow links, and each hit still goes through
+        # resolve_project_path and scrub_if_session, so containment is unchanged.
+        echo "post-write-session: bashEditDiff list incomplete — fallback scrub of .claude/sessions/ files modified in the last 10 minutes" >&2
+        while IFS= read -r -d '' SWEPT; do
+            RESOLVED=$(resolve_project_path "$SWEPT") || continue
+            scrub_if_session "$RESOLVED"
+        done < <(find "$SESSION_DIR" -maxdepth 1 -type f -mmin -10 -print0 2>/dev/null)
+    fi
     exit 0
 fi
 

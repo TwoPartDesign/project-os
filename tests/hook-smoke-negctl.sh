@@ -37,12 +37,15 @@
 #      only because the suite pipes the payload in under `set -o pipefail`. Must
 #      kill postToolUse_payloadPastBound_exitsZero. It also kills the truncation
 #      notice, because the same `wc -c` both drains and counts — this is the one
-#      mutant here with two victims, and it is meant to.
+#      mutant here with two victims per hook, and it is meant to: post-tool-use
+#      and post-write-session each lose _payloadPastBound_exitsZero and
+#      _filePathBeyondBound_saysSoOnStderr.
 #
 #   5. SILENT-TRUNCATION — the stderr notice for a file_path that fell outside
 #      the window removed. The bound's blind spot is defensible only while it is
 #      audible; this proves the assertion that keeps it so. Must kill
-#      postToolUse_filePathBeyondBound_saysSoOnStderr.
+#      postToolUse_filePathBeyondBound_saysSoOnStderr and its post-write-session
+#      twin (the Write path's "not scrubbing" notice is removed too).
 #
 #   6. NO-CONTAINMENT — resolve_project_path's root comparison disabled
 #      (#T202). Every path that exists is then "ours". Must kill exactly the
@@ -61,9 +64,12 @@
 #      .claude/sessions/ scope check but takes the raw payload path
 #      (`RESOLVED="$BASH_EDITED"`): no canonicalization, no containment. Only
 #      a path spelled under sessions/ that leaves the root can tell, so it must
-#      kill exactly the `..`-through-sessions case. (A sessions/ symlink to an
-#      outside file survives it: scrub-secrets.sh does not write through the
-#      link, so that case guards the outside file but is not this mutant's.)
+#      kill exactly the `..`-through-sessions case and the sessions/ symlink to
+#      an outside file. The symlink case tells only because it also asserts the
+#      link is still a link: scrub-secrets.sh does not write through it, it
+#      replaces it with a regular file, so the outside file is intact either
+#      way and the content check alone cannot see this mutant. Mutant 7 kills
+#      it for the same reason.
 
 # THIS SCRIPT'S OWN PASS CONDITION. A negative control that cannot fail is the
 # same vacuous test it exists to prevent, and until #T170 this was one: it ran
@@ -279,16 +285,20 @@ fi
 # and counts, so removing it takes the truncation notice with it.
 run_mutant "mutant 4: read_hook_payload does not drain the remainder" \
     "$NODRAIN" "postToolUse_payloadPastBound_exitsZero" \
-    "postToolUse_filePathBeyondBound_saysSoOnStderr"
+    "postToolUse_filePathBeyondBound_saysSoOnStderr" \
+    "postWriteSession_payloadPastBound_exitsZero" \
+    "postWriteSession_filePathBeyondBound_saysSoOnStderr"
 
 SILENT="$WORK/silent-truncation"
 build_mutant "$SILENT"
 sed -i '/post-tool-use: payload exceeded/d' "$SILENT/post-tool-use.sh"
-if grep -q 'not formatting' "$SILENT/post-tool-use.sh"; then
+sed -i '/post-write-session: payload exceeded/d' "$SILENT/post-write-session.sh"
+if grep -q 'not formatting' "$SILENT/post-tool-use.sh" || grep -q 'not scrubbing' "$SILENT/post-write-session.sh"; then
     fatal "mutant 5" "NOT APPLIED — the notice is still there"
 fi
 run_mutant "mutant 5: truncated file_path degrades silently" \
-    "$SILENT" "postToolUse_filePathBeyondBound_saysSoOnStderr"
+    "$SILENT" "postToolUse_filePathBeyondBound_saysSoOnStderr" \
+    "postWriteSession_filePathBeyondBound_saysSoOnStderr"
 
 # ── Mutant 6: containment removed (#T202) ───────────────────────────────────
 NOCONTAIN="$WORK/no-containment"
@@ -317,7 +327,8 @@ run_mutant "mutant 7: post-write-session.sh Bash branch scrubs uncontained paths
     "$SCRUBRAW" "postWriteSession_bashEditDiffNonSessionFile_noSideEffect" \
     "postWriteSession_bashEditDiffOutsideRepo_noSideEffect" \
     "postWriteSession_bashEditDiffPrefixCollision_noSideEffect" \
-    "postWriteSession_bashEditDiffDotDotThroughSessions_noSideEffect"
+    "postWriteSession_bashEditDiffDotDotThroughSessions_noSideEffect" \
+    "postWriteSession_bashEditDiffSessionSymlinkToOutside_noSideEffect"
 
 # ── Mutant 8: scrub scope check kept, containment dropped (#T202) ───────────
 SCOPEONLY="$WORK/scrub-scope-only"
@@ -328,7 +339,8 @@ if ! grep -q '^        RESOLVED="$BASH_EDITED"$' "$SCOPEONLY/post-write-session.
     fatal "mutant 8" "NOT APPLIED — the Bash branch still resolves its paths"
 fi
 run_mutant "mutant 8: post-write-session.sh Bash branch keeps scope, drops containment" \
-    "$SCOPEONLY" "postWriteSession_bashEditDiffDotDotThroughSessions_noSideEffect"
+    "$SCOPEONLY" "postWriteSession_bashEditDiffDotDotThroughSessions_noSideEffect" \
+    "postWriteSession_bashEditDiffSessionSymlinkToOutside_noSideEffect"
 
 # ── Verdict ─────────────────────────────────────────────────────────────────
 echo "=== negative control ==="

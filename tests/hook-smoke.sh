@@ -542,6 +542,32 @@ else
     echo "  SKIP: postWriteSession_symlinkedSessionsDir_secretScrubbed (symlink creation unsupported)"
 fi
 
+# The Write path's bounded read (#T148): file_path can fall past the window, and
+# the hook then scrubs nothing. That is defensible only while it says so.
+SB=$(new_sandbox)
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/beyond.yaml"
+run_hook "$SB" post-write-session.sh \
+    "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$SB/.claude/sessions/beyond.yaml\"},\"tool_response\":\"ok\"}" \
+    PROJECT_OS_HOOK_PAYLOAD_BYTES=16
+assert_eq "postWriteSession_filePathBeyondBound_exitsZero" 0 "$HOOK_EXIT"
+assert_contains "postWriteSession_filePathBeyondBound_saysSoOnStderr" \
+    "$HOOK_ERR" "not scrubbing"
+assert_eq "postWriteSession_filePathBeyondBound_fileUnchanged_noSideEffect" \
+    "$SECRET_LINE" "$(cat "$SB/.claude/sessions/beyond.yaml")"
+
+# The ordinary half: a payload far past the bound whose file_path is inside the
+# window is still scrubbed. The 256 KB filler outruns the pipe buffer, so
+# exitsZero is also the drain assertion (a writer hit by EPIPE exits 141).
+SB=$(new_sandbox)
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/inwindow.yaml"
+WRITE_FILLER=$(head -c 262144 /dev/zero | tr '\0' 'x')
+run_hook "$SB" post-write-session.sh \
+    "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$SB/.claude/sessions/inwindow.yaml\"},\"tool_response\":\"$WRITE_FILLER\"}" \
+    PROJECT_OS_HOOK_PAYLOAD_BYTES=256
+assert_eq "postWriteSession_payloadPastBound_exitsZero" 0 "$HOOK_EXIT"
+assert_contains "postWriteSession_payloadPastBound_keyInWindow_stillScrubbed" \
+    "$(cat "$SB/.claude/sessions/inwindow.yaml")" "REDACTED:OPENAI_KEY"
+
 echo ""
 
 # ── bashEditDiff: Bash-made edits (#T202) ───────────────────────────────────
@@ -679,13 +705,24 @@ assert_contains "postToolUse_bashEditDiffMoreFiles_noticeOnStderr" \
     "$HOOK_ERR" "moreFiles=3"
 
 # More than 256 entries: the first 256 are processed, the overrun announced.
-SB=$(new_sandbox); npx_stub "$SB"
-printf 'x\n' > "$SB/in.md"
+# 257 DISTINCT `.ts` files, because the parser dedupes and the hook only
+# formats formatter-eligible extensions: one path repeated 257 times, or a
+# `.md`, would never reach the cap.
+SB=$(new_sandbox); npx_stub "$SB"; SBP=$(cd "$SB" && pwd -P)
 MANY=""
-for _ in $(seq 1 257); do MANY="$MANY\"$SB/in.md\","; done
+for i in $(seq 1 257); do
+    printf 'x\n' > "$SB/f$i.ts"
+    MANY="$MANY\"$SB/f$i.ts\","
+done
 run_hook "$SB" post-tool-use.sh "$(bash_payload "${MANY%,}")" PATH="$SB/bin:$PATH"
 assert_contains "postToolUse_bashEditDiffOver256Entries_noticeOnStderr" \
     "$HOOK_ERR" "more than 256 entries"
+assert_eq "postToolUse_bashEditDiffOver256Entries_formatsExactly256" \
+    256 "$(npx_calls "$SB" | wc -l | tr -d ' ')"
+assert_contains "postToolUse_bashEditDiffOver256Entries_256thFormatted" \
+    "$(npx_calls "$SB")" "prettier --write $SBP/f256.ts"
+assert_not_contains "postToolUse_bashEditDiffOver256Entries_257thPath_noSideEffect" \
+    "$(npx_calls "$SB")" "f257.ts"
 
 # A path with a leading `-`, named relative to the hook's cwd: a file, not an
 # option to realpath (`realpath -- …`).
@@ -698,12 +735,16 @@ assert_eq "postToolUse_bashEditDiffLeadingDash_formatted" \
     "prettier --write $SBP/-x.ts" "$(npx_calls "$SB")"
 
 # Truncation. T1: a Bash stdout past the bound pushes bashEditDiff out of the
-# window entirely; T2: hunks past the bound push changedFiles out. Either way
-# nothing is scrubbed — no path is ever taken from the unread remainder — and
-# the skip is said on stderr. The 300 KB filler outruns the pipe buffer, so
-# exitsZero is also the drain assertion (a writer hit by EPIPE exits 141).
+# window entirely; T2: hunks past the bound push changedFiles out. No path is
+# ever taken from the unread remainder, so the skip is said on stderr and
+# post-write-session.sh falls back to scrubbing every regular file directly under
+# .claude/sessions/ modified in the last 10 minutes — a secret must not outlive
+# a skipped parse. The 300 KB filler outruns the pipe buffer, so exitsZero is
+# also the drain assertion (a writer hit by EPIPE exits 141).
 SB=$(new_sandbox)
 printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/big.yaml"
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/stale.yaml"
+touch -d '30 minutes ago' "$SB/.claude/sessions/stale.yaml"
 BIG_FILLER=$(head -c 300000 /dev/zero | tr '\0' 'a')
 run_hook "$SB" post-write-session.sh \
     "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"x\"},\"tool_response\":{\"stdout\":\"$BIG_FILLER\",\"stderr\":\"\",\"bashEditDiff\":{\"files\":[],\"moreFiles\":0,\"changedFiles\":[\"$SB/.claude/sessions/big.yaml\"]}}}" \
@@ -711,8 +752,14 @@ run_hook "$SB" post-write-session.sh \
 assert_eq "postWriteSession_bashEditDiffPastBoundT1_exitsZero" 0 "$HOOK_EXIT"
 assert_contains "postWriteSession_bashEditDiffPastBoundT1_warnsOnStderr" \
     "$HOOK_ERR" "before bashEditDiff.changedFiles"
-assert_eq "postWriteSession_bashEditDiffPastBoundT1_noSideEffect" \
-    "$SECRET_LINE" "$(cat "$SB/.claude/sessions/big.yaml")"
+assert_contains "postWriteSession_bashEditDiffPastBoundT1_fallbackNamedOnStderr" \
+    "$HOOK_ERR" "fallback scrub"
+assert_contains "postWriteSession_bashEditDiffPastBoundT1_fallbackScrubbed" \
+    "$(cat "$SB/.claude/sessions/big.yaml")" "REDACTED:OPENAI_KEY"
+assert_not_contains "postWriteSession_bashEditDiffPastBoundT1_secretGone" \
+    "$(cat "$SB/.claude/sessions/big.yaml")" "sk-abcdefghijklmnopqrstuvwx"  # scan:allow (fake fixture token, not a real secret)
+assert_eq "postWriteSession_bashEditDiffPastBoundT1_staleFile_noSideEffect" \
+    "$SECRET_LINE" "$(cat "$SB/.claude/sessions/stale.yaml")"
 
 SB=$(new_sandbox)
 printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/big.yaml"
@@ -722,8 +769,48 @@ run_hook "$SB" post-write-session.sh \
 assert_eq "postWriteSession_bashEditDiffPastBoundT2_exitsZero" 0 "$HOOK_EXIT"
 assert_contains "postWriteSession_bashEditDiffPastBoundT2_warnsOnStderr" \
     "$HOOK_ERR" "before bashEditDiff.changedFiles"
-assert_eq "postWriteSession_bashEditDiffPastBoundT2_noSideEffect" \
-    "$SECRET_LINE" "$(cat "$SB/.claude/sessions/big.yaml")"
+assert_contains "postWriteSession_bashEditDiffPastBoundT2_fallbackNamedOnStderr" \
+    "$HOOK_ERR" "fallback scrub"
+assert_contains "postWriteSession_bashEditDiffPastBoundT2_fallbackScrubbed" \
+    "$(cat "$SB/.claude/sessions/big.yaml")" "REDACTED:OPENAI_KEY"
+
+# moreFiles > 0 on the session path: the listed file is scrubbed by the list,
+# the unlisted one by the fallback.
+SB=$(new_sandbox)
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/listed.yaml"
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/unlisted.yaml"
+touch -d '30 minutes ago' "$SB/.claude/sessions/listed.yaml"
+run_hook "$SB" post-write-session.sh \
+    "$(bash_payload "\"$SB/.claude/sessions/listed.yaml\"" | sed 's/"moreFiles":0/"moreFiles":3/')"
+assert_contains "postWriteSession_bashEditDiffMoreFiles_listedFileScrubbed" \
+    "$(cat "$SB/.claude/sessions/listed.yaml")" "REDACTED:OPENAI_KEY"
+assert_contains "postWriteSession_bashEditDiffMoreFiles_fallbackNamedOnStderr" \
+    "$HOOK_ERR" "fallback scrub"
+assert_contains "postWriteSession_bashEditDiffMoreFiles_unlistedFileScrubbed" \
+    "$(cat "$SB/.claude/sessions/unlisted.yaml")" "REDACTED:OPENAI_KEY"
+
+# The array is cut by the bound with the key INSIDE the window: complete
+# elements before the cut are scrubbed from the list, the cut element is not
+# listed at all and goes to the fallback, and the cut is announced. The bound
+# lands in the middle of the second element's path.
+SB=$(new_sandbox)
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/first.yaml"
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/second.yaml"
+# first.yaml is outside the fallback's 10-minute window, so only the list can
+# have scrubbed it.
+touch -d '30 minutes ago' "$SB/.claude/sessions/first.yaml"
+CUT_HEAD="{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"x\"},\"tool_response\":{\"stdout\":\"\",\"stderr\":\"\",\"bashEditDiff\":{\"files\":[],\"moreFiles\":0,\"changedFiles\":[\"$SB/.claude/sessions/first.yaml\",\"$SB/.claude/sessions/sec"
+run_hook "$SB" post-write-session.sh \
+    "${CUT_HEAD}ond.yaml\"]}}}" PROJECT_OS_HOOK_PAYLOAD_BYTES=${#CUT_HEAD}
+assert_eq "postWriteSession_bashEditDiffArrayCutByBound_exitsZero" 0 "$HOOK_EXIT"
+assert_contains "postWriteSession_bashEditDiffArrayCutByBound_warnsOnStderr" \
+    "$HOOK_ERR" "runs past the read window"
+assert_contains "postWriteSession_bashEditDiffArrayCutByBound_completeElementScrubbed" \
+    "$(cat "$SB/.claude/sessions/first.yaml")" "REDACTED:OPENAI_KEY"
+assert_contains "postWriteSession_bashEditDiffArrayCutByBound_fallbackNamedOnStderr" \
+    "$HOOK_ERR" "fallback scrub"
+assert_contains "postWriteSession_bashEditDiffArrayCutByBound_cutElementScrubbedByFallback" \
+    "$(cat "$SB/.claude/sessions/second.yaml")" "REDACTED:OPENAI_KEY"
 
 # The scrub's own scope: an in-repo non-session file, an outside file, and a
 # prefix-collision `<root>-evil/.claude/sessions/` file are all left as written.
@@ -758,10 +845,32 @@ assert_eq "postWriteSession_bashEditDiffDotDotThroughSessions_noSideEffect" \
 printf '%s\n' "$SECRET_LINE" > "$OUTSIDE/linked.yaml"
 if ln -s "$OUTSIDE/linked.yaml" "$SB/.claude/sessions/link-out.yaml" 2>/dev/null && [ -L "$SB/.claude/sessions/link-out.yaml" ]; then
     run_hook "$SB" post-write-session.sh "$(bash_payload "\"$SB/.claude/sessions/link-out.yaml\"")"
+    # The link must also survive as a link: scrub-secrets.sh replaces a path it
+    # rewrites with a regular file, so a `-L` that went false means the scrub
+    # ran on the raw path and containment did not stop it, even though the
+    # outside file's content is untouched either way.
+    LINK_STATE=$([ -L "$SB/.claude/sessions/link-out.yaml" ] && echo symlink || echo replaced)
     assert_eq "postWriteSession_bashEditDiffSessionSymlinkToOutside_noSideEffect" \
-        "$SECRET_LINE" "$(cat "$OUTSIDE/linked.yaml")"
+        "$SECRET_LINE|symlink" "$(cat "$OUTSIDE/linked.yaml")|$LINK_STATE"
 else
     echo "  SKIP: postWriteSession_bashEditDiffSessionSymlinkToOutside_noSideEffect (symlink creation unsupported)"
+fi
+
+# The fallback sweep must not follow a link either (`find -type f`). Its own
+# sandbox, so a scrub that replaced the link in the case above cannot leak here.
+SB=$(new_sandbox)
+OUTSIDE=$(mktemp -d)
+SANDBOXES+=("$OUTSIDE")
+printf '%s\n' "$SECRET_LINE" > "$OUTSIDE/linked.yaml"
+if ln -s "$OUTSIDE/linked.yaml" "$SB/.claude/sessions/link-out.yaml" 2>/dev/null && [ -L "$SB/.claude/sessions/link-out.yaml" ]; then
+    run_hook "$SB" post-write-session.sh "$(bash_payload '')" PROJECT_OS_HOOK_PAYLOAD_BYTES=64
+    LINK_STATE=$([ -L "$SB/.claude/sessions/link-out.yaml" ] && echo symlink || echo replaced)
+    assert_contains "postWriteSession_bashEditDiffFallbackSkipsSessionSymlink_fallbackRan" \
+        "$HOOK_ERR" "fallback scrub"
+    assert_eq "postWriteSession_bashEditDiffFallbackSkipsSessionSymlink_noSideEffect" \
+        "$SECRET_LINE|symlink" "$(cat "$OUTSIDE/linked.yaml")|$LINK_STATE"
+else
+    echo "  SKIP: postWriteSession_bashEditDiffFallbackSkipsSessionSymlink_noSideEffect (symlink creation unsupported)"
 fi
 
 # The key itself straddles the bound: the window ends in `"bashE`, the tail
