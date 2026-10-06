@@ -41,13 +41,36 @@ Every hook and permission change was decided by a fresh headless-session probe f
 - 22 `printf "$var" | grep -q` assertions under `pipefail` become `[[ ]]` or here-strings,
   removing a latent SIGPIPE race (#T240).
 
+### Ship-gate fixes
+The three-reviewer gate passed with fixes (no CRITICAL; one HIGH, pre-existing). All
+fixed in this release:
+- **Prompt-injection alert failed open on large MCP responses** (HIGH, pre-existing) —
+  `post-mcp-validate.sh` piped the response into `grep -qi` under `pipefail`; on a 2.2 MB
+  response with `<script>` on line 1 the alert missed 20 of 20 runs. Here-strings now, with a
+  regression test.
+- **update-project.sh traversal guard** had the same race (`tar tzf | grep -qE`): the listing is
+  captured first, so the guard cannot be skipped.
+- **Session scrub is fail-safe** — a rejected `bashEditDiff` path (including a Windows path
+  without a usable `cygpath`) now triggers the fallback sweep; `skipped:true` is detected past
+  nested objects; `cygpath` runs only from an absolute path.
+- **Ten dead allow rules removed** — hooks are not permission-gated (probe), so allow entries
+  for scripts that only run as hooks did nothing; decisions.md amends the #T76 contract.
+- `PROJECT_OS_WEEK` must be `YYYY-Www`; compaction-metrics reports each closing boundary's
+  own `postTokens` everywhere; pinning tests for the 4,000 budget, the 500k window and the
+  absolute hook paths; build.md, the adapter contract and reviewers name patterns.md;
+  decisions.md records the probe facts behind the hook changes.
+
 ### Migration
 - **settings.json** — hook commands become `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/<x>.sh"`;
-  drop the two `(cd * …)` allow rules; `CLAUDE_CODE_AUTO_COMPACT_WINDOW` → `"500000"`.
+  drop the two `(cd * …)` allow rules and the `Bash(bash .claude/hooks/<x>.sh*)` entries for
+  hook-only scripts (keep `log-activity.sh` and `notify-phase-change.sh`);
+  `CLAUDE_CODE_AUTO_COMPACT_WINDOW` → `"500000"`.
 - **CLAUDE.md** — projects that copied the conventions list can replace it with the pointer.
 
 ### Known gaps
 - Windows behaviour of the `"$CLAUDE_PROJECT_DIR"` hook form is unverified.
+- A downstream project whose settings.json conflicted on update keeps relative hook paths with
+  no warning (draft #T244).
 - The failure-draft threshold of 5 is provisional until a week of real data.
 - Six MEDIUM `orphan-script` findings in `system-map.ts report` predate this release.
 

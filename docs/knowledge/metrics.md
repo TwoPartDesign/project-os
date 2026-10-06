@@ -228,3 +228,16 @@ Track per-feature implementation metrics. Updated by `/workflows:ship` and query
 - **Lines changed**: +3,797 / -5,942 across 98 files (`master...HEAD`, includes the unreleased v2.4-dev and changelog-alignment-2026-09 work on the branch)
 - **Tests**: `bash tests/run-all.sh` 10/10 suites PASS (259s)
 - **Key findings**: (1) agent-definition edits do not reach the session that made them, so a reviewer reading the cached definition reported `omitClaudeMd` as unhonoured; only a fresh-process probe settles it; (2) `cmd | grep -q` under `pipefail` is a latent SIGPIPE race (bugs.md, 2026-10-06), and ~20 more sites remain (#T240); (3) the auto-mode classifier blocks edits to agents, skills and rebuild steps even with in-chat permission; switching the session to Accept edits was the working path
+
+### Feature: changelog-alignment-2026-10 (v3.1 follow-ups)
+- **Duration**: 2026-10-06 (single day, same lead session as v3.0)
+- **Tasks**: 12 built (#T229, #T233–#T243), 0 blocked; 1 follow-up filed as a draft (#T244)
+- **Waves**: 1 platform probe + 2 build waves + 1 ship-gate fix wave (W1–W4) + 1 fresh security re-verify
+- **Revisions**: 1 worker send-back (#T229 count-free fingerprint would collide under substring dedupe → per-ISO-week fingerprint); ship gate passed with fixes (no CRITICAL, one pre-existing HIGH confirmed by probe before fixing)
+- **First-pass review rate**: 92% at worker level (11/12); ship gate not passed first time
+- **Harness fingerprint**: `639573f5929ab58a8b92f876e52b2e4f1a11ce74` (`git rev-parse HEAD:.claude` at ship)
+- **Model split**: Opus lead; `implementer`/`documenter` on Sonnet, judgment tasks, probe and reviewers on Opus
+- **Sub-agent tokens**: probe + build 622,149 (probe 91,991; A2 105,467; A3 84,003; A4 99,928; A5 78,093; B1 82,531; T236 80,136); ship-gate reviewers 435,563; fix wave 408,395 (W1 154,380, W2 71,004, W3 117,695, W4 65,316)
+- **Lines changed**: +1,376 / -254 across 44 files (`1d13aa8..HEAD`)
+- **Tests**: `bash tests/run-all.sh` 10/10 suites PASS (252s)
+- **Key findings**: (1) hooks are not permission-gated, so `permissions.allow` entries for hook-only scripts were dead weight; (2) the `cmd | grep -q` SIGPIPE race was live in shipped code: the MCP prompt-injection alert missed 20/20 on a 2.2 MB response; (3) a substring-deduped fingerprint must change over time or it suppresses its subject forever
