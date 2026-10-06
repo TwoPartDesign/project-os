@@ -422,11 +422,11 @@ run_check_staleness() {
         ledger_skip_unavailable "staleness"
         return 0
     fi
-    if printf '%s\n' "$out" | grep -q "^Index not found"; then
+    if grep -q "^Index not found" <<< "$out"; then
         ledger_skip_unavailable "staleness"
         return 0
     fi
-    if printf '%s\n' "$out" | grep -q "^No stale files"; then
+    if grep -q "^No stale files" <<< "$out"; then
         return 0
     fi
 
@@ -485,7 +485,7 @@ run_check_failures() {
         local aline ats
         while IFS= read -r aline; do
             [ -z "$aline" ] && continue
-            printf '%s' "$aline" | grep -qE '"event":[[:space:]]*"task-failed"' || continue
+            grep -qE '"event":[[:space:]]*"task-failed"' <<< "$aline" || continue
             ats=$(printf '%s' "$aline" | grep -oE '"timestamp":[[:space:]]*"[^"]*"' | sed -E 's/.*"([^"]*)"$/\1/') || true
             if [ -n "$LAST_RUN_TS" ] && [ -n "$ats" ]; then
                 if [[ ! "$ats" > "$LAST_RUN_TS" ]]; then
@@ -507,7 +507,17 @@ run_check_failures() {
     # or with old failures:<tool>:<count> lines. The count lives in the title
     # only. The threshold of 5 is provisional and will be recalibrated after a
     # week of real data.
-    local week="${PROJECT_OS_WEEK:-$(date -u +%G-W%V)}"
+    # PROJECT_OS_WEEK is honoured only when well-formed; blank/junk falls back
+    # to the computed week.
+    local week_re='^[0-9]{4}-W[0-9]{2}$'
+    local week="${PROJECT_OS_WEEK:-}"
+    if ! [[ "$week" =~ $week_re ]]; then
+        week=$(date -u +%G-W%V) || week=""
+    fi
+    if ! [[ "$week" =~ $week_re ]]; then
+        echo "maintain: could not compute a well-formed ISO week; skipping failures draft for this run" >&2
+        return 0
+    fi
     local over_tools=() t
     for t in "${!tool_counts[@]}"; do
         if [ "${tool_counts[$t]}" -ge "$FAILURE_DRAFT_THRESHOLD" ]; then
