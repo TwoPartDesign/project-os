@@ -59,7 +59,7 @@ Agent(
 
 "You are a drift detection auditor. Your job is to find mismatches between what was planned and what was built.
 
-CRITICAL — BASH COMMAND RULES:
+BASH COMMAND RULES:
 [BASH_AGENT_RULES]
 
 AGENT RULES:
@@ -105,7 +105,7 @@ Agent(
 
 "You are a security auditor. Review ONLY the changed files for security issues.
 
-CRITICAL — BASH COMMAND RULES:
+BASH COMMAND RULES:
 [BASH_AGENT_RULES]
 
 AGENT RULES:
@@ -151,7 +151,7 @@ Agent(
 
 "You are a code quality reviewer. Review the changed files for maintainability.
 
-CRITICAL — BASH COMMAND RULES:
+BASH COMMAND RULES:
 [BASH_AGENT_RULES]
 
 AGENT RULES:

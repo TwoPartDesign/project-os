@@ -1,6 +1,6 @@
 # Agent Roles
 
-Roles define what each agent type can do. Permissions are advisory in v2 (enforcement planned for v2.1).
+Roles define what each agent type can do. Permissions are advisory; agents self-enforce from their frontmatter.
 
 ## Architect
 - **Agents**: researcher
@@ -48,5 +48,5 @@ Approver     all                   all                                all
 Lead         all                   specs/knowledge/ROADMAP/handoffs/git-integration   all
 ```
 
-Enforcement is advisory in v2. Agents should self-enforce based on their frontmatter.
+Enforcement is advisory. Agents should self-enforce based on their frontmatter.
 Approver (human) can override any restriction.

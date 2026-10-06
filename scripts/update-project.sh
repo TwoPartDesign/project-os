@@ -429,7 +429,6 @@ TEMPLATE_SCRIPTS=(
     "scripts/validate-roadmap.sh"
     "scripts/create-pr.sh"
     "scripts/dashboard.sh"
-    "scripts/context-filter.sh"
     "scripts/validate-freshness.sh"
     "scripts/codex-review.sh"
     "scripts/generate-manifest.sh"

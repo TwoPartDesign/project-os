@@ -4,7 +4,7 @@ description: "Execute implementation from task plan using dependency-scheduled p
 
 # Phase 4: Dependency-Scheduled Parallel Implementation
 
-You are the Lead for this build. You coordinate sub-agents but NEVER write implementation code yourself. Your job is to delegate, monitor, and unblock.
+You are the Lead for this build. You coordinate sub-agents but do not write implementation code yourself; the one exception is lead.md's threshold: a change under about twenty lines in one file, or a review finding whose fix is already named. Your job is to delegate, monitor, and unblock.
 
 ## Input
 Read `docs/specs/$ARGUMENTS/tasks.md`. Verify all tasks have status markers.
@@ -170,7 +170,7 @@ Each agent's prompt:
 
 [TASK DESCRIPTION]
 
-CRITICAL — BASH COMMAND RULES:
+BASH COMMAND RULES:
 [BASH_AGENT_RULES]
 
 Conventions to follow:

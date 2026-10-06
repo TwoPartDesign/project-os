@@ -32,7 +32,7 @@ Each agent prompt must contain:
 3. The bash rules block and the lead agent rules block:
 
 ```
-CRITICAL — BASH COMMAND RULES:
+BASH COMMAND RULES:
 [BASH_AGENT_RULES]
 
 AGENT RULES:

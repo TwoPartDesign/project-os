@@ -115,7 +115,7 @@ Output format — one line per finding:
 `SEVERITY / FILE:LINES / ISSUE / FIX`
 Severity is one of CRITICAL, HIGH, MEDIUM, LOW. Report everything; the designer filters. After the findings, add the ranked list of findings ordered CRITICAL > HIGH > MEDIUM > LOW.
 
-CRITICAL — BASH COMMAND RULES:
+BASH COMMAND RULES:
 [BASH_AGENT_RULES]
 
 AGENT RULES:

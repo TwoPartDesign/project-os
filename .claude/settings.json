@@ -36,7 +36,6 @@
       "Bash(bash scripts/validate-roadmap.sh*)",
       "Bash(bash scripts/create-pr.sh*)",
       "Bash(bash scripts/dashboard.sh*)",
-      "Bash(bash scripts/context-filter.sh*)",
       "Bash(bash scripts/validate-freshness.sh*)",
       "Bash(bash scripts/codex-review.sh*)",
       "Bash(bash scripts/generate-manifest.sh*)",
