@@ -219,6 +219,39 @@ describe("compaction-metrics", () => {
     strictEqual(cycles[1].cutBy, "end");
   });
 
+  it("segmentCycles_backToBackBoundaries_keepsEveryCompaction", () => {
+    // Two compact_boundary records with no assistant usage between them.
+    const lines = [
+      ctxLine("a1", 100000),
+      ctxLine("a2", 260000),
+      boundaryLine(290000, 12000, "2026-09-20T00:30:00.000Z"),
+      boundaryLine(280000, 11000, "2026-09-20T00:31:00.000Z"),
+      ctxLine("a3", 70000),
+    ];
+
+    const boundaries = parseBoundaries(lines);
+    const cycles = segmentCycles(parseTranscript(lines));
+
+    strictEqual(boundaries.length, 2);
+    strictEqual(
+      cycles.filter((c) => c.cutBy === "boundary").length,
+      boundaries.length,
+    );
+    strictEqual(cycles.length, 3);
+    // The first boundary is kept as-is, not overwritten by the second.
+    strictEqual(cycles[0].turns.length, 2);
+    strictEqual(cycles[0].preTokens, 290000);
+    strictEqual(cycles[0].postTokens, 12000);
+    // The second closes its own empty cycle; no post-compaction figure is
+    // borrowed from the next cycle.
+    strictEqual(cycles[1].turns.length, 0);
+    strictEqual(cycles[1].cutBy, "boundary");
+    strictEqual(cycles[1].preTokens, 280000);
+    strictEqual(cycles[1].postTokens, null);
+    strictEqual(cycles[2].turns.length, 1);
+    strictEqual(cycles[2].cutBy, "end");
+  });
+
   it("segmentCycles_usageDropFallback_splitsWithoutBoundary", () => {
     const dropping = segmentCycles(
       turnsFromContexts([60000, 120000, 20000, 30000]),
@@ -243,7 +276,7 @@ describe("compaction-metrics", () => {
     strictEqual(belowFloor[0].postTokens, null);
   });
 
-  it("cycleStats_sumsUsageAndCountsOver200k", () => {
+  it("cycleStats_twoTurnCycle_sumsUsageAndCountsOver200k", () => {
     const lines = [
       assistantLine({
         id: "a1",
@@ -275,7 +308,7 @@ describe("compaction-metrics", () => {
     strictEqual(stats.turnsOver200k, 1);
   });
 
-  it("errorRateByDecile_bucketsByContextOverWindow", () => {
+  it("errorRateByDecile_turnsAcrossContexts_bucketsByContextOverWindow", () => {
     const lines = [
       assistantLine({ id: "a1", cacheRead: 5000 }),
       assistantLine({ id: "a2", cacheRead: 95000, toolUseId: "tu-2" }),
@@ -378,7 +411,7 @@ describe("compaction-metrics", () => {
     }
   });
 
-  it("pinCompactionPoint_reportsGapAgainstConfigured", () => {
+  it("pinCompactionPoint_singleBoundary_reportsGapAgainstConfigured", () => {
     const lines = [
       ctxLine("a1", 120000, "2026-09-20T00:00:00.000Z"),
       ctxLine("a2", 263000, "2026-09-20T00:20:00.000Z"),

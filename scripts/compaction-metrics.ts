@@ -58,6 +58,11 @@ export type TurnRecord = {
   errors: number;
   /** The compaction boundary that fired immediately before this turn. */
   boundaryBefore: BoundaryMarker | null;
+  /**
+   * Earlier boundaries of a back-to-back run that arrived with no assistant
+   * turn between them, oldest first. Absent unless a run occurred.
+   */
+  skippedBoundaries?: BoundaryMarker[];
 };
 
 /** A run of turns between two compactions. */
@@ -163,22 +168,18 @@ function num(usage: Record<string, unknown>, key: string): number {
   return typeof v === "number" && Number.isFinite(v) ? v : 0;
 }
 
-/**
- * Parses transcript lines into main-thread assistant turns.
- *
- * Lines that are not JSON are skipped, as are sub-agent (`isSidechain`)
- * records. Consecutive records sharing a response id are one turn — the
- * transcript writes one record per content block and repeats the usage on
- * each. A `compact_boundary` record attaches to the next turn as
- * `boundaryBefore`; `is_error` tool results attach to the turn whose
- * `tool_use` block they answer, falling back to the nearest preceding turn.
- */
-export function parseTranscript(lines: string[]): TurnRecord[] {
-  const turns: TurnRecord[] = [];
-  const byToolUseId = new Map<string, TurnRecord>();
-  let pendingBoundary: BoundaryMarker | null = null;
-  let last: TurnRecord | null = null;
+/** One main-thread transcript record and the line number it came from. */
+type ParsedRecord = { line: number; rec: Record<string, unknown> };
 
+/**
+ * Parses each transcript line's JSON once, keeping main-thread records only.
+ *
+ * Blank lines, non-JSON lines, non-object values and sub-agent
+ * (`isSidechain`) records are dropped. Shared by `turnsFromRecords` and
+ * `boundariesFromRecords` so a line is never parsed twice.
+ */
+function parseRecords(lines: string[]): ParsedRecord[] {
+  const out: ParsedRecord[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line || !line.trim()) continue;
@@ -190,15 +191,53 @@ export function parseTranscript(lines: string[]): TurnRecord[] {
     }
     if (!rec || typeof rec !== "object") continue;
     if (!isMainThread(rec)) continue;
+    out.push({ line: i, rec });
+  }
+  return out;
+}
 
-    if (rec.type === "system" && rec.subtype === "compact_boundary") {
-      const meta = (rec.compactMetadata ?? {}) as Record<string, unknown>;
-      pendingBoundary = {
-        trigger: typeof meta.trigger === "string" ? meta.trigger : "unknown",
-        preTokens: num(meta, "preTokens"),
-        postTokens: num(meta, "postTokens"),
-        timestamp: typeof rec.timestamp === "string" ? rec.timestamp : "",
-      };
+/** Returns `true` for a `compact_boundary` system record. */
+function isBoundaryRecord(rec: Record<string, unknown>): boolean {
+  return rec.type === "system" && rec.subtype === "compact_boundary";
+}
+
+/** Reads a `compact_boundary` record's metadata into a marker. */
+function toBoundaryMarker(rec: Record<string, unknown>): BoundaryMarker {
+  const meta = (rec.compactMetadata ?? {}) as Record<string, unknown>;
+  return {
+    trigger: typeof meta.trigger === "string" ? meta.trigger : "unknown",
+    preTokens: num(meta, "preTokens"),
+    postTokens: num(meta, "postTokens"),
+    timestamp: typeof rec.timestamp === "string" ? rec.timestamp : "",
+  };
+}
+
+/**
+ * Parses transcript lines into main-thread assistant turns.
+ *
+ * Lines that are not JSON are skipped, as are sub-agent (`isSidechain`)
+ * records. Consecutive records sharing a response id are one turn — the
+ * transcript writes one record per content block and repeats the usage on
+ * each. A `compact_boundary` record attaches to the next turn as
+ * `boundaryBefore`; when several arrive before that turn, the last is
+ * `boundaryBefore` and the earlier ones are kept, in order, as
+ * `skippedBoundaries`. `is_error` tool results attach to the turn whose
+ * `tool_use` block they answer, falling back to the nearest preceding turn.
+ */
+export function parseTranscript(lines: string[]): TurnRecord[] {
+  return turnsFromRecords(parseRecords(lines));
+}
+
+/** Builds turns from already-parsed records (see `parseTranscript`). */
+function turnsFromRecords(records: ParsedRecord[]): TurnRecord[] {
+  const turns: TurnRecord[] = [];
+  const byToolUseId = new Map<string, TurnRecord>();
+  let pendingBoundaries: BoundaryMarker[] = [];
+  let last: TurnRecord | null = null;
+
+  for (const { line: i, rec } of records) {
+    if (isBoundaryRecord(rec)) {
+      pendingBoundaries.push(toBoundaryMarker(rec));
       continue;
     }
 
@@ -228,9 +267,15 @@ export function parseTranscript(lines: string[]): TurnRecord[] {
           context: parts.uncached + parts.cacheRead + parts.cacheCreate,
           usage: parts,
           errors: 0,
-          boundaryBefore: pendingBoundary,
+          boundaryBefore:
+            pendingBoundaries.length > 0
+              ? pendingBoundaries[pendingBoundaries.length - 1]
+              : null,
         };
-        pendingBoundary = null;
+        if (pendingBoundaries.length > 1) {
+          turn.skippedBoundaries = pendingBoundaries.slice(0, -1);
+        }
+        pendingBoundaries = [];
         turns.push(turn);
         last = turn;
       }
@@ -272,27 +317,14 @@ export function parseTranscript(lines: string[]): TurnRecord[] {
  * including one that no turn follows.
  */
 export function parseBoundaries(lines: string[]): BoundaryMarker[] {
-  const out: BoundaryMarker[] = [];
-  for (const line of lines) {
-    if (!line || !line.trim()) continue;
-    let rec: Record<string, unknown>;
-    try {
-      rec = JSON.parse(line) as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-    if (!rec || typeof rec !== "object") continue;
-    if (!isMainThread(rec)) continue;
-    if (rec.type !== "system" || rec.subtype !== "compact_boundary") continue;
-    const meta = (rec.compactMetadata ?? {}) as Record<string, unknown>;
-    out.push({
-      trigger: typeof meta.trigger === "string" ? meta.trigger : "unknown",
-      preTokens: num(meta, "preTokens"),
-      postTokens: num(meta, "postTokens"),
-      timestamp: typeof rec.timestamp === "string" ? rec.timestamp : "",
-    });
-  }
-  return out;
+  return boundariesFromRecords(parseRecords(lines));
+}
+
+/** Collects boundary markers from already-parsed records. */
+function boundariesFromRecords(records: ParsedRecord[]): BoundaryMarker[] {
+  return records
+    .filter((r) => isBoundaryRecord(r.rec))
+    .map((r) => toBoundaryMarker(r.rec));
 }
 
 /**
@@ -328,14 +360,30 @@ export function segmentCycles(
 
     if (cut && current && prev) {
       current.cutBy = cut;
-      if (cut === "boundary" && turn.boundaryBefore) {
-        current.preTokens = turn.boundaryBefore.preTokens;
-        current.postTokens = turn.boundaryBefore.postTokens;
+      // A back-to-back run: the oldest boundary cuts the running cycle.
+      const run = turn.boundaryBefore
+        ? [...(turn.skippedBoundaries ?? []), turn.boundaryBefore]
+        : [];
+      if (cut === "boundary" && run.length > 0) {
+        current.preTokens = run[0].preTokens;
+        current.postTokens = run[0].postTokens;
       } else {
         current.preTokens = prev.context;
         current.postTokens = turn.context;
       }
       current = null;
+      // Each later boundary of the run closes its own zero-turn cycle. No
+      // turn restarted it, so its post-compaction figure is null, never
+      // borrowed from the next cycle.
+      for (const b of run.slice(1)) {
+        cycles.push({
+          index: cycles.length,
+          turns: [],
+          preTokens: b.preTokens,
+          postTokens: null,
+          cutBy: "boundary",
+        });
+      }
     }
 
     if (!current) {
@@ -644,8 +692,9 @@ export function analyze(
 
   for (const file of files) {
     const lines = readFileSync(file, "utf8").split("\n");
-    const turns = parseTranscript(lines);
-    perFile.push({ turns, boundaries: parseBoundaries(lines) });
+    const records = parseRecords(lines);
+    const turns = turnsFromRecords(records);
+    perFile.push({ turns, boundaries: boundariesFromRecords(records) });
     for (const cycle of segmentCycles(turns)) {
       cycles.push({
         ...cycle,
