@@ -10,8 +10,9 @@ even when conceptually allowed.
 Auto mode is the standing default (`permissions.defaultMode` is left unset, so
 sessions start in auto mode — 2.1.284; `docs/knowledge/decisions.md`,
 2026-10-04). Its classifier replaces the prompt matcher, so the
-prompt-avoidance rules (2–6) bind in default permission mode and on Windows.
-Rules 1 and 7 are hook wiring and bind in every mode.
+prompt-avoidance rules (2–5) bind in default permission mode and on Windows.
+Rules 1 and 7 (hook wiring) and rule 6 (the Bash tool's cwd persists across
+calls) bind in every mode.
 
 ## Core Rules
 
@@ -44,7 +45,7 @@ Rules 1 and 7 are hook wiring and bind in every mode.
    commit messages via `git commit -F <file>`, not inline `-m` with quotes.
 5. **Paths** (default-mode/Windows guidance): forward slashes always; double-quote paths containing spaces;
    never backslash-escape spaces; `--flag "value"`, not `--flag="value"`.
-6. **Never use bare `cd`** (default-mode/Windows guidance). The Bash tool's cwd persists across every
+6. **Never use bare `cd`** (every mode). The Bash tool's cwd persists across every
    subsequent call in the session — a single `cd` silently changes cwd for
    every later command. Three substitutes, in preference order:
    tool path flags (`git -C "path"`, `npm --prefix "path"`, `make -C "path"`,
