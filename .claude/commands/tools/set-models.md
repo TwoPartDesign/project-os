@@ -70,14 +70,16 @@ Create or update `.claude/settings.json`, preserving any existing keys:
 
 - `"model"` sets the orchestration/session model (aliases like `"opus"` resolve to the current Opus)
 - `env.CLAUDE_CODE_SUBAGENT_MODEL` routes sub-agent tasks
-- `env.CLAUDE_CODE_ENABLE_TODO_TOOLS` keeps the native Task tools available on Opus 4.8 / Sonnet 5 / Fable 5 and newer (Claude Code ≥ 2.1.233 withholds them there); `/workflows:build` schedules on them, so leave it set on every tier
+- `env.CLAUDE_CODE_ENABLE_TODO_TOOLS` keeps the native Task tools available on the current Opus, Sonnet and Fable models (Claude Code ≥ 2.1.233 withholds them there); `/workflows:build` schedules on them, so leave it set on every tier
 - `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW` is an **early-compaction budget cap**
   the compaction chain (`compact-suggest.sh`, `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`)
   measures against; the runtime caps it at the model's real window. Rule: it
   must not exceed the smallest real window of any model the session can land
   on — the lead and every `fallbackModel` entry. `350000` when the whole chain
-  runs at 1M (Fable 5.1 / Opus 5 / Sonnet 5 on a plan with 1M context; verify
-  with `/context`), `200000` when any chain model runs at 200k. A cap above a
+  runs at 1M (Opus, Sonnet and Fable on a plan with 1M context; verify with
+  `/context`), `200000` when any chain model runs at 200k. The default chain
+  (`opus` lead, `sonnet` fallback) is all 1M, so the 350k cap still sits below
+  every window in it. A cap above a
   chain member's real window makes the handoff nudge fire past the end of that
   window, i.e. never (`docs/knowledge/decisions.md`, 2026-09-16 resolution).
 - Per-task overrides remain available via `(model: <model-id>)` annotations in ROADMAP.md

@@ -416,16 +416,17 @@ window. The compaction chain (`compact-suggest.sh` and
 the runtime caps it at the real window, so the one rule is: **it must not
 exceed the smallest real window of any model the session can land on** —
 the lead *and* every `fallbackModel` entry. `350000` when the whole chain
-runs at 1M (Fable 5.1 / Opus 5 / Sonnet 5 on a plan with 1M context — check
-with `/context`); `200000` when any model in the chain runs at 200k. A cap
-above a chain member's real window makes the handoff nudge fire past the end
+runs at 1M (Opus, Sonnet and Fable on a plan with 1M context — check with
+`/context`); `200000` when any model in the chain runs at 200k. The default
+chain (`opus` lead, `sonnet` fallback) is all 1M, so the 350k cap still sits
+below every window in it. A cap above a chain member's real window makes the handoff nudge fire past the end
 of that window, i.e. never (`docs/knowledge/decisions.md`, 2026-09-04 rider
 and its 2026-09-16 resolution).
 
 - `"model"` sets the orchestration/session model (aliases like `"opus"` resolve to the current Opus)
 - `"fallbackModel"` is the safety net: an ordered list the session falls back through when the primary model is unavailable, so a plan without Fable still lands on `opus`, then `sonnet`, instead of failing
 - `env.CLAUDE_CODE_SUBAGENT_MODEL` routes sub-agent tasks that are spawned without a roster name; a named roster agent takes its own `model:` frontmatter first
-- `env.CLAUDE_CODE_ENABLE_TODO_TOOLS` keeps the native Task tools (`TaskCreate`/`TaskUpdate`/`TaskList`) available on Opus 4.8, Sonnet 5, Fable 5 and newer — Claude Code ≥ 2.1.233 withholds them there by default, and `/workflows:build` schedules on them
+- `env.CLAUDE_CODE_ENABLE_TODO_TOOLS` keeps the native Task tools (`TaskCreate`/`TaskUpdate`/`TaskList`) available on the current Opus, Sonnet and Fable models — Claude Code ≥ 2.1.233 withholds them there by default, and `/workflows:build` schedules on them
 
 Settings take effect on the next Claude Code session — no shell profile changes needed.
 
