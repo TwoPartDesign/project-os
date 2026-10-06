@@ -498,6 +498,9 @@ run_check_failures() {
     # the ledger timestamp advances every run, so a co-occurring second tool
     # skipped here would be lost permanently, not merely deferred. Sorted for
     # deterministic ordering; the global draft cap still bounds how many land.
+    # The fingerprint is count-free so a changing count cannot re-file a
+    # duplicate draft; the count lives in the title only. The threshold of 5
+    # is provisional and will be recalibrated after a week of real data.
     local over_tools=() t
     for t in "${!tool_counts[@]}"; do
         if [ "${tool_counts[$t]}" -ge "$FAILURE_DRAFT_THRESHOLD" ]; then
@@ -508,7 +511,7 @@ run_check_failures() {
     mapfile -t SORTED_TOOLS < <(printf '%s\n' "${over_tools[@]}" | sort)
     for t in "${SORTED_TOOLS[@]}"; do
         [ -z "$t" ] && continue
-        add_finding "Investigate recurring ${t} failures (${tool_counts[$t]} since ${LAST_RUN_TS:-start})" "failures:${t}:${tool_counts[$t]}"
+        add_finding "Investigate recurring ${t} failures (${tool_counts[$t]} since ${LAST_RUN_TS:-start})" "failures:${t}"
     done
 }
 
