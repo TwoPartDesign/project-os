@@ -50,8 +50,6 @@ flowchart LR
   subgraph lib
     l_common[".claude/hooks/_common.sh"]
     l_dashboard_render["scripts/lib/dashboard-render.ts"]
-    l_decide["scripts/lib/decide.ts"]
-    l_egress_guard["scripts/lib/egress-guard.ts"]
     l_json["scripts/lib/json.sh"]
     l_policy["scripts/lib/policy.ts"]
     l_project_root["scripts/lib/project-root.ts"]
@@ -94,10 +92,8 @@ flowchart LR
     s_critical_rules_test["tests/critical-rules.test.ts"]
     s_dashboard_render_test["tests/dashboard-render.test.ts"]
     s_dashboard_smoke["tests/dashboard-smoke.sh"]
-    s_decide_test["tests/decide.test.ts"]
     s_detect_stack_test["tests/detect-stack.test.ts"]
     s_dream_accept_smoke["tests/dream-accept-smoke.sh"]
-    s_egress_guard_test["tests/egress-guard.test.ts"]
     s_entropy_threshold_test["tests/entropy-threshold.test.ts"]
     s_hook_smoke_negctl["tests/hook-smoke-negctl.sh"]
     s_hook_smoke["tests/hook-smoke.sh"]
@@ -190,28 +186,19 @@ flowchart LR
   h_pre_compact -->|sources| l_common
   h_session_end_cleanup -->|sources| l_common
   h_tool_failure_log -->|sources| l_common
-  l_decide -->|imports| l_egress_guard
-  l_decide -->|imports| l_project_root
   l_policy -->|imports| l_project_root
   s_compaction_hooks -->|sources| l_common
   s_compaction_metrics_test -->|imports| s_compaction_metrics
   s_dashboard -->|sources| l_json
   s_dashboard_render_test -->|imports| l_dashboard_render
   s_dashboard_server -->|imports| l_dashboard_render
-  s_decide_test -->|imports| l_decide
-  s_decide_test -->|imports| l_project_root
   s_detect_stack_test -->|imports| s_detect_stack
-  s_egress_guard_test -->|imports| l_egress_guard
   s_knowledge_index -->|imports| l_project_root
   s_knowledge_index_test -->|imports| s_knowledge_index
   s_maintain_draft -->|imports| l_dashboard_render
   s_maintain_draft -->|imports| l_project_root
   s_observation_parser_test -->|imports| s_observation_parser
   s_policy_test -->|imports| l_policy
-  s_review_triage -->|imports| l_decide
-  s_review_triage -->|imports| l_egress_guard
-  s_review_triage -->|imports| l_project_root
-  s_review_triage_test -->|imports| l_decide
   s_review_triage_test -->|imports| s_review_triage
   s_skill_apply -->|imports| l_policy
   s_skill_apply -->|imports| l_project_root

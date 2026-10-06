@@ -1,39 +1,16 @@
 #!/usr/bin/env node
-// scripts/review-triage.ts — offline (heuristic) adversarial-review triage,
-// with an online Jev calibration path.
+// scripts/review-triage.ts — offline (heuristic) adversarial-review triage.
 //
 // T184 reads the three raw adversarial-reviewer reports for a feature,
 // parses their one-line findings, and flags likely duplicates and
-// out-of-scope findings with simple deterministic rules ("the heuristic
-// backend"). T186 adds the Jev path on top: `buildQuestions` turns findings
-// into `decide()` questions chunked to stay under the request-size limit,
-// `applyAnswers` applies Jev's answers above configured thresholds on top of
-// the heuristic rows, `liftSummary` measures how much Jev changed versus the
-// heuristic, and the local `review-triage.json` output is scrubbed through
-// the same egress guard `decide()` uses before it ever touches disk.
-// `--calibrate` prints Jev's raw (un-thresholded) answers next to the
-// heuristic's for manual threshold tuning, without writing the advisory
-// output.
+// out-of-scope findings with simple deterministic rules. The result is the
+// advisory `<specDir>/review-triage.json` plus the markdown table that
+// `/workflows:review` prints. Nothing here calls a network service or
+// decides anything: the table is a hint for the lead.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, basename, posix } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  decide,
-  readJevConfig,
-  defaultLogger,
-  type JevConfig,
-  type QuestionMap,
-  type Question,
-  type NoulQuestion,
-  type ChoiceQuestion,
-  type ScoreQuestion,
-  type Answer,
-  type NoulAnswer,
-  type DecisionResult,
-} from "./lib/decide.ts";
-import { guardEgressFields } from "./lib/egress-guard.ts";
-import { getProjectRoot } from "./lib/project-root.ts";
 
 /** The four severities a finding line may carry. */
 export type Severity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
@@ -55,7 +32,7 @@ export type Candidates = {
   scope: Record<string, "in_diff" | "adjacent" | "unrelated">;
 };
 
-/** A `Finding` with the heuristic (or, in a later task, Jev) triage answers applied. */
+/** A `Finding` with the heuristic triage answers applied. */
 export type TriagedFinding = Finding & {
   duplicate_of: string | null;
   duplicate_p: number;
@@ -254,8 +231,7 @@ export function heuristicCandidates(
  * `duplicate_p` is 1 when paired, else 0. `in_scope` comes from
  * `c.scope` (defaulting to `"unrelated"`), with `in_scope_p` always 1.
  * `calibrated_severity` passes through `severity` unchanged, with
- * `severity_confidence` always 0 — this is the heuristic backend; a later
- * task's Jev backend produces calibrated answers instead.
+ * `severity_confidence` always 0.
  */
 export function applyHeuristic(
   findings: Finding[],
@@ -276,355 +252,6 @@ export function applyHeuristic(
     calibrated_severity: f.severity,
     severity_confidence: 0,
   }));
-}
-
-/**
- * Extracts the six triage-relevant fields from a `Finding`. This is the
- * only accessor {@link buildQuestions} uses on a finding, so an extra
- * property a `Finding` object happens to carry (e.g. internal metadata)
- * never reaches the outbound Jev text.
- */
-function pick(
-  f: Finding,
-): Pick<Finding, "severity" | "reviewer" | "file" | "lines" | "issue" | "fix"> {
-  return {
-    severity: f.severity,
-    reviewer: f.reviewer,
-    file: f.file,
-    lines: f.lines,
-    issue: f.issue,
-    fix: f.fix,
-  };
-}
-
-/** Renders one `Finding <id>:` block for the Jev state text, from `pick()`'s six fields only. */
-function findingBlock(f: Finding): string {
-  const p = pick(f);
-  return [
-    `Finding ${f.id}:`,
-    `severity: ${p.severity}`,
-    `reviewer: ${p.reviewer}`,
-    `file: ${p.file}`,
-    `lines: ${p.lines}`,
-    `issue: ${p.issue}`,
-    `fix: ${p.fix}`,
-  ].join("\n");
-}
-
-/** Renders the `Changed files:` header shared by every chunk's state. */
-function changedFilesHeader(changedFiles: string[]): string {
-  return ["Changed files:", ...changedFiles].join("\n");
-}
-
-/** The `scope_<id>` choice question asked about one finding's id. */
-function scopeQuestion(id: string): ChoiceQuestion {
-  return {
-    type: "choice",
-    instructions: `Classify finding ${id}'s file relative to the changed-files list above: in the diff, adjacent to it, or unrelated.`,
-    criteria: {
-      in_diff: "The finding's file appears in the changed-files list.",
-      adjacent:
-        "The finding's file is not itself changed, but a sibling file in the same directory is.",
-      unrelated:
-        "Neither the finding's file nor a sibling in its directory appears in the changed-files list.",
-    },
-  };
-}
-
-/** The `sev_<id>` score question asked about one finding's id. */
-function severityQuestion(id: string): ScoreQuestion {
-  return {
-    type: "score",
-    instructions: `Rate the true severity of finding ${id}, from LOW to CRITICAL.`,
-    criteria: ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
-  };
-}
-
-/** The `dup_<a>__<b>` noul question asked about a candidate duplicate pair. */
-function dupQuestion(a: string, b: string): NoulQuestion {
-  return {
-    type: "noul",
-    instructions: `Findings ${a} and ${b} report the same defect`,
-    criteria: {
-      true: "Same defect, same location or same root cause",
-      false: "Different defects",
-    },
-  };
-}
-
-/** The serialized-size budget a single packed chunk is filled to, leaving headroom below `CHUNK_SIZE_LIMIT` for a duplicate pair's cross-chunk finding block. */
-const CHUNK_PACK_LIMIT = 150000;
-
-/** The hard limit a chunk's `JSON.stringify` length must never exceed. */
-const CHUNK_SIZE_LIMIT = 160000;
-
-/**
- * Builds one or more `{ state, questions }` chunks to pass to `decide()`,
- * one call per chunk. `state` is a `Changed files:` list followed by one
- * `Finding <id>:` block per finding included in that chunk (built via
- * {@link pick} only). Findings are visited once, in array order; each
- * visit adds that finding's own `scope_<id>`/`sev_<id>` questions, plus a
- * `dup_<id>__<hi>` question for every candidate pair where this finding is
- * the lower id, pulling `hi`'s block into the same chunk if it is not
- * there yet (a Jev question comparing two findings needs both in the
- * state) — the whole addition, block and questions together, is what is
- * checked against the size budget, so a pair entirely inside one chunk
- * cannot silently balloon it. The addition goes to the current chunk when
- * `JSON.stringify({ state, questions }).length` would stay at or under
- * {@link CHUNK_PACK_LIMIT} (a margin below the real {@link CHUNK_SIZE_LIMIT}
- * left for whatever the next finding's own pair pulls in); otherwise the
- * current chunk is closed and a new one started with this finding alone.
- */
-export function buildQuestions(
-  findings: Finding[],
-  c: Candidates,
-  changedFiles: string[],
-): { state: string; questions: QuestionMap }[] {
-  const header = changedFilesHeader(changedFiles);
-  const byId = new Map(findings.map((f) => [f.id, f]));
-
-  const pairsByLo = new Map<string, string[]>();
-  for (const [lo, hi] of c.pairs) {
-    const list = pairsByLo.get(lo);
-    if (list) list.push(hi);
-    else pairsByLo.set(lo, [hi]);
-  }
-
-  type Working = { ids: string[]; questions: QuestionMap };
-  const chunks: Working[] = [];
-
-  const renderState = (ids: string[]): string =>
-    [header, ...ids.map((id) => findingBlock(byId.get(id)!))].join("\n\n");
-
-  const serializedSize = (ids: string[], questions: QuestionMap): number =>
-    JSON.stringify({ state: renderState(ids), questions }).length;
-
-  for (const f of findings) {
-    const hiPartners = (pairsByLo.get(f.id) ?? []).filter((hi) => byId.has(hi));
-    const current = chunks[chunks.length - 1];
-
-    if (current) {
-      const newIds = [
-        ...(current.ids.includes(f.id) ? [] : [f.id]),
-        ...hiPartners.filter((hi) => hi !== f.id && !current.ids.includes(hi)),
-      ];
-      const candidateIds = [...current.ids, ...newIds];
-      const candidateQuestions: QuestionMap = {
-        ...current.questions,
-        [`scope_${f.id}`]: scopeQuestion(f.id),
-        [`sev_${f.id}`]: severityQuestion(f.id),
-      };
-      for (const hi of hiPartners) {
-        candidateQuestions[`dup_${f.id}__${hi}`] = dupQuestion(f.id, hi);
-      }
-      if (
-        serializedSize(candidateIds, candidateQuestions) <= CHUNK_PACK_LIMIT
-      ) {
-        current.ids = candidateIds;
-        current.questions = candidateQuestions;
-        continue;
-      }
-    }
-
-    const ids = [f.id, ...hiPartners.filter((hi) => hi !== f.id)];
-    const questions: QuestionMap = {
-      [`scope_${f.id}`]: scopeQuestion(f.id),
-      [`sev_${f.id}`]: severityQuestion(f.id),
-    };
-    for (const hi of hiPartners) {
-      questions[`dup_${f.id}__${hi}`] = dupQuestion(f.id, hi);
-    }
-    chunks.push({ ids, questions });
-  }
-
-  return chunks.map((chunk) => ({
-    state: renderState(chunk.ids),
-    questions: chunk.questions,
-  }));
-}
-
-/** The four calibrated-severity levels, in ascending order, indexed 0..3. */
-const SEVERITY_LEVELS: Severity[] = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
-
-/**
- * Maps a raw Jev `score` (a float over the `sev_<id>` criteria indices) to
- * a level index in `[0, 3]`: `Math.round(score - 0.5 + Number.EPSILON)`,
- * clamped. Subtracting 0.5 before rounding makes an exact half (e.g. `1.5`)
- * round down to the lower level instead of up.
- */
-function scoreToLevel(score: number): number {
-  return Math.min(3, Math.max(0, Math.round(score - 0.5 + Number.EPSILON)));
-}
-
-// The three threshold rules below are the single definition each of
-// {@link applyAnswers} (which mutates rows) and {@link computeAgreement}
-// (which only counts) applies, so the two can never drift apart.
-
-/** True when a `dup_` noul answer is at or above the configured duplicate threshold. */
-function isDuplicateAtThreshold(
-  noul: number,
-  thresholds: JevConfig["thresholds"],
-): boolean {
-  return noul >= thresholds.duplicate_p;
-}
-
-/**
- * The scope a `scope_` choice answer resolves to: any choice other than
- * `unrelated` is applied as-is, while `unrelated` is applied only when its
- * probability is at or above `out_of_scope_p` — otherwise `fallback` (the
- * heuristic scope) is kept.
- */
-function resolveScopeAtThreshold(
-  choice: "in_diff" | "adjacent" | "unrelated",
-  unrelatedP: number,
-  fallback: "in_diff" | "adjacent" | "unrelated",
-  thresholds: JevConfig["thresholds"],
-): "in_diff" | "adjacent" | "unrelated" {
-  if (choice !== "unrelated") return choice;
-  return unrelatedP >= thresholds.out_of_scope_p ? "unrelated" : fallback;
-}
-
-/**
- * The calibrated severity a `sev_` score answer resolves to: `level` when the
- * answer's `confidence` is at or above `severity_confidence`, otherwise
- * `fallback` (the finding's own severity).
- */
-function resolveSeverityAtThreshold(
-  level: Severity,
-  confidence: number,
-  fallback: Severity,
-  thresholds: JevConfig["thresholds"],
-): Severity {
-  return confidence >= thresholds.severity_confidence ? level : fallback;
-}
-
-/**
- * Applies one or more `decide()` results (one per {@link buildQuestions}
- * chunk, merged by question name) on top of {@link applyHeuristic}'s rows.
- * For each candidate pair, a `dup_<lo>__<hi>` noul answer at or above
- * `thresholds.duplicate_p` sets `hi.duplicate_of = lo`; below it, clears
- * any heuristic pairing (`duplicate_of = null`); `duplicate_p` is always
- * set to the noul value. A `scope_<id>` choice answer of `unrelated` is
- * only applied when `probabilities.unrelated >= thresholds.out_of_scope_p`
- * (otherwise the heuristic scope is kept); any other choice is always
- * applied; `in_scope_p` is always set to `probabilities[choice]`. A
- * `sev_<id>` score answer is mapped to a level via {@link scoreToLevel} and
- * only replaces `calibrated_severity` when `confidence >=
- * thresholds.severity_confidence`; `severity_confidence` is always set to
- * the answer's confidence. If every result's `backend` is `"heuristic"`,
- * the heuristic rows are returned unchanged (T184 already set them
- * correctly, and there is nothing Jev-derived to apply).
- */
-/**
- * Collects the answers that Jev actually produced across `results`: only
- * results from the `jev` backend contribute, and within those the names in
- * `rejected` (validation failures back-filled with heuristic stubs) are
- * skipped. A chunk that declined (timeout, network, guard refusal) carries
- * only stubs and contributes nothing, so its findings keep the consumer's
- * own heuristic verdicts.
- */
-export function jevAnswers(results: DecisionResult[]): Record<string, Answer> {
-  const answers: Record<string, Answer> = {};
-  for (const r of results) {
-    if (r.backend !== "jev") continue;
-    const rejected = new Set(r.rejected ?? []);
-    for (const [name, answer] of Object.entries(r.answers)) {
-      if (!rejected.has(name)) answers[name] = answer;
-    }
-  }
-  return answers;
-}
-
-export function applyAnswers(
-  findings: Finding[],
-  c: Candidates,
-  results: DecisionResult[],
-  thresholds: JevConfig["thresholds"],
-): TriagedFinding[] {
-  const rows = applyHeuristic(findings, c);
-  if (results.length === 0 || results.every((r) => r.backend === "heuristic")) {
-    return rows;
-  }
-
-  const answers = jevAnswers(results);
-
-  const byId = new Map(rows.map((row) => [row.id, row]));
-
-  for (const [lo, hi] of c.pairs) {
-    const answer = answers[`dup_${lo}__${hi}`];
-    if (!answer || answer.type !== "noul") continue;
-    const hiRow = byId.get(hi);
-    if (!hiRow) continue;
-    hiRow.duplicate_of = isDuplicateAtThreshold(answer.noul, thresholds)
-      ? lo
-      : null;
-    hiRow.duplicate_p = answer.noul;
-  }
-
-  for (const row of rows) {
-    const answer = answers[`scope_${row.id}`];
-    if (!answer || answer.type !== "choice") continue;
-    const choice = answer.choice as "in_diff" | "adjacent" | "unrelated";
-    row.in_scope = resolveScopeAtThreshold(
-      choice,
-      answer.probabilities.unrelated ?? 0,
-      row.in_scope,
-      thresholds,
-    );
-    row.in_scope_p = answer.probabilities[choice] ?? row.in_scope_p;
-  }
-
-  for (const row of rows) {
-    const answer = answers[`sev_${row.id}`];
-    if (!answer || answer.type !== "score") continue;
-    row.calibrated_severity = resolveSeverityAtThreshold(
-      SEVERITY_LEVELS[scoreToLevel(answer.score)],
-      answer.confidence,
-      row.calibrated_severity,
-      thresholds,
-    );
-    row.severity_confidence = answer.confidence;
-  }
-
-  return rows;
-}
-
-/**
- * Compares `rows` (typically {@link applyAnswers}'s output) against
- * `heuristic` (typically {@link applyHeuristic}'s output for the same
- * findings and candidates) and summarizes how much Jev changed. `dup_pairs`
- * counts the heuristic rows that were paired as a duplicate (`duplicate_of
- * !== null`) — the count of candidate pairs the heuristic actually merged.
- * `dup_changed`, `scope_changed`, and `severity_changed` count rows (by
- * matching `id`) whose `duplicate_of`, `in_scope`, or `calibrated_severity`
- * differ between `rows` and `heuristic`.
- */
-export function liftSummary(
-  rows: TriagedFinding[],
-  heuristic: TriagedFinding[],
-): {
-  dup_pairs: number;
-  dup_changed: number;
-  scope_changed: number;
-  severity_changed: number;
-} {
-  const heuristicById = new Map(heuristic.map((r) => [r.id, r]));
-
-  let dup_pairs = 0;
-  for (const h of heuristic) if (h.duplicate_of !== null) dup_pairs++;
-
-  let dup_changed = 0;
-  let scope_changed = 0;
-  let severity_changed = 0;
-  for (const row of rows) {
-    const h = heuristicById.get(row.id);
-    if (!h) continue;
-    if (row.duplicate_of !== h.duplicate_of) dup_changed++;
-    if (row.in_scope !== h.in_scope) scope_changed++;
-    if (row.calibrated_severity !== h.calibrated_severity) severity_changed++;
-  }
-
-  return { dup_pairs, dup_changed, scope_changed, severity_changed };
 }
 
 /** Escapes `|` as `\|` so a value is safe inside a markdown table cell. */
@@ -655,208 +282,17 @@ export function renderTable(rows: TriagedFinding[]): string {
   return [header, separator, ...body].join("\n");
 }
 
-/** One row of the `--calibrate` table: a finding's raw, un-thresholded Jev answers next to its heuristic ones. */
-type CalibrationRow = {
-  id: string;
-  heuristic_dup: string | null;
-  jev_dup_p: number | null;
-  heuristic_scope: "in_diff" | "adjacent" | "unrelated";
-  jev_scope: string | null;
-  jev_scope_p: number | null;
-  severity: Severity;
-  jev_severity: Severity | null;
-  jev_conf: number | null;
-};
-
-/**
- * Builds one {@link CalibrationRow} per finding from the merged `decide()`
- * `answers` (raw, not threshold-applied) next to {@link applyHeuristic}'s
- * rows. A pair's `dup_<lo>__<hi>` answer is attributed to the higher-id
- * finding (`hi`), matching where `applyAnswers` would apply it.
- */
-function buildCalibrationRows(
-  findings: Finding[],
-  heuristicRows: TriagedFinding[],
-  answers: Record<string, Answer>,
-  pairs: [string, string][],
-): CalibrationRow[] {
-  const heuristicById = new Map(heuristicRows.map((r) => [r.id, r]));
-  const dupAnswerForHi = new Map<string, NoulAnswer>();
-  for (const [lo, hi] of pairs) {
-    const a = answers[`dup_${lo}__${hi}`];
-    if (a && a.type === "noul") dupAnswerForHi.set(hi, a);
-  }
-
-  return findings.map((f) => {
-    const h = heuristicById.get(f.id)!;
-    const dupAnswer = dupAnswerForHi.get(f.id);
-    const scopeAnswer = answers[`scope_${f.id}`];
-    const sevAnswer = answers[`sev_${f.id}`];
-
-    let jevScope: string | null = null;
-    let jevScopeP: number | null = null;
-    if (scopeAnswer && scopeAnswer.type === "choice") {
-      jevScope = scopeAnswer.choice;
-      jevScopeP = scopeAnswer.probabilities[scopeAnswer.choice] ?? null;
-    }
-
-    let jevSeverity: Severity | null = null;
-    let jevConf: number | null = null;
-    if (sevAnswer && sevAnswer.type === "score") {
-      jevSeverity = SEVERITY_LEVELS[scoreToLevel(sevAnswer.score)];
-      jevConf = sevAnswer.confidence;
-    }
-
-    return {
-      id: f.id,
-      heuristic_dup: h.duplicate_of,
-      jev_dup_p: dupAnswer ? dupAnswer.noul : null,
-      heuristic_scope: h.in_scope,
-      jev_scope: jevScope,
-      jev_scope_p: jevScopeP,
-      severity: f.severity,
-      jev_severity: jevSeverity,
-      jev_conf: jevConf,
-    };
-  });
-}
-
-/**
- * Counts, per decision kind, how often the THRESHOLD-APPLIED Jev answer
- * agrees with the heuristic's own decision — the same comparison
- * `applyAnswers` would make, but computed here without mutating any rows.
- * `dup.total` is the pair count; `scope.total`/`severity.total` are the
- * finding count.
- */
-function computeAgreement(
-  rows: CalibrationRow[],
-  pairs: [string, string][],
-  thresholds: JevConfig["thresholds"],
-): {
-  dup: { agreed: number; total: number };
-  scope: { agreed: number; total: number };
-  severity: { agreed: number; total: number };
-} {
-  const byId = new Map(rows.map((r) => [r.id, r]));
-
-  let dupAgreed = 0;
-  for (const [, hi] of pairs) {
-    const row = byId.get(hi);
-    if (!row) continue;
-    const wasDup = row.heuristic_dup !== null;
-    const thresholdedDup =
-      row.jev_dup_p !== null
-        ? isDuplicateAtThreshold(row.jev_dup_p, thresholds)
-        : wasDup;
-    if (thresholdedDup === wasDup) dupAgreed++;
-  }
-
-  let scopeAgreed = 0;
-  for (const row of rows) {
-    const thresholded =
-      row.jev_scope !== null
-        ? resolveScopeAtThreshold(
-            row.jev_scope as "in_diff" | "adjacent" | "unrelated",
-            row.jev_scope_p ?? 0,
-            row.heuristic_scope,
-            thresholds,
-          )
-        : row.heuristic_scope;
-    if (thresholded === row.heuristic_scope) scopeAgreed++;
-  }
-
-  let severityAgreed = 0;
-  for (const row of rows) {
-    const thresholded =
-      row.jev_severity !== null
-        ? resolveSeverityAtThreshold(
-            row.jev_severity,
-            row.jev_conf ?? 0,
-            row.severity,
-            thresholds,
-          )
-        : row.severity;
-    if (thresholded === row.severity) severityAgreed++;
-  }
-
-  return {
-    dup: { agreed: dupAgreed, total: pairs.length },
-    scope: { agreed: scopeAgreed, total: rows.length },
-    severity: { agreed: severityAgreed, total: rows.length },
-  };
-}
-
-/** Renders the `--calibrate` table: `id`, `heuristic dup`, `jev dup p`, `heuristic scope`, `jev scope`, `jev scope p`, `severity`, `jev severity`, `jev conf`. */
-function renderCalibrationTable(rows: CalibrationRow[]): string {
-  const header =
-    "| id | heuristic dup | jev dup p | heuristic scope | jev scope | jev scope p | severity | jev severity | jev conf |";
-  const separator = "|---|---|---|---|---|---|---|---|---|";
-
-  const body = rows.map((r) => {
-    const dupOf = r.heuristic_dup ?? "";
-    const dupP = r.jev_dup_p !== null ? r.jev_dup_p.toFixed(2) : "";
-    const jevScope = r.jev_scope ?? "";
-    const jevScopeP = r.jev_scope_p !== null ? r.jev_scope_p.toFixed(2) : "";
-    const jevSev = r.jev_severity ?? "";
-    const jevConf = r.jev_conf !== null ? r.jev_conf.toFixed(2) : "";
-    return `| ${r.id} | ${dupOf} | ${dupP} | ${r.heuristic_scope} | ${jevScope} | ${jevScopeP} | ${r.severity} | ${jevSev} | ${jevConf} |`;
-  });
-
-  return [header, separator, ...body].join("\n");
-}
-
-/** Renders the `--calibrate` summary block: finding/pair counts and each agreement rate as `agreed/total`. */
-function renderCalibrationSummary(
-  findingsCount: number,
-  pairsCount: number,
-  agreement: ReturnType<typeof computeAgreement>,
-): string {
-  return [
-    `findings: ${findingsCount}`,
-    `pairs: ${pairsCount}`,
-    `dup agreement: ${agreement.dup.agreed}/${agreement.dup.total}`,
-    `scope agreement: ${agreement.scope.agreed}/${agreement.scope.total}`,
-    `severity agreement: ${agreement.severity.agreed}/${agreement.severity.total}`,
-  ].join("\n");
-}
-
-/** The options bag {@link runTriage} and its pipeline helpers below share. */
+/** The options bag {@link runTriage} takes. */
 type TriageOpts = {
   jsonOnly?: boolean;
-  config?: JevConfig;
-  env?: Record<string, string | undefined>;
-  log?: (e: string, kv: Record<string, string>) => void;
-  fetchImpl?: typeof fetch;
-  scrubCmd?: (file: string) => { status: number };
-  scanCmd?: (file: string) => { status: number };
-  egressDir?: string;
-  projectRoot?: string;
-  calibrate?: boolean;
-  extraReviews?: string[];
-};
-
-/**
- * One triage run's derived inputs, shared by the two output builders
- * ({@link calibrationOutput} and {@link writeTriageOutput}) so neither takes
- * the same six parameters separately.
- */
-type TriageRun = {
-  specDir: string;
-  findings: Finding[];
-  candidates: Candidates;
-  heuristicRows: TriagedFinding[];
-  config: JevConfig;
-  results: DecisionResult[];
-  extraReviews: string[];
 };
 
 /**
  * Reads every finding for one triage run, in a fixed order: the three
  * reviewer reports in `<specDir>/review-raw/` (a missing file warns on stderr
- * and contributes nothing), then each `extraReviews` path, parsed with
- * reviewer name `"mixed"`. A missing `extraReviews` path throws.
+ * and contributes nothing).
  */
-function readAllFindings(specDir: string, extraReviews: string[]): Finding[] {
+function readAllFindings(specDir: string): Finding[] {
   const allFindings: Finding[] = [];
   for (const reviewer of REVIEWERS) {
     const path = resolve(specDir, "review-raw", `${reviewer}.md`);
@@ -865,17 +301,6 @@ function readAllFindings(specDir: string, extraReviews: string[]): Finding[] {
       continue;
     }
     allFindings.push(...parseFindings(readFileSync(path, "utf-8"), reviewer));
-  }
-
-  for (const reviewPath of extraReviews) {
-    if (!existsSync(reviewPath)) {
-      throw new Error(
-        `review-triage: calibration review not found: ${reviewPath}`,
-      );
-    }
-    allFindings.push(
-      ...parseFindings(readFileSync(reviewPath, "utf-8"), "mixed"),
-    );
   }
 
   return allFindings;
@@ -890,187 +315,35 @@ function readChangedFiles(changedFilesPath: string): string[] {
     .filter((l) => l.length > 0);
 }
 
-/** Calls `decide()` once per {@link buildQuestions} chunk with `consumer: "review-triage"`, threading the caller's deps into every call. */
-async function decideChunks(
-  chunks: { state: string; questions: QuestionMap }[],
-  config: JevConfig,
-  opts: TriageOpts,
-): Promise<DecisionResult[]> {
-  const results: DecisionResult[] = [];
-  for (const chunk of chunks) {
-    results.push(
-      await decide(chunk.state, chunk.questions, {
-        consumer: "review-triage",
-        config,
-        env: opts.env,
-        log: opts.log,
-        fetchImpl: opts.fetchImpl,
-        scrubCmd: opts.scrubCmd,
-        scanCmd: opts.scanCmd,
-        egressDir: opts.egressDir,
-        projectRoot: opts.projectRoot,
-      }),
-    );
-  }
-  return results;
-}
-
 /**
- * Builds the `--calibrate` output: the raw (un-thresholded) Jev answers next
- * to the heuristic's, the agreement summary computed at `config.thresholds`
- * (which never changes a row), and the `review-triage-calibration.json` file
- * written beside the spec. `review-triage.json` is never written here.
+ * Runs the full triage for the feature at `specDir`: reads
+ * `<specDir>/review-raw/{architecture,security,tests}.md` (a missing file
+ * contributes zero findings and a stderr warning) and the changed-files list
+ * at `changedFilesPath` (one path per line, blank lines ignored, trimmed);
+ * computes heuristic candidates and applies them via {@link applyHeuristic};
+ * writes the advisory `<specDir>/review-triage.json`; and returns the JSON
+ * object and the rendered markdown table. The JSON header keeps its
+ * historical shape: `backend` is always `"heuristic"`, `declined` is
+ * `"disabled"` whenever there is at least one finding (and absent
+ * otherwise), `redactions` is `0`, and `lift` is `null`.
  */
-function calibrationOutput(
-  run: TriageRun,
-  backend: "heuristic" | "jev",
-): { json: object; table: string } {
-  const { specDir, findings, candidates, config } = run;
-  const calRows = buildCalibrationRows(
-    findings,
-    run.heuristicRows,
-    jevAnswers(run.results),
-    candidates.pairs,
-  );
-  const agreement = computeAgreement(
-    calRows,
-    candidates.pairs,
-    config.thresholds,
-  );
-  const text =
-    renderCalibrationTable(calRows) +
-    "\n\n" +
-    renderCalibrationSummary(
-      findings.length,
-      candidates.pairs.length,
-      agreement,
-    );
-
-  const calibrationJson = {
-    generated_at: new Date().toISOString(),
-    backend,
-    sources: run.extraReviews.length > 0 ? run.extraReviews : ["review-raw"],
-    findings: findings.length,
-    pairs: candidates.pairs.length,
-    agreement,
-    thresholds: config.thresholds,
-    rows: calRows,
-  };
-
-  writeFileSync(
-    resolve(specDir, "review-triage-calibration.json"),
-    JSON.stringify(calibrationJson, null, 2) + "\n",
-    "utf-8",
-  );
-
-  return { json: calibrationJson, table: text };
-}
-
-/**
- * Scrubs every row's `issue` and `fix` through `guardEgressFields` (one call
- * across all rows' fields) before they ever reach disk. A guard refusal
- * replaces both fields on every row with `"[WITHHELD:scrub-failed]"` and
- * counts every field as redacted. Otherwise each field is compared
- * before/after, so a secret the scanner subprocess scrubbed in place — which
- * `guarded.redactions` does not count — is still counted here.
- */
-function scrubRows(
-  triaged: TriagedFinding[],
-  projectRoot: string,
-  opts: TriageOpts,
-): { rows: TriagedFinding[]; redactions: number } {
-  const outboundFields: string[] = [];
-  for (const row of triaged) outboundFields.push(row.issue, row.fix);
-  if (outboundFields.length === 0) return { rows: triaged, redactions: 0 };
-
-  const guarded = guardEgressFields(outboundFields, {
-    projectRoot,
-    egressDir: opts.egressDir,
-    scrubCmd: opts.scrubCmd,
-    scanCmd: opts.scanCmd,
-  });
-
-  if ("refused" in guarded) {
-    return {
-      rows: triaged.map((row) => ({
-        ...row,
-        issue: "[WITHHELD:scrub-failed]",
-        fix: "[WITHHELD:scrub-failed]",
-      })),
-      redactions: outboundFields.length,
-    };
-  }
-
-  let redactions = 0;
-  for (let i = 0; i < outboundFields.length; i++) {
-    if (guarded.fields[i] !== outboundFields[i]) redactions++;
-  }
-  return {
-    rows: triaged.map((row, i) => ({
-      ...row,
-      issue: guarded.fields[i * 2],
-      fix: guarded.fields[i * 2 + 1],
-    })),
-    redactions,
-  };
-}
-
-/**
- * Summarizes the per-chunk `decide()` results: `backend` is `"jev"` once any
- * chunk reached the Jev backend, `declined` is the first chunk's decline
- * reason when none did, and `redactions` is every chunk's redaction count
- * summed.
- */
-function summarizeResults(results: DecisionResult[]): {
-  backend: "heuristic" | "jev";
-  declined: DecisionResult["declined"];
-  redactions: number;
-} {
-  const backend: "heuristic" | "jev" = results.some((r) => r.backend === "jev")
-    ? "jev"
-    : "heuristic";
-  return {
-    backend,
-    declined: backend === "heuristic" ? results[0]?.declined : undefined,
-    redactions: results.reduce((sum, r) => sum + r.redactions, 0),
-  };
-}
-
-/**
- * Logs one `review-triaged` event, writes the advisory
- * `<specDir>/review-triage.json`, and returns that JSON object with the
- * rendered markdown table of the same rows.
- */
-function writeTriageOutput(
-  run: TriageRun,
-  rows: TriagedFinding[],
-  header: {
-    backend: "heuristic" | "jev";
-    declined: DecisionResult["declined"];
-    redactions: number;
-    lift: ReturnType<typeof liftSummary> | null;
-  },
-  log: (e: string, kv: Record<string, string>) => void,
-): { json: object; table: string } {
-  const specDir = run.specDir;
-  log("review-triaged", {
-    feature: basename(specDir),
-    backend: header.backend,
-    findings: String(run.findings.length),
-    dup_pairs: String(run.candidates.pairs.length),
-    dup_changed: String(header.lift?.dup_changed ?? 0),
-    scope_changed: String(header.lift?.scope_changed ?? 0),
-    severity_changed: String(header.lift?.severity_changed ?? 0),
-    redactions: String(header.redactions),
-  });
+export async function runTriage(
+  specDir: string,
+  changedFilesPath: string,
+  _opts: TriageOpts = {},
+): Promise<{ json: object; table: string }> {
+  const findings = readAllFindings(specDir);
+  const changedFiles = readChangedFiles(changedFilesPath);
+  const candidates = heuristicCandidates(findings, changedFiles);
+  const rows = applyHeuristic(findings, candidates);
 
   const json = {
     feature: basename(specDir),
     advisory: true,
-    backend: header.backend,
-    declined: header.declined,
-    redactions: header.redactions,
-    lift: header.lift,
+    backend: "heuristic",
+    declined: findings.length > 0 ? "disabled" : undefined,
+    redactions: 0,
+    lift: null,
     findings: rows,
   };
 
@@ -1084,105 +357,20 @@ function writeTriageOutput(
 }
 
 /**
- * Runs the full triage for the feature at `specDir`: reads
- * `<specDir>/review-raw/{architecture,security,tests}.md` (a missing file
- * contributes zero findings and a stderr warning) plus any `extraReviews`
- * paths (parsed with `parseFindings(text, "mixed")`, for `--calibrate`) and
- * the changed-files list at `changedFilesPath` (one path per line, blank
- * lines ignored, trimmed); computes heuristic candidates; builds Jev
- * questions via {@link buildQuestions} and calls `decide()` once per chunk
- * with `consumer: "review-triage"`, threading `fetchImpl`/`scrubCmd`/
- * `scanCmd`/`egressDir`/`log`/`config`/`env` from `opts` into every call;
- * applies the merged answers via {@link applyAnswers}.
- *
- * With `opts.calibrate`, thresholds are still used only to compute the
- * agreement summary (never to change any row): prints the calibration
- * table and summary to stdout, writes
- * `<specDir>/review-triage-calibration.json`, does NOT write
- * `review-triage.json`, and returns `{ json: <calibration object>, table:
- * <the printed text> }`.
- *
- * Otherwise: scrubs every row's `issue` and `fix` through
- * `guardEgressFields` (one call across every row's fields) before they
- * ever reach disk — a refusal writes `"[WITHHELD:scrub-failed]"` for both
- * fields on every row instead; the header's `redactions` sums the guard's
- * count and every chunk's `decide()` redaction count. Computes
- * {@link liftSummary} against the heuristic rows and records it as the
- * header's `lift` (`null` when no chunk reached the Jev backend). Logs one
- * `review-triaged` event via `opts.log ?? defaultLogger`, writes
- * `<specDir>/review-triage.json`, and returns the JSON object and the
- * rendered markdown table.
- */
-export async function runTriage(
-  specDir: string,
-  changedFilesPath: string,
-  opts: TriageOpts = {},
-): Promise<{ json: object; table: string }> {
-  const extraReviews = opts.extraReviews ?? [];
-  const findings = readAllFindings(specDir, extraReviews);
-  const changedFiles = readChangedFiles(changedFilesPath);
-  const candidates = heuristicCandidates(findings, changedFiles);
-  const config = opts.config ?? readJevConfig();
-
-  const chunks = buildQuestions(findings, candidates, changedFiles);
-  const results = await decideChunks(chunks, config, opts);
-  const run: TriageRun = {
-    specDir,
-    findings,
-    candidates,
-    heuristicRows: applyHeuristic(findings, candidates),
-    config,
-    results,
-    extraReviews,
-  };
-  const summary = summarizeResults(results);
-
-  if (opts.calibrate) return calibrationOutput(run, summary.backend);
-
-  const triaged =
-    results.length > 0
-      ? applyAnswers(findings, candidates, results, config.thresholds)
-      : run.heuristicRows;
-  const lift =
-    summary.backend === "jev" ? liftSummary(triaged, run.heuristicRows) : null;
-  const scrubbed = scrubRows(
-    triaged,
-    opts.projectRoot ?? getProjectRoot(),
-    opts,
-  );
-
-  return writeTriageOutput(
-    run,
-    scrubbed.rows,
-    {
-      backend: summary.backend,
-      declined: summary.declined,
-      redactions: summary.redactions + scrubbed.redactions,
-      lift,
-    },
-    opts.log ?? defaultLogger,
-  );
-}
-
-/**
  * Minimal CLI arg parser for `<spec-dir> --changed-files <path>
- * [--json-only] [--calibrate [<review-md>...]]`. `unknown` captures the
- * first unrecognized `--flag` seen, for the usage-and-exit path.
- * Positionals after the first (`specDir`) are collected as `reviewMdPaths`,
- * meaningful only with `--calibrate`.
+ * [--json-only]`. `unknown` captures the first unrecognized `--flag` seen,
+ * for the usage-and-exit path. Positionals after the first (`specDir`) are
+ * ignored.
  */
 function parseCliArgs(argv: string[]): {
   specDir?: string;
   changedFiles?: string;
   jsonOnly: boolean;
-  calibrate: boolean;
-  reviewMdPaths: string[];
   unknown: string | null;
 } {
   const positionals: string[] = [];
   let changedFiles: string | undefined;
   let jsonOnly = false;
-  let calibrate = false;
   let unknown: string | null = null;
 
   for (let i = 0; i < argv.length; i++) {
@@ -1192,8 +380,6 @@ function parseCliArgs(argv: string[]): {
       i++;
     } else if (a === "--json-only") {
       jsonOnly = true;
-    } else if (a === "--calibrate") {
-      calibrate = true;
     } else if (a.startsWith("--")) {
       unknown = unknown ?? a;
     } else {
@@ -1205,8 +391,6 @@ function parseCliArgs(argv: string[]): {
     specDir: positionals[0],
     changedFiles,
     jsonOnly,
-    calibrate,
-    reviewMdPaths: positionals.slice(1),
     unknown,
   };
 }
@@ -1214,15 +398,15 @@ function parseCliArgs(argv: string[]): {
 /** Prints the one-line usage message to stderr and exits with status 2. */
 function usageAndExit(): never {
   process.stderr.write(
-    "usage: node scripts/review-triage.ts <spec-dir> --changed-files <path> [--json-only] [--calibrate [<review-md>...]]\n",
+    "usage: node scripts/review-triage.ts <spec-dir> --changed-files <path> [--json-only]\n",
   );
   process.exit(2);
 }
 
 /**
  * CLI entry point. Prints the markdown table to stdout unless
- * `--json-only` is given (calibration output always prints). Exits 0 on
- * success, 2 with a usage message for a missing or unknown argument.
+ * `--json-only` is given. Exits 0 on success, 2 with a usage message for a
+ * missing or unknown argument.
  */
 async function main(): Promise<void> {
   const args = parseCliArgs(process.argv.slice(2));
@@ -1231,14 +415,10 @@ async function main(): Promise<void> {
   const { table } = await runTriage(
     resolve(args.specDir),
     resolve(args.changedFiles),
-    {
-      jsonOnly: args.jsonOnly,
-      calibrate: args.calibrate,
-      extraReviews: args.reviewMdPaths.map((p) => resolve(p)),
-    },
+    { jsonOnly: args.jsonOnly },
   );
 
-  if (args.calibrate || !args.jsonOnly) process.stdout.write(table + "\n");
+  if (!args.jsonOnly) process.stdout.write(table + "\n");
   process.exit(0);
 }
 

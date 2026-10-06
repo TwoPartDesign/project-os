@@ -55,11 +55,9 @@
 ### lib
 - `l_common` — `.claude/hooks/_common.sh` (14 dependents)
 - `l_dashboard_render` — `scripts/lib/dashboard-render.ts` (5 dependents)
-- `l_decide` — `scripts/lib/decide.ts` (4 dependents)
-- `l_egress_guard` — `scripts/lib/egress-guard.ts` (6 dependents)
 - `l_json` — `scripts/lib/json.sh` (2 dependents)
 - `l_policy` — `scripts/lib/policy.ts` (10 dependents)
-- `l_project_root` — `scripts/lib/project-root.ts` (22 dependents)
+- `l_project_root` — `scripts/lib/project-root.ts` (18 dependents)
 - `l_scan_rules` — `scripts/lib/scan-rules.js` (0 dependents)
 - `l_skill_apply_lib` — `scripts/lib/skill-apply-lib.ts` (4 dependents)
 - `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (12 dependents)
@@ -99,10 +97,8 @@
 - `s_critical_rules_test` — `tests/critical-rules.test.ts` (0 dependents)
 - `s_dashboard_render_test` — `tests/dashboard-render.test.ts` (0 dependents)
 - `s_dashboard_smoke` — `tests/dashboard-smoke.sh` (0 dependents)
-- `s_decide_test` — `tests/decide.test.ts` (0 dependents)
 - `s_detect_stack_test` — `tests/detect-stack.test.ts` (0 dependents)
 - `s_dream_accept_smoke` — `tests/dream-accept-smoke.sh` (0 dependents)
-- `s_egress_guard_test` — `tests/egress-guard.test.ts` (0 dependents)
 - `s_entropy_threshold_test` — `tests/entropy-threshold.test.ts` (0 dependents)
 - `s_hook_smoke_negctl` — `tests/hook-smoke-negctl.sh` (0 dependents)
 - `s_hook_smoke` — `tests/hook-smoke.sh` (0 dependents)
@@ -197,28 +193,19 @@
 - `h_pre_compact` --sources--> `l_common`
 - `h_session_end_cleanup` --sources--> `l_common`
 - `h_tool_failure_log` --sources--> `l_common`
-- `l_decide` --imports--> `l_egress_guard`
-- `l_decide` --imports--> `l_project_root`
 - `l_policy` --imports--> `l_project_root`
 - `s_compaction_hooks` --sources--> `l_common`
 - `s_compaction_metrics_test` --imports--> `s_compaction_metrics`
 - `s_dashboard` --sources--> `l_json`
 - `s_dashboard_render_test` --imports--> `l_dashboard_render`
 - `s_dashboard_server` --imports--> `l_dashboard_render`
-- `s_decide_test` --imports--> `l_decide`
-- `s_decide_test` --imports--> `l_project_root`
 - `s_detect_stack_test` --imports--> `s_detect_stack`
-- `s_egress_guard_test` --imports--> `l_egress_guard`
 - `s_knowledge_index` --imports--> `l_project_root`
 - `s_knowledge_index_test` --imports--> `s_knowledge_index`
 - `s_maintain_draft` --imports--> `l_dashboard_render`
 - `s_maintain_draft` --imports--> `l_project_root`
 - `s_observation_parser_test` --imports--> `s_observation_parser`
 - `s_policy_test` --imports--> `l_policy`
-- `s_review_triage` --imports--> `l_decide`
-- `s_review_triage` --imports--> `l_egress_guard`
-- `s_review_triage` --imports--> `l_project_root`
-- `s_review_triage_test` --imports--> `l_decide`
 - `s_review_triage_test` --imports--> `s_review_triage`
 - `s_skill_apply` --imports--> `l_policy`
 - `s_skill_apply` --imports--> `l_project_root`
@@ -238,11 +225,11 @@
 
 - LOW bloat .claude/rules/lead.md — .claude/rules/lead.md is approximately 3380 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat CLAUDE.md — CLAUDE.md is approximately 2626 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 7667 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 7466 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/bugs.md — docs/knowledge/bugs.md is approximately 3345 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 18792 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/design-principles.md — docs/knowledge/design-principles.md is approximately 2639 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 5001 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 4423 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/patterns.md — docs/knowledge/patterns.md is approximately 5889 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/windows-bash-scanner.md — docs/knowledge/windows-bash-scanner.md is approximately 3988 tokens, exceeding the 2500-token warn threshold.
 - MEDIUM orphan-script s_audit_context — Script scripts/audit-context.sh has no incoming references and is not in the orphan allowlist.

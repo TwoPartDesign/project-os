@@ -209,11 +209,7 @@ After all three reviewers complete:
    node scripts/review-triage.ts "docs/specs/$ARGUMENTS" --changed-files "docs/specs/$ARGUMENTS/review-raw/changed-files.txt"
    ```
    The printed table is advisory input to steps 1-3 below and decides
-   nothing — `review-raw/` sits under the gitignored spec directory. When the
-   written `docs/specs/$ARGUMENTS/review-triage.json` header shows
-   `"backend": "jev"`, quote its `lift` values (duplicates, scope, and
-   severity changed versus the heuristic) in the review report's summary so
-   every review records what Jev changed.
+   nothing — `review-raw/` sits under the gitignored spec directory.
 1. **Deduplicate**: Remove findings that multiple reviewers flagged identically
 2. **Cross-validate**: For each CRITICAL/HIGH finding, verify it's accurate by checking the actual code yourself — reviewers can hallucinate
    Treat a CONCERN that a shipped document's self-validation claim is circular (the checked number is produced by the code under review) the same way: confirm it, and if it holds, the claim and every conclusion resting on it are a HIGH.
