@@ -89,7 +89,7 @@ WORK="$(mktemp -d)"
 # makes that true on the failure paths too.
 trap 'rm -rf "$WORK"' EXIT
 
-HOOK_NAMES="_common.sh output-index.sh compact-suggest.sh tool-failure-log.sh post-tool-use.sh session-end-cleanup.sh post-write-session.sh log-activity.sh"
+HOOK_NAMES="_common.sh output-index.sh compact-suggest.sh tool-failure-log.sh post-tool-use.sh session-end-cleanup.sh post-write-session.sh log-activity.sh post-mcp-validate.sh"
 
 CTL_FAIL=0
 
@@ -314,7 +314,8 @@ run_mutant "mutant 6: resolve_project_path does not check containment" \
     "postToolUse_bashEditDiffSymlinkToOutside_noSideEffect" \
     "postToolUse_bashEditDiffParentDirSymlink_noSideEffect" \
     "postToolUse_bashEditDiffDotDotEscape_noSideEffect" \
-    "postToolUse_bashEditDiffWindowsPathOutsideRoot_noSideEffect"
+    "postToolUse_bashEditDiffWindowsPathOutsideRoot_noSideEffect" \
+    "postToolUse_bashEditDiffWindowsPathSymlinkToOutside_noSideEffect"
 
 # ── Mutant 7: scrub without containment on the Bash branch (#T202) ─────────
 SCRUBRAW="$WORK/scrub-no-containment"
