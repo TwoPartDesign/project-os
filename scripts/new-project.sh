@@ -369,7 +369,7 @@ FRAMEWORK_FILES_OPTIONAL=(
 #
 # SOURCES ARE templates/, NEVER THIS REPO'S OWN LIVE FILES. Copying the live
 # docs/knowledge/*.md shipped ~190 lines about Project OS's own hook chain
-# into every clone as that project's architecture (CLAUDE.md @imports it), and
+# into every clone as that project's architecture (CLAUDE.md points to it), and
 # /tools:init could not see it -- init discovers work by scanning for
 # [ALL_CAPS_IN_BRACKETS], and leaked content is prose, not placeholders.
 # See docs/specs/template-content-leakage/design.md and templates/README.md.
@@ -403,8 +403,8 @@ CONTENT_FILES=(
   # deliberately NOT in RESIDUE_WATCHED: staying byte-identical to the
   # template is the expected steady state for them.
   # Transferable engineering patterns learned building Project OS. Shipped as
-  # REFERENCE (not as docs/knowledge/patterns.md, which CLAUDE.md @imports as
-  # this project's active conventions) so the guidance survives the seed split
+  # REFERENCE (not as docs/knowledge/patterns.md, which CLAUDE.md points to and
+  # design, build and review read as this project's conventions) so the guidance survives the seed split
   # without asserting conventions the new project never established.
   "templates/knowledge/framework-patterns.md|docs/knowledge/framework-patterns.md"
   "docs/knowledge/roadmap-format.md|docs/knowledge/roadmap-format.md"

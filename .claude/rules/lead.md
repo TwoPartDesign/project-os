@@ -95,7 +95,9 @@ earlier one is merged, so its worktree branches from the merged HEAD.
 Worktree workers self-ground or they fail quietly (`docs/knowledge/patterns.md`,
 "Brief Every Worktree Worker to Self-Ground First"). `worktree.baseRef: "head"`
 in settings.json branches each worktree from your current HEAD, so no merge
-step is needed. The brief passes absolute main-repo paths for inputs under a
+step is needed; if settings (settings.local.json, then settings.json) lack
+`worktree.baseRef: "head"`, the brief's first command is the self-ground merge
+(build.md pre-flight step 9). The brief passes absolute main-repo paths for inputs under a
 gitignored directory — `docs/specs/`, `docs/memory/`, `.claude/sessions/` are
 empty inside the worktree — and names a session-scratchpad path for outputs
 bound there, because an isolated worker cannot write the shared checkout; you
