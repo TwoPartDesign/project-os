@@ -12,7 +12,7 @@ general engineering guidance rather than framework trivia — they apply to any 
 sanctioned writer, a generated artifact, a secret-bearing extractor, or a safety predicate.
 
 **What this file is NOT.** It is **not** `docs/knowledge/patterns.md`. That file is
-`@import`ed into `CLAUDE.md` as *this project's active conventions* and must contain only
+pointed to by `CLAUDE.md`; design, build and review read it as *this project's conventions*, so it must contain only
 patterns **this** project has actually established. This file is reference material: read it
 when the situation arises, and if you adopt one of these patterns here, write your own entry in
 `patterns.md` describing how it applies to this codebase.

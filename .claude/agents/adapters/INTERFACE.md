@@ -37,7 +37,7 @@ adapter.sh <command> [args...]
 
 **Input:** The adapter receives a `context_dir` containing:
 - `task.md` — The task description and acceptance criteria
-- `conventions.md` — Project conventions (from CLAUDE.md)
+- `conventions.md` — Project conventions (from CLAUDE.md plus the matching docs/knowledge/patterns.md entries)
 - `design.md` — Relevant design section
 - `files/` — Current state of files the task will modify (read-only reference copies)
 

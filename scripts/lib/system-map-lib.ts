@@ -760,12 +760,13 @@ export const RESIDUE_WATCHED: ReadonlyArray<{
     path: "docs/knowledge/architecture.md",
     severity: "HIGH",
     reason:
-      "@import'ed into CLAUDE.md, so it loads as this project's architecture every session",
+      "CLAUDE.md points to it; design, build and review read it as this project's architecture",
   },
   {
     path: "docs/knowledge/patterns.md",
     severity: "HIGH",
-    reason: "@import'ed into CLAUDE.md as this project's active conventions",
+    reason:
+      "CLAUDE.md points to it; design, build and review read it as this project's conventions",
   },
   {
     path: ".claude/rules/preferences.md",

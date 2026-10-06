@@ -93,7 +93,7 @@ Create `docs/specs/$ARGUMENTS/tasks/TN/compete-comparison.md`:
 [Key trade-offs]
 
 ## Recommendation
-[Which approach best fits this project's principles — cite CLAUDE.md]
+[Which approach best fits this project's principles — cite CLAUDE.md or docs/knowledge/patterns.md]
 ```
 
 ## Step 6: Human selection

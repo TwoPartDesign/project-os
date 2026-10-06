@@ -8,7 +8,7 @@ You are the Lead for this build. You coordinate sub-agents but do not write impl
 
 ## Input
 Read `docs/specs/$ARGUMENTS/tasks.md`. Verify all tasks have status markers.
-Read `CLAUDE.md` for project conventions. Roster agents set `omitClaudeMd: true` and never load it, so the brief's pasted excerpt is their only copy.
+Read `CLAUDE.md` and `docs/knowledge/patterns.md` for project conventions (CLAUDE.md only points to patterns.md). Roster agents set `omitClaudeMd: true` and never load it, so the brief's pasted excerpt is their only copy.
 Read `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` from `.claude/settings.json` `env` (the native cap on concurrently running sub-agents; the runtime default is 20 when unset).
 
 **Runtime state:** Native Tasks (TaskCreate/TaskUpdate/TaskList) drive dependency scheduling during build execution. ROADMAP.md remains the authoritative source of truth. See "Task Scheduling (Native Tasks)" below.
@@ -34,7 +34,7 @@ Before dispatching any agents:
 6. Run `node scripts/system-map.ts check` (heal with `--heal` if drifted) and skim `node scripts/system-map.ts report` — starting a build on top of unknown HIGH readiness findings (unwired hooks, dangling refs) compounds them. Findings that overlap this feature's task files should be flagged to the user before dispatch; unrelated findings are the maintenance loop's job, not this build's.
 7. Confirm native Tasks are actually available. Since Claude Code 2.1.233, `TaskCreate`/`TaskUpdate`/`TaskList` are withheld on Opus 4.8, Sonnet 5, Fable 5 and newer unless `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` is set in `.claude/settings.json` `env` (the shipped settings set it). If `TaskCreate` is not in your tool list, say so before dispatching — `Native Tasks unavailable (CLAUDE_CODE_ENABLE_TODO_TOOLS unset?) — scheduling from ROADMAP markers` — and continue on the marker fallback. Never take the fallback silently: that is how a month of builds ran without dependency enforcement and nobody noticed. `claude --debug` names settings env vars Claude Code ignored (2.1.281), so use it when the Task tools are missing despite `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`.
 8. Warn-only staleness check (never blocking): compare file mtimes (`test -nt`) and, if `docs/specs/$ARGUMENTS/brief.md` is newer than `design.md`, or `design.md` is newer than `tasks.md`, tell the user the downstream doc may predate an upstream edit, then continue.
-9. Read `worktree.baseRef` from `.claude/settings.json`. When it is not `"head"` (absent, or `"fresh"`), warn the user — `worktree.baseRef is not "head": worktrees branch from the default branch and will miss unpushed commits and prior batches — adding the self-ground merge to every worker brief` — and put the self-ground step back into every worker brief (see "Worktree base" in the Execution Protocol). Continue the build.
+9. Read the effective `worktree.baseRef`: `.claude/settings.local.json` first, then `.claude/settings.json`. When it is not `"head"` (absent, or `"fresh"`), warn the user — `worktree.baseRef is not "head": worktrees branch from the default branch and will miss unpushed commits and prior batches — adding the self-ground merge to every worker brief` — and put the self-ground step back into every worker brief (see "Worktree base" in the Execution Protocol). Continue the build.
 
 **Agent Rules note:** The `## Agent Rules` sections in `.claude/rules/*.md` are hand-maintained distillations, included verbatim in agent prompts (see Execution Protocol). When editing a rule file, update its `## Agent Rules` section in the same edit — there is no automated freshness check.
 
@@ -174,8 +174,10 @@ Each agent's prompt:
 BASH COMMAND RULES:
 [BASH_AGENT_RULES]
 
+[IF worktree.baseRef != "head"] FIRST COMMAND: git -C "<worktree>" merge <current-branch> --no-edit
+
 Conventions to follow:
-[RELEVANT CLAUDE.md EXCERPT]
+[RELEVANT CLAUDE.md + docs/knowledge/patterns.md EXCERPTS]
 
 Design context:
 [RELEVANT DESIGN SECTION ONLY]
@@ -227,7 +229,7 @@ Each time the running set drains (all dispatched agents have completed) and befo
 ### After all tasks complete:
 
 1. Run final full test suite
-2. Workers commit on their worktree branch. Collect each branch (`git log --oneline master..<branch>`, then merge or cherry-pick) before the worktree is cleaned up; an uncommitted worktree is discarded. When a merge conflicts on a generated map (`docs/maps/*`), do not hand-edit it: for each conflicted file run `git checkout --ours docs/maps/<file>`, then `node scripts/system-map.ts generate`, then (only when files were added or removed) `bash scripts/generate-manifest.sh`, then `git add docs/maps .claude/manifest.json`, and conclude with `git commit -F <msgfile>` — never `--no-edit`, which keeps the `# Conflicts:` lines in the message. Worktree lifecycle is otherwise native: worktrees are cleaned up automatically and kept as a branch when changes were made. No manual session-preservation step.
+2. Workers commit on their worktree branch. Collect each branch (`git log --oneline master..<branch>`, then merge or cherry-pick) before the worktree is cleaned up; an uncommitted worktree is discarded. When a merge conflicts on a generated map (`docs/maps/*`), do not hand-edit it: for each conflicted file run `git checkout --ours docs/maps/<file>`, then `node scripts/system-map.ts generate`, then (only when files were added or removed) `bash scripts/generate-manifest.sh`, then `git add docs/maps .claude/manifest.json`. When `.claude/manifest.json` itself conflicts, resolve it the same way: `git checkout --ours .claude/manifest.json`, then `bash scripts/generate-manifest.sh`, then `git add .claude/manifest.json`. Conclude with `git commit -F <msgfile>` — never `--no-edit`, which keeps the `# Conflicts:` lines in the message. Worktree lifecycle is otherwise native: worktrees are cleaned up automatically and kept as a branch when changes were made. No manual session-preservation step.
 3. Check for uncommitted changes: `git status`
 4. Any work a worker left uncommitted is already gone — re-dispatch that task rather than reconstructing it. For work you cherry-picked or created yourself, keep atomic commits (one per task): `feat($ARGUMENTS): <task title> (TN)`
 5. Update ROADMAP.md — verify all completed tasks are marked `[~]` (ready for review). Do NOT mark them `[x]` — that transition happens only after `/workflows:review` passes.
