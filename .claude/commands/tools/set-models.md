@@ -67,10 +67,10 @@ Create or update `.claude/settings.json`, preserving any existing keys:
   the compaction chain (`compact-suggest.sh`, `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`)
   measures against; the runtime caps it at the model's real window. Rule: it
   must not exceed the smallest real window of any model the session can land
-  on — the lead and every `fallbackModel` entry. `350000` when the whole chain
+  on — the lead and every `fallbackModel` entry. `500000` when the whole chain
   runs at 1M (Opus, Sonnet and Fable on a plan with 1M context; verify with
   `/context`), `200000` when any chain model runs at 200k. The default chain
-  (`opus` lead, `sonnet` fallback) is all 1M, so the 350k cap still sits below
+  (`opus` lead, `sonnet` fallback) is all 1M, so the 500k cap still sits below
   every window in it. A cap above a
   chain member's real window makes the handoff nudge fire past the end of that
   window, i.e. never (`docs/knowledge/decisions.md`, 2026-09-16 resolution).

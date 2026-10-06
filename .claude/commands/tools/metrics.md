@@ -81,7 +81,7 @@ configured fire point pinned against the ones the runtime actually used.
 
 ```bash
 node scripts/compaction-metrics.ts ~/.claude/projects/<slug>/<session>.jsonl
-node scripts/compaction-metrics.ts ~/.claude/projects/<slug>/ --window 350000 --pct 80 --json
+node scripts/compaction-metrics.ts ~/.claude/projects/<slug>/ --window 500000 --pct 80 --json
 ```
 
 `docs/knowledge/compaction-metrics.md` is the recorded result and the
