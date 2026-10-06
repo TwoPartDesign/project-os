@@ -134,7 +134,9 @@ n/a.
 `;
 
 /** Builds a full SkillEditProposal, defaulting every field except the overrides given. */
-function makeProposal(overrides: Partial<SkillEditProposal>): SkillEditProposal {
+function makeProposal(
+  overrides: Partial<SkillEditProposal>,
+): SkillEditProposal {
   return {
     n: 1,
     title: "test proposal",
@@ -174,28 +176,80 @@ describe("parseProposal", () => {
       (err: unknown) => err instanceof Error && err.message.includes("Anchor"),
     );
   });
+
+  it("parseProposal_predictedEffectBullet_ignoredAndNamedFieldsUnchanged", () => {
+    const doc = [
+      "# Skill-Edit Proposals: pe-feature",
+      "",
+      "## Run: 2026-10-06 — trigger: ship",
+      "Scope: some/file.md",
+      "",
+      "### Proposal 1: add predicted effect",
+      "- **Fingerprint**: skill-edit:some/file.md:predicted-effect",
+      "- **Target**: some/file.md",
+      "- **Operation**: replace",
+      "- **Tier**: standard",
+      "- **Draft task**: #T7",
+      "- **Evidence**: review.md finding H2",
+      "- **Size**: 100 -> 110 (chars/4)",
+      "- **Predicted effect**: heredoc scanner prompts drop to 0 in the next 3 builds (grep review.md for 'heredoc')",
+      "",
+      "#### Anchor",
+      "```",
+      "old line",
+      "```",
+      "",
+      "#### Proposed text",
+      "```",
+      "new line",
+      "```",
+      "",
+      "#### Rationale",
+      "Prevents the stall.",
+      "",
+    ].join("\n");
+    const p = parseProposal(doc, 1);
+    strictEqual(p.evidence, "review.md finding H2");
+    strictEqual(p.draftTask, "#T7");
+    strictEqual(p.anchor, "old line");
+    strictEqual(p.proposedText, "new line");
+    strictEqual(p.rationale, "Prevents the stall.");
+  });
 });
 
 describe("applyAnchoredOp", () => {
   it("applyAnchoredOp_uniqueAnchorReplace_roundTrips", () => {
     const fileContent = "line A\nANCHOR_BLOCK\nline B\n";
-    const p = makeProposal({ operation: "replace", anchor: "ANCHOR_BLOCK", proposedText: "REPLACED_BLOCK" });
+    const p = makeProposal({
+      operation: "replace",
+      anchor: "ANCHOR_BLOCK",
+      proposedText: "REPLACED_BLOCK",
+    });
     const result = applyAnchoredOp(fileContent, p);
     strictEqual(result, "line A\nREPLACED_BLOCK\nline B\n");
   });
 
   it("applyAnchoredOp_zeroMatches_throws", () => {
     const fileContent = "line A\nline B\n";
-    const p = makeProposal({ operation: "replace", anchor: "NOT_PRESENT", proposedText: "X" });
+    const p = makeProposal({
+      operation: "replace",
+      anchor: "NOT_PRESENT",
+      proposedText: "X",
+    });
     throws(
       () => applyAnchoredOp(fileContent, p),
-      (err: unknown) => err instanceof AnchorError && err.message === "anchor not found",
+      (err: unknown) =>
+        err instanceof AnchorError && err.message === "anchor not found",
     );
   });
 
   it("applyAnchoredOp_twoMatches_throws", () => {
     const fileContent = "DUPLICATE\nmiddle\nDUPLICATE\n";
-    const p = makeProposal({ operation: "replace", anchor: "DUPLICATE", proposedText: "X" });
+    const p = makeProposal({
+      operation: "replace",
+      anchor: "DUPLICATE",
+      proposedText: "X",
+    });
     throws(
       () => applyAnchoredOp(fileContent, p),
       (err: unknown) =>
@@ -205,7 +259,11 @@ describe("applyAnchoredOp", () => {
 
   it("applyAnchoredOp_deleteOp_removesBlockAndOneEol", () => {
     const fileContent = "before\nDELETE_ME\nafter\n";
-    const p = makeProposal({ operation: "delete", anchor: "DELETE_ME", proposedText: "" });
+    const p = makeProposal({
+      operation: "delete",
+      anchor: "DELETE_ME",
+      proposedText: "",
+    });
     const result = applyAnchoredOp(fileContent, p);
     strictEqual(result, "before\nafter\n");
     ok(!result.includes("\n\n"), "expected no doubled blank line after delete");
@@ -213,11 +271,18 @@ describe("applyAnchoredOp", () => {
 
   it("applyAnchoredOp_crlfFile_preservesCrlf", () => {
     const fileContent = "before\r\nANCHOR\r\nafter\r\n";
-    const p = makeProposal({ operation: "add", anchor: "ANCHOR", proposedText: "NEW1\nNEW2" });
+    const p = makeProposal({
+      operation: "add",
+      anchor: "ANCHOR",
+      proposedText: "NEW1\nNEW2",
+    });
     const result = applyAnchoredOp(fileContent, p);
     const withoutCrlf = result.split("\r\n").join("");
     ok(!withoutCrlf.includes("\n"), "expected no bare LF outside CRLF pairs");
-    ok(result.includes("NEW1\r\nNEW2"), "expected inserted text normalized to CRLF");
+    ok(
+      result.includes("NEW1\r\nNEW2"),
+      "expected inserted text normalized to CRLF",
+    );
   });
 });
 
@@ -241,7 +306,12 @@ describe("checkAutoCorrespondence", () => {
     // faithful "this line is nothing but the dead reference" case the test
     // means to exercise.
     const anchor = "scripts/dead-ref.sh";
-    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    const result = checkAutoCorrespondence(
+      anchor,
+      "",
+      "delete",
+      "scripts/dead-ref.sh",
+    );
     strictEqual(result, true);
   });
 
@@ -256,13 +326,23 @@ describe("checkAutoCorrespondence", () => {
     // assertion below genuinely exercises the exact-removal comparison.
     const anchor = "`scripts/dead-ref.sh`";
     const proposedText = "`scripts/dead-ref.sh` (kept)";
-    const result = checkAutoCorrespondence(anchor, proposedText, "replace", "scripts/dead-ref.sh");
+    const result = checkAutoCorrespondence(
+      anchor,
+      proposedText,
+      "replace",
+      "scripts/dead-ref.sh",
+    );
     strictEqual(result, false);
   });
 
   it("checkAutoCorrespondence_deadRefAbsentFromAnchor_false", () => {
     const anchor = "This anchor is about something unrelated entirely.";
-    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    const result = checkAutoCorrespondence(
+      anchor,
+      "",
+      "delete",
+      "scripts/dead-ref.sh",
+    );
     strictEqual(result, false);
   });
 
@@ -279,9 +359,15 @@ describe("checkAutoCorrespondence", () => {
     // the entanglement check and the test genuinely exercises the
     // wide-anchor mismatch below, rather than being short-circuited by
     // entanglement on the "bash " word that used to precede it.
-    const anchor = "scripts/dead-ref.sh\nSome unrelated context line.\nAnother line.";
+    const anchor =
+      "scripts/dead-ref.sh\nSome unrelated context line.\nAnother line.";
     const proposedText = "Some unrelated context line CHANGED.\nAnother line.";
-    const result = checkAutoCorrespondence(anchor, proposedText, "replace", "scripts/dead-ref.sh");
+    const result = checkAutoCorrespondence(
+      anchor,
+      proposedText,
+      "replace",
+      "scripts/dead-ref.sh",
+    );
     strictEqual(result, false);
   });
 
@@ -294,9 +380,15 @@ describe("checkAutoCorrespondence", () => {
     // required here because this is a `true`-expecting case; the original
     // "bash scripts/dead-ref.sh" line would now be entangled (residue
     // "bash " has word content) and the check would wrongly return false.
-    const anchor = "scripts/dead-ref.sh\nSome unrelated context line.\nAnother line.";
+    const anchor =
+      "scripts/dead-ref.sh\nSome unrelated context line.\nAnother line.";
     const proposedText = "Some unrelated context line.\nAnother line.";
-    const result = checkAutoCorrespondence(anchor, proposedText, "replace", "scripts/dead-ref.sh");
+    const result = checkAutoCorrespondence(
+      anchor,
+      proposedText,
+      "replace",
+      "scripts/dead-ref.sh",
+    );
     strictEqual(result, true);
   });
 
@@ -310,7 +402,12 @@ describe("checkAutoCorrespondence", () => {
     // prefix) so the refusal below is genuinely driven by the "every line
     // must contain the dead ref" delete rule, not by entanglement.
     const anchor = "scripts/dead-ref.sh\nSome unrelated context line.";
-    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    const result = checkAutoCorrespondence(
+      anchor,
+      "",
+      "delete",
+      "scripts/dead-ref.sh",
+    );
     strictEqual(result, false);
   });
 
@@ -321,7 +418,12 @@ describe("checkAutoCorrespondence", () => {
     // immediately after the match ('.') is in the boundary-char set, so it
     // must not count — no genuine dead-ref line exists in this anchor.
     const anchor = "See scripts/dead-ref.sh.bak for the backup.";
-    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    const result = checkAutoCorrespondence(
+      anchor,
+      "",
+      "delete",
+      "scripts/dead-ref.sh",
+    );
     strictEqual(result, false);
   });
 
@@ -337,7 +439,12 @@ describe("checkAutoCorrespondence", () => {
     // space, backticked ref) keeps the line boundary-clean AND pure syntax
     // once the ref is excised (residue is just "- ``"), so it still passes.
     const anchor = "- `scripts/dead-ref.sh`";
-    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    const result = checkAutoCorrespondence(
+      anchor,
+      "",
+      "delete",
+      "scripts/dead-ref.sh",
+    );
     strictEqual(result, true);
   });
 
@@ -349,7 +456,12 @@ describe("checkAutoCorrespondence", () => {
     // reference down with it, so this must be refused regardless of op.
     const anchor =
       "...run bash scripts/dead-ref.sh then also run bash scripts/critical-security-check.sh...";
-    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    const result = checkAutoCorrespondence(
+      anchor,
+      "",
+      "delete",
+      "scripts/dead-ref.sh",
+    );
     strictEqual(result, false);
   });
 
@@ -358,9 +470,15 @@ describe("checkAutoCorrespondence", () => {
     // proposedText is a faithful "remove the dead-ref line" edit, but the
     // anchor's dead-ref-bearing line ALSO carries a second live reference,
     // so the correspondence check must still fail closed.
-    const anchor = "bash scripts/dead-ref.sh and docs/architecture.md\nAnother line.";
+    const anchor =
+      "bash scripts/dead-ref.sh and docs/architecture.md\nAnother line.";
     const proposedText = "Another line.";
-    const result = checkAutoCorrespondence(anchor, proposedText, "replace", "scripts/dead-ref.sh");
+    const result = checkAutoCorrespondence(
+      anchor,
+      proposedText,
+      "replace",
+      "scripts/dead-ref.sh",
+    );
     strictEqual(result, false);
   });
 
@@ -375,8 +493,14 @@ describe("checkAutoCorrespondence", () => {
     // left behind after excising the dead ref — "Run", "bash", "and",
     // "also", "see", "bin/critical-tool.sh", "for", "details" — makes the
     // line entangled, regardless of what shape it takes.
-    const anchor = "Run bash scripts/dead-ref.sh and also see bin/critical-tool.sh for details";
-    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    const anchor =
+      "Run bash scripts/dead-ref.sh and also see bin/critical-tool.sh for details";
+    const result = checkAutoCorrespondence(
+      anchor,
+      "",
+      "delete",
+      "scripts/dead-ref.sh",
+    );
     strictEqual(result, false);
   });
 
@@ -384,8 +508,14 @@ describe("checkAutoCorrespondence", () => {
     // A live reference doesn't have to be a repo path at all — a bare URL
     // left behind in the residue is still word content the closed-residue
     // rule correctly refuses to discard.
-    const anchor = "scripts/dead-ref.sh see https://example.com/docs for the replacement";
-    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    const anchor =
+      "scripts/dead-ref.sh see https://example.com/docs for the replacement";
+    const result = checkAutoCorrespondence(
+      anchor,
+      "",
+      "delete",
+      "scripts/dead-ref.sh",
+    );
     strictEqual(result, false);
   });
 
@@ -395,7 +525,12 @@ describe("checkAutoCorrespondence", () => {
     // the rule is "no alphanumeric residue survives", not "no recognized
     // path residue survives".
     const anchor = "scripts/dead-ref.sh bash";
-    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    const result = checkAutoCorrespondence(
+      anchor,
+      "",
+      "delete",
+      "scripts/dead-ref.sh",
+    );
     strictEqual(result, false);
   });
 
@@ -407,7 +542,12 @@ describe("checkAutoCorrespondence", () => {
     // doesn't regress the ASCII-syntax-only case: none of `-`, backticks
     // are in `\p{L}`/`\p{N}`.
     const anchor = "- `scripts/dead-ref.sh`";
-    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    const result = checkAutoCorrespondence(
+      anchor,
+      "",
+      "delete",
+      "scripts/dead-ref.sh",
+    );
     strictEqual(result, true);
   });
 
@@ -416,14 +556,24 @@ describe("checkAutoCorrespondence", () => {
     // word left behind alongside the dead ref is word content just as much
     // as an ASCII one, and must entangle the line.
     const anchor = "scripts/dead-ref.sh 关键工具";
-    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    const result = checkAutoCorrespondence(
+      anchor,
+      "",
+      "delete",
+      "scripts/dead-ref.sh",
+    );
     strictEqual(result, false);
   });
 
   it("checkAutoCorrespondence_cyrillicResidue_false", () => {
     // #T95: same class of gap, Cyrillic script.
     const anchor = "scripts/dead-ref.sh важный";
-    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    const result = checkAutoCorrespondence(
+      anchor,
+      "",
+      "delete",
+      "scripts/dead-ref.sh",
+    );
     strictEqual(result, false);
   });
 
@@ -433,7 +583,12 @@ describe("checkAutoCorrespondence", () => {
     // ASCII-lookalike glyphs — the old `[A-Za-z0-9]` test missed them
     // entirely because their code points fall outside the ASCII range.
     const anchor = "scripts/dead-ref.sh ｂｉｎ";
-    const result = checkAutoCorrespondence(anchor, "", "delete", "scripts/dead-ref.sh");
+    const result = checkAutoCorrespondence(
+      anchor,
+      "",
+      "delete",
+      "scripts/dead-ref.sh",
+    );
     strictEqual(result, false);
   });
 });

@@ -111,3 +111,12 @@ Filed drafts land under `## Feature: maintenance-inbox` in `ROADMAP.md` as
 ```
 
 Nothing else in the repo changes as a result of this command running.
+
+## Manual step: prompt audit
+
+Periodically (after a model upgrade or a large instruction-file edit), run
+`/doctor prompt-audit` (2.1.283) interactively and triage the report. Stale
+paths, stale commands and contradicting instruction files lead the report;
+fix those first. File anything that needs a real change as a `[?]` draft.
+This is not part of `scripts/maintain.sh`: the audit needs an interactive
+session.

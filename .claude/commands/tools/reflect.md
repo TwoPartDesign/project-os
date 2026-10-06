@@ -159,6 +159,7 @@ Scope: <comma-separated instruction files in play>
 - **Draft task**: #TN (filled after filing)
 - **Evidence**: <concrete artifact pointer>
 - **Size**: <before> → <after> (chars/4)
+- **Predicted effect**: <one grep-checkable line: the observable change in the next builds or reviews, e.g. "no 'heredoc' scanner prompt in review.md findings">
 
 #### Anchor
 ```
@@ -173,6 +174,11 @@ Scope: <comma-separated instruction files in play>
 #### Rationale
 <why this edit prevents recurrence of the evidence>
 ````
+
+`Predicted effect` makes the edit falsifiable: a later reader greps for it to
+check whether the edit worked, and it is a single line on one bullet.
+`skill-apply-lib.ts` reads proposal fields by name, so the extra bullet is
+ignored by the parser.
 
 `topic-slug` is a 2-4 word kebab-case label for the **problem being
 addressed** (e.g. `stale-argv-example`, `missing-refusal-case`) — never a

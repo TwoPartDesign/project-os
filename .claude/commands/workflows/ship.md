@@ -106,6 +106,7 @@ Log: `bash .claude/hooks/log-activity.sh pr-created feature=$ARGUMENTS`
    - Wave count (from build)
    - Revision count (review cycles)
    - First-pass review rate
+   - Harness fingerprint (`git rev-parse HEAD:.claude`) — the tree hash of the instruction layer, so first-pass rates compare like with like across harness edits
    - Lines changed (`git diff --shortstat ${BASE}...HEAD` — where BASE is auto-detected above)
 6. **Skill reflection**: Run /tools:reflect $ARGUMENTS --trigger ship — reads this ship's review findings, metrics, and diff; proposes at most 3 bounded skill/rule/command edits as [?] drafts (see the reflect command for the full contract). Include its summary line in the ship output below.
 7. **Memory save**: Record what was shipped, any lessons learned, any patterns to remember.
