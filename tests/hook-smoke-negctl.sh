@@ -245,7 +245,7 @@ build_mutant "$GATE"
 # what this mutant is for.
 cat > "$WORK/gate-block.txt" <<'GATEBLOCK'
 PAYLOAD=$(cat)
-printf '%s\n' "$PAYLOAD" | grep -qaE '"is_error"[[:space:]]*:[[:space:]]*true' || exit 0
+grep -qaE '"is_error"[[:space:]]*:[[:space:]]*true' <<<"$PAYLOAD" || exit 0
 TOOL_NAME_RAW=$(printf '%s\n' "$PAYLOAD" | grep -aoE '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' 2>/dev/null | sed -n '1p' || true)
 GATEBLOCK
 GATE_TMP="$WORK/is-error-gate.new"
