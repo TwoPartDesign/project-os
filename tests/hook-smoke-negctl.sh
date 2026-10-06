@@ -62,7 +62,7 @@ WORK="$(mktemp -d)"
 # makes that true on the failure paths too.
 trap 'rm -rf "$WORK"' EXIT
 
-HOOK_NAMES="_common.sh output-index.sh compact-suggest.sh tool-failure-log.sh post-tool-use.sh session-end-cleanup.sh post-write-session.sh"
+HOOK_NAMES="_common.sh output-index.sh compact-suggest.sh tool-failure-log.sh post-tool-use.sh session-end-cleanup.sh post-write-session.sh log-activity.sh"
 
 CTL_FAIL=0
 
@@ -131,6 +131,7 @@ STUB_SURVIVORS_OK='_(exitsZero|notOnStdout|doesNotIndex|noHint|indexerNeverInvok
 STUB_STATIC_SURVIVORS="payloadSchema_fixturesInThisFile_nameToolInputAndToolResponse
 payloadSchema_hookScripts_readToolInputAndToolResponse
 toolFailureLog_settingsWiring_registeredOnlyOnPostToolUseFailure
+activityLog_settingsWiring_modelSwitchedOnPostModelSwitch
 notifyPhaseChange_windowsTerminalOnly_exit0StderrLineNoStdout"
 
 echo "=== mutant 1: all hooks stubbed to \`exit 0\` ==="

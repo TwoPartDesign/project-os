@@ -205,6 +205,16 @@
         ]
       }
     ],
+    "PostModelSwitch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \".claude/hooks/log-activity.sh\" model-switched --stdin"
+          }
+        ]
+      }
+    ],
     "PreCompact": [
       {
         "matcher": "*",

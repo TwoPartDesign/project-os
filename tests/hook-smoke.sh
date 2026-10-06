@@ -103,7 +103,8 @@ new_sandbox() {
     SANDBOXES+=("$sb")
     mkdir -p "$sb/.claude/hooks" "$sb/.claude/logs" "$sb/.claude/sessions" "$sb/scripts"
     for h in _common.sh output-index.sh compact-suggest.sh tool-failure-log.sh \
-             post-tool-use.sh session-end-cleanup.sh post-write-session.sh; do
+             post-tool-use.sh session-end-cleanup.sh post-write-session.sh \
+             log-activity.sh; do
         cp "$REAL_HOOKS/$h" "$sb/.claude/hooks/$h" 2>/dev/null || true
     done
     cp "$PROJECT_ROOT/scripts/scrub-secrets.sh" "$sb/scripts/scrub-secrets.sh" 2>/dev/null || true
@@ -338,6 +339,75 @@ WIRED_EVENTS=$(awk '/^    "[A-Za-z]+": \[/ { ev = $1 } /"command".*tool-failure-
     "$PROJECT_ROOT/.claude/settings.json" 2>/dev/null || true)
 assert_eq "toolFailureLog_settingsWiring_registeredOnlyOnPostToolUseFailure" \
     '"PostToolUseFailure":' "$WIRED_EVENTS"
+
+echo ""
+
+# ── log-activity.sh (PostModelSwitch hook mode) ─────────────────────────────
+# #T203: `model-switched --stdin` logs which model actually took over. The
+# fixtures below use aliases rather than full model ids; the hook copies whatever
+# the payload carries, so the spelling is irrelevant to what is asserted. The
+# payload shape (from_model / to_model / source) was captured from a real
+# PostModelSwitch fired by `/model` inside a headless session. Whether the event
+# also fires on a fallbackModel fallback is UNVERIFIED — it could not be provoked
+# headlessly — so no fixture here claims a source value for it.
+echo "log-activity.sh:"
+
+# run_model_switch <sandbox> <stdin> — hook mode, sets HOOK_EXIT / HOOK_OUT.
+run_model_switch() {
+    local sb="$1" input="$2"
+    HOOK_EXIT=0
+    HOOK_OUT=$(printf '%s' "$input" | bash "$sb/.claude/hooks/log-activity.sh" model-switched --stdin 2>"$sb/.stderr") || HOOK_EXIT=$?
+}
+activity_log() { cat "$1/.claude/logs/activity.jsonl" 2>/dev/null || true; }
+
+SB=$(new_sandbox)
+run_model_switch "$SB" \
+    '{"session_id":"smoke1","hook_event_name":"PostModelSwitch","from_model":"sonnet","to_model":"opus","requested_model":"opus","source":"command","context_tokens":0}'
+assert_eq "activityLog_modelSwitched_exitsZero" 0 "$HOOK_EXIT"
+assert_contains "activityLog_modelSwitched_logsEvent" "$(activity_log "$SB")" '"event": "model-switched"'
+assert_contains "activityLog_modelSwitched_logsFrom" "$(activity_log "$SB")" '"from": "sonnet"'
+assert_contains "activityLog_modelSwitched_logsTo" "$(activity_log "$SB")" '"to": "opus"'
+assert_contains "activityLog_modelSwitched_logsSource" "$(activity_log "$SB")" '"source": "command"'
+# requested_model is deliberately not a logged field: it is the user's spelling
+# of to_model, so recording it would only add a second name for the same thing.
+assert_not_contains "activityLog_modelSwitched_doesNotLogRequestedModel" "$(activity_log "$SB")" "requested"
+
+SB=$(new_sandbox)
+run_model_switch "$SB" '{"hook_event_name":"PostModelSwitch","to_model":"opus"}'
+assert_eq "activityLog_modelSwitchedMissingFrom_exitsZero" 0 "$HOOK_EXIT"
+assert_contains "activityLog_modelSwitchedMissingFrom_logsTo" "$(activity_log "$SB")" '"to": "opus"'
+assert_not_contains "activityLog_modelSwitchedMissingFrom_doesNotLogFrom" "$(activity_log "$SB")" '"from"'
+
+SB=$(new_sandbox)
+run_model_switch "$SB" "$INVALID_JSON"
+assert_eq "activityLog_modelSwitchedInvalidJson_exitsZero" 0 "$HOOK_EXIT"
+assert_contains "activityLog_modelSwitchedInvalidJson_stillLogsEvent" "$(activity_log "$SB")" '"event": "model-switched"'
+assert_not_contains "activityLog_modelSwitchedInvalidJson_doesNotLogMetadata" "$(activity_log "$SB")" '"metadata"'
+
+# Values reach an append-only log. The charset is closed, so the characters that
+# would forge a second field or entry are dropped rather than escaped.
+SB=$(new_sandbox)
+run_model_switch "$SB" \
+    '{"hook_event_name":"PostModelSwitch","from_model":"sonnet; rm -rf /","to_model":"opus","source":"command"}'
+assert_contains "activityLog_modelSwitchedPunctuation_strippedNotEscaped" "$(activity_log "$SB")" '"from": "sonnetrm-rf"'
+assert_eq "activityLog_modelSwitchedPunctuation_stillOneLine" 1 \
+    "$(printf '%s\n' "$(activity_log "$SB")" | grep -c 'model-switched')"
+
+# Without --stdin the hook must not read stdin at all: the other callers are
+# agents running it from a shell whose stdin may be an open pipe.
+SB=$(new_sandbox)
+HOOK_EXIT=0
+printf '%s' '{"from_model":"sonnet","to_model":"opus"}' | bash "$SB/.claude/hooks/log-activity.sh" model-switched from=a to=b >/dev/null 2>&1 || HOOK_EXIT=$?
+assert_eq "activityLog_modelSwitchedManualArgs_exitsZero" 0 "$HOOK_EXIT"
+assert_contains "activityLog_modelSwitchedManualArgs_logsArgsNotPayload" "$(activity_log "$SB")" '"from": "a"'
+assert_not_contains "activityLog_modelSwitchedManualArgs_doesNotLogPayload" "$(activity_log "$SB")" "sonnet"
+
+# Wiring: PostModelSwitch runs log-activity.sh in hook mode. Static, like the
+# tool-failure-log check above.
+MODEL_SWITCH_WIRED=$(awk '/^    "[A-Za-z]+": \[/ { ev = $1 } /"command".*log-activity\.sh.* model-switched --stdin/ { print ev }' \
+    "$PROJECT_ROOT/.claude/settings.json" 2>/dev/null || true)
+assert_eq "activityLog_settingsWiring_modelSwitchedOnPostModelSwitch" \
+    '"PostModelSwitch":' "$MODEL_SWITCH_WIRED"
 
 echo ""
 
