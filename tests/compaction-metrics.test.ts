@@ -480,6 +480,27 @@ describe("compaction-metrics", () => {
     deepStrictEqual(pin.observedLastContext, [263000]);
   });
 
+  it("pinCompactionPoint_backToBackBoundaries_eachPinsToLastTurnBeforeRun", () => {
+    // Two boundaries with no turn between them: the earlier one is carried in
+    // the next turn's skippedBoundaries, not its boundaryBefore.
+    const lines = [
+      ctxLine("a1", 100000, "2026-09-20T00:00:00.000Z"),
+      ctxLine("a2", 260000, "2026-09-20T00:20:00.000Z"),
+      boundaryLine(290000, 12000, "2026-09-20T00:30:00.000Z"),
+      boundaryLine(280000, 11000, "2026-09-20T00:31:00.000Z"),
+      ctxLine("a3", 70000, "2026-09-20T00:40:00.000Z"),
+    ];
+    const turns = parseTranscript(lines);
+    const boundaries = parseBoundaries(lines);
+    strictEqual(turns.length, 3);
+    strictEqual(boundaries.length, 2);
+
+    const pin = pinCompactionPoint(turns, boundaries, 350000, 80);
+
+    deepStrictEqual(pin.observedPreTokens, [290000, 280000]);
+    deepStrictEqual(pin.observedLastContext, [260000, 260000]);
+  });
+
   it("cli_jsonFlag_printsParseableResult", () => {
     const dir = mkdtempSync(join(tmpdir(), "compaction-metrics-cli-"));
     try {

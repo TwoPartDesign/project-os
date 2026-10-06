@@ -625,8 +625,71 @@ describe("findAlwaysLoadedOverBudget", () => {
     const findings = findAlwaysLoadedOverBudget([
       { path: ".claude/rules/described.md", content: unscoped },
     ]);
-    strictEqual(findings.length, 1);
-    strictEqual(findings[0].subject, ".claude/rules/described.md");
+    const estimate = Math.floor(Buffer.byteLength(unscoped, "utf8") / 4);
+    deepStrictEqual(findings, [
+      {
+        severity: "LOW",
+        kind: "always-loaded-over-budget",
+        subject: ".claude/rules/described.md",
+        detail: `.claude/rules/described.md is always loaded and is approximately ${estimate} tokens, exceeding the ${ALWAYS_LOADED_BUDGET_TOKENS}-token always-loaded budget.`,
+      },
+    ]);
+    // The 36-byte frontmatter adds 9 tokens on top of the body's budget + 1.
+    strictEqual(estimate, ALWAYS_LOADED_BUDGET_TOKENS + 1 + 9);
+  });
+
+  it("findAlwaysLoadedOverBudget_crlfPathsFrontmatter_excluded", () => {
+    const scoped = `---\r\npaths: ["**/*.test.*"]\r\n---\r\n${overContent}`;
+    deepStrictEqual(
+      findAlwaysLoadedOverBudget([
+        { path: ".claude/rules/crlf.md", content: scoped },
+      ]),
+      [],
+    );
+  });
+
+  it("findAlwaysLoadedOverBudget_pathsLineInBody_stillCounted", () => {
+    const content = `# T\npaths: x\n${overContent}`;
+    const estimate = Math.floor(Buffer.byteLength(content, "utf8") / 4);
+    deepStrictEqual(
+      findAlwaysLoadedOverBudget([{ path: ".claude/rules/body.md", content }]),
+      [
+        {
+          severity: "LOW",
+          kind: "always-loaded-over-budget",
+          subject: ".claude/rules/body.md",
+          detail: `.claude/rules/body.md is always loaded and is approximately ${estimate} tokens, exceeding the ${ALWAYS_LOADED_BUDGET_TOKENS}-token always-loaded budget.`,
+        },
+      ],
+    );
+  });
+
+  it("findAlwaysLoadedOverBudget_multibyteBody_estimatesFromByteLength", () => {
+    // 5002 two-byte characters: 10004 bytes (2501 tokens) but only 5002
+    // UTF-16 units (1250 tokens), so only a byte count flags it.
+    const content = "é".repeat(5002);
+    strictEqual(content.length, 5002);
+    strictEqual(Buffer.byteLength(content, "utf8"), 10004);
+    deepStrictEqual(
+      findAlwaysLoadedOverBudget([{ path: "CLAUDE.md", content }]),
+      [
+        {
+          severity: "LOW",
+          kind: "always-loaded-over-budget",
+          subject: "CLAUDE.md",
+          detail: `CLAUDE.md is always loaded and is approximately 2501 tokens, exceeding the ${ALWAYS_LOADED_BUDGET_TOKENS}-token always-loaded budget.`,
+        },
+      ],
+    );
+  });
+
+  it("findAlwaysLoadedOverBudget_nonMarkdownRulesFile_ignored", () => {
+    deepStrictEqual(
+      findAlwaysLoadedOverBudget([
+        { path: ".claude/rules/big.txt", content: overContent },
+      ]),
+      [],
+    );
   });
 
   it("findAlwaysLoadedOverBudget_knowledgeFileOverBudget_notAlwaysLoaded", () => {
@@ -642,8 +705,13 @@ describe("findAlwaysLoadedOverBudget", () => {
     const findings = findAlwaysLoadedOverBudget([
       { path: "CLAUDE.md", content: overContent },
     ]);
-    strictEqual(findings.length, 1);
-    strictEqual(findings[0].subject, "CLAUDE.md");
-    strictEqual(findings[0].severity, "LOW");
+    deepStrictEqual(findings, [
+      {
+        severity: "LOW",
+        kind: "always-loaded-over-budget",
+        subject: "CLAUDE.md",
+        detail: `CLAUDE.md is always loaded and is approximately ${ALWAYS_LOADED_BUDGET_TOKENS + 1} tokens, exceeding the ${ALWAYS_LOADED_BUDGET_TOKENS}-token always-loaded budget.`,
+      },
+    ]);
   });
 });

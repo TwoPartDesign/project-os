@@ -38,7 +38,7 @@ TOTAL_CHARS=0
 # docs/knowledge/ files load on demand and are not counted.
 for f in CLAUDE.md .claude/rules/*.md; do
   [[ -f "$f" ]] || continue
-  if [[ "$f" == .claude/rules/* ]] && head -n 20 "$f" | awk 'NR==1 && $0!="---"{exit 1} NR>1 && $0=="---"{exit 1} /^paths[[:space:]]*:/{found=1; exit 0} END{exit !found}'; then
+  if [[ "$f" == .claude/rules/* ]] && head -n 20 "$f" | awk '{sub(/\r$/,"")} NR==1 && $0!="---"{exit 1} NR>1 && $0=="---"{exit 1} /^paths[[:space:]]*:/{found=1; exit 0} END{exit !found}'; then
     continue
   fi
   TOTAL_CHARS=$((TOTAL_CHARS + $(wc -c < "$f")))
