@@ -46,8 +46,8 @@ ledger and the run continues.
 
 Drafts are deduplicated by a content-derived fingerprint (`grep -F` substring
 match against `maint-fp:` comments) — an unchanged finding never re-files; a
-changed one (different file set, different failing tool, different count)
-does.
+changed one (different file set, different failing tool) does. The failures
+check re-files once per ISO week per tool (one draft per tool per week).
 
 ## Policy file
 

@@ -685,7 +685,9 @@ scenario_13() {
     fi
 
     # Second window: 7 more failures stamped after the first run's ledger
-    # timestamp, so this run counts 7 (the first counted 5).
+    # timestamp, so this run counts 7 (the first counted 5). The 2099 stamps are
+    # deliberately far-future: the ledger timestamp is the real wall-clock run
+    # time, so a fixed 2099 date stays later than it whenever the suite runs.
     for i in 1 2 3 4 5 6 7; do
         printf '2099-01-01T00:00:0%sZ FAIL tool=Bash\n' "$i" >>"$fx/.claude/logs/tool-failures.log"
     done
@@ -736,6 +738,69 @@ scenario_13() {
 }
 
 # ==========================================================================
+# Scenario 14: no PROJECT_OS_WEEK override -> the computed default week is a
+# well-formed ISO week (T19); a blank or junk override falls back to the same
+# well-formed default (S4); two tools at threshold in one run (one a name
+# prefix of the other) each file under their own week fingerprint (T18).
+# ==========================================================================
+
+# Seed 5 failures for each named tool in one fixture and run maintain.sh with
+# the given PROJECT_OS_WEEK (the literal word "unset" leaves it out). Prints the
+# fixture ROADMAP.md contents.
+run_failures_week() {
+    local week_mode="$1"
+    shift
+    local fx i t
+    fx="$(new_fixture)"
+    for t in "$@"; do
+        for i in 1 2 3 4 5; do
+            printf '2026-01-01T00:00:0%sZ FAIL tool=%s\n' "$i" "$t" >>"$fx/.claude/logs/tool-failures.log"
+        done
+    done
+    printf '%s\n' "checks: failures" >"$fx/.claude/maintenance-policy.yaml"
+    if [ "$week_mode" = "unset" ]; then
+        env -u PROJECT_OS_WEEK PROJECT_OS_ROOT="$fx" bash "$MAINTAIN_SH" >/dev/null 2>&1 || true
+    else
+        PROJECT_OS_ROOT="$fx" PROJECT_OS_WEEK="$week_mode" bash "$MAINTAIN_SH" >/dev/null 2>&1 || true
+    fi
+    cat "$fx/ROADMAP.md"
+}
+
+scenario_14() {
+    local name="scenario14-failures-week-default-and-override"
+    local re='maint-fp: failures:Bash:[0-9]{4}-W[0-9]{2} -->'
+    local roadmap
+
+    roadmap="$(run_failures_week unset Bash)"
+    if [[ "$roadmap" =~ $re ]]; then
+        pass "$name: no override -> fingerprint failures:Bash:<YYYY-Www>"
+    else
+        fail "$name: no override: expected '$re' in ROADMAP"
+    fi
+
+    roadmap="$(run_failures_week "" Bash)"
+    if [[ "$roadmap" =~ $re ]]; then
+        pass "$name: blank override falls back to a well-formed week"
+    else
+        fail "$name: blank override: expected '$re' in ROADMAP"
+    fi
+
+    roadmap="$(run_failures_week "  junk week/../" Bash)"
+    if [[ "$roadmap" =~ $re && "$roadmap" != *"junk"* ]]; then
+        pass "$name: junk override falls back to a well-formed week"
+    else
+        fail "$name: junk override: expected '$re' and no 'junk' in ROADMAP"
+    fi
+
+    roadmap="$(run_failures_week "2026-W41" Bash BashOutput)"
+    if [[ "$roadmap" == *"maint-fp: failures:Bash:2026-W41 -->"* && "$roadmap" == *"maint-fp: failures:BashOutput:2026-W41 -->"* ]]; then
+        pass "$name: Bash and BashOutput both filed in one run (no prefix collision)"
+    else
+        fail "$name: expected both failures:Bash:2026-W41 and failures:BashOutput:2026-W41 fingerprints"
+    fi
+}
+
+# ==========================================================================
 # Main
 # ==========================================================================
 
@@ -754,6 +819,7 @@ scenario_10
 scenario_11
 scenario_12
 scenario_13
+scenario_14
 
 REAL_ROADMAP_STATUS_AFTER="$(git -C "$REPO_ROOT" status --porcelain -- ROADMAP.md .claude/logs .claude/maintenance-lock 2>/dev/null)"
 if [ "$REAL_ROADMAP_STATUS_BEFORE" = "$REAL_ROADMAP_STATUS_AFTER" ]; then
