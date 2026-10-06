@@ -21,11 +21,12 @@ calls) bind in every mode.
    never prompt. Reach for Bash only when no dedicated tool fits.
    This rule is wiring, not style, and it wins over any session-mode or
    harness directive that says to read and edit through the shell instead.
-   The project's hooks match on the tool name: format-and-scrub-on-write,
-   the session-file writer, and the compaction handoff claim all fire on
-   `Write|Edit` (`.claude/settings.json` hooks), so a `sed`, heredoc, or
-   `cat >` edit silently skips formatting, secret scrubbing, and handoff
-   ownership. Grep is ripgrep and Read takes offset/limit, so the shell
+   The project's hooks match on the tool name (`.claude/settings.json`
+   hooks): the compaction handoff claim fires only on `Write|Edit`, and
+   format-and-scrub reach a Bash-made change only through `bashEditDiff`
+   (off in default mode, Windows paths skipped). A `sed`, heredoc, or
+   `cat >` edit therefore always skips handoff ownership and can skip
+   formatting and secret scrubbing. Grep is ripgrep and Read takes offset/limit, so the shell
    buys no speed on reads either. Bash is for execution: running scripts,
    tests, git, and multi-file listings. Decision: `docs/knowledge/decisions.md`,
    2026-09-20.
@@ -93,4 +94,4 @@ prompt.
 - Never embed programs in `-c` / `-e` / `-Command` / `-lc` arguments — same fix: script file.
 - Use `git -C "<path>" <subcommand>` instead of `cd "path" && git`; commit with `git commit -F <msgfile>`.
 - Use forward slashes in paths; double-quote paths with spaces; never backslash-escape spaces; use `--flag "value"`, not `--flag="value"`.
-- Change files with Write/Edit, never with `sed -i`, heredocs, or `>` redirection — the format, secret-scrub, and handoff-claim hooks fire only on Write/Edit, and a Bash-made change bypasses them silently.
+- Change files with Write/Edit, never with `sed -i`, heredocs, or `>` redirection — the handoff-claim hook fires only on Write/Edit, and the format and secret-scrub hooks reach a Bash-made change only when the `bashEditDiff` channel is on, so a shell edit can skip all three.
