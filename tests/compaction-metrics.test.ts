@@ -7,7 +7,7 @@
 import { describe, it } from "node:test";
 import { strictEqual, deepStrictEqual } from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -26,6 +26,8 @@ const SCRIPT = resolve(
   dirname(fileURLToPath(import.meta.url)),
   "../scripts/compaction-metrics.ts",
 );
+
+const REPO_ROOT = resolve(dirname(SCRIPT), "..");
 
 /** Builds one main-thread assistant record line with the given usage. */
 function assistantLine(opts: {
@@ -242,17 +244,17 @@ describe("compaction-metrics", () => {
     strictEqual(cycles[0].turns.length, 2);
     strictEqual(cycles[0].preTokens, 290000);
     strictEqual(cycles[0].postTokens, 12000);
-    // The second closes its own empty cycle; no post-compaction figure is
-    // borrowed from the next cycle.
+    // The second closes its own empty cycle with its own record's postTokens,
+    // not a figure borrowed from the next cycle.
     strictEqual(cycles[1].turns.length, 0);
     strictEqual(cycles[1].cutBy, "boundary");
     strictEqual(cycles[1].preTokens, 280000);
-    strictEqual(cycles[1].postTokens, null);
+    strictEqual(cycles[1].postTokens, 11000);
     strictEqual(cycles[2].turns.length, 1);
     strictEqual(cycles[2].cutBy, "end");
   });
 
-  it("segmentCycles_trailingBoundary_closesCycleWithNullPostTokens", () => {
+  it("segmentCycles_trailingBoundary_closesCycleWithRecordPostTokens", () => {
     // A compaction fired and the transcript ends: no turn follows it.
     const lines = [
       ctxLine("a1", 100000),
@@ -267,8 +269,47 @@ describe("compaction-metrics", () => {
     strictEqual(cycles[0].turns.length, 2);
     strictEqual(cycles[0].cutBy, "boundary");
     strictEqual(cycles[0].preTokens, 290000);
-    // No post-compaction turn exists: unknown, reported as null and not 0.
+    // The boundary record's own value, as for a mid-transcript boundary.
+    strictEqual(cycles[0].postTokens, 12000);
+  });
+
+  it("segmentCycles_boundaryWithoutPostTokens_reportsNull", () => {
+    const noPost = JSON.stringify({
+      type: "system",
+      subtype: "compact_boundary",
+      isSidechain: false,
+      compactMetadata: { trigger: "auto", preTokens: 290000 },
+      timestamp: "2026-09-20T00:30:00.000Z",
+    });
+    const lines = [ctxLine("a1", 100000), ctxLine("a2", 260000), noPost];
+
+    const cycles = segmentCycles(parseTranscript(lines), {
+      boundaries: parseBoundaries(lines),
+    });
+
+    strictEqual(cycles[0].preTokens, 290000);
     strictEqual(cycles[0].postTokens, null);
+  });
+
+  it("segmentCycles_boundariesListShorterThanAttached_throwsDescriptiveError", () => {
+    const lines = [
+      ctxLine("a1", 100000),
+      boundaryLine(290000, 12000),
+      ctxLine("a2", 70000),
+    ];
+    const turns = parseTranscript(lines);
+
+    let message = "";
+    try {
+      segmentCycles(turns, { boundaries: [] });
+    } catch (e) {
+      message = (e as Error).message;
+    }
+
+    strictEqual(
+      message,
+      "segmentCycles: turns carry 1 boundaries but opts.boundaries lists only 0; pass the complete parseBoundaries() list",
+    );
   });
 
   it("segmentCycles_trailingBackToBackBoundaries_eachGetsACycle", () => {
@@ -285,14 +326,14 @@ describe("compaction-metrics", () => {
     strictEqual(cycles.length, 2);
     strictEqual(cycles[0].turns.length, 2);
     strictEqual(cycles[0].preTokens, 290000);
-    strictEqual(cycles[0].postTokens, null);
+    strictEqual(cycles[0].postTokens, 12000);
     strictEqual(cycles[1].turns.length, 0);
     strictEqual(cycles[1].cutBy, "boundary");
     strictEqual(cycles[1].preTokens, 280000);
-    strictEqual(cycles[1].postTokens, null);
+    strictEqual(cycles[1].postTokens, 11000);
   });
 
-  it("segmentCycles_boundariesBeforeFirstTurn_carriedByFirstTurn", () => {
+  it("segmentCycles_boundariesBeforeFirstTurn_eachClosesZeroTurnCycle", () => {
     // Two compact_boundary records precede any assistant turn, so there is
     // no previous turn for either to cut.
     const lines = [
@@ -315,11 +356,11 @@ describe("compaction-metrics", () => {
     strictEqual(cycles[0].turns.length, 0);
     strictEqual(cycles[0].cutBy, "boundary");
     strictEqual(cycles[0].preTokens, 290000);
-    strictEqual(cycles[0].postTokens, null);
+    strictEqual(cycles[0].postTokens, 12000);
     strictEqual(cycles[1].turns.length, 0);
     strictEqual(cycles[1].cutBy, "boundary");
     strictEqual(cycles[1].preTokens, 280000);
-    strictEqual(cycles[1].postTokens, null);
+    strictEqual(cycles[1].postTokens, 11000);
     strictEqual(cycles[2].turns.length, 2);
     strictEqual(cycles[2].cutBy, "end");
   });
@@ -335,7 +376,7 @@ describe("compaction-metrics", () => {
     strictEqual(cycles[0].turns.length, 0);
     strictEqual(cycles[0].cutBy, "boundary");
     strictEqual(cycles[0].preTokens, 290000);
-    strictEqual(cycles[0].postTokens, null);
+    strictEqual(cycles[0].postTokens, 12000);
     strictEqual(cycles[1].turns.length, 1);
     strictEqual(cycles[1].cutBy, "end");
   });
@@ -354,8 +395,8 @@ describe("compaction-metrics", () => {
     deepStrictEqual(
       cycles.map((c) => [c.turns.length, c.cutBy, c.preTokens, c.postTokens]),
       [
-        [0, "boundary", 290000, null],
-        [0, "boundary", 280000, null],
+        [0, "boundary", 290000, 12000],
+        [0, "boundary", 280000, 11000],
       ],
     );
   });
@@ -699,6 +740,26 @@ describe("compaction-metrics", () => {
     }
   });
 
+  it("compactionMetrics_defaultWindow_matchesShippedSettingsEnv", () => {
+    const dir = mkdtempSync(join(tmpdir(), "compaction-metrics-cli-"));
+    try {
+      writeFileSync(join(dir, "session.jsonl"), ctxLine("a1", 100000) + "\n");
+      const settings = JSON.parse(
+        readFileSync(join(REPO_ROOT, ".claude/settings.json"), "utf8"),
+      );
+      const env = settings.env as Record<string, string>;
+
+      const result = JSON.parse(
+        execFileSync("node", [SCRIPT, dir, "--json"], { encoding: "utf8" }),
+      );
+
+      strictEqual(result.window, Number(env.CLAUDE_CODE_AUTO_COMPACT_WINDOW));
+      strictEqual(result.pct, Number(env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("cli_trailingBoundary_cycleTableCountsIt", () => {
     const dir = mkdtempSync(join(tmpdir(), "compaction-metrics-cli-"));
     try {
@@ -724,7 +785,25 @@ describe("compaction-metrics", () => {
           .length,
         2,
       );
-      strictEqual(result.cycles[result.cycles.length - 1].postTokens, null);
+      deepStrictEqual(
+        result.cycles.map(
+          (c: {
+            stats: { turns: number };
+            cutBy: string;
+            preTokens: number | null;
+            postTokens: number | null;
+          }) => [c.stats.turns, c.cutBy, c.preTokens, c.postTokens],
+        ),
+        [
+          [0, "boundary", 290000, 12000],
+          [2, "boundary", 280000, 11000],
+        ],
+      );
+
+      // The markdown table renders the same two rows.
+      const table = execFileSync("node", [SCRIPT, dir], { encoding: "utf8" });
+      strictEqual(table.includes("| boundary | 290,000 | 12,000 |"), true);
+      strictEqual(table.includes("| boundary | 280,000 | 11,000 |"), true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
