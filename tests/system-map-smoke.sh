@@ -295,6 +295,8 @@ make_fixture "$FIXTURE_6"
 mkdir -p "$FIXTURE_6/.claude/rules"
 # 16004 bytes of spaces = 4001 tokens at 4 bytes per token, one over budget.
 printf '%*s' 16004 '' > "$FIXTURE_6/.claude/rules/big.md"
+# 12004 bytes = 3001 tokens: over the old 2500 budget, under the pinned 4000.
+printf '%*s' 12004 '' > "$FIXTURE_6/.claude/rules/mid.md"
 (cd "$FIXTURE_6" && git add -A && git commit -q -m "fixture: big always-loaded rule")
 
 set +e
@@ -311,6 +313,11 @@ if [[ "$OUT_6" == *"always-loaded-over-budget"* ]]; then
     pass "report_bigUnscopedRule_namesFindingKind"
 else
     fail "report_bigUnscopedRule_namesFindingKind" "report output lacks always-loaded-over-budget:\n$OUT_6"
+fi
+if [[ "$OUT_6" != *"mid.md is always loaded"* ]]; then
+    pass "report_3001TokenRule_notReportedAsOverBudget"
+else
+    fail "report_3001TokenRule_notReportedAsOverBudget" "a 3,001-token rule is under the 4000-token budget but was reported:\n$OUT_6"
 fi
 
 rm -rf "$FIXTURE_6"

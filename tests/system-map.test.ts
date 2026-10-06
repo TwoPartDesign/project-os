@@ -10,6 +10,9 @@
 import { describe, it } from "node:test";
 import { strictEqual, deepStrictEqual, notStrictEqual, ok } from "node:assert";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   normalizeContent,
   sha256,
@@ -615,6 +618,41 @@ describe("collectBloatFiles", () => {
 describe("findAlwaysLoadedOverBudget", () => {
   // 4 bytes per token: 4 * budget + 4 bytes -> budget + 1 tokens (over).
   const overContent = "x".repeat(4 * ALWAYS_LOADED_BUDGET_TOKENS + 4);
+
+  it("findAlwaysLoadedOverBudget_budgetConstant_is4000", () => {
+    // #T242: the approved budget, pinned so a revert to 2500 is caught.
+    strictEqual(ALWAYS_LOADED_BUDGET_TOKENS, 4000);
+  });
+
+  it("findAlwaysLoadedOverBudget_literal3999Tokens_noFinding", () => {
+    // 15,996 bytes = 3999 tokens, a literal independent of the constant.
+    deepStrictEqual(
+      findAlwaysLoadedOverBudget([
+        { path: "CLAUDE.md", content: " ".repeat(15996) },
+      ]),
+      [],
+    );
+  });
+
+  it("findAlwaysLoadedOverBudget_reflectMdSizeMath_namesSameBudget", () => {
+    const reflect = readFileSync(
+      resolve(
+        dirname(fileURLToPath(import.meta.url)),
+        "../.claude/commands/tools/reflect.md",
+      ),
+      "utf8",
+    );
+    const sizeMath = reflect.slice(reflect.indexOf("**Size math**"));
+    const named = [
+      ...sizeMath.slice(0, 700).matchAll(/(\d[\d,]*) tokens/g),
+    ].map((m) => Number(m[1].replace(/,/g, "")));
+
+    strictEqual(sizeMath.length > 0, true);
+    deepStrictEqual(named, [
+      ALWAYS_LOADED_BUDGET_TOKENS,
+      ALWAYS_LOADED_BUDGET_TOKENS,
+    ]);
+  });
 
   it("findAlwaysLoadedOverBudget_unscopedRuleOverBudget_flaggedLowWithFileAndTokens", () => {
     const findings = findAlwaysLoadedOverBudget([

@@ -40,7 +40,8 @@ export type UsageParts = {
 export type BoundaryMarker = {
   trigger: string;
   preTokens: number;
-  postTokens: number;
+  /** The record's `compactMetadata.postTokens`, or `null` when it has none. */
+  postTokens: number | null;
   timestamp: string;
 };
 
@@ -71,7 +72,10 @@ export type Cycle = {
   turns: TurnRecord[];
   /** Context (or `compactMetadata.preTokens`) when this cycle was cut. */
   preTokens: number | null;
-  /** Context the next cycle restarted at. */
+  /**
+   * The closing boundary record's `compactMetadata.postTokens`; `null` when
+   * the record has none, or the cycle was not closed by a boundary record.
+   */
   postTokens: number | null;
   /** How the cycle ended. */
   cutBy: "boundary" | "usage-drop" | "end";
@@ -140,6 +144,13 @@ export type SegmentOptions = {
    * Every boundary on the transcript, in order (`parseBoundaries`). Turns
    * carry the boundaries that precede them; the ones left over are trailing
    * boundaries no turn follows, which each still get a cycle.
+   *
+   * Precondition: when given, this must be the complete, unfiltered list
+   * that `turns` were parsed from, in transcript order. The trailing
+   * boundaries are found by skipping as many entries as the turns already
+   * carry, so a filtered or differently ordered list gives phantom or missing
+   * cycles; `segmentCycles` throws when the turns carry more boundaries than
+   * the list holds. Omitted, no trailing boundaries are considered.
    */
   boundaries?: BoundaryMarker[];
 };
@@ -213,7 +224,10 @@ function toBoundaryMarker(rec: Record<string, unknown>): BoundaryMarker {
   return {
     trigger: typeof meta.trigger === "string" ? meta.trigger : "unknown",
     preTokens: num(meta, "preTokens"),
-    postTokens: num(meta, "postTokens"),
+    postTokens:
+      typeof meta.postTokens === "number" && Number.isFinite(meta.postTokens)
+        ? meta.postTokens
+        : null,
     timestamp: typeof rec.timestamp === "string" ? rec.timestamp : "",
   };
 }
@@ -344,8 +358,13 @@ function boundariesFromRecords(records: ParsedRecord[]): BoundaryMarker[] {
  * equals `parseBoundaries`. A boundary before the first turn has no previous
  * turn to cut: it closes its own zero-turn cycle, like the later boundaries
  * of a back-to-back run. Trailing boundaries (pass `opts.boundaries`) that no
- * turn follows close the running cycle, or their own zero-turn cycle; their
- * post-compaction context is `null` because no turn followed.
+ * turn follows close the running cycle, or their own zero-turn cycle.
+ *
+ * A cycle closed by boundary `b` reports `b.postTokens` (the record's
+ * `compactMetadata.postTokens`) everywhere — mid-transcript, trailing,
+ * leading and back-to-back zero-turn cycles alike — and `null` only when the
+ * record has no value. A cycle cut by a usage drop reports the next turn's
+ * context, and the final `end` cycle reports `null`.
  */
 export function segmentCycles(
   turns: TurnRecord[],
@@ -385,9 +404,8 @@ export function segmentCycles(
         current.postTokens = turn.context;
       }
       current = null;
-      // Each later boundary of the run closes its own zero-turn cycle. No
-      // turn restarted it, so its post-compaction figure is null, never
-      // borrowed from the next cycle.
+      // Each later boundary of the run closes its own zero-turn cycle, with
+      // its own record's postTokens, never borrowed from the next cycle.
       for (const b of run.slice(1)) pushEmptyBoundaryCycle(cycles, b);
     } else if (!prev && turn.boundaryBefore) {
       // Boundaries before the first turn: no previous turn to cut, so each
@@ -414,18 +432,24 @@ export function segmentCycles(
   }
 
   // Trailing boundaries: the ones no turn carries. The first closes the
-  // running cycle (post-compaction context unknown, so null); later ones,
-  // and any with no running cycle, close their own zero-turn cycles.
+  // running cycle; later ones, and any with no running cycle, close their
+  // own zero-turn cycles. Each reports its own record's postTokens.
   const attached = turns.reduce(
     (sum, t) =>
       sum + (t.boundaryBefore ? 1 : 0) + (t.skippedBoundaries?.length ?? 0),
     0,
   );
-  for (const b of (opts.boundaries ?? []).slice(attached)) {
+  const boundaries = opts.boundaries ?? [];
+  if (opts.boundaries && attached > boundaries.length) {
+    throw new Error(
+      `segmentCycles: turns carry ${attached} boundaries but opts.boundaries lists only ${boundaries.length}; pass the complete parseBoundaries() list`,
+    );
+  }
+  for (const b of boundaries.slice(attached)) {
     if (current) {
       current.cutBy = "boundary";
       current.preTokens = b.preTokens;
-      current.postTokens = null;
+      current.postTokens = b.postTokens;
       current = null;
     } else {
       pushEmptyBoundaryCycle(cycles, b);
@@ -436,15 +460,15 @@ export function segmentCycles(
 }
 
 /**
- * Appends a zero-turn cycle closed by `boundary`. No turn restarted it, so
- * its post-compaction figure is `null`.
+ * Appends a zero-turn cycle closed by `boundary`, reporting the record's own
+ * `postTokens` (`null` when the record has none).
  */
 function pushEmptyBoundaryCycle(cycles: Cycle[], boundary: BoundaryMarker) {
   cycles.push({
     index: cycles.length,
     turns: [],
     preTokens: boundary.preTokens,
-    postTokens: null,
+    postTokens: boundary.postTokens,
     cutBy: "boundary",
   });
 }
