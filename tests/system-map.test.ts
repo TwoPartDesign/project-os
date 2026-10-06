@@ -665,11 +665,11 @@ describe("findAlwaysLoadedOverBudget", () => {
   });
 
   it("findAlwaysLoadedOverBudget_multibyteBody_estimatesFromByteLength", () => {
-    // 5002 two-byte characters: 10004 bytes (2501 tokens) but only 5002
-    // UTF-16 units (1250 tokens), so only a byte count flags it.
-    const content = "é".repeat(5002);
-    strictEqual(content.length, 5002);
-    strictEqual(Buffer.byteLength(content, "utf8"), 10004);
+    // 8002 two-byte characters: 16004 bytes (4001 tokens) but only 8002
+    // UTF-16 units (2001 tokens), so only a byte count flags it.
+    const content = "é".repeat(8002);
+    strictEqual(content.length, 8002);
+    strictEqual(Buffer.byteLength(content, "utf8"), 16004);
     deepStrictEqual(
       findAlwaysLoadedOverBudget([{ path: "CLAUDE.md", content }]),
       [
@@ -677,7 +677,7 @@ describe("findAlwaysLoadedOverBudget", () => {
           severity: "LOW",
           kind: "always-loaded-over-budget",
           subject: "CLAUDE.md",
-          detail: `CLAUDE.md is always loaded and is approximately 2501 tokens, exceeding the ${ALWAYS_LOADED_BUDGET_TOKENS}-token always-loaded budget.`,
+          detail: `CLAUDE.md is always loaded and is approximately 4001 tokens, exceeding the ${ALWAYS_LOADED_BUDGET_TOKENS}-token always-loaded budget.`,
         },
       ],
     );

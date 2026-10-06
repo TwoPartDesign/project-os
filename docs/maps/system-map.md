@@ -71,7 +71,7 @@
 - `s_dashboard` — `scripts/dashboard.sh` (1 dependent)
 - `s_detect_stack` — `scripts/detect-stack.ts` (3 dependents)
 - `s_dream_accept` — `scripts/dream-accept.sh` (1 dependent)
-- `s_generate_manifest` — `scripts/generate-manifest.sh` (2 dependents)
+- `s_generate_manifest` — `scripts/generate-manifest.sh` (3 dependents)
 - `s_install_global_commands` — `scripts/install-global-commands.sh` (1 dependent)
 - `s_install_hooks` — `scripts/install-hooks.sh` (0 dependents)
 - `s_knowledge_index` — `scripts/knowledge-index.ts` (6 dependents)
@@ -161,6 +161,7 @@
 - `c_tools_update` --references--> `s_update_project`
 - `c_workflows_build` --references--> `h_log_activity`
 - `c_workflows_build` --references--> `h_notify_phase_change`
+- `c_workflows_build` --references--> `s_generate_manifest`
 - `c_workflows_build` --references--> `s_knowledge_index`
 - `c_workflows_build` --references--> `s_system_map`
 - `c_workflows_build` --references--> `s_validate_roadmap`
@@ -227,15 +228,12 @@
 
 ## Findings
 
-- LOW always-loaded-over-budget .claude/rules/lead.md — .claude/rules/lead.md is always loaded and is approximately 3318 tokens, exceeding the 2500-token always-loaded budget.
-- LOW always-loaded-over-budget CLAUDE.md — CLAUDE.md is always loaded and is approximately 2664 tokens, exceeding the 2500-token always-loaded budget.
-- LOW bloat .claude/rules/lead.md — .claude/rules/lead.md is approximately 3316 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat CLAUDE.md — CLAUDE.md is approximately 2641 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat .claude/rules/lead.md — .claude/rules/lead.md is approximately 3363 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 7469 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/bugs.md — docs/knowledge/bugs.md is approximately 3583 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 20016 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/design-principles.md — docs/knowledge/design-principles.md is approximately 2698 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 5037 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 5499 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/patterns.md — docs/knowledge/patterns.md is approximately 5889 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/windows-bash-scanner.md — docs/knowledge/windows-bash-scanner.md is approximately 3988 tokens, exceeding the 2500-token warn threshold.
 - MEDIUM orphan-script s_audit_context — Script scripts/audit-context.sh has no incoming references and is not in the orphan allowlist.

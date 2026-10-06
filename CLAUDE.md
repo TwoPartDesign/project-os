@@ -59,52 +59,9 @@ See `docs/knowledge/architecture.md` for the full module map, hook/script
 tables, security scanning, and self-maintenance details.
 
 ## Active Conventions
-One line per established pattern (name — rule enforced); see the full file for
-rationale, examples, and anti-patterns.
-
-- **Ship Seeds, Not Live Content** — a template seeds new projects from a
-  dedicated seed tier, never from its own live working files.
-- **ROADMAP↔Tasks Dual-Track** — ROADMAP.md markers are the authoritative
-  state; native Tasks are the runtime scheduler; re-derive from markers on
-  every batch drain.
-- **Schema Contract Across File Boundaries** — verify a producer's output
-  schema matches its consumer's input expectations at integration time.
-- **Security Scanning Gate** — defense-in-depth (pre-commit/pre-push/ship
-  scan-diff); never bypass with `--no-verify` without the ship-workflow
-  backstop.
-- **Sole-Writer Self-Enforcement** — the sole sanctioned writer to a sensitive
-  artifact sanitizes every field it writes, not just the obvious one.
-- **Deterministic Artifact: Heal, Don't Block** — on drift, regenerate a
-  generated artifact from the staged index and re-stage it; fail the commit
-  only when the machine genuinely can't resolve it.
-- **Denylist Before Emit** — normalize the key, then check a separator-free
-  sensitive-name denylist, before emitting any config/key-value observation.
-- **Mitigate Against the Platform's Real Surface, Not Its Defaults** —
-  enumerate where the platform actually looks (all hook types, indirection
-  like `core.hooksPath`) and mitigate there, not just the default location.
-- **Invert Open-Ended Recognition Predicates to Closed Allowlists** — define
-  the closed set of safe residue and refuse anything outside it, rather than
-  enumerating unsafe shapes.
-- **One Command Runs Every Check, On The Machine That Ships** — one entry
-  point discovers and runs every suite by glob, and it must run on the
-  platform that actually ships.
-- **Verify the Channel Before Designing the Gate** — check a design's
-  load-bearing observability assumption against the shipped runtime before
-  building enforcement around it.
-- **Test Behaviour in a Copied Project Root** — copy self-locating scripts
-  into a throwaway root and assert what they *do*, not just their exit code.
-- **Registered Roster, Not Pasted Prose** — an agent's identity, tier, and
-  scope live once in `.claude/agents/<name>.md`; dispatch by name, never fall
-  back to `general-purpose`.
-- **Brief Every Worktree Worker to Self-Ground First** — worktrees branch
-  from HEAD (`worktree.baseRef: "head"`); a worktree brief passes absolute
-  main-repo paths for gitignored inputs, sends gitignored outputs to the
-  session scratchpad for the lead to place with Write, and requires a
-  commit; the lead Globs the scratchpad for claimed files before the
-  worktree is gone.
-
-See `docs/knowledge/patterns.md` for full rationale, examples, and
-anti-patterns per pattern.
+The established patterns live in `docs/knowledge/patterns.md`, one entry each
+with rationale, examples, and anti-patterns. Read it before design and build
+decisions.
 
 ## Workflow
 This project uses spec-first, governance-gated development:
