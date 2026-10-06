@@ -71,12 +71,16 @@ PLANNED (source of truth):
 DESIGN (reference):
 [Contents of design.md — the technical approach section, read from `<main-repo absolute path>/docs/specs/$ARGUMENTS/design.md` (docs/specs is gitignored; worktrees cannot see it)]
 
+BRIEF (success criteria and scope):
+`<main-repo absolute path>/docs/specs/$ARGUMENTS/brief.md` (docs/specs is gitignored; worktrees cannot see it, so the path must be absolute). Read only its success and scope sections. The brief comes from one of two schemas: `/workflows:idea` writes `## Success Criteria` and `## Non-Goals`; `/pm:prd` writes `## Success Metrics` and `### Out of Scope`. Accept either.
+
 YOUR TASK:
 1. For each task in the plan, verify the acceptance criteria are met in the actual code
 2. Check that no UNPLANNED changes were made (scope creep)
 3. Check that the implementation follows the design's architectural decisions
 4. Check for TODO/FIXME/HACK comments without corresponding ROADMAP entries
 5. If the feature touched framework wiring (hooks/commands/skills/scripts): read `docs/maps/system-map.md` and run `node scripts/system-map.ts report` — new HIGH findings (unwired hooks, dangling refs) on files this feature touched are DRIFT; also verify the map's edges for new/changed files match what the design intended to wire
+6. Check the brief: for each success criterion (or success metric) in the BRIEF, find evidence in the code, tests, or docs that it is met. Also check that nothing in the brief's Non-Goals / Out of Scope was built
 
 Output format — one line per finding:
 `SEVERITY / FILE:LINES / ISSUE / FIX`
@@ -84,7 +88,8 @@ Severity is one of CRITICAL, HIGH, MEDIUM, LOW. The ISSUE field starts with the 
 
 After the findings, add these content lines:
 - UNPLANNED: [description of scope creep] | Risk: [assessment]
-- PASS: [criterion that was correctly implemented]"
+- PASS: [criterion that was correctly implemented]
+- BRIEF: [success criterion verbatim] → [evidence: file:line, test, or command output] → MET | UNMET (one line per criterion; an UNMET criterion is also a finding line, tagged with the layer that dropped it: `[design]` or `[tasks]` if the plan omitted it, `[implementation]` if the plan covered it and the code did not)"
 
 ## Reviewer 2: Security Review
 
