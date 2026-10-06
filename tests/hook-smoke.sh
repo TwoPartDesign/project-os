@@ -1267,6 +1267,28 @@ run_hook "$SB" post-write-session.sh \
 assert_eq "postWriteSession_bashEditDiffSkippedFalse_noSideEffect" \
     "$SECRET_LINE|" "$(cat "$SB/.claude/sessions/recent.yaml")|$HOOK_ERR"
 
+# The list closes inside a truncated window but `skipped`, the last field, lies
+# past the bound: a skipped:true there is unseen, so the scrub sweeps.
+SB=$(new_sandbox)
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/recent.yaml"
+CLOSED_HEAD='{"tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"","stderr":"","bashEditDiff":{"files":[],"moreFiles":0,"changedFiles":[]'
+run_hook "$SB" post-write-session.sh "${CLOSED_HEAD},\"skipped\":true}}}" \
+    PROJECT_OS_HOOK_PAYLOAD_BYTES=${#CLOSED_HEAD}
+assert_contains "postWriteSession_bashEditDiffSkippedPastBound_noticeOnStderr" \
+    "$HOOK_ERR" "before bashEditDiff.skipped"
+assert_contains "postWriteSession_bashEditDiffSkippedPastBound_recentFileScrubbed" \
+    "$(cat "$SB/.claude/sessions/recent.yaml")" "REDACTED:OPENAI_KEY"
+
+# A malformed list tail (a non-string element) in an untruncated payload: the
+# remaining files are unknown, so the scrub sweeps.
+SB=$(new_sandbox)
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/recent.yaml"
+run_hook "$SB" post-write-session.sh "$(bash_payload '42')"
+assert_contains "postWriteSession_bashEditDiffMalformedElement_noticeOnStderr" \
+    "$HOOK_ERR" "changedFiles is malformed"
+assert_contains "postWriteSession_bashEditDiffMalformedElement_recentFileScrubbed" \
+    "$(cat "$SB/.claude/sessions/recent.yaml")" "REDACTED:OPENAI_KEY"
+
 # A Bash payload without bashEditDiff (default mode, channel off): no-op.
 SB=$(new_sandbox); npx_stub "$SB"
 printf 'const a=1\n' > "$SB/a.ts"

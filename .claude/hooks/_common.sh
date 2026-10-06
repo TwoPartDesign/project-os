@@ -342,12 +342,13 @@ get_project_root() {
 #   read window (payload bound or 64 KiB parse cap), bashEditDiff lying
 #   past the bound with changedFiles unreadable (set by
 #   `read_hook_payload "" bash-edit-diff` via HOOK_PAYLOAD_TAIL_EDIT_DIFF),
-#   bashEditDiff.skipped=true (unknown change set, not an empty one), and a
-#   rejected element (quote, backslash or control character, or a Windows path
-#   cygpath could not convert): the file it named is unknown, so the scrub
-#   caller must not trust the list.
+#   bashEditDiff.skipped=true (unknown change set, not an empty one), a
+#   truncated payload whose list closes but whose `skipped` field lies past the
+#   bound, a malformed list tail, and a rejected element (quote, backslash or
+#   control character, or a Windows path cygpath could not convert): the file
+#   it named is unknown, so the scrub caller must not trust the list.
 #
-# Exit status: 0, or 3 (BASH_EDIT_FALLBACK_STATUS) when any of those six
+# Exit status: 0, or 3 (BASH_EDIT_FALLBACK_STATUS) when any of those eight
 # skips fired, meaning the printed list is incomplete. A caller that must not
 # miss a file (post-write-session.sh's session scrub) captures the output with
 # `out=$(…) || rc=$?` and falls back to a directory sweep on 3; a caller that
@@ -414,14 +415,8 @@ bash_edit_diff_paths() {
 
     while :; do
         rest="${rest#"${rest%%[![:space:]]*}"}"
-        if ! [[ "$rest" =~ $str ]]; then
-            # `]` ends the list; anything else is a cut-off or malformed tail.
-            if [ "${rest:0:1}" != "]" ] && [ "$cut" = "1" ]; then
-                echo "$hook: bashEditDiff.changedFiles runs past the read window — $skipped" >&2
-                fb=$BASH_EDIT_FALLBACK_STATUS
-            fi
-            return "$fb"
-        fi
+        # `]` ends the list; anything else is a cut-off or malformed tail.
+        if ! [[ "$rest" =~ $str ]]; then break; fi
         if [ "$n" -ge 256 ]; then
             echo "$hook: bashEditDiff.changedFiles has more than 256 entries — $skipped" >&2
             return "$BASH_EDIT_FALLBACK_STATUS"
@@ -448,7 +443,7 @@ bash_edit_diff_paths() {
             '') ;;
             # [[:cntrl:]]: a raw newline is invalid JSON, but would split one
             # element into two lines for the caller's `read`.
-            *\\*|*[[:cntrl:]]*)
+            *\\*|*\"*|*[[:cntrl:]]*)
                 echo "$hook: rejected a bashEditDiff path containing a quote, backslash or control character" >&2
                 # The file it named is unknown: a scrub caller must sweep.
                 fb=$BASH_EDIT_FALLBACK_STATUS
@@ -461,13 +456,22 @@ bash_edit_diff_paths() {
                 ;;
         esac
         rest="${rest#"${rest%%[![:space:]]*}"}"
-        if [ "${rest:0:1}" != "," ]; then
-            if [ "${rest:0:1}" != "]" ] && [ "$cut" = "1" ]; then
-                echo "$hook: bashEditDiff.changedFiles runs past the read window — $skipped" >&2
-                fb=$BASH_EDIT_FALLBACK_STATUS
-            fi
-            return "$fb"
-        fi
+        if [ "${rest:0:1}" != "," ]; then break; fi
         rest="${rest:1}"
     done
+
+    if [ "${rest:0:1}" != "]" ]; then
+        if [ "$cut" = "1" ]; then
+            echo "$hook: bashEditDiff.changedFiles runs past the read window — $skipped" >&2
+        else
+            echo "$hook: bashEditDiff.changedFiles is malformed — $skipped" >&2
+        fi
+        fb=$BASH_EDIT_FALLBACK_STATUS
+    elif [ "$cut" = "1" ] && ! [[ "${rest:1}" =~ \"skipped\"[[:space:]]*: ]]; then
+        # The list closed inside the window but `skipped`, the last field, lies
+        # past it: a `skipped:true` there would go unseen.
+        echo "$hook: payload exceeded ${PROJECT_OS_HOOK_PAYLOAD_BYTES:-262144} bytes before bashEditDiff.skipped — $skipped" >&2
+        fb=$BASH_EDIT_FALLBACK_STATUS
+    fi
+    return "$fb"
 }

@@ -475,8 +475,9 @@ run_check_failures() {
                     continue
                 fi
             fi
-            tool=$(printf '%s' "$line" | sed -E 's/.*FAIL tool=([A-Za-z0-9_-]+).*/\1/')
-            [ -z "$tool" ] && continue
+            # A line without `FAIL tool=` is skipped, never counted under its raw text.
+            [[ "$line" =~ FAIL\ tool=([A-Za-z0-9_-]+) ]] || continue
+            tool="${BASH_REMATCH[1]}"
             tool_counts["$tool"]=$((${tool_counts["$tool"]:-0} + 1))
         done <"$log"
     fi

@@ -429,6 +429,7 @@ Review of Claude Code changelog 2.1.270 → 2.1.289 plus a native-replacement de
 Round 2 (2026-10-05): ICM paper (arXiv 2603.16021, "Folder Structure as Agent Architecture") reviewed — digest, two-way adversarial critique, adjacent work (AHE 2604.25850), then a fresh reviewer-architecture pass that amended or cut every proposal. Benefits are speculative: the paper has no controlled comparison (§4.6). See the audit's "ICM paper" section.
 ### Draft
 - [?] Downstream projects whose settings.json conflicted on update keep cwd-relative hook commands with no signal (#T238 changed only the shipped file; update-project.sh and sync-hooks.sh save `settings.json.upstream` on conflict). Add a `system-map.ts report` finding for any settings.json hook `command` that lacks `$CLAUDE_PROJECT_DIR/.claude/hooks/`, mirroring #T237's baseRef detector. Found by the v3.1 ship-gate architecture review (A16) (depends: #T238) (model: sonnet) #T244
+- [?] update-project.sh's traversal guard checks archive entry names (`^/` or `..`) but not symlink targets: an entry that is a symlink to an outside path, followed by an entry written through it, is not refused by the listing check. Probe whether the extracting tar already refuses this (GNU tar defers such links), then either reject symlink entries with `tar tvzf` or document the reliance. Out-of-scope note from the v3.1 security re-verify (model: sonnet) #T245
 ### Todo
 ### In Progress
 ### Review

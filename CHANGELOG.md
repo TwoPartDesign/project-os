@@ -52,7 +52,10 @@ fixed in this release:
   captured first, so the guard cannot be skipped.
 - **Session scrub is fail-safe** — a rejected `bashEditDiff` path (including a Windows path
   without a usable `cygpath`) now triggers the fallback sweep; `skipped:true` is detected past
-  nested objects; `cygpath` runs only from an absolute path.
+  nested objects; `cygpath` runs only from an absolute path. A fresh security re-verify then
+  found that a truncated payload whose list closed before an unseen `skipped:true` still
+  skipped the sweep (MEDIUM); that case, a malformed list tail and a quote in `cygpath`
+  output now sweep too.
 - **Ten dead allow rules removed** — hooks are not permission-gated (probe), so allow entries
   for scripts that only run as hooks did nothing; decisions.md amends the #T76 contract.
 - `PROJECT_OS_WEEK` must be `YYYY-Www`; compaction-metrics reports each closing boundary's
@@ -71,6 +74,8 @@ fixed in this release:
 - Windows behaviour of the `"$CLAUDE_PROJECT_DIR"` hook form is unverified.
 - A downstream project whose settings.json conflicted on update keeps relative hook paths with
   no warning (draft #T244).
+- update-project.sh's traversal guard does not check symlink targets inside the archive
+  (draft #T245).
 - The failure-draft threshold of 5 is provisional until a week of real data.
 - Six MEDIUM `orphan-script` findings in `system-map.ts report` predate this release.
 
