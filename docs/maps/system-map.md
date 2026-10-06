@@ -60,7 +60,7 @@
 - `l_project_root` — `scripts/lib/project-root.ts` (18 dependents)
 - `l_scan_rules` — `scripts/lib/scan-rules.js` (0 dependents)
 - `l_skill_apply_lib` — `scripts/lib/skill-apply-lib.ts` (4 dependents)
-- `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (12 dependents)
+- `l_system_map_lib` — `scripts/lib/system-map-lib.ts` (13 dependents)
 
 ### script
 - `s_audit_context` — `scripts/audit-context.sh` (0 dependents)
@@ -92,6 +92,7 @@
 - `s_validate_freshness` — `scripts/validate-freshness.sh` (0 dependents)
 - `s_validate_roadmap` — `scripts/validate-roadmap.sh` (4 dependents)
 - `s_agent_roster_test` — `tests/agent-roster.test.ts` (0 dependents)
+- `s_audit_context_test` — `tests/audit-context.test.ts` (0 dependents)
 - `s_compaction_hooks` — `tests/compaction-hooks.sh` (0 dependents)
 - `s_compaction_metrics_test` — `tests/compaction-metrics.test.ts` (0 dependents)
 - `s_critical_rules_test` — `tests/critical-rules.test.ts` (0 dependents)
@@ -195,6 +196,7 @@
 - `h_session_end_cleanup` --sources--> `l_common`
 - `h_tool_failure_log` --sources--> `l_common`
 - `l_policy` --imports--> `l_project_root`
+- `s_audit_context_test` --imports--> `l_system_map_lib`
 - `s_compaction_hooks` --sources--> `l_common`
 - `s_compaction_metrics_test` --imports--> `s_compaction_metrics`
 - `s_dashboard` --sources--> `l_json`

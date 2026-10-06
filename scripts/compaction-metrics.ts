@@ -614,8 +614,9 @@ function sameBoundary(a: BoundaryMarker | null, b: BoundaryMarker): boolean {
  *
  * Boundaries are matched to turns by position, not by timestamp: each
  * boundary takes the next turn — at or after the previous match — whose
- * `boundaryBefore` is that boundary, so two boundaries carrying the same (or
- * an empty) timestamp still resolve to distinct turns. A trailing boundary
+ * `boundaryBefore` (or one of its `skippedBoundaries`) is that boundary, so two
+ * boundaries carrying the same (or an empty) timestamp still resolve to
+ * distinct matches. A trailing boundary
  * that no turn follows reports the last turn's context instead.
  */
 export function pinCompactionPoint(
@@ -629,10 +630,19 @@ export function pinCompactionPoint(
   const observedLastContext: number[] = [];
   const gapTokens: number[] = [];
 
-  // Positions of the turns that carry a boundary, in transcript order.
-  const marked: number[] = [];
+  // Every boundary a turn follows, in transcript order, with that turn's
+  // position. A back-to-back run contributes its skipped boundaries first,
+  // then `boundaryBefore`, so each pins to the last turn before the run.
+  const marked: Array<{ at: number; boundary: BoundaryMarker }> = [];
   for (let i = 0; i < turns.length; i++) {
-    if (turns[i].boundaryBefore !== null) marked.push(i);
+    const turn = turns[i];
+    if (turn.boundaryBefore === null) continue;
+    for (const boundary of [
+      ...(turn.skippedBoundaries ?? []),
+      turn.boundaryBefore,
+    ]) {
+      marked.push({ at: i, boundary });
+    }
   }
 
   let cursor = 0;
@@ -642,7 +652,7 @@ export function pinCompactionPoint(
 
     let found = -1;
     for (let k = cursor; k < marked.length; k++) {
-      if (sameBoundary(turns[marked[k]].boundaryBefore, b)) {
+      if (sameBoundary(marked[k].boundary, b)) {
         found = k;
         break;
       }
@@ -653,7 +663,7 @@ export function pinCompactionPoint(
       // Only advance on a hit, so a boundary with no turn of its own does
       // not consume the next boundary's match.
       cursor = found + 1;
-      const at = marked[found];
+      const at = marked[found].at;
       if (at > 0) lastContext = turns[at - 1].context;
     } else if (turns.length > 0) {
       lastContext = turns[turns.length - 1].context;
