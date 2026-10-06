@@ -5,11 +5,13 @@
 - Never silently retry the same action a third time — it wastes quota and masks the real problem.
 
 ## Escalation Ladder
-`sonnet` (high) → `opus` (high) → `fable` (high) (bare aliases — each resolves to the latest release in its family)
+`sonnet` (high) → `opus` (high) → `opus` (xhigh) (bare aliases — each resolves to the latest release in its family)
+
+`fable` is no longer a rung. It stays available only as an explicit, Approver-confirmed choice through `/tools:set-models`' cost confirmation.
 
 Raise effort `high → xhigh` before raising the model when the failure is reasoning depth, not capability.
 
-A sub-agent dispatched by roster name takes the `model:`/`effort:` frontmatter of its agent file in `.claude/agents/` — `sonnet` at high effort for `implementer` and `documenter`, the default executor tier. `CLAUDE_CODE_SUBAGENT_MODEL` (`.claude/settings.json`) applies only to an unnamed spawn. Escalate a task one rung via a `(model: <model-id>)` annotation in ROADMAP.md only on persistent failures or decisions beyond task scope. The top rung (Fable 5, Mythos-class) is for architecture-defining decisions — not routine unblocking.
+A sub-agent dispatched by roster name takes the `model:`/`effort:` frontmatter of its agent file in `.claude/agents/` — `sonnet` at high effort for `implementer` and `documenter`, the default executor tier. `CLAUDE_CODE_SUBAGENT_MODEL` (`.claude/settings.json`) applies only to an unnamed spawn. Escalate a task one rung via a `(model: <model-id>)` annotation in ROADMAP.md only on persistent failures or decisions beyond task scope. The top rung (`opus` at xhigh) is for architecture-defining decisions and hard root causes — not routine unblocking.
 
 ## Downshift Rule
 After resolving a blocker on a higher-tier model, return follow-up tasks to the default sub-agent model.
@@ -31,5 +33,5 @@ Then stop and wait for user direction.
 - Maximum **2 retries** per task. After 2 consecutive failures: STOP and surface the blocker.
 - Never silently retry the same action a third time — it wastes quota and masks the real problem.
 - When hitting the retry cap, output: "Retry cap reached on [operation]. Blocker: [specific issue]. Suggested next: [action]." Then stop and wait for direction.
-- The escalation ladder is `sonnet` (high) → `opus` (high) → `fable` (high); raise effort `high → xhigh` before raising the model when the failure is reasoning depth, not capability.
+- The escalation ladder is `sonnet` (high) → `opus` (high) → `opus` (xhigh); raise effort `high → xhigh` before raising the model when the failure is reasoning depth, not capability.
 - A sub-agent dispatched by roster name runs at its agent file's own `model:`/`effort:` frontmatter (`sonnet` at high effort for `implementer` and `documenter`); `CLAUDE_CODE_SUBAGENT_MODEL` applies only to an unnamed spawn.

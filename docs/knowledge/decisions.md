@@ -502,3 +502,17 @@ Generate with: `node scripts/review-triage.ts docs/specs/<feature> --changed-fil
 - **Delete rules 2-6 from bash.md** — rejected: they still bind in default permission mode and on Windows, and the Agent Rules are shipped to every sub-agent prompt.
 
 **Rationale**: Native auto mode covers the proposal's purpose with no custom code, and the hook-wiring rules (1 and 7) are independent of permission mode because the format, scrub and handoff-claim hooks fire only on `Write|Edit`.
+
+---
+
+## 2026-10-05 — Lead Model Moves to Opus (#T228)
+
+**Decision**: The lead runs Opus (`opus`) at high effort via the settings.json `model` key, with `"fallbackModel": ["sonnet"]`. Workers are unchanged: `implementer`/`documenter` run `sonnet` at high effort; judgment tasks use a per-invocation `(model: opus)`; `researcher` runs `opus`; reviewers `inherit`; `CLAUDE_CODE_SUBAGENT_MODEL` stays `opus`. The escalation ladder is `sonnet` (high) → `opus` (high) → `opus` (xhigh); `fable` is no longer a rung and stays available only as an explicit, Approver-confirmed choice through `/tools:set-models`' cost confirmation. Prose uses version-free family names with the alias, so a new model release no longer leaves stale version numbers behind (#T209). Approver: Jacob Nickel, 2026-10-05: "use opus 5.5 as the lead with opus and sonnet 5.5 agents".
+
+**Context**: Opus 5.5 became the default Opus (Claude Code 2.1.280) and Sonnet 5.5 the default Sonnet (2.1.284), so the bare aliases already resolve to the intended models. The 350k compact window (`CLAUDE_CODE_AUTO_COMPACT_WINDOW`) still sits below every window in the chain (all 1M), so the compaction constraint is unchanged.
+
+**Alternatives Considered**:
+- **Keep `fable` as the lead and top rung** — rejected by the Approver: the lead's cost is the largest line in a session and Opus covers the work.
+- **Keep a version-pinned prose per model** — rejected: it drifted within weeks (Fable 5.1, Opus 5, Sonnet 5 across lead.md, set-models.md and init.md).
+
+**Rationale**: Claude Code 2.1.280 honours `effortLevel` on a Fable fallback; that is moot for the default chain now (Opus falls back to Sonnet) and matters only if a project opts into `fable` through `/tools:set-models`.
