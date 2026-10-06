@@ -328,7 +328,7 @@ else
         exit 1
     fi
 
-    # Extract (validate archive contents first — reject absolute or traversal paths)
+    # Extract (validate archive contents first — reject absolute or traversal paths, then links/special entries)
     EXTRACT_DIR="$TMPDIR/extracted"
     mkdir -p "$EXTRACT_DIR"
     # Capture the listing first: piping into `grep -q` lets grep exit on an
@@ -336,6 +336,16 @@ else
     listing=$(tar tzf "$ARCHIVE")
     if grep -qE '(^/|\.\.)' <<< "$listing"; then
         echo "ERROR: Archive contains suspicious paths (absolute or ..). Aborting." >&2
+        exit 1
+    fi
+    # Closed allowlist: every entry must be a regular file ('-') or a directory
+    # ('d'). Symlinks, hard links, devices and FIFOs are refused outright rather
+    # than reasoning about where a link points. The pax global header that
+    # `git archive` and GitHub emit (type 'g') is the one non-file header type
+    # allowed, but `tar tv` does not list it, so no extra pattern is needed.
+    verbose_listing=$(tar tvzf "$ARCHIVE")
+    if grep -qvE '^[-d]' <<< "$verbose_listing"; then
+        echo "ERROR: Archive contains a link or special entry (only regular files and directories are allowed). Aborting." >&2
         exit 1
     fi
     tar xzf "$ARCHIVE" -C "$EXTRACT_DIR"

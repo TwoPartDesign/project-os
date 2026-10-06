@@ -125,6 +125,7 @@
 - `s_template_residue_test` — `tests/template-residue.test.ts` (0 dependents)
 - `s_template_seeds_test` — `tests/template-seeds.test.ts` (0 dependents)
 - `s_test_hygiene_test` — `tests/test-hygiene.test.ts` (0 dependents)
+- `s_update_project_smoke` — `tests/update-project-smoke.sh` (0 dependents)
 
 ### skill
 - `sk_context_filter_skill` — `.claude/skills/context-filter/SKILL.md` (0 dependents)
