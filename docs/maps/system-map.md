@@ -134,6 +134,7 @@
 - `sk_session_management_skill` — `.claude/skills/session-management/SKILL.md` (0 dependents)
 - `sk_spec_driven_dev_skill` — `.claude/skills/spec-driven-dev/SKILL.md` (0 dependents)
 - `sk_tdd_workflow_skill` — `.claude/skills/tdd-workflow/SKILL.md` (0 dependents)
+- `sk_verify_skill` — `.claude/skills/verify/SKILL.md` (0 dependents)
 
 ## Edges
 

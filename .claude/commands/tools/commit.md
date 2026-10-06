@@ -13,7 +13,7 @@ description: "Quality-checked git commit with pre-commit validation"
    - Commented-out code blocks (>3 lines)
    - Hardcoded secrets: `sk-`, `pk_`, `AKIA`, `password =`
    - Files >500 lines (flag for splitting)
-3. Run tests on staged files
+3. Run the `verify` skill (`bash tests/run-all.sh --fast`) unless the commit is docs-only; Claude Code also runs it on its own before such commits
 4. Run linter on staged files
 
 ## Results
