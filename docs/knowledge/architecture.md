@@ -144,7 +144,7 @@ Project OS includes an FTS5-based knowledge index for efficient context manageme
 
 Auto-compaction fires at 80% of the context window (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=80`;
 the threshold is inert unless `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is also set, which
-activates the proactive trigger path). Compaction is not something a hook can usefully
+activates the proactive trigger path). The variable overrides a per-model window saved with `/autocompact` (2.1.288), even when it comes from a settings `env` block (#T207 probe (c), 2026-10-06), so change the window in settings, not through `/autocompact`. Compaction is not something a hook can usefully
 stop, so the chain steers it instead — three stages, two of them hooks:
 
 1. **`compact-suggest.sh` (PostToolUse)** — measures the current context size from
