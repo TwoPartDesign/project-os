@@ -31,6 +31,7 @@ import {
   pathToId,
   collectBloatFiles,
   findAlwaysLoadedOverBudget,
+  findRelativeHookCommands,
   ALWAYS_LOADED_BUDGET_TOKENS,
 } from "../scripts/lib/system-map-lib.ts";
 import type {
@@ -784,5 +785,123 @@ describe("findAlwaysLoadedOverBudget", () => {
         detail: `CLAUDE.md is always loaded and is approximately ${ALWAYS_LOADED_BUDGET_TOKENS + 1} tokens, exceeding the ${ALWAYS_LOADED_BUDGET_TOKENS}-token always-loaded budget.`,
       },
     ]);
+  });
+});
+
+// ==========================================================================
+// findRelativeHookCommands (#T244)
+// ==========================================================================
+
+describe("findRelativeHookCommands", () => {
+  /** settings.json text with one PostToolUse hook running `command`. */
+  const settingsWith = (command: string): string =>
+    JSON.stringify({
+      hooks: {
+        PostToolUse: [{ hooks: [{ type: "command", command }] }],
+      },
+    });
+
+  it("findRelativeHookCommands_bothAbsoluteForms_noFindings", () => {
+    deepStrictEqual(
+      findRelativeHookCommands(
+        settingsWith('bash "$CLAUDE_PROJECT_DIR/.claude/hooks/a.sh"'),
+      ),
+      [],
+    );
+    deepStrictEqual(
+      findRelativeHookCommands(
+        settingsWith('bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/a.sh"'),
+      ),
+      [],
+    );
+  });
+
+  it("findRelativeHookCommands_bareRelative_oneFindingNamingEvent", () => {
+    const findings = findRelativeHookCommands(
+      settingsWith("bash .claude/hooks/a.sh"),
+    );
+    strictEqual(findings.length, 1);
+    strictEqual(findings[0].severity, "MEDIUM");
+    strictEqual(findings[0].kind, "relative-hook-command");
+    strictEqual(findings[0].subject, ".claude/hooks/a.sh");
+    ok(findings[0].detail.includes("PostToolUse"), findings[0].detail);
+    ok(
+      findings[0].detail.includes(
+        'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/a.sh"',
+      ),
+      findings[0].detail,
+    );
+  });
+
+  it("findRelativeHookCommands_quotedRelative_oneFindingNamingEvent", () => {
+    const findings = findRelativeHookCommands(
+      settingsWith('bash ".claude/hooks/a.sh"'),
+    );
+    strictEqual(findings.length, 1);
+    strictEqual(findings[0].subject, ".claude/hooks/a.sh");
+    ok(findings[0].detail.includes("PostToolUse"), findings[0].detail);
+  });
+
+  it("findRelativeHookCommands_dotSlashRelative_oneFindingNamingEvent", () => {
+    const findings = findRelativeHookCommands(
+      settingsWith("bash ./.claude/hooks/a.sh"),
+    );
+    strictEqual(findings.length, 1);
+    strictEqual(findings[0].subject, ".claude/hooks/a.sh");
+    ok(findings[0].detail.includes("PostToolUse"), findings[0].detail);
+  });
+
+  it("findRelativeHookCommands_hardCodedAbsolutePath_oneFinding", () => {
+    const findings = findRelativeHookCommands(
+      settingsWith("bash /opt/proj/.claude/hooks/a.sh"),
+    );
+    strictEqual(findings.length, 1);
+    strictEqual(findings[0].subject, ".claude/hooks/a.sh");
+  });
+
+  it("findRelativeHookCommands_oldPrefixCollision_oneFinding", () => {
+    const findings = findRelativeHookCommands(
+      settingsWith('bash "$CLAUDE_PROJECT_DIR_OLD/.claude/hooks/x.sh"'),
+    );
+    strictEqual(findings.length, 1);
+    strictEqual(findings[0].subject, ".claude/hooks/x.sh");
+  });
+
+  it("findRelativeHookCommands_mixedPrefixedAndRelative_exactlyOneFinding", () => {
+    const findings = findRelativeHookCommands(
+      settingsWith(
+        'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/a.sh" && bash .claude/hooks/b.sh',
+      ),
+    );
+    strictEqual(findings.length, 1);
+    strictEqual(findings[0].subject, ".claude/hooks/b.sh");
+  });
+
+  it("findRelativeHookCommands_permissionsAllowString_noFindings", () => {
+    const text = JSON.stringify({
+      permissions: { allow: ["Bash(bash .claude/hooks/a.sh)"] },
+      env: { HOOK: ".claude/hooks/a.sh" },
+    });
+    deepStrictEqual(findRelativeHookCommands(text), []);
+  });
+
+  it("findRelativeHookCommands_commandWithoutHook_noFindings", () => {
+    deepStrictEqual(findRelativeHookCommands(settingsWith("echo hello")), []);
+  });
+
+  it("findRelativeHookCommands_duplicateSameEvent_dedupedToOne", () => {
+    const findings = findRelativeHookCommands(
+      settingsWith("bash .claude/hooks/a.sh; bash .claude/hooks/a.sh"),
+    );
+    strictEqual(findings.length, 1);
+  });
+
+  it("findRelativeHookCommands_realRepoSettings_zeroFindings", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const text = readFileSync(
+      resolve(here, "..", ".claude", "settings.json"),
+      "utf8",
+    );
+    deepStrictEqual(findRelativeHookCommands(text), []);
   });
 });

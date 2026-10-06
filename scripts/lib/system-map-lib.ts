@@ -84,6 +84,7 @@ export interface Finding {
     | "manifest-gap"
     | "bloat"
     | "always-loaded-over-budget"
+    | "relative-hook-command"
     | "unlocalized-template-content"
     | "init-incomplete";
   subject: string;
@@ -719,6 +720,63 @@ export function findAlwaysLoadedOverBudget(
       });
     }
   }
+  return findings;
+}
+
+/**
+ * Flags every `.claude/hooks/<name>.sh` occurrence inside a `hooks` command
+ * string of `.claude/settings.json` that is not immediately preceded by
+ * `$CLAUDE_PROJECT_DIR/` or `${CLAUDE_PROJECT_DIR}/` (#T244). A cwd-relative
+ * hook path runs a different project's hooks after a Bash `cd` into a subtree;
+ * a project whose settings.json conflicted on update keeps that form silently.
+ * Only string values under the top-level `hooks` object are inspected (any
+ * depth); `permissions`, `env` and other keys are ignored. Emits one MEDIUM
+ * finding per distinct (hook path, event) pair. Throws on malformed JSON —
+ * callers skip the check in that case.
+ */
+export function findRelativeHookCommands(settingsJsonText: string): Finding[] {
+  const data: unknown = JSON.parse(settingsJsonText);
+  const hooksObj =
+    data && typeof data === "object"
+      ? (data as Record<string, unknown>).hooks
+      : undefined;
+  if (!hooksObj || typeof hooksObj !== "object" || Array.isArray(hooksObj)) {
+    return [];
+  }
+
+  const findings: Finding[] = [];
+  const seen = new Set<string>();
+  const prefixes = ["$CLAUDE_PROJECT_DIR/", "${CLAUDE_PROJECT_DIR}/"];
+
+  const scan = (command: string, event: string): void => {
+    for (const m of command.matchAll(HOOK_PATH_RE)) {
+      const before = command.slice(0, m.index);
+      if (prefixes.some((p) => before.endsWith(p))) continue;
+      const key = `${m[0]}\u0000${event}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      findings.push({
+        severity: "MEDIUM",
+        kind: "relative-hook-command",
+        subject: m[0],
+        detail: `Hook command under ${event} in .claude/settings.json runs ${m[0]} without the $CLAUDE_PROJECT_DIR prefix, so a Bash cd into a subtree runs another project's hooks. Use: bash "$CLAUDE_PROJECT_DIR/${m[0]}".`,
+      });
+    }
+  };
+
+  const walk = (val: unknown, event: string): void => {
+    if (typeof val === "string") {
+      scan(val, event);
+    } else if (Array.isArray(val)) {
+      for (const item of val) walk(item, event);
+    } else if (val && typeof val === "object") {
+      for (const v of Object.values(val as Record<string, unknown>)) {
+        walk(v, event);
+      }
+    }
+  };
+
+  for (const [event, val] of Object.entries(hooksObj)) walk(val, event);
   return findings;
 }
 

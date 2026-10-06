@@ -323,6 +323,36 @@ fi
 rm -rf "$FIXTURE_6"
 echo ""
 
+# --- Scenario 7: relative hook command wiring in runFindings ------------------
+# Guards the push of findRelativeHookCommands results into `report` (#T244).
+echo "Scenario 7: settings.json hook command without \$CLAUDE_PROJECT_DIR -> report flags it"
+
+FIXTURE_7="$(mktemp -d)"
+make_fixture "$FIXTURE_7"
+printf '%s\n' \
+    '{' \
+    '  "hooks": {' \
+    '    "PostToolUse": [' \
+    '      { "hooks": [ { "type": "command", "command": "bash .claude/hooks/demo-hook.sh" } ] }' \
+    '    ]' \
+    '  }' \
+    '}' > "$FIXTURE_7/.claude/settings.json"
+(cd "$FIXTURE_7" && git add -A && git commit -q -m "fixture: relative hook command")
+
+set +e
+OUT_7="$(cd "$FIXTURE_7" && node "$SYSTEM_MAP" report 2>&1)"
+EXIT_7=$?
+set -e
+assert_eq "report_relativeHookCommand_exitsZero" "0" "$EXIT_7" "$OUT_7"
+if [[ "$OUT_7" == *"relative-hook-command"* && "$OUT_7" == *".claude/hooks/demo-hook.sh"* ]]; then
+    pass "report_relativeHookCommand_namesKindAndHook"
+else
+    fail "report_relativeHookCommand_namesKindAndHook" "report output lacks relative-hook-command finding:\n$OUT_7"
+fi
+
+rm -rf "$FIXTURE_7"
+echo ""
+
 # --- Summary ------------------------------------------------------------------
 echo "=== Results ==="
 TOTAL=$((PASS + FAIL))
