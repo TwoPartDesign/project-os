@@ -13,7 +13,7 @@
     ".claude/commands/tools/handoff.md": "5cb02a9b50511080118c03ddd42cc61f988ba49ba907b927b9d5f702db9d7462",
     ".claude/commands/tools/init.md": "5068fc0396e4dc5addbc2692fd0d8e56807e08fd9d83c2441c63617223443118",
     ".claude/commands/tools/kv.md": "834b975d1ba9834ff3c8e6c9d995a10ad0a15760337c0e21a649c27cf010f9f4",
-    ".claude/commands/tools/maintain.md": "ab3561d10897bd7a89fbd978b829c24176b3f6e024692d31e4151343fc74576a",
+    ".claude/commands/tools/maintain.md": "e8785258368cfb40946c02e74692ede765a9076c1c2b7417046137fbda1ba93c",
     ".claude/commands/tools/metrics.md": "352c4d0e8b5cdd52bc5602497219aeef88561de1a2ce43a5ea495f3cf0801e78",
     ".claude/commands/tools/new-project.md": "af8b4928ec5ac6047817eb466f30fc8004f4f1482c93fb4cb3be6860b12a67f3",
     ".claude/commands/tools/reflect.md": "3897ee68d942af027aa02316073b35801cd5cca37c40eaa0d8c2abf54aa4ad58",
