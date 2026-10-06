@@ -9,7 +9,7 @@
 
 `fable` is no longer a rung. It stays available only as an explicit, Approver-confirmed choice through `/tools:set-models`' cost confirmation.
 
-Raise effort `high → xhigh` before raising the model when the failure is reasoning depth, not capability.
+Raise effort `high → xhigh` before raising the model when the failure is reasoning depth, not capability. The `opus` (xhigh) rung is lead-arbitrated: the Agent tool takes no effort parameter, so the lead raises effort by re-running the decision itself, or by an Approver-confirmed `/tools:set-models` change.
 
 A sub-agent dispatched by roster name takes the `model:`/`effort:` frontmatter of its agent file in `.claude/agents/` — `sonnet` at high effort for `implementer` and `documenter`, the default executor tier. `CLAUDE_CODE_SUBAGENT_MODEL` (`.claude/settings.json`) applies only to an unnamed spawn. Escalate a task one rung via a `(model: <model-id>)` annotation in ROADMAP.md only on persistent failures or decisions beyond task scope. The top rung (`opus` at xhigh) is for architecture-defining decisions and hard root causes — not routine unblocking.
 

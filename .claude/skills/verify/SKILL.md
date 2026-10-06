@@ -15,4 +15,4 @@ bash tests/run-all.sh --fast
 - **A suite fails:** do not commit. Report the failing suite name and the first failing test with its file and line, then fix it or hand it back.
 - **Docs-only change** (Markdown outside `.claude/commands/`, `.claude/skills/` and `.claude/rules/`): skip the run.
 
-`--fast` skips the slow suites (`SLOW` in `tests/run-all.sh`). The pre-push hook and the wave gate run the full suite, so never pass `--fast` there.
+`--fast` skips the slow suites (`SLOW` in `tests/run-all.sh`). The pre-push hook runs only the scanner's `scan-diff`, not the suite; the full suite (including the slow suites) runs only when the lead runs the wave gate, so never pass `--fast` there.

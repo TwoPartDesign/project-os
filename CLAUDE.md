@@ -8,7 +8,6 @@
 - Stack: Markdown + Bash
 
 ## Principles
-
 Core principles guide all architecture decisions. See `docs/knowledge/design-principles.md` for full details.
 
 - Ship working software over perfect software
@@ -152,7 +151,8 @@ See `.claude/agents/roles.md` for full definitions.
 | Pattern | Skill | Loads |
 |---|---|---|
 | implement, build, add feature | spec-driven-dev | SDD protocol |
-| test, tdd, verify, coverage | tdd-workflow | Red-Green-Refactor |
+| test, tdd, coverage | tdd-workflow | Red-Green-Refactor |
+| commit, pre-commit, verify | verify | Fast suite before commit |
 | handoff, done, end session | session-management | Auto-save protocol |
 | deploy, ship, release, external | workflows:ship | Pre-ship checklist + PR generation |
 | stale, fresh, knowledge search | context-filter | Freshness-scored knowledge search |

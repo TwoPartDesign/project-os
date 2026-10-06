@@ -77,7 +77,7 @@ Create or update `.claude/settings.json`, preserving any existing keys:
 - Per-task overrides remain available via `(model: <model-id>)` annotations in ROADMAP.md
 - `claude --debug` names settings `env` variables Claude Code ignored because the launch environment already sets them (2.1.281); run it when a value written here does not take effect
 
-`CLAUDE.md`'s `## Model Routing` section is prose that ships correct and is not rewritten here; edit it by hand only when the lead model itself changes.
+`CLAUDE.md`'s `## Model Routing` section ships correct for the default lead (`opus`) and is not rewritten otherwise. When the lead model changed, edit the Lead line and the `CLAUDE_CODE_SUBAGENT_MODEL` mention in place to name the chosen models, as `/tools:init` does.
 
 ## Step 4: Update memory
 

@@ -68,6 +68,9 @@ calls) bind in every mode.
    names in `bashEditDiff`, which is on by default in auto and
    bypassPermissions modes; in default mode the channel stays off unless user
    settings enable it, and the handoff claim still fires only on Write|Edit.
+   When the `bashEditDiff` payload is truncated (a large stdout, `moreFiles`,
+   or an oversized `changedFiles` array), `post-write-session.sh` falls back
+   to scrubbing the session files modified recently instead of skipping the scrub.
 
 ## Where the Rest Went
 
@@ -96,3 +99,5 @@ demand). When spawning sub-agents that will run Bash commands, include the
 - Use `git -C "<path>" <subcommand>` instead of `cd "path" && git`; commit with `git commit -F <msgfile>`.
 - Use forward slashes in paths; double-quote paths with spaces; never backslash-escape spaces; use `--flag "value"`, not `--flag="value"`.
 - Change files with Write/Edit, never with `sed -i`, heredocs, or `>` redirection — the handoff-claim hook fires only on Write/Edit, and the format and secret-scrub hooks reach a Bash-made change only when the `bashEditDiff` channel is on, so a shell edit can skip all three.
+- Never hardcode secrets, tokens, or credentials.
+- Never commit with `--no-verify`; the pre-commit scanner is a required gate.

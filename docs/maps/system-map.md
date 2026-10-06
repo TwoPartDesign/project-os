@@ -225,14 +225,14 @@
 ## Findings
 
 - LOW always-loaded-over-budget .claude/rules/lead.md — .claude/rules/lead.md is always loaded and is approximately 3318 tokens, exceeding the 2500-token always-loaded budget.
-- LOW always-loaded-over-budget CLAUDE.md — CLAUDE.md is always loaded and is approximately 2649 tokens, exceeding the 2500-token always-loaded budget.
+- LOW always-loaded-over-budget CLAUDE.md — CLAUDE.md is always loaded and is approximately 2664 tokens, exceeding the 2500-token always-loaded budget.
 - LOW bloat .claude/rules/lead.md — .claude/rules/lead.md is approximately 3316 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat CLAUDE.md — CLAUDE.md is approximately 2626 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat CLAUDE.md — CLAUDE.md is approximately 2641 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 7469 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/bugs.md — docs/knowledge/bugs.md is approximately 3583 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 19187 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/design-principles.md — docs/knowledge/design-principles.md is approximately 2639 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 4423 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 20016 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/design-principles.md — docs/knowledge/design-principles.md is approximately 2698 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 5037 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/patterns.md — docs/knowledge/patterns.md is approximately 5889 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/windows-bash-scanner.md — docs/knowledge/windows-bash-scanner.md is approximately 3988 tokens, exceeding the 2500-token warn threshold.
 - MEDIUM orphan-script s_audit_context — Script scripts/audit-context.sh has no incoming references and is not in the orphan allowlist.
