@@ -121,7 +121,7 @@ For each task in the batch, assemble ONLY:
 - The specific task description from tasks.md (NOT the full task list)
 - The relevant section from `docs/specs/$ARGUMENTS/design.md` (NOT the full design)
 - If the task creates or modifies framework wiring (hook, command, or skill files, or anything under scripts/): the relevant node/edge lines from `docs/maps/system-map.md` for the touched files — so the agent sees what references what it's changing without grepping for it. Excerpt only; never the whole map.
-- Project conventions from CLAUDE.md
+- Project conventions from CLAUDE.md, plus the `docs/knowledge/patterns.md` entries that bear on the task (CLAUDE.md only points to patterns.md)
 - Agent rules: extract the `## Agent Rules` section from `.claude/rules/tests.md`, `.claude/rules/escalation.md`, and `.claude/rules/lead.md` and include them in the conventions block. Do NOT include the full rule files — only the `## Agent Rules` section from each. Bash rules go in the dedicated CRITICAL section below, not here.
 - The specific files the task mentions (read them for current state)
 

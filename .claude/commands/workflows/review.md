@@ -77,7 +77,7 @@ BRIEF (success criteria and scope):
 YOUR TASK:
 1. For each task in the plan, verify the acceptance criteria are met in the actual code
 2. Check that no UNPLANNED changes were made (scope creep)
-3. Check that the implementation follows the design's architectural decisions and the project conventions in `<main-repo absolute path>/CLAUDE.md` (you run with `omitClaudeMd: true`, so read it from that absolute path)
+3. Check that the implementation follows the design's architectural decisions and the project conventions in `<main-repo absolute path>/CLAUDE.md` and `<main-repo absolute path>/docs/knowledge/patterns.md` (you run with `omitClaudeMd: true`, so read them from those absolute paths)
 4. Check for TODO/FIXME/HACK comments without corresponding ROADMAP entries
 5. If the feature touched framework wiring (hooks/commands/skills/scripts): read `docs/maps/system-map.md` and run `node scripts/system-map.ts report` — new HIGH findings (unwired hooks, dangling refs) on files this feature touched are DRIFT; also verify the map's edges for new/changed files match what the design intended to wire
 6. Check the brief: for each success criterion (or success metric) in the BRIEF, find evidence in the code, tests, or docs that it is met. Also check that nothing in the brief's Non-Goals / Out of Scope was built
