@@ -8,18 +8,16 @@
 # (present by default in auto and bypassPermissions modes; in default mode only
 # when user/flag/policy settings enable it). Each path gets exactly the
 # Write|Edit treatment: same canonicalization, same containment, same
-# extension set. Absent key or empty list: silent exit 0. When moreFiles > 0 the
-# platform listed only part of the change; the listed files are formatted and
-# the rest are not. Elements are parsed without eval, and one containing a
-# quote, backslash or control character (any JSON escape) is rejected, never
-# unescaped — which also means Windows-native backslash paths are skipped.
+# extension set. Parsing, dedupe, rejection and the stderr notices for every
+# file not processed (moreFiles > 0, caps, truncation) live in _common.sh's
+# bash_edit_diff_paths.
 
 set -euo pipefail
 trap 'exit 0' ERR  # Advisory hook — never surface errors to Claude Code
 
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
-read_hook_payload
+read_hook_payload "" bash-edit-diff
 
 LOG_DIR="$(get_project_root)/.claude/logs"
 
@@ -43,39 +41,6 @@ format_file() {
           echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) prettier failed: $RESOLVED" >>"$LOG_DIR/format-errors.log"
         ;;
     esac
-}
-
-# bash_edit_diff_paths <hook-name> — print each bashEditDiff.changedFiles
-# element of $INPUT on its own line. Duplicated in post-write-session.sh (the
-# two hooks share no parser in _common.sh); keep the copies identical.
-bash_edit_diff_paths() {
-    local LC_ALL=C before rest elem n=0
-    local key='"changedFiles"[[:space:]]*:[[:space:]]*\['
-    local str='^"(([^"\\]|\\.)*)"'
-    if ! [[ "$INPUT" =~ $key ]]; then
-        if [ "${HOOK_PAYLOAD_TRUNCATED:-0}" = "1" ] && [[ "$INPUT" == *'"bashEditDiff"'* ]]; then
-            echo "$1: payload exceeded ${PROJECT_OS_HOOK_PAYLOAD_BYTES:-262144} bytes before bashEditDiff.changedFiles — Bash-edited files skipped" >&2
-        fi
-        return 0
-    fi
-    # `%%lit*`, not `#*lit`: the latter is quadratic over a 256 KiB payload.
-    before="${INPUT%%"${BASH_REMATCH[0]}"*}"
-    rest="${INPUT:$((${#before} + ${#BASH_REMATCH[0]})):65536}"
-    while [ "$n" -lt 256 ]; do
-        rest="${rest#"${rest%%[![:space:]]*}"}"
-        [[ "$rest" =~ $str ]] || return 0   # `]`, or malformed: stop
-        elem="${BASH_REMATCH[1]}"
-        rest="${rest:${#BASH_REMATCH[0]}}"
-        n=$((n + 1))
-        case "$elem" in
-            '') ;;
-            *\\*) echo "$1: rejected a bashEditDiff path containing a quote, backslash or control character" >&2 ;;
-            *) printf '%s\n' "$elem" ;;
-        esac
-        rest="${rest#"${rest%%[![:space:]]*}"}"
-        [ "${rest:0:1}" = "," ] || return 0
-        rest="${rest:1}"
-    done
 }
 
 if [ "$(json_string_field "$INPUT" tool_name)" = "Bash" ]; then

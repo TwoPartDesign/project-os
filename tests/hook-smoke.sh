@@ -556,10 +556,11 @@ bash_payload() {
     printf '{"hook_event_name":"PostToolUse","tool_name":"Bash","permission_mode":"auto","tool_input":{"command":"sed -i s/one/two/ f","description":"edit"},"tool_response":{"stdout":"","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false,"bashEditDiff":{"files":[],"moreFiles":0,"changedFiles":[%s]}},"tool_use_id":"toolu_smoke","duration_ms":1}' "$1"
 }
 
-# npx_stub <sandbox> — a fake npx that records its argv, one call per line.
+# npx_stub <sandbox> — a fake npx that records its argv, one call per line, and
+# appends FORMATTED to the file it was handed, so cases can assert content.
 npx_stub() {
     mkdir -p "$1/bin"
-    printf '#!/bin/bash\nprintf "%%s\\n" "$*" >> "%s/npx-calls.log"\n' "$1" > "$1/bin/npx"
+    printf '#!/bin/bash\nprintf "%%s\\n" "$*" >> "%s/npx-calls.log"\nprintf "FORMATTED\\n" >> "${@: -1}"\n' "$1" > "$1/bin/npx"
     chmod +x "$1/bin/npx"
 }
 
@@ -618,6 +619,130 @@ assert_eq "postToolUse_bashEditDiffQuoteInPath_formatsOnlyTheSafePath" \
     "prettier --write $SBP/ok.ts" "$(npx_calls "$SB")"
 assert_contains "postToolUse_bashEditDiffQuoteInPath_rejectedOnStderr" \
     "$HOOK_ERR" "rejected a bashEditDiff path"
+
+# Indirection that leaves the root. Each case names a path that EXISTS and
+# resolves outside; the outside file's content is asserted unchanged.
+SB=$(new_sandbox); npx_stub "$SB"
+OUTSIDE=$(mktemp -d)
+SANDBOXES+=("$OUTSIDE")
+printf 'const a=1\n' > "$OUTSIDE/out.ts"
+mkdir -p "$SB/sub"
+if ln -s "$OUTSIDE/out.ts" "$SB/link-out.ts" 2>/dev/null && [ -L "$SB/link-out.ts" ]; then
+    run_hook "$SB" post-tool-use.sh "$(bash_payload "\"$SB/link-out.ts\"")" PATH="$SB/bin:$PATH"
+    assert_eq "postToolUse_bashEditDiffSymlinkToOutside_noSideEffect" \
+        "const a=1|" "$(cat "$OUTSIDE/out.ts")|$(npx_calls "$SB")"
+else
+    echo "  SKIP: postToolUse_bashEditDiffSymlinkToOutside_noSideEffect (symlink creation unsupported)"
+fi
+if ln -s "$OUTSIDE" "$SB/sub/pdir" 2>/dev/null && [ -L "$SB/sub/pdir" ]; then
+    run_hook "$SB" post-tool-use.sh "$(bash_payload "\"$SB/sub/pdir/out.ts\"")" PATH="$SB/bin:$PATH"
+    assert_eq "postToolUse_bashEditDiffParentDirSymlink_noSideEffect" \
+        "const a=1|" "$(cat "$OUTSIDE/out.ts")|$(npx_calls "$SB")"
+else
+    echo "  SKIP: postToolUse_bashEditDiffParentDirSymlink_noSideEffect (symlink creation unsupported)"
+fi
+run_hook "$SB" post-tool-use.sh "$(bash_payload "\"$SB/../${OUTSIDE##*/}/out.ts\"")" PATH="$SB/bin:$PATH"
+assert_eq "postToolUse_bashEditDiffDotDotEscape_noSideEffect" \
+    "const a=1|" "$(cat "$OUTSIDE/out.ts")|$(npx_calls "$SB")"
+
+# `..` that stays inside the root: formatted at the collapsed path.
+SB=$(new_sandbox); npx_stub "$SB"; SBP=$(cd "$SB" && pwd -P)
+mkdir -p "$SB/sub"
+printf 'const a=1\n' > "$SB/in.ts"
+run_hook "$SB" post-tool-use.sh "$(bash_payload "\"$SB/sub/../in.ts\"")" PATH="$SB/bin:$PATH"
+assert_eq "postToolUse_bashEditDiffDotDotInRoot_formatted" \
+    "const a=1 FORMATTED|prettier --write $SBP/in.ts" \
+    "$(tr '\n' ' ' < "$SB/in.ts" | sed 's/ $//')|$(npx_calls "$SB")"
+
+# Duplicates in changedFiles: the file is formatted once.
+SB=$(new_sandbox); npx_stub "$SB"; SBP=$(cd "$SB" && pwd -P)
+printf 'const a=1\n' > "$SB/in.ts"
+run_hook "$SB" post-tool-use.sh "$(bash_payload "\"$SB/in.ts\",\"$SB/in.ts\"")" PATH="$SB/bin:$PATH"
+assert_eq "postToolUse_bashEditDiffDuplicate_formattedOnce" \
+    "prettier --write $SBP/in.ts" "$(npx_calls "$SB")"
+
+# A path that does not exist: nothing formatted, nothing created.
+SB=$(new_sandbox); npx_stub "$SB"
+run_hook "$SB" post-tool-use.sh "$(bash_payload "\"$SB/nope.ts\"")" PATH="$SB/bin:$PATH"
+assert_eq "postToolUse_bashEditDiffNonexistent_exitsZero" 0 "$HOOK_EXIT"
+assert_eq "postToolUse_bashEditDiffNonexistent_noSideEffect" \
+    "absent|" "$([ -e "$SB/nope.ts" ] && echo present || echo absent)|$(npx_calls "$SB")"
+
+# moreFiles > 0: the listed file is formatted AND the gap is announced.
+SB=$(new_sandbox); npx_stub "$SB"; SBP=$(cd "$SB" && pwd -P)
+printf 'const a=1\n' > "$SB/in.ts"
+run_hook "$SB" post-tool-use.sh \
+    "$(bash_payload "\"$SB/in.ts\"" | sed 's/"moreFiles":0/"moreFiles":3/')" PATH="$SB/bin:$PATH"
+assert_eq "postToolUse_bashEditDiffMoreFiles_listedFileFormatted" \
+    "const a=1 FORMATTED" "$(tr '\n' ' ' < "$SB/in.ts" | sed 's/ $//')"
+assert_contains "postToolUse_bashEditDiffMoreFiles_noticeOnStderr" \
+    "$HOOK_ERR" "moreFiles=3"
+
+# More than 256 entries: the first 256 are processed, the overrun announced.
+SB=$(new_sandbox); npx_stub "$SB"
+printf 'x\n' > "$SB/in.md"
+MANY=""
+for _ in $(seq 1 257); do MANY="$MANY\"$SB/in.md\","; done
+run_hook "$SB" post-tool-use.sh "$(bash_payload "${MANY%,}")" PATH="$SB/bin:$PATH"
+assert_contains "postToolUse_bashEditDiffOver256Entries_noticeOnStderr" \
+    "$HOOK_ERR" "more than 256 entries"
+
+# A path with a leading `-`, named relative to the hook's cwd: a file, not an
+# option to realpath (`realpath -- …`).
+SB=$(new_sandbox); npx_stub "$SB"; SBP=$(cd "$SB" && pwd -P)
+printf 'const a=1\n' > "$SB/-x.ts"
+HOOK_EXIT=0
+HOOK_OUT=$( (cd "$SB" && printf '%s' "$(bash_payload '"-x.ts"')" \
+    | env PATH="$SB/bin:$PATH" bash "$SB/.claude/hooks/post-tool-use.sh" 2>/dev/null) ) || HOOK_EXIT=$?
+assert_eq "postToolUse_bashEditDiffLeadingDash_formatted" \
+    "prettier --write $SBP/-x.ts" "$(npx_calls "$SB")"
+
+# Truncation. T1: a Bash stdout past the bound pushes bashEditDiff out of the
+# window entirely; T2: hunks past the bound push changedFiles out. Either way
+# nothing is scrubbed — no path is ever taken from the unread remainder — and
+# the skip is said on stderr. The 300 KB filler outruns the pipe buffer, so
+# exitsZero is also the drain assertion (a writer hit by EPIPE exits 141).
+SB=$(new_sandbox)
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/big.yaml"
+BIG_FILLER=$(head -c 300000 /dev/zero | tr '\0' 'a')
+run_hook "$SB" post-write-session.sh \
+    "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"x\"},\"tool_response\":{\"stdout\":\"$BIG_FILLER\",\"stderr\":\"\",\"bashEditDiff\":{\"files\":[],\"moreFiles\":0,\"changedFiles\":[\"$SB/.claude/sessions/big.yaml\"]}}}" \
+    PROJECT_OS_HOOK_PAYLOAD_BYTES=1024
+assert_eq "postWriteSession_bashEditDiffPastBoundT1_exitsZero" 0 "$HOOK_EXIT"
+assert_contains "postWriteSession_bashEditDiffPastBoundT1_warnsOnStderr" \
+    "$HOOK_ERR" "before bashEditDiff.changedFiles"
+assert_eq "postWriteSession_bashEditDiffPastBoundT1_noSideEffect" \
+    "$SECRET_LINE" "$(cat "$SB/.claude/sessions/big.yaml")"
+
+SB=$(new_sandbox)
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/big.yaml"
+run_hook "$SB" post-write-session.sh \
+    "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"x\"},\"tool_response\":{\"stdout\":\"\",\"stderr\":\"\",\"bashEditDiff\":{\"files\":[{\"filePath\":\"$SB/.claude/sessions/big.yaml\",\"hunks\":[{\"lines\":[\"+$BIG_FILLER\"]}]}],\"moreFiles\":0,\"changedFiles\":[\"$SB/.claude/sessions/big.yaml\"]}}}" \
+    PROJECT_OS_HOOK_PAYLOAD_BYTES=1024
+assert_eq "postWriteSession_bashEditDiffPastBoundT2_exitsZero" 0 "$HOOK_EXIT"
+assert_contains "postWriteSession_bashEditDiffPastBoundT2_warnsOnStderr" \
+    "$HOOK_ERR" "before bashEditDiff.changedFiles"
+assert_eq "postWriteSession_bashEditDiffPastBoundT2_noSideEffect" \
+    "$SECRET_LINE" "$(cat "$SB/.claude/sessions/big.yaml")"
+
+# The scrub's own scope: an in-repo non-session file, an outside file, and a
+# prefix-collision `<root>-evil/.claude/sessions/` file are all left as written.
+SB=$(new_sandbox)
+OUTSIDE=$(mktemp -d)
+SANDBOXES+=("$OUTSIDE" "$SB-evil")
+mkdir -p "$SB-evil/.claude/sessions"
+printf '%s\n' "$SECRET_LINE" > "$SB/notsession.yaml"
+printf '%s\n' "$SECRET_LINE" > "$OUTSIDE/out.yaml"
+printf '%s\n' "$SECRET_LINE" > "$SB-evil/.claude/sessions/x.yaml"
+run_hook "$SB" post-write-session.sh "$(bash_payload "\"$SB/notsession.yaml\"")"
+assert_eq "postWriteSession_bashEditDiffNonSessionFile_noSideEffect" \
+    "$SECRET_LINE" "$(cat "$SB/notsession.yaml")"
+run_hook "$SB" post-write-session.sh "$(bash_payload "\"$OUTSIDE/out.yaml\"")"
+assert_eq "postWriteSession_bashEditDiffOutsideRepo_noSideEffect" \
+    "$SECRET_LINE" "$(cat "$OUTSIDE/out.yaml")"
+run_hook "$SB" post-write-session.sh "$(bash_payload "\"$SB-evil/.claude/sessions/x.yaml\"")"
+assert_eq "postWriteSession_bashEditDiffPrefixCollision_noSideEffect" \
+    "$SECRET_LINE" "$(cat "$SB-evil/.claude/sessions/x.yaml")"
 
 # A Bash payload without bashEditDiff (default mode, channel off): no-op.
 SB=$(new_sandbox); npx_stub "$SB"

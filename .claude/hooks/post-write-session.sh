@@ -6,10 +6,9 @@
 # Bash, the files come from tool_response.bashEditDiff.changedFiles (present by
 # default in auto and bypassPermissions modes; in default mode only when
 # user/flag/policy settings enable it), and each gets the Write|Edit treatment:
-# canonicalize, contain, scrub only under .claude/sessions/. Absent key or
-# empty list: silent exit 0. moreFiles > 0: the listed files are scrubbed, the
-# unlisted rest are not. An element carrying any JSON escape (quote, backslash,
-# control character) is rejected, never unescaped.
+# canonicalize, contain, scrub only under .claude/sessions/. Parsing, dedupe,
+# rejection and the stderr notices for every file not processed (moreFiles > 0,
+# caps, truncation) live in _common.sh's bash_edit_diff_paths.
 #
 # The read is bounded (read_hook_payload) because the Bash matcher puts every
 # command's stdout through this hook; `INPUT=$(cat)` cost seconds per large
@@ -20,7 +19,7 @@ trap 'exit 0' ERR  # Advisory hook — never surface errors to Claude Code
 
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
-read_hook_payload
+read_hook_payload "" bash-edit-diff
 
 PROJECT_ROOT=$(get_project_root)
 SESSION_DIR="${PROJECT_ROOT}/.claude/sessions"
@@ -35,39 +34,6 @@ scrub_if_session() {
     fi
 }
 
-# bash_edit_diff_paths <hook-name> — print each bashEditDiff.changedFiles
-# element of $INPUT on its own line. Duplicated in post-tool-use.sh (the two
-# hooks share no parser in _common.sh); keep the copies identical.
-bash_edit_diff_paths() {
-    local LC_ALL=C before rest elem n=0
-    local key='"changedFiles"[[:space:]]*:[[:space:]]*\['
-    local str='^"(([^"\\]|\\.)*)"'
-    if ! [[ "$INPUT" =~ $key ]]; then
-        if [ "${HOOK_PAYLOAD_TRUNCATED:-0}" = "1" ] && [[ "$INPUT" == *'"bashEditDiff"'* ]]; then
-            echo "$1: payload exceeded ${PROJECT_OS_HOOK_PAYLOAD_BYTES:-262144} bytes before bashEditDiff.changedFiles — Bash-edited files skipped" >&2
-        fi
-        return 0
-    fi
-    # `%%lit*`, not `#*lit`: the latter is quadratic over a 256 KiB payload.
-    before="${INPUT%%"${BASH_REMATCH[0]}"*}"
-    rest="${INPUT:$((${#before} + ${#BASH_REMATCH[0]})):65536}"
-    while [ "$n" -lt 256 ]; do
-        rest="${rest#"${rest%%[![:space:]]*}"}"
-        [[ "$rest" =~ $str ]] || return 0   # `]`, or malformed: stop
-        elem="${BASH_REMATCH[1]}"
-        rest="${rest:${#BASH_REMATCH[0]}}"
-        n=$((n + 1))
-        case "$elem" in
-            '') ;;
-            *\\*) echo "$1: rejected a bashEditDiff path containing a quote, backslash or control character" >&2 ;;
-            *) printf '%s\n' "$elem" ;;
-        esac
-        rest="${rest#"${rest%%[![:space:]]*}"}"
-        [ "${rest:0:1}" = "," ] || return 0
-        rest="${rest:1}"
-    done
-}
-
 if [ "$(json_string_field "$INPUT" tool_name)" = "Bash" ]; then
     while IFS= read -r BASH_EDITED; do
         RESOLVED=$(resolve_project_path "$(canonicalize_payload_path "$BASH_EDITED")") || continue
@@ -75,6 +41,7 @@ if [ "$(json_string_field "$INPUT" tool_name)" = "Bash" ]; then
     done < <(bash_edit_diff_paths post-write-session)
     exit 0
 fi
+
 # canonicalize_payload_path, not the raw value. The runtime delivers file_path
 # as a native OS path, so on Windows it arrives as `C:\\Users\\…` (separators
 # still JSON-escaped) or as a `./`-relative path, and resolve_project_path's

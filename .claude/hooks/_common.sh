@@ -29,7 +29,8 @@ resolve_project_path() {
 
     # Canonicalize: resolve symlinks and relative paths
     local resolved
-    resolved="$(realpath "$file" 2>/dev/null || readlink -f "$file" 2>/dev/null)" || {
+    # `--`: a payload path like `-x.ts` or `--write` is a file, not an option.
+    resolved="$(realpath -- "$file" 2>/dev/null || readlink -f -- "$file" 2>/dev/null)" || {
         echo "WARNING: cannot canonicalize '$file' (realpath/readlink unavailable)" >&2
         return 1
     }
@@ -231,6 +232,16 @@ json_string_field() {
 # enough write can push it past the window. That is why the flag exists rather
 # than the bound being applied silently: a caller that needed a key and did not
 # find one can check whether the payload was cut and say so.
+#
+# `read_hook_payload "" bash-edit-diff` (#T202): when the window's tool_name is
+# Bash, the remainder is drained through `tr | cut | awk` instead, which also
+# sets HOOK_PAYLOAD_TAIL_EDIT_DIFF=1 if the literal key "bashEditDiff" lies
+# past the bound. A Bash stdout over the bound pushes bashEditDiff out of the
+# window, and without this the edited files are skipped in silence. Memory
+# stays bounded: `"` becomes a newline, so a key is a record of its own, and
+# `cut -b1-13` caps every record (an escaped `\"bashEditDiff\"` leaves a
+# trailing `\` and never matches). Only the key's presence is taken from the
+# remainder — never a path.
 read_hook_payload() {
     local max="${1:-${PROJECT_OS_HOOK_PAYLOAD_BYTES:-262144}}"
     case "$max" in ''|*[!0-9]*) max=262144 ;; esac
@@ -238,10 +249,24 @@ read_hook_payload() {
 
     INPUT=$(head -c "$max" 2>/dev/null || true)
 
+    local scanned=0 counts
+    HOOK_PAYLOAD_TAIL_EDIT_DIFF=0
+    if [ "${2:-}" = "bash-edit-diff" ] && [ "$(json_string_field "$INPUT" tool_name)" = "Bash" ]; then
+        counts=$(LC_ALL=C tr '"' '\n' 2>/dev/null | LC_ALL=C cut -b1-13 2>/dev/null \
+            | awk '{ n++ } $0 == "bashEditDiff" { k++ } END { print n + 0, k + 0 }' 2>/dev/null || true)
+        case "$counts" in
+            *[!0-9\ ]*|'') counts="0 0" ;;
+        esac
+        scanned="${counts%% *}"
+        if [ "${counts##* }" -gt 0 ]; then
+            HOOK_PAYLOAD_TAIL_EDIT_DIFF=1
+        fi
+    fi
+
     local rest
     rest=$(wc -c 2>/dev/null || echo 0)
     rest="${rest//[^0-9]/}"
-    if [ "${rest:-0}" -gt 0 ]; then
+    if [ "$(( ${rest:-0} + scanned ))" -gt 0 ]; then
         HOOK_PAYLOAD_TRUNCATED=1
     else
         HOOK_PAYLOAD_TRUNCATED=0
@@ -294,4 +319,98 @@ get_project_root() {
     local script_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
     ( cd "$script_dir/../.." && pwd -P )
+}
+
+# Print each tool_response.bashEditDiff.changedFiles element of $INPUT on its
+# own line, deduped, for post-tool-use.sh and post-write-session.sh (#T202).
+# The caller canonicalizes and contains each path exactly as it would a
+# Write|Edit file_path; nothing here is trusted as contained.
+#
+# - No eval, no JSON parser: one anchored ERE per element. An element carrying
+#   any JSON escape (quote, backslash, control character, \uXXXX) is rejected
+#   with a stderr line, never unescaped. Windows-native backslash paths are
+#   therefore skipped (fail-closed).
+# - Absent key or empty list: silent.
+# - Every way of processing fewer files than the change touched says so on
+#   stderr: moreFiles > 0, more than 256 entries, the array running past the
+#   read window (payload bound or 64 KiB parse cap), and bashEditDiff lying
+#   past the bound with changedFiles unreadable (set by
+#   `read_hook_payload "" bash-edit-diff` via HOOK_PAYLOAD_TAIL_EDIT_DIFF).
+#
+# Usage: while IFS= read -r p; do …; done < <(bash_edit_diff_paths <hook-name>)
+bash_edit_diff_paths() {
+    local LC_ALL=C hook="$1" before rest elem tail13 i n=0 cut=0 edge=0 seen=$'\n'
+    local key='"changedFiles"[[:space:]]*:[[:space:]]*\['
+    local str='^"(([^"\\]|\\.)*)"'
+    local more='"moreFiles"[[:space:]]*:[[:space:]]*([0-9]+)'
+    local lit='"bashEditDiff"'
+    local skipped="the remaining files were not processed"
+
+    if [[ "$INPUT" =~ $more ]]; then
+        elem="${BASH_REMATCH[1]:0:12}"
+        if [[ "$elem" =~ [1-9] ]]; then
+            echo "$hook: bashEditDiff.moreFiles=$elem — the platform listed only part of the change; $skipped" >&2
+        fi
+    fi
+
+    if ! [[ "$INPUT" =~ $key ]]; then
+        [ "${HOOK_PAYLOAD_TRUNCATED:-0}" = "1" ] || return 0
+        # The key itself may straddle the bound: the window then ends in a
+        # proper prefix of it (`"bash…`) and the tail scan sees only the rest.
+        tail13="${INPUT: -13}"
+        for ((i = 2; i <= 13; i++)); do
+            if [[ "$tail13" == *"${lit:0:i}" ]]; then edge=1; fi
+        done
+        if [[ "$INPUT" == *"$lit"* ]] || [ "${HOOK_PAYLOAD_TAIL_EDIT_DIFF:-0}" = "1" ] || [ "$edge" = "1" ]; then
+            echo "$hook: payload exceeded ${PROJECT_OS_HOOK_PAYLOAD_BYTES:-262144} bytes before bashEditDiff.changedFiles — Bash-edited files skipped" >&2
+        fi
+        return 0
+    fi
+
+    # `%%lit*`, not `#*lit`: the latter is quadratic over a 256 KiB payload.
+    before="${INPUT%%"${BASH_REMATCH[0]}"*}"
+    rest="${INPUT:$((${#before} + ${#BASH_REMATCH[0]}))}"
+    if [ "${#rest}" -gt 65536 ]; then
+        rest="${rest:0:65536}"
+        cut=1
+    fi
+    if [ "${HOOK_PAYLOAD_TRUNCATED:-0}" = "1" ]; then cut=1; fi
+
+    while :; do
+        rest="${rest#"${rest%%[![:space:]]*}"}"
+        if ! [[ "$rest" =~ $str ]]; then
+            # `]` ends the list; anything else is a cut-off or malformed tail.
+            if [ "${rest:0:1}" != "]" ] && [ "$cut" = "1" ]; then
+                echo "$hook: bashEditDiff.changedFiles runs past the read window — $skipped" >&2
+            fi
+            return 0
+        fi
+        if [ "$n" -ge 256 ]; then
+            echo "$hook: bashEditDiff.changedFiles has more than 256 entries — $skipped" >&2
+            return 0
+        fi
+        elem="${BASH_REMATCH[1]}"
+        rest="${rest:${#BASH_REMATCH[0]}}"
+        n=$((n + 1))
+        case "$elem" in
+            '') ;;
+            # [[:cntrl:]]: a raw newline is invalid JSON, but would split one
+            # element into two lines for the caller's `read`.
+            *\\*|*[[:cntrl:]]*) echo "$hook: rejected a bashEditDiff path containing a quote, backslash or control character" >&2 ;;
+            *)
+                case "$seen" in
+                    *$'\n'"$elem"$'\n'*) ;;
+                    *) seen="$seen$elem"$'\n'; printf '%s\n' "$elem" ;;
+                esac
+                ;;
+        esac
+        rest="${rest#"${rest%%[![:space:]]*}"}"
+        if [ "${rest:0:1}" != "," ]; then
+            if [ "${rest:0:1}" != "]" ] && [ "$cut" = "1" ]; then
+                echo "$hook: bashEditDiff.changedFiles runs past the read window — $skipped" >&2
+            fi
+            return 0
+        fi
+        rest="${rest:1}"
+    done
 }
