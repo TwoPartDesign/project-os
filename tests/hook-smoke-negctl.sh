@@ -43,6 +43,12 @@
 #      the window removed. The bound's blind spot is defensible only while it is
 #      audible; this proves the assertion that keeps it so. Must kill
 #      postToolUse_filePathBeyondBound_saysSoOnStderr.
+#
+#   6. NO-CONTAINMENT — resolve_project_path's root comparison disabled
+#      (#T202). Every path that exists is then "ours". Must kill exactly the
+#      out-of-repo and prefix-collision assertions: the Write one and the two
+#      bashEditDiff ones. The session scrub keeps its own .claude/sessions/
+#      prefix check, so no post-write-session assertion should die.
 
 # THIS SCRIPT'S OWN PASS CONDITION. A negative control that cannot fail is the
 # same vacuous test it exists to prevent, and until #T170 this was one: it ran
@@ -132,6 +138,7 @@ STUB_STATIC_SURVIVORS="payloadSchema_fixturesInThisFile_nameToolInputAndToolResp
 payloadSchema_hookScripts_readToolInputAndToolResponse
 toolFailureLog_settingsWiring_registeredOnlyOnPostToolUseFailure
 activityLog_settingsWiring_modelSwitchedOnPostModelSwitch
+bashEditDiff_settingsWiring_bothHooksOnBashMatcher
 notifyPhaseChange_windowsTerminalOnly_exit0StderrLineNoStdout"
 
 echo "=== mutant 1: all hooks stubbed to \`exit 0\` ==="
@@ -268,6 +275,18 @@ fi
 run_mutant "mutant 5: truncated file_path degrades silently" \
     "$SILENT" "postToolUse_filePathBeyondBound_saysSoOnStderr"
 
+# ── Mutant 6: containment removed (#T202) ───────────────────────────────────
+NOCONTAIN="$WORK/no-containment"
+build_mutant "$NOCONTAIN"
+sed -i 's|^    if \[\[ "$resolved" != "$project_root"/\* \]\]; then$|    if false; then|' "$NOCONTAIN/_common.sh"
+if ! grep -q '^    if false; then$' "$NOCONTAIN/_common.sh"; then
+    fatal "mutant 6" "NOT APPLIED — the containment comparison is still there"
+fi
+run_mutant "mutant 6: resolve_project_path does not check containment" \
+    "$NOCONTAIN" "postToolUse_outOfProjectFile_noSideEffect" \
+    "postToolUse_bashEditDiffOutsideRepo_noSideEffect" \
+    "postToolUse_bashEditDiffPrefixCollision_noSideEffect"
+
 # ── Verdict ─────────────────────────────────────────────────────────────────
 echo "=== negative control ==="
 if [ "$CTL_FAIL" -gt 0 ]; then
@@ -275,5 +294,5 @@ if [ "$CTL_FAIL" -gt 0 ]; then
     echo "  Either hook-smoke.sh lost an assertion, or a mutant no longer applies."
     exit 1
 fi
-echo "  all 5 mutants behaved as documented — hook-smoke.sh detects broken hooks"
+echo "  all 6 mutants behaved as documented — hook-smoke.sh detects broken hooks"
 exit 0
