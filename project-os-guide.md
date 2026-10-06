@@ -89,7 +89,7 @@ Loaded every session, every project. Personal preferences, interaction style, mo
 - No `any` types in TypeScript. No bare `except` in Python.
 
 ## Model Routing
-- Lead: `fable` (`opus` on plans without Fable)
+- Lead: `opus` at high effort (fallback `sonnet`)
 - Default sub-agent: `sonnet` at high effort via `implementer`/`documenter` frontmatter, for any task with a complete brief and checkable acceptance criteria
 - Judgment tier: `opus` at high effort via `(model: opus)` annotations or `researcher`, for reconciling sources, test design, root-causing, cross-system refactors, and escalation after a Sonnet failure. `CLAUDE_CODE_SUBAGENT_MODEL` stays `opus` as the tier for any unnamed spawn
 - Reviewers: `inherit`
@@ -355,7 +355,8 @@ project-root/
 **`.claude/settings.json`**:
 ```json
 {
-  "model": "fable",
+  "model": "opus",
+  "fallbackModel": ["sonnet"],
   "permissions": {
     "allow": [
       "Bash(git *)",

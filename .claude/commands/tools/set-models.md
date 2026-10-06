@@ -90,5 +90,4 @@ Update `docs/memory/project-profiles.md` — find the entry for this project and
 > - Sub-agents: [MODEL_SUBAGENT]
 > - Config written to: `.claude/settings.json`
 >
-
 > Settings take effect on the next Claude Code session — restart to apply.
