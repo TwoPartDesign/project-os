@@ -199,7 +199,6 @@ build_template_checkout() {
     for f in roadmap-format.md windows-bash-scanner.md design-principles.md; do
         cp "$REPO_ROOT/docs/knowledge/$f" "$dest/docs/knowledge/$f"
     done
-    cp "$REPO_ROOT/docs/proposals/pre-tool-approve-hook.md" "$dest/docs/proposals/pre-tool-approve-hook.md"
     cp "$REPO_ROOT/CLAUDE.template.md" "$dest/CLAUDE.template.md"
     cp "$REPO_ROOT/ROADMAP.template.md" "$dest/ROADMAP.template.md"
     cp "$REPO_ROOT/global-CLAUDE.md" "$dest/global-CLAUDE.md"
@@ -380,7 +379,7 @@ fi
 
 # Every docs/ path referenced by a shipped file must exist in the clone.
 for ref in docs/knowledge/roadmap-format.md docs/knowledge/windows-bash-scanner.md \
-           docs/knowledge/design-principles.md docs/proposals/pre-tool-approve-hook.md \
+           docs/knowledge/design-principles.md \
            docs/product.md docs/tech.md; do
     assert_file "$PROJ/$ref" "referenced doc shipped to the new project: $ref"
 done

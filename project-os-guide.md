@@ -261,7 +261,6 @@ project-root/
 │   │   │   ├── init.md                 # /tools:init — first-run project setup
 │   │   │   ├── research.md             # /tools:research — parallel research agents
 │   │   │   ├── commit.md               # /tools:commit — quality-checked git commit
-│   │   │   ├── kv.md                   # /tools:kv — quick key-value memory operations
 │   │   │   ├── metrics.md              # /tools:metrics — query activity logs
 │   │   │   └── dashboard.md            # /tools:dashboard — cross-project status view
 │   │   └── pm/                         # Product management
@@ -572,7 +571,6 @@ The following tools support the workflow. Each tool has detailed implementation 
 | `/tools:catchup` | Restore context from last session by reading `.claude/sessions/` and synthesizing objective, in-flight work, and prioritized next steps. | `.claude/commands/tools/catchup.md` |
 | `/tools:research [topic]` | Spawn parallel research agents to investigate independent questions, then synthesize findings into `docs/research/[topic].md`. | `.claude/commands/tools/research.md` |
 | `/tools:commit` | Quality-checked git commit with pre-commit validation: scans for TODOs without tickets, debug statements, commented code, hardcoded secrets, and large files. Uses conventional commit format. | `.claude/commands/tools/commit.md` |
-| `/tools:kv` | Quick key-value memory for storing/recalling facts without full ADR ceremony. Operations: `set [key] [value]`, `get [key]`, `list`, `search [query]`. Storage: `docs/knowledge/kv.md`. | `.claude/commands/tools/kv.md` |
 | `/tools:init` | First-run project setup: finds unfilled placeholders, asks configuration questions, fills in all variables across the project, saves project profile to memory, initializes git. | `.claude/commands/tools/init.md` |
 | `/tools:metrics [feature]` | Query activity logs and feature metrics. Shows summary of all features or detailed metrics for a specific feature, slowest tasks, or feature comparisons. | `.claude/commands/tools/metrics.md` |
 | `/tools:dashboard [project]` | Cross-project status dashboard from `.claude/settings.json` → `project_os.dashboard.projects_root`. Shows all Project OS projects with task counts, active worktrees, and recent activity. | `.claude/commands/tools/dashboard.md` |
@@ -676,7 +674,7 @@ Skills provide on-demand protocol loading for specific triggers. Each skill has 
 
 ```markdown
 ---
-globs: ["**/*.test.*", "**/*.spec.*", "**/test_*", "**/tests/**"]
+paths: ["**/*.test.*", "**/*.spec.*", "**/test_*", "**/tests/**"]
 description: "Rules applied when working with test files"
 ---
 
@@ -695,7 +693,7 @@ description: "Rules applied when working with test files"
 
 ```markdown
 ---
-globs: ["**/api/**", "**/routes/**", "**/handlers/**"]
+paths: ["**/api/**", "**/routes/**", "**/handlers/**"]
 description: "Rules applied when working with API code"
 ---
 
@@ -981,7 +979,7 @@ sed "s/\[PROJECT_NAME\]/$PROJECT_NAME/g" \
 cp "$TEMPLATE_DIR/ROADMAP.md"        "$PROJECT_PATH/"
 cp "$TEMPLATE_DIR/global-CLAUDE.md"  "$PROJECT_PATH/"
 
-for f in decisions.md patterns.md bugs.md architecture.md kv.md metrics.md; do
+for f in decisions.md patterns.md bugs.md architecture.md metrics.md; do
   cp "$TEMPLATE_DIR/docs/knowledge/$f" "$PROJECT_PATH/docs/knowledge/"
 done
 

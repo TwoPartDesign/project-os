@@ -4,7 +4,7 @@
 // These guard the two ways the seed split can silently rot:
 //   1. A seed drifts from its live counterpart's FORMAT CONTRACT (frontmatter
 //      keys, `## Format` / `## Template` blocks), so appenders like
-//      /tools:kv and scripts/skill-ledger.ts break in every new project.
+//      scripts/skill-ledger.ts break in every new project.
 //   2. Framework prose leaks back into a seed — the original bug.
 //
 // Plus the cross-file invariant that the watched-path list in
@@ -39,7 +39,6 @@ const SEED_PAIRS: ReadonlyArray<{ seed: string; live: string }> = [
   },
   { seed: "templates/knowledge/bugs.md", live: "docs/knowledge/bugs.md" },
   { seed: "templates/knowledge/metrics.md", live: "docs/knowledge/metrics.md" },
-  { seed: "templates/knowledge/kv.md", live: "docs/knowledge/kv.md" },
   {
     seed: "templates/knowledge/skill-edit-rejections.md",
     live: "docs/knowledge/skill-edit-rejections.md",
@@ -358,7 +357,6 @@ describe("watched-path list sync", () => {
       "docs/knowledge/roadmap-format.md",
       "docs/knowledge/windows-bash-scanner.md",
       "docs/knowledge/design-principles.md",
-      "docs/proposals/pre-tool-approve-hook.md",
     ];
     const script = read("scripts/new-project.sh");
     const watched = new Set(RESIDUE_WATCHED.map((w) => w.path));

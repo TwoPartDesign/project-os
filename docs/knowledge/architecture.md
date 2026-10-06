@@ -33,12 +33,12 @@ User (Approver) ──→ Workflow Commands ──→ Lead ──→ Sub-agents 
 | Module | Path | Purpose |
 |--------|------|---------|
 | Workflow commands | `.claude/commands/workflows/` | Spec-driven dev lifecycle (idea→design→plan→build→review→ship, mvp, compete, rebuild) |
-| Tool commands | `.claude/commands/tools/` | Utility tools (dashboard, commit, handoff, catchup, research, metrics, kv, init, set-models, update, new-project) |
+| Tool commands | `.claude/commands/tools/` | Utility tools (dashboard, commit, handoff, catchup, research, metrics, init, set-models, update, new-project) |
 | PM commands | `.claude/commands/pm/` | Governance (prd, epic, approve, status) |
 | Agent adapters | `.claude/agents/adapters/` | External-agent dispatch only — `codex.sh` (+ `INTERFACE.md`, `_prompt-template.sh`); default path is native Task-tool dispatch |
 | Hooks | `.claude/hooks/` | Event-driven automation (11 files, see below) |
 | Scripts | `scripts/` | Standalone utilities (see below) |
-| Knowledge base | `docs/knowledge/` | Patterns, decisions, bugs, architecture, metrics, design-principles, roadmap-format, windows-bash-scanner, kv |
+| Knowledge base | `docs/knowledge/` | Patterns, decisions, bugs, architecture, metrics, design-principles, roadmap-format, windows-bash-scanner |
 | Specs | `docs/specs/<feature>/` | Per-feature lifecycle docs (design, tasks, review) |
 
 ### Hooks (`.claude/hooks/`)
@@ -65,7 +65,7 @@ User (Approver) ──→ Workflow Commands ──→ Lead ──→ Sub-agents 
 |--------|---------|
 | `audit-context.sh` | Estimate token cost of always-loaded context |
 | `codex-review.sh` | Run a Codex code review via stdin piping |
-| `context-filter.sh` | Intent-based filtering/indexing for large content |
+| `context-filter.sh` | Manual-use intent-based filtering/indexing for large content (not routed by any skill) |
 | `create-pr.sh` | Generate a PR with AI-assisted description (gh CLI) |
 | `dashboard.sh` / `dashboard-server.ts` | Cross-project status table / live SSE dashboard (port 3400) |
 | `detect-stack.ts` | Deterministic stack detection (language/package manager/framework/test runner/formatter/database) from manifest + lockfile signals; JSON out, read-only, no repo code executed |
@@ -136,10 +136,10 @@ Project OS includes an FTS5-based knowledge index for efficient context manageme
 - **Index engine**: `scripts/knowledge-index.ts` — uses `node:sqlite` FTS5 (Node 22.16+, zero deps)
 - **Subcommands**: `index`, `index-vault`, `index-observations`, `search`, `rebuild`, `stats`, `stale`, `config`
 - **Observation parser**: `scripts/observation-parser.ts` — extracts 5 typed facts (error-pattern, file-relationship, config-key, function-sig, dependency-chain) with sensitive key denylist; unit-tested in `tests/observation-parser.test.ts` (31 tests), including a dedicated secret-denylist guard test
-- **Filter script**: `scripts/context-filter.sh` — routes large outputs through intent-based filtering
+- **Filter script**: `scripts/context-filter.sh` — manual-use intent-based filter; no skill or hook routes through it (native output spill and `bashOutputMaxChars` cover large output)
 - **Advisory hook**: `.claude/hooks/output-index.sh` — indexes large tool outputs and persists extracted observations to `observation_meta` table
 - **Auto-checkpoint hook**: `.claude/hooks/pre-compact.sh` — PreCompact hook auto-saves session state before context compaction (10-min debounce)
-- **SKILL**: `.claude/skills/context-filter/SKILL.md` — teaches proactive routing for large content
+- **SKILL**: `.claude/skills/context-filter/SKILL.md` — teaches freshness-scored knowledge search
 
 ### Compaction Handoff Chain
 
@@ -216,6 +216,12 @@ stop, so the chain steers it instead — three stages, two of them hooks:
    nothing on the PreToolUse path is deliberate: it is the one event where a hook
    can deny a tool call, and an advisory hook must never be able to block a
    write.
+
+   Note (2.1.288): a PreToolUse or PermissionRequest hook that is skipped
+   because matching it failed, or because the tool's input could not be
+   serialized to JSON, now **blocks the call** instead of letting it through.
+   A malformed matcher in `settings.json` or an unserializable payload therefore
+   stops the tool, and this is true of every PreToolUse hook, not only this one.
 
    The pre-claim fires **only when nothing exists at the path yet** (`-e` fails
    *and* `-L` fails — the second catches a dangling symlink, which `-e` reports

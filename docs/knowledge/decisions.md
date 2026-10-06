@@ -131,6 +131,8 @@ Each entry: Date, Decision, Context, Alternatives Considered, Rationale
 
 **Update (2026-04-08)**: Extracted to standalone repo `web-fetch-mcp/` — the MCP server has no dependency on Project OS internals, and bundling it coupled two unrelated concerns. The extraction landed in commit `d2f7cec`. (Standalone repo link: TODO — to be added by the owner; not recorded anywhere in-tree.)
 
+**Update (2026-10-06)**: The "hooks are advisory-only" premise above is superseded. Since Claude Code 2.1.121 a PostToolUse hook can replace the output of any tool via `hookSpecificOutput.updatedToolOutput` (previously MCP-only), so a hook could now do this preprocessing. The decision stands as made (the server was extracted and is not part of this repo); the premise is recorded so the next reader does not rely on it.
+
 ---
 
 ## 2026-07-12 — Staleness-Audit Remediation: Native Primitives, Claude 5 Routing, Restrictive Permissions
@@ -485,3 +487,18 @@ Generate with: `node scripts/review-triage.ts docs/specs/<feature> --changed-fil
 - **Narrow the window to 200k** — rejected on the numbers: seven extra compactions (~81 s each of dead wall clock) for a 34% saving, and every long build becomes a chain of handoffs.
 
 **Rationale**: Context length, not compaction count, drives Fable input spend (cache read is 97% of input tokens; uncached input was 7,724 tokens across 305 turns), so the percentage is a genuine trade between cache read and handoff count, and the doc says so with the corrected numbers instead of calling lowering "strictly a loss". The tool-error decile table shows no quality penalty deep in the window once the closing phase's permission-classifier denials are set aside. Calibration replaced the circular claim: at the configured threshold the replay fires 4 compactions and projects 56.6M cache read against 5 real compactions and 52.4M billed, and the gap has one named cause (the runtime fires at ~263k, not 280k). Result and method: `docs/knowledge/compaction-metrics.md`; review: `docs/specs/compaction-gate/review.md`.
+
+---
+
+## 2026-10-04 — Auto Mode Is the Standing Default; the Auto-Approval Hook Proposal Is Deleted
+
+**Decision**: Sessions run in auto mode. `permissions.defaultMode` stays unset in `.claude/settings.json`, which starts a session in auto mode since Claude Code 2.1.284. `docs/proposals/pre-tool-approve-hook.md` (never installed) is deleted along with its references. `.claude/rules/bash.md` Core Rules 2-6 are marked default-mode/Windows guidance; rules 1 and 7 (hook wiring) stay unconditional. `docs/knowledge/windows-bash-scanner.md` stays. Approver: Jacob Nickel (#T210).
+
+**Context**: The proposal described a PreToolUse hook that auto-approves sanctioned Bash commands so sub-agents never stall on prompts. It was held for owner opt-in and never wired. Since then auto mode became the default and its classifier decides in place of the prompt matcher, which is the job the hook was drafted to do; the changelog cross-check in the Windows catalog shows the scanner's prompt-avoidance triggers matter mainly in default permission mode and on Windows.
+
+**Alternatives Considered**:
+- **Install the hook** — rejected: it duplicates what the classifier does natively, adds a hook that auto-approves tool calls (the highest-trust hook class) and a policy file to maintain.
+- **Pin `permissions.defaultMode` explicitly** — rejected: leaving it unset follows the platform default and avoids a second place that can drift.
+- **Delete rules 2-6 from bash.md** — rejected: they still bind in default permission mode and on Windows, and the Agent Rules are shipped to every sub-agent prompt.
+
+**Rationale**: Native auto mode covers the proposal's purpose with no custom code, and the hook-wiring rules (1 and 7) are independent of permission mode because the format, scrub and handoff-claim hooks fire only on `Write|Edit`.

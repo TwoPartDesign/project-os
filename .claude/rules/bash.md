@@ -7,6 +7,12 @@ enough that the permission matcher can parse it. Complex constructs (compound
 commands with quotes, pipes, `$()`, multi-line strings) fall back to a prompt
 even when conceptually allowed.
 
+Auto mode is the standing default (`permissions.defaultMode` is left unset, so
+sessions start in auto mode — 2.1.284; `docs/knowledge/decisions.md`,
+2026-10-04). Its classifier replaces the prompt matcher, so the
+prompt-avoidance rules (2–6) bind in default permission mode and on Windows.
+Rules 1 and 7 are hook wiring and bind in every mode.
+
 ## Core Rules
 
 1. **Prefer dedicated tools over shell.** Glob (file search), Grep (content
@@ -22,7 +28,8 @@ even when conceptually allowed.
    buys no speed on reads either. Bash is for execution: running scripts,
    tests, git, and multi-file listings. Decision: `docs/knowledge/decisions.md`,
    2026-09-20.
-2. **Scripts go in files, not in one-liners.** Anything with newlines, `$()`,
+2. **Scripts go in files, not in one-liners** (default-mode/Windows
+   guidance). Anything with newlines, `$()`,
    loops, escaped quotes, or embedded programs (`python3 -c`, `node -e`,
    `bash -c`, complex `jq`/`awk`/`sed`) gets written to a file (Write tool,
    under `scripts/`, the session scratchpad directory, or the project root)
@@ -31,13 +38,13 @@ even when conceptually allowed.
    different locations, so a file written by one is unreadable by the other —
    the write succeeds, the read fails, and the cause is invisible. If you
    write to the project root, delete the file when done.
-3. **One command per Bash call.** Avoid `&&`, `||`, `;`, and pipes — use
+3. **One command per Bash call** (default-mode/Windows guidance). Avoid `&&`, `||`, `;`, and pipes — use
    separate calls or a script file.
-4. **Git**: use `git -C "<path>" <subcommand>` instead of `cd && git`;
+4. **Git** (default-mode/Windows guidance): use `git -C "<path>" <subcommand>` instead of `cd && git`;
    commit messages via `git commit -F <file>`, not inline `-m` with quotes.
-5. **Paths**: forward slashes always; double-quote paths containing spaces;
+5. **Paths** (default-mode/Windows guidance): forward slashes always; double-quote paths containing spaces;
    never backslash-escape spaces; `--flag "value"`, not `--flag="value"`.
-6. **Never use bare `cd`.** The Bash tool's cwd persists across every
+6. **Never use bare `cd`** (default-mode/Windows guidance). The Bash tool's cwd persists across every
    subsequent call in the session — a single `cd` silently changes cwd for
    every later command. Three substitutes, in preference order:
    tool path flags (`git -C "path"`, `npm --prefix "path"`, `make -C "path"`,
@@ -63,10 +70,9 @@ even when conceptually allowed.
 - **Windows scanner trigger catalog** (spaces-in-paths, PowerShell, WSL,
   observed error strings): `docs/knowledge/windows-bash-scanner.md`.
   Consult it when a command unexpectedly prompts on Windows.
-- **Auto-approval policy**: a PreToolUse hook proposal at
-  `docs/proposals/pre-tool-approve-hook.md` approves sanctioned commands
-  programmatically so sub-agents never hit prompts for trusted operations.
-  If a trusted command still prompts, extend that policy once instead of
+- **Auto-approval policy**: auto mode is the default (see above), so no
+  custom approval hook is installed. If a trusted command still prompts in
+  default permission mode, add it to `permissions.allow` once instead of
   adding avoidance rules here.
 
 ## Sub-Agent Inheritance

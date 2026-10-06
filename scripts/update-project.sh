@@ -384,7 +384,6 @@ SEED_EXCLUDE=(
     "docs/knowledge/patterns.md"
     "docs/knowledge/decisions.md"
     "docs/knowledge/bugs.md"
-    "docs/knowledge/kv.md"
     "docs/knowledge/metrics.md"
     "docs/knowledge/skill-edit-rejections.md"
     ".claude/rules/preferences.md"

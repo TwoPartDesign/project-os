@@ -5,6 +5,10 @@ set -euo pipefail
 # Usage: scripts/context-filter.sh --file <path> --intent "query"
 #        cat large.txt | scripts/context-filter.sh --intent "query"
 #        scripts/context-filter.sh --file <path>
+#
+# Manual-use utility. The context-filter skill no longer routes large output
+# through this script: Claude Code spills oversized output to a file and caps
+# Bash output at bashOutputMaxChars (2.1.261). Nothing in the repo calls it.
 
 # ============================================================================
 # Helper Functions
