@@ -28,6 +28,8 @@ import {
   mkdtempSync,
   mkdirSync,
   writeFileSync,
+  readFileSync,
+  readdirSync,
   rmSync,
   realpathSync,
   symlinkSync,
@@ -391,6 +393,59 @@ describe("scan-files flags a bare sk- token", () => {
         parsed.findings.length,
         0,
         `expected zero findings, got ${parsed.findings.length}: ${r.stdout}`,
+      );
+    });
+  });
+});
+
+describe("scrub writes its temp file exclusively (#T232)", () => {
+  it("scrub_symlinkPlantedAtOldTmpName_outsideFileUntouchedAndTargetScrubbed", (t) => {
+    withProbeDir((dir) => {
+      const outsideDir = mkdtempSync(join(tmpdir(), "scanner-t232-"));
+      try {
+        const outsideFile = join(outsideDir, "victim.txt");
+        const outsideBytes = "outside file, must stay byte-identical\n";
+        writeFileSync(outsideFile, outsideBytes, "utf-8");
+
+        const target = join(dir, "notes.txt");
+        writeFileSync(target, `aws_key = "${AWS_FIXTURE}"\n`, "utf-8");
+
+        try {
+          symlinkSync(outsideFile, target + ".tmp");
+        } catch {
+          // Windows without developer mode / symlink privilege: EPERM.
+          t.skip("symlink creation unsupported");
+          return;
+        }
+
+        const r = runScanner(["scrub", target], ROOT);
+        strictEqual(r.status, 0, `expected exit 0: ${r.stdout}${r.stderr}`);
+        strictEqual(readFileSync(outsideFile, "utf-8"), outsideBytes);
+        const scrubbed = readFileSync(target, "utf-8");
+        ok(
+          !scrubbed.includes(AWS_FIXTURE),
+          `target must be scrubbed, got: ${scrubbed}`,
+        );
+        match(scrubbed, /\[REDACTED:aws-access-token\]/);
+      } finally {
+        rmSync(outsideDir, { recursive: true, force: true, maxRetries: 3 });
+      }
+    });
+  });
+
+  it("scrub_successfulScrub_leavesNoTmpFileBesideTarget", () => {
+    withProbeDir((dir) => {
+      const target = join(dir, "notes.txt");
+      writeFileSync(target, `aws_key = "${AWS_FIXTURE}"\n`, "utf-8");
+
+      const r = runScanner(["scrub", target], ROOT);
+      strictEqual(r.status, 0, `expected exit 0: ${r.stdout}${r.stderr}`);
+      match(readFileSync(target, "utf-8"), /\[REDACTED:aws-access-token\]/);
+      strictEqual(
+        readdirSync(dir)
+          .filter((n) => n.endsWith(".tmp"))
+          .join(","),
+        "",
       );
     });
   });

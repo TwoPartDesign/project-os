@@ -12,7 +12,9 @@ import {
   chmodSync,
   readdirSync,
   lstatSync,
+  unlinkSync,
 } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { resolve, join, relative, dirname } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -934,9 +936,11 @@ function cmdScrub(
     }
     const scrubbed = lines.join("\n");
 
-    const tmpPath = absPath + ".tmp";
+    // Random name + exclusive create (O_EXCL): a symlink planted at a
+    // predictable temp name cannot redirect the write (#T232).
+    const tmpPath = `${absPath}.${randomBytes(6).toString("hex")}.tmp`;
     try {
-      writeFileSync(tmpPath, scrubbed, "utf-8");
+      writeFileSync(tmpPath, scrubbed, { encoding: "utf-8", flag: "wx" });
       renameSync(tmpPath, absPath);
     } catch (err) {
       process.stderr.write(
@@ -944,7 +948,7 @@ function cmdScrub(
       );
       // Clean up tmp if possible
       try {
-        renameSync(tmpPath, tmpPath + ".bak");
+        unlinkSync(tmpPath);
       } catch {
         /* ignore */
       }
