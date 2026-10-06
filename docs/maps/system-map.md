@@ -68,7 +68,6 @@
 - `s_audit_context` — `scripts/audit-context.sh` (0 dependents)
 - `s_codex_review` — `scripts/codex-review.sh` (1 dependent)
 - `s_compaction_metrics` — `scripts/compaction-metrics.ts` (2 dependents)
-- `s_context_filter` — `scripts/context-filter.sh` (0 dependents)
 - `s_create_pr` — `scripts/create-pr.sh` (1 dependent)
 - `s_dashboard_server` — `scripts/dashboard-server.ts` (1 dependent)
 - `s_dashboard` — `scripts/dashboard.sh` (1 dependent)
@@ -239,7 +238,7 @@
 
 - LOW bloat .claude/rules/lead.md — .claude/rules/lead.md is approximately 3380 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat CLAUDE.md — CLAUDE.md is approximately 2626 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 7583 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 7534 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/bugs.md — docs/knowledge/bugs.md is approximately 3345 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 18285 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/design-principles.md — docs/knowledge/design-principles.md is approximately 2639 tokens, exceeding the 2500-token warn threshold.
@@ -247,7 +246,6 @@
 - LOW bloat docs/knowledge/patterns.md — docs/knowledge/patterns.md is approximately 5889 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/windows-bash-scanner.md — docs/knowledge/windows-bash-scanner.md is approximately 3988 tokens, exceeding the 2500-token warn threshold.
 - MEDIUM orphan-script s_audit_context — Script scripts/audit-context.sh has no incoming references and is not in the orphan allowlist.
-- MEDIUM orphan-script s_context_filter — Script scripts/context-filter.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_install_hooks — Script scripts/install-hooks.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_memory_search — Script scripts/memory-search.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_scrub_secrets — Script scripts/scrub-secrets.sh has no incoming references and is not in the orphan allowlist.

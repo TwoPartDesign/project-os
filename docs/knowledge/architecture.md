@@ -65,7 +65,6 @@ User (Approver) ──→ Workflow Commands ──→ Lead ──→ Sub-agents 
 |--------|---------|
 | `audit-context.sh` | Estimate token cost of always-loaded context |
 | `codex-review.sh` | Run a Codex code review via stdin piping |
-| `context-filter.sh` | Manual-use intent-based filtering/indexing for large content (not routed by any skill) |
 | `create-pr.sh` | Generate a PR with AI-assisted description (gh CLI) |
 | `dashboard.sh` / `dashboard-server.ts` | Cross-project status table / live SSE dashboard (port 3400) |
 | `detect-stack.ts` | Deterministic stack detection (language/package manager/framework/test runner/formatter/database) from manifest + lockfile signals; JSON out, read-only, no repo code executed |
@@ -136,7 +135,7 @@ Project OS includes an FTS5-based knowledge index for efficient context manageme
 - **Index engine**: `scripts/knowledge-index.ts` — uses `node:sqlite` FTS5 (Node 22.16+, zero deps)
 - **Subcommands**: `index`, `index-vault`, `index-observations`, `search`, `rebuild`, `stats`, `stale`, `config`
 - **Observation parser**: `scripts/observation-parser.ts` — extracts 5 typed facts (error-pattern, file-relationship, config-key, function-sig, dependency-chain) with sensitive key denylist; unit-tested in `tests/observation-parser.test.ts` (31 tests), including a dedicated secret-denylist guard test
-- **Filter script**: `scripts/context-filter.sh` — manual-use intent-based filter; no skill or hook routes through it (native output spill and `bashOutputMaxChars` cover large output)
+- **Large output**: handled by the platform's native output spill and the `bashOutputMaxChars` setting
 - **Advisory hook**: `.claude/hooks/output-index.sh` — indexes large tool outputs and persists extracted observations to `observation_meta` table
 - **Auto-checkpoint hook**: `.claude/hooks/pre-compact.sh` — PreCompact hook auto-saves session state before context compaction (10-min debounce)
 - **SKILL**: `.claude/skills/context-filter/SKILL.md` — teaches freshness-scored knowledge search
