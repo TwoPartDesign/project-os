@@ -331,8 +331,9 @@ get_project_root() {
 #
 # - No eval, no JSON parser: one anchored ERE per element. An element carrying
 #   any JSON escape (quote, backslash, control character, \uXXXX) is rejected
-#   with a stderr line, never unescaped. Windows-native backslash paths are
-#   therefore skipped (fail-closed).
+#   with a stderr line, never unescaped. The one exception is a Windows-native
+#   path whose only escape is `\\` (#T233): it is converted with `cygpath -u`,
+#   and rejected as above when cygpath is not on PATH (fail-closed).
 # - Absent key or empty list: silent.
 # - Every way of processing fewer files than the change touched says so on
 #   stderr: moreFiles > 0, more than 256 entries, the array running past the
@@ -349,7 +350,7 @@ get_project_root() {
 # Usage: while IFS= read -r p; do …; done < <(bash_edit_diff_paths <hook-name>)
 BASH_EDIT_FALLBACK_STATUS=3
 bash_edit_diff_paths() {
-    local LC_ALL=C hook="$1" before rest elem tail13 i n=0 cut=0 edge=0 fb=0 seen=$'\n'
+    local LC_ALL=C hook="$1" before rest elem win conv tail13 i n=0 cut=0 edge=0 fb=0 seen=$'\n'
     local key='"changedFiles"[[:space:]]*:[[:space:]]*\['
     local str='^"(([^"\\]|\\.)*)"'
     local more='"moreFiles"[[:space:]]*:[[:space:]]*([0-9]+)'
@@ -405,6 +406,21 @@ bash_edit_diff_paths() {
         elem="${BASH_REMATCH[1]}"
         rest="${rest:${#BASH_REMATCH[0]}}"
         n=$((n + 1))
+        # A Windows-native path arrives JSON-escaped (`C:\\Users\\x\\a.ts`). The
+        # one escape accepted is `\\` -> `\`, and only when every backslash in
+        # the element is part of such a pair (removing the pairs leaves none)
+        # and the result looks like a Windows path: a drive letter, or no `/`
+        # at all. `cygpath -u` then yields the POSIX spelling, which goes through
+        # the same dedupe and the caller's containment as any other element.
+        # Without cygpath the element stays rejected (fail closed).
+        if [[ "$elem" == *\\* && "${elem//\\\\/}" != *\\* && "$elem" != *[[:cntrl:]]* ]]; then
+            win="${elem//\\\\/\\}"
+            if [[ "$win" =~ ^[A-Za-z]: || "$win" != */* ]] && command -v cygpath >/dev/null 2>&1; then
+                if conv=$(cygpath -u -- "$win" 2>/dev/null) && [ -n "$conv" ] && [[ "$conv" != *[[:cntrl:]]* ]]; then
+                    elem="$conv"
+                fi
+            fi
+        fi
         case "$elem" in
             '') ;;
             # [[:cntrl:]]: a raw newline is invalid JSON, but would split one
