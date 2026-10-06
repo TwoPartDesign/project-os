@@ -676,7 +676,7 @@ Skills provide on-demand protocol loading for specific triggers. Each skill has 
 
 ```markdown
 ---
-globs: ["**/*.test.*", "**/*.spec.*", "**/test_*", "**/tests/**"]
+paths: ["**/*.test.*", "**/*.spec.*", "**/test_*", "**/tests/**"]
 description: "Rules applied when working with test files"
 ---
 
@@ -695,7 +695,7 @@ description: "Rules applied when working with test files"
 
 ```markdown
 ---
-globs: ["**/api/**", "**/routes/**", "**/handlers/**"]
+paths: ["**/api/**", "**/routes/**", "**/handlers/**"]
 description: "Rules applied when working with API code"
 ---
 
