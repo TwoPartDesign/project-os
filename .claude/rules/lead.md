@@ -89,8 +89,8 @@ edit costs a few hundred.
 
 Sequence tasks that touch the same file. Two workers editing one test file
 in parallel worktrees produce a third task, the reconciliation, that neither
-brief anticipated. Order them, and tell the later worker to merge master
-first.
+brief anticipated. Order them: dispatch the later worker only after the
+earlier one is merged, so its worktree branches from the merged HEAD.
 
 Worktree workers self-ground or they fail quietly (`docs/knowledge/patterns.md`,
 "Brief Every Worktree Worker to Self-Ground First"). `worktree.baseRef: "head"`
