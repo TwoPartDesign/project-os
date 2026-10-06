@@ -1,5 +1,58 @@
 # Changelog
 
+## v3.1 — 2026-10-06 — Lean Context follow-ups
+
+Clears the v3.0 ship-gate drafts and applies the Approver's two rulings on context size.
+Every hook and permission change was decided by a fresh headless-session probe first
+(pattern: Verify the Channel Before Designing the Gate).
+
+### Context size (Approver rulings)
+- **Conventions leave CLAUDE.md** — the "Active Conventions" list is replaced by a pointer to
+  `docs/knowledge/patterns.md`, which already held each pattern in full; `lead.md`, `build.md`
+  and `review.md` now fold or read the matching patterns.md entries. CLAUDE.md drops from
+  ~2.6k to ~2.0k tokens (#T241).
+- **Always-loaded budget 2,500 → 4,000 tokens** (`system-map.ts report`, reflect.md "Size
+  math"); the all-files `bloat_warn_tokens` stays 2,500 (#T242).
+- **Compaction window 350k → 500k tokens** — compaction fires at ~400k (80%), the handoff
+  nudge at ~325k. The whole model chain is 1M, so the cap rule still holds; decisions.md
+  supersedes the 2026-09-21 keep-350k ruling (#T243).
+
+### Hooks and permissions
+- **Hook commands run from `"$CLAUDE_PROJECT_DIR"`** — the probe showed hooks run in the
+  session's current directory, so a Bash `cd` broke every relative hook path or ran a
+  subtree's own hook scripts (#T238).
+- **`Bash((cd * && *))` and `Bash((cd * ; *))` removed** — the probe showed they approve
+  nothing in default permission mode; bash.md rule 6 no longer calls the subshell form
+  pre-approved (#T239).
+- **Bash-edit formatter skips generated artifacts** (`docs/maps/*`, `.claude/manifest.json`,
+  `review-triage.json`), which merges and generator scripts do report in `bashEditDiff`; a
+  `skipped:true` diff (e.g. `git checkout <file>`) now counts as unknown and triggers the
+  session-file fallback scrub (#T236).
+- **Windows paths in `bashEditDiff`** are converted with `cygpath -u` instead of dropped;
+  without cygpath they are still rejected (#T233).
+
+### Build, metrics and maintenance
+- build.md documents the generated-map merge-conflict resolution (#T234) and pre-flight
+  step 9 restores the self-ground merge when `worktree.baseRef` is not `"head"` (#T237).
+- compaction-metrics.ts gives every `compact_boundary` its own cycle, including trailing
+  ones and ones before the first turn (#T235).
+- maintain.sh failure drafts fingerprint `failures:<tool>:<ISO week>`: one draft per tool
+  per week, no substring collisions (#T229).
+- 22 `printf "$var" | grep -q` assertions under `pipefail` become `[[ ]]` or here-strings,
+  removing a latent SIGPIPE race (#T240).
+
+### Migration
+- **settings.json** — hook commands become `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/<x>.sh"`;
+  drop the two `(cd * …)` allow rules; `CLAUDE_CODE_AUTO_COMPACT_WINDOW` → `"500000"`.
+- **CLAUDE.md** — projects that copied the conventions list can replace it with the pointer.
+
+### Known gaps
+- Windows behaviour of the `"$CLAUDE_PROJECT_DIR"` hook form is unverified.
+- The failure-draft threshold of 5 is provisional until a week of real data.
+- Six MEDIUM `orphan-script` findings in `system-map.ts report` predate this release.
+
+---
+
 ## v3.0 — 2026-10-06 — Lean Context
 
 Aligns Project OS with Claude Code 2.1.270–2.1.289 and the Opus 5.5 / Sonnet 5.5 lineup,
