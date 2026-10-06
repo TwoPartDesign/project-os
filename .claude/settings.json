@@ -1,6 +1,6 @@
 {
-  "model": "fable",
-  "fallbackModel": ["opus", "sonnet"],
+  "model": "opus",
+  "fallbackModel": ["sonnet"],
   "effortLevel": "high",
   "permissions": {
     "allow": [
