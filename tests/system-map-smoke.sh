@@ -54,7 +54,7 @@ make_fixture() {
         '      {' \
         '        "matcher": "Write",' \
         '        "hooks": [' \
-        '          { "type": "command", "command": "bash \".claude/hooks/demo-hook.sh\"" }' \
+        '          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/demo-hook.sh\"" }' \
         '        ]' \
         '      }' \
         '    ]' \

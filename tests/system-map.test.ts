@@ -140,6 +140,39 @@ describe("extractHookWiring", () => {
     ]);
   });
 
+  it("extractHookWiring_claudeProjectDirForm_returnsRelativeHookPaths", () => {
+    const settings = JSON.stringify({
+      hooks: {
+        SessionEnd: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command:
+                  'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/session-end-cleanup.sh"',
+              },
+            ],
+          },
+        ],
+        PostModelSwitch: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command:
+                  'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/log-activity.sh" model-switched --stdin',
+              },
+            ],
+          },
+        ],
+      },
+    });
+    deepStrictEqual(extractHookWiring(settings), [
+      ".claude/hooks/log-activity.sh",
+      ".claude/hooks/session-end-cleanup.sh",
+    ]);
+  });
+
   it("extractHookWiring_noHooksKey_emptyArray", () => {
     const result = extractHookWiring(JSON.stringify({ permissions: {} }));
     deepStrictEqual(result, []);

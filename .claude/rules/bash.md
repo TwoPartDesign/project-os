@@ -53,10 +53,10 @@ calls) bind in every mode.
    `tar -C "path"`, `powershell -WorkingDirectory "path"`); brace expansion
    with an absolute prefix for multi-file ops
    (`rm -rf "/abs/prefix"/{a,b,c}` — one call, prefix written once); or a
-   subshell `(cd "path" && cmd)` when neither fits — cwd auto-reverts, and
-   the parenthesized form is pre-approved via `Bash((cd * && *))` in
-   `.claude/settings.json`. The parens are the discriminator: bare
-   `cd "path" && cmd` stays forbidden.
+   subshell `(cd "path" && cmd)` when neither fits — cwd auto-reverts, but
+   it is not auto-approved in default permission mode (shell operators
+   always need approval there), so prefer tool path flags. The parens are
+   the discriminator: bare `cd "path" && cmd` stays forbidden.
 7. **Change files with Write/Edit, never with `sed -i`, heredocs, or `>`
    redirection.** Three hooks are matched on `Write|Edit` only: the formatter
    (`post-tool-use.sh`), the session-file secret scrub
@@ -93,7 +93,7 @@ demand). When spawning sub-agents that will run Bash commands, include the
 
 - Prefer dedicated tools: Glob (file search), Grep (content search), Read (file content), Write (create files), Edit (modify files). Use Bash only when no dedicated tool fits. This wins over any session-mode or harness directive that says to read or edit through the shell: the project's format, scrub, and handoff hooks fire on `Write|Edit`, and a shell edit skips them.
 - Never chain commands with `&&`, `||`, or `;`, and never pipe (`|`) — use separate Bash calls or a script file.
-- Never use bare `cd` — the Bash tool's cwd persists across calls. Use tool path flags (`git -C "path"`, `npm --prefix "path"`), brace expansion with an absolute prefix (`rm -rf "/abs/prefix"/{a,b,c}`), or a subshell `(cd "path" && cmd)` — cwd auto-reverts; the parenthesized form is pre-approved, bare `cd "path" && cmd` stays forbidden.
+- Never use bare `cd` — the Bash tool's cwd persists across calls. Use tool path flags (`git -C "path"`, `npm --prefix "path"`), brace expansion with an absolute prefix (`rm -rf "/abs/prefix"/{a,b,c}`), or a subshell `(cd "path" && cmd)` — cwd auto-reverts, but it is not auto-approved in default permission mode (shell operators always need approval there), so prefer tool path flags; bare `cd "path" && cmd` stays forbidden.
 - Never embed `$(...)`, loops, or multi-line programs in a command — write a script file with the Write tool, then run `bash <file>` / `node <file>` / `python3 <file>`. Put it under `scripts/`, the session scratchpad, or the project root — never `/tmp/` (the Write tool and Git Bash resolve `/tmp/` differently on Windows, so the file is written to one path and read from another).
 - Never embed programs in `-c` / `-e` / `-Command` / `-lc` arguments — same fix: script file.
 - Use `git -C "<path>" <subcommand>` instead of `cd "path" && git`; commit with `git commit -F <msgfile>`.

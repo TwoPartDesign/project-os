@@ -69,8 +69,6 @@
       "Bash(node scripts/skill-ledger.ts*)",
       "Bash(node scripts/review-triage.ts*)",
       "Bash(node scripts/compaction-metrics.ts*)",
-      "Bash((cd * && *))",
-      "Bash((cd * ; *))",
       "Read",
       "Write",
       "Edit"
@@ -121,7 +119,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/compact-suggest.sh\"",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/compact-suggest.sh\"",
             "timeout": 15
           }
         ]
@@ -133,7 +131,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/post-mcp-validate.sh\""
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-mcp-validate.sh\""
           }
         ]
       },
@@ -142,7 +140,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/post-tool-use.sh\""
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-tool-use.sh\""
           }
         ]
       },
@@ -151,7 +149,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/post-write-session.sh\""
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-write-session.sh\""
           }
         ]
       },
@@ -160,7 +158,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/output-index.sh\""
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/output-index.sh\""
           }
         ]
       },
@@ -169,7 +167,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/compact-suggest.sh\"",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/compact-suggest.sh\"",
             "timeout": 15
           }
         ]
@@ -181,7 +179,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/tool-failure-log.sh\""
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/tool-failure-log.sh\""
           }
         ]
       }
@@ -191,7 +189,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/log-activity.sh\" model-switched --stdin"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/log-activity.sh\" model-switched --stdin"
           }
         ]
       }
@@ -202,7 +200,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/pre-compact.sh\"",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-compact.sh\"",
             "timeout": 30,
             "statusMessage": "Saving auto-checkpoint..."
           }
@@ -214,12 +212,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/session-start-setup.sh\"",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start-setup.sh\"",
             "timeout": 30
           },
           {
             "type": "command",
-            "command": "bash \".claude/hooks/session-start-maintain.sh\"",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start-maintain.sh\"",
             "timeout": 120
           }
         ]
@@ -230,7 +228,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/session-end-cleanup.sh\"",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-end-cleanup.sh\"",
             "timeout": 30
           }
         ]
