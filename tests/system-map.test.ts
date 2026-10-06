@@ -27,6 +27,8 @@ import {
   idFor,
   pathToId,
   collectBloatFiles,
+  findAlwaysLoadedOverBudget,
+  ALWAYS_LOADED_BUDGET_TOKENS,
 } from "../scripts/lib/system-map-lib.ts";
 import type {
   MapNode,
@@ -570,5 +572,78 @@ describe("collectBloatFiles", () => {
     ]);
     const findings = findBloat(files, warnTokens);
     deepStrictEqual(findings, []);
+  });
+});
+
+// ==========================================================================
+// findAlwaysLoadedOverBudget (#T221)
+// ==========================================================================
+
+describe("findAlwaysLoadedOverBudget", () => {
+  // 4 bytes per token: 4 * budget + 4 bytes -> budget + 1 tokens (over).
+  const overContent = "x".repeat(4 * ALWAYS_LOADED_BUDGET_TOKENS + 4);
+
+  it("findAlwaysLoadedOverBudget_unscopedRuleOverBudget_flaggedLowWithFileAndTokens", () => {
+    const findings = findAlwaysLoadedOverBudget([
+      { path: ".claude/rules/big.md", content: overContent },
+    ]);
+    deepStrictEqual(findings, [
+      {
+        severity: "LOW",
+        kind: "always-loaded-over-budget",
+        subject: ".claude/rules/big.md",
+        detail: `.claude/rules/big.md is always loaded and is approximately ${ALWAYS_LOADED_BUDGET_TOKENS + 1} tokens, exceeding the ${ALWAYS_LOADED_BUDGET_TOKENS}-token always-loaded budget.`,
+      },
+    ]);
+  });
+
+  it("findAlwaysLoadedOverBudget_unscopedRuleUnderBudget_noFinding", () => {
+    deepStrictEqual(
+      findAlwaysLoadedOverBudget([
+        { path: ".claude/rules/small.md", content: "x".repeat(400) },
+        {
+          path: "CLAUDE.md",
+          content: "x".repeat(4 * ALWAYS_LOADED_BUDGET_TOKENS),
+        },
+      ]),
+      [],
+    );
+  });
+
+  it("findAlwaysLoadedOverBudget_pathsScopedRuleOverBudget_excluded", () => {
+    const scoped = `---\npaths: ["**/*.test.*"]\n---\n${overContent}`;
+    deepStrictEqual(
+      findAlwaysLoadedOverBudget([
+        { path: ".claude/rules/scoped.md", content: scoped },
+      ]),
+      [],
+    );
+  });
+
+  it("findAlwaysLoadedOverBudget_frontmatterWithoutPaths_stillCounted", () => {
+    const unscoped = `---\ndescription: "no paths key"\n---\n${overContent}`;
+    const findings = findAlwaysLoadedOverBudget([
+      { path: ".claude/rules/described.md", content: unscoped },
+    ]);
+    strictEqual(findings.length, 1);
+    strictEqual(findings[0].subject, ".claude/rules/described.md");
+  });
+
+  it("findAlwaysLoadedOverBudget_knowledgeFileOverBudget_notAlwaysLoaded", () => {
+    deepStrictEqual(
+      findAlwaysLoadedOverBudget([
+        { path: "docs/knowledge/big.md", content: overContent },
+      ]),
+      [],
+    );
+  });
+
+  it("findAlwaysLoadedOverBudget_claudeMdOverBudget_flagged", () => {
+    const findings = findAlwaysLoadedOverBudget([
+      { path: "CLAUDE.md", content: overContent },
+    ]);
+    strictEqual(findings.length, 1);
+    strictEqual(findings[0].subject, "CLAUDE.md");
+    strictEqual(findings[0].severity, "LOW");
   });
 });

@@ -209,11 +209,6 @@ Pause only when the work genuinely requires them: a destructive or
 irreversible action, a real change in scope, or a judgment only they can make.
 Otherwise proceed; you have the authority to make routine calls.
 
-Produced documents stay local. When the project is maintained locally or the
-session was started locally, reports, specs, handoffs, and reviews go to the
-repo (`docs/specs/`, `.claude/sessions/`, `docs/knowledge/`), never to the
-Claude Artifacts feature.
-
 Lead every summary with the outcome, then the supporting detail. After a long
 unattended run, write it as a re-grounding: spell out accumulated terms and
 give each file or identifier its own plain clause.

@@ -83,6 +83,7 @@ export interface Finding {
     | "dangling-ref"
     | "manifest-gap"
     | "bloat"
+    | "always-loaded-over-budget"
     | "unlocalized-template-content"
     | "init-incomplete";
   subject: string;
@@ -670,6 +671,51 @@ export function findBloat(
         kind: "bloat",
         subject: f.path,
         detail: `${f.path} is approximately ${estimate} tokens, exceeding the ${warnTokens}-token warn threshold.`,
+      });
+    }
+  }
+  return findings;
+}
+
+/**
+ * Token budget for always-loaded instruction files (CLAUDE.md and every
+ * unscoped `.claude/rules/*.md`). Single named constant: the budget in
+ * `.claude/commands/tools/reflect.md` ("Size math", 2500 tokens) is prose, not
+ * machine-readable, so it is mirrored here.
+ */
+export const ALWAYS_LOADED_BUDGET_TOKENS = 2500;
+
+/** True when `content` opens with YAML frontmatter that declares a `paths:` key (a lazily-loaded rule). */
+function hasPathsFrontmatter(content: string): boolean {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
+  return m !== null && /^paths\s*:/m.test(m[1]);
+}
+
+/**
+ * Flags every always-loaded file over {@link ALWAYS_LOADED_BUDGET_TOKENS} as a
+ * LOW (advisory) finding naming the file and its estimated tokens. Always-loaded
+ * means `CLAUDE.md` plus each `.claude/rules/*.md` whose frontmatter has no
+ * `paths:` key; `paths:`-scoped rules load lazily and are excluded, as is
+ * everything else (e.g. `docs/knowledge/`). The estimate is bytes / 4, floored
+ * — the same estimate `scripts/audit-context.sh` uses.
+ */
+export function findAlwaysLoadedOverBudget(
+  files: { path: string; content: string }[],
+  budgetTokens: number = ALWAYS_LOADED_BUDGET_TOKENS,
+): Finding[] {
+  const findings: Finding[] = [];
+  for (const f of files) {
+    const isRule =
+      f.path.startsWith(".claude/rules/") && f.path.endsWith(".md");
+    if (f.path !== "CLAUDE.md" && !isRule) continue;
+    if (isRule && hasPathsFrontmatter(f.content)) continue;
+    const estimate = Math.floor(Buffer.byteLength(f.content, "utf8") / 4);
+    if (estimate > budgetTokens) {
+      findings.push({
+        severity: "LOW",
+        kind: "always-loaded-over-budget",
+        subject: f.path,
+        detail: `${f.path} is always loaded and is approximately ${estimate} tokens, exceeding the ${budgetTokens}-token always-loaded budget.`,
       });
     }
   }
