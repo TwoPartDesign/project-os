@@ -485,3 +485,39 @@ Generate with: `node scripts/review-triage.ts docs/specs/<feature> --changed-fil
 - **Narrow the window to 200k** — rejected on the numbers: seven extra compactions (~81 s each of dead wall clock) for a 34% saving, and every long build becomes a chain of handoffs.
 
 **Rationale**: Context length, not compaction count, drives Fable input spend (cache read is 97% of input tokens; uncached input was 7,724 tokens across 305 turns), so the percentage is a genuine trade between cache read and handoff count, and the doc says so with the corrected numbers instead of calling lowering "strictly a loss". The tool-error decile table shows no quality penalty deep in the window once the closing phase's permission-classifier denials are set aside. Calibration replaced the circular claim: at the configured threshold the replay fires 4 compactions and projects 56.6M cache read against 5 real compactions and 52.4M billed, and the gap has one named cause (the runtime fires at ~263k, not 280k). Result and method: `docs/knowledge/compaction-metrics.md`; review: `docs/specs/compaction-gate/review.md`.
+
+---
+
+## 2026-10-06 — Native-feature probe results (#T207)
+
+**Decision**: Wave 2 of the v3.0 release (#T208 worker context, #T216 worktree base, #T202 Bash-edit hook, #T205 rule scoping) designs from these measured behaviours of CLI 2.1.290, not from changelog wording.
+
+**Context**: Each probe ran as a nested `claude -p --model sonnet` in a throwaway root, with hook payloads captured by a stdin-dump hook.
+
+**Findings**:
+- **(a) Instruction loading.** Evidence: `InstructionsLoaded` payloads plus each agent's own list of the markers it could see.
+  - The main session loads CLAUDE.md and every rule without `paths:` at `session_start`.
+  - A named subagent inherits that eager set and fires no new events for it.
+  - `omitClaudeMd: true` drops CLAUDE.md **and** every unscoped `.claude/rules/*.md`, `lead.md` included. A `paths:` rule still lazy-loads into that agent when it reads a matching file.
+  - `paths:` loads lazily on the first matching Read (`load_reason: path_glob_match`, with `agent_id`/`agent_type`/`effort`).
+  - The legacy `globs:` key is not a scope: that rule loaded eagerly at `session_start`, and reading a matching file fired nothing (#T205).
+- **(b) Worktree base.** A default isolation-worktree agent reported `origin/master`'s sha. With `worktree.baseRef: "head"`, the same agent reported the unpushed feature HEAD.
+- **(c) Compact window.**
+  - `/autocompact 300k` writes user settings at `modelSettings.<canonical-model>.autoCompactWindow`.
+  - `CLAUDE_CODE_AUTO_COMPACT_WINDOW` wins over it, including when set through a settings `env` block. Status then reads "(from CLAUDE_CODE_AUTO_COMPACT_WINDOW)", and `/autocompact <n>` refuses to save: "is set and takes precedence".
+  - Our `env` value of 350000 therefore masks every per-model `/autocompact` choice.
+- **(d) Auto-memory directory.**
+  - The relative path `"docs/memory"` is silently rejected: the validator accepts only absolute or `~/` paths, so memory went to `~/.claude/projects/<slug>/memory/` from project, local and flag settings alike.
+  - An absolute path, in local or project settings, wrote `docs/memory/<fact>.md` and indexed it in `MEMORY.md`. The pre-existing file stayed byte-identical (`cmp`).
+  - Auto-memory is off entirely when `CLAUDE_CODE_REMOTE` is set (cloud sessions), unless `CLAUDE_CODE_REMOTE_MEMORY_DIR` is set.
+- **(e) Bash-edit diff channel.**
+  - PostToolUse for a Bash edit carries `tool_response.bashEditDiff = {files:[{filePath, hunks:[{oldStart, oldLines, newStart, newLines, lines}]}], moreFiles, changedFiles:[abs paths]}`.
+  - It appears only when enabled from user, flag or policy settings, or by `CLAUDE_CODE_BASH_EDIT_DIFF`, or by default in `auto`/`bypassPermissions` mode.
+  - Project `.claude/settings.json` `true` was ignored in default mode: 0 of 1 payloads had the key, against 1 of 1 with `--settings`.
+  - A `false` anywhere turns it off.
+- **(f) Prompt audit.** `/doctor prompt-audit` runs headlessly and produced 17 findings. There is no `claude doctor` subcommand form.
+
+**Alternatives Considered**:
+- **Trust the changelog lines alone.** Rejected: they omit the relative-path rejection, the trusted-source gate on `bashEditDiffEnabled`, and `omitClaudeMd` dropping rules. Each of these changes a wave-2 design.
+
+**Rationale**: "Verify the Channel Before Designing the Gate." Setup, commands, raw payload excerpts and per-probe verdicts are in `docs/specs/changelog-alignment-2026-10/probe-results.md`; the audit report is `prompt-audit.md` in the same directory.
