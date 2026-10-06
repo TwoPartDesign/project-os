@@ -53,8 +53,17 @@
 #
 #   7. SCRUB-NO-CONTAINMENT — post-write-session.sh's Bash branch scrubs the
 #      raw payload path with no canonicalization, no containment and no
-#      session-scope check. Must kill exactly the three scrub-scope
-#      assertions: outside, prefix-collision and in-repo non-session file.
+#      session-scope check. Must kill exactly the scrub-scope assertions:
+#      outside, prefix-collision, in-repo non-session file, and `..` through
+#      sessions/ to an outside file.
+#
+#   8. SCRUB-SCOPE-ONLY — post-write-session.sh's Bash branch keeps the
+#      .claude/sessions/ scope check but takes the raw payload path
+#      (`RESOLVED="$BASH_EDITED"`): no canonicalization, no containment. Only
+#      a path spelled under sessions/ that leaves the root can tell, so it must
+#      kill exactly the `..`-through-sessions case. (A sessions/ symlink to an
+#      outside file survives it: scrub-secrets.sh does not write through the
+#      link, so that case guards the outside file but is not this mutant's.)
 
 # THIS SCRIPT'S OWN PASS CONDITION. A negative control that cannot fail is the
 # same vacuous test it exists to prevent, and until #T170 this was one: it ran
@@ -307,7 +316,19 @@ fi
 run_mutant "mutant 7: post-write-session.sh Bash branch scrubs uncontained paths" \
     "$SCRUBRAW" "postWriteSession_bashEditDiffNonSessionFile_noSideEffect" \
     "postWriteSession_bashEditDiffOutsideRepo_noSideEffect" \
-    "postWriteSession_bashEditDiffPrefixCollision_noSideEffect"
+    "postWriteSession_bashEditDiffPrefixCollision_noSideEffect" \
+    "postWriteSession_bashEditDiffDotDotThroughSessions_noSideEffect"
+
+# ── Mutant 8: scrub scope check kept, containment dropped (#T202) ───────────
+SCOPEONLY="$WORK/scrub-scope-only"
+build_mutant "$SCOPEONLY"
+sed -i 's#^        RESOLVED=$(resolve_project_path "$(canonicalize_payload_path "$BASH_EDITED")") || continue$#        RESOLVED="$BASH_EDITED"#' \
+    "$SCOPEONLY/post-write-session.sh"
+if ! grep -q '^        RESOLVED="$BASH_EDITED"$' "$SCOPEONLY/post-write-session.sh"; then
+    fatal "mutant 8" "NOT APPLIED — the Bash branch still resolves its paths"
+fi
+run_mutant "mutant 8: post-write-session.sh Bash branch keeps scope, drops containment" \
+    "$SCOPEONLY" "postWriteSession_bashEditDiffDotDotThroughSessions_noSideEffect"
 
 # ── Verdict ─────────────────────────────────────────────────────────────────
 echo "=== negative control ==="
@@ -316,5 +337,5 @@ if [ "$CTL_FAIL" -gt 0 ]; then
     echo "  Either hook-smoke.sh lost an assertion, or a mutant no longer applies."
     exit 1
 fi
-echo "  all 7 mutants behaved as documented — hook-smoke.sh detects broken hooks"
+echo "  all 8 mutants behaved as documented — hook-smoke.sh detects broken hooks"
 exit 0

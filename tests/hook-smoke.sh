@@ -744,6 +744,72 @@ run_hook "$SB" post-write-session.sh "$(bash_payload "\"$SB-evil/.claude/session
 assert_eq "postWriteSession_bashEditDiffPrefixCollision_noSideEffect" \
     "$SECRET_LINE" "$(cat "$SB-evil/.claude/sessions/x.yaml")"
 
+# Containment in isolation from the scrub's scope check: both paths below are
+# spelled under .claude/sessions/, so the raw string passes the scope check,
+# and only canonicalization + containment keep the outside file untouched.
+SB=$(new_sandbox)
+OUTSIDE=$(mktemp -d)
+SANDBOXES+=("$OUTSIDE")
+printf '%s\n' "$SECRET_LINE" > "$OUTSIDE/dd.yaml"
+run_hook "$SB" post-write-session.sh \
+    "$(bash_payload "\"$SB/.claude/sessions/../../../${OUTSIDE##*/}/dd.yaml\"")"
+assert_eq "postWriteSession_bashEditDiffDotDotThroughSessions_noSideEffect" \
+    "$SECRET_LINE" "$(cat "$OUTSIDE/dd.yaml")"
+printf '%s\n' "$SECRET_LINE" > "$OUTSIDE/linked.yaml"
+if ln -s "$OUTSIDE/linked.yaml" "$SB/.claude/sessions/link-out.yaml" 2>/dev/null && [ -L "$SB/.claude/sessions/link-out.yaml" ]; then
+    run_hook "$SB" post-write-session.sh "$(bash_payload "\"$SB/.claude/sessions/link-out.yaml\"")"
+    assert_eq "postWriteSession_bashEditDiffSessionSymlinkToOutside_noSideEffect" \
+        "$SECRET_LINE" "$(cat "$OUTSIDE/linked.yaml")"
+else
+    echo "  SKIP: postWriteSession_bashEditDiffSessionSymlinkToOutside_noSideEffect (symlink creation unsupported)"
+fi
+
+# The key itself straddles the bound: the window ends in `"bashE`, the tail
+# scan sees only `ditDiff"`, and the window-end check is what warns.
+SB=$(new_sandbox); npx_stub "$SB"
+printf 'const a=1\n' > "$SB/in.ts"
+STRADDLE_HEAD='{"tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"x","stderr":"",'
+run_hook "$SB" post-tool-use.sh \
+    "${STRADDLE_HEAD}\"bashEditDiff\":{\"files\":[],\"moreFiles\":0,\"changedFiles\":[\"$SB/in.ts\"]}}}" \
+    PATH="$SB/bin:$PATH" PROJECT_OS_HOOK_PAYLOAD_BYTES=$(( ${#STRADDLE_HEAD} + 6 ))
+assert_contains "postToolUse_bashEditDiffKeyStraddlesBound_warnsOnStderr" \
+    "$HOOK_ERR" "before bashEditDiff.changedFiles"
+assert_eq "postToolUse_bashEditDiffKeyStraddlesBound_noSideEffect" \
+    "const a=1|" "$(cat "$SB/in.ts")|$(npx_calls "$SB")"
+
+# The 64 KiB parse cap: 100 entries of ~700 bytes run past it well before the
+# 256-entry cap, inside an untruncated payload.
+SB=$(new_sandbox)
+LONG_ENTRY="/nonexistent/$(head -c 700 /dev/zero | tr '\0' 'p').ts"
+WIDE=""
+for _ in $(seq 1 100); do WIDE="$WIDE\"$LONG_ENTRY\","; done
+run_hook "$SB" post-tool-use.sh "$(bash_payload "${WIDE%,}")"
+assert_eq "postToolUse_bashEditDiffOver64KiB_exitsZero" 0 "$HOOK_EXIT"
+assert_contains "postToolUse_bashEditDiffOver64KiB_noticeOnStderr" \
+    "$HOOK_ERR" "runs past the read window"
+
+# A raw (unescaped, so invalid-JSON) newline inside an element: rejected as one
+# element, never split into two paths that each look fine.
+SB=$(new_sandbox); npx_stub "$SB"
+printf 'const a=1\n' > "$SB/in.ts"
+run_hook "$SB" post-tool-use.sh "$(bash_payload "\"$SB/in.ts
+$SB/in.ts\"")" PATH="$SB/bin:$PATH"
+assert_contains "postToolUse_bashEditDiffRawControlChar_rejectedOnStderr" \
+    "$HOOK_ERR" "rejected a bashEditDiff path"
+assert_eq "postToolUse_bashEditDiffRawControlChar_noSideEffect" \
+    "const a=1|" "$(cat "$SB/in.ts")|$(npx_calls "$SB")"
+
+# A large stdout with no bashEditDiff anywhere: the tail scan finds no key, so
+# both hooks stay silent — the warning must not fire on every big command.
+SB=$(new_sandbox)
+BIG_FILLER=$(head -c 300000 /dev/zero | tr '\0' 'a')
+for pair in post-tool-use.sh:postToolUse post-write-session.sh:postWriteSession; do
+    run_hook "$SB" "${pair%%:*}" \
+        "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"x\"},\"tool_response\":{\"stdout\":\"$BIG_FILLER\",\"stderr\":\"\"}}"
+    assert_eq "${pair#*:}_bashLargeStdoutNoEditDiff_exitsZero" 0 "$HOOK_EXIT"
+    assert_eq "${pair#*:}_bashLargeStdoutNoEditDiff_emitsNothing" "" "$HOOK_ERR"
+done
+
 # A Bash payload without bashEditDiff (default mode, channel off): no-op.
 SB=$(new_sandbox); npx_stub "$SB"
 printf 'const a=1\n' > "$SB/a.ts"
