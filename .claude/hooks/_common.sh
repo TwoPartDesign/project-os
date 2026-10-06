@@ -340,9 +340,16 @@ get_project_root() {
 #   past the bound with changedFiles unreadable (set by
 #   `read_hook_payload "" bash-edit-diff` via HOOK_PAYLOAD_TAIL_EDIT_DIFF).
 #
+# Exit status: 0, or 3 (BASH_EDIT_FALLBACK_STATUS) when any of those four
+# skips fired, meaning the printed list is incomplete. A caller that must not
+# miss a file (post-write-session.sh's session scrub) captures the output with
+# `out=$(…) || rc=$?` and falls back to a directory sweep on 3; a caller that
+# reads through `< <(…)` never sees the status and is unaffected.
+#
 # Usage: while IFS= read -r p; do …; done < <(bash_edit_diff_paths <hook-name>)
+BASH_EDIT_FALLBACK_STATUS=3
 bash_edit_diff_paths() {
-    local LC_ALL=C hook="$1" before rest elem tail13 i n=0 cut=0 edge=0 seen=$'\n'
+    local LC_ALL=C hook="$1" before rest elem tail13 i n=0 cut=0 edge=0 fb=0 seen=$'\n'
     local key='"changedFiles"[[:space:]]*:[[:space:]]*\['
     local str='^"(([^"\\]|\\.)*)"'
     local more='"moreFiles"[[:space:]]*:[[:space:]]*([0-9]+)'
@@ -353,11 +360,12 @@ bash_edit_diff_paths() {
         elem="${BASH_REMATCH[1]:0:12}"
         if [[ "$elem" =~ [1-9] ]]; then
             echo "$hook: bashEditDiff.moreFiles=$elem — the platform listed only part of the change; $skipped" >&2
+            fb=$BASH_EDIT_FALLBACK_STATUS
         fi
     fi
 
     if ! [[ "$INPUT" =~ $key ]]; then
-        [ "${HOOK_PAYLOAD_TRUNCATED:-0}" = "1" ] || return 0
+        [ "${HOOK_PAYLOAD_TRUNCATED:-0}" = "1" ] || return "$fb"
         # The key itself may straddle the bound: the window then ends in a
         # proper prefix of it (`"bash…`) and the tail scan sees only the rest.
         tail13="${INPUT: -13}"
@@ -366,8 +374,9 @@ bash_edit_diff_paths() {
         done
         if [[ "$INPUT" == *"$lit"* ]] || [ "${HOOK_PAYLOAD_TAIL_EDIT_DIFF:-0}" = "1" ] || [ "$edge" = "1" ]; then
             echo "$hook: payload exceeded ${PROJECT_OS_HOOK_PAYLOAD_BYTES:-262144} bytes before bashEditDiff.changedFiles — Bash-edited files skipped" >&2
+            fb=$BASH_EDIT_FALLBACK_STATUS
         fi
-        return 0
+        return "$fb"
     fi
 
     # `%%lit*`, not `#*lit`: the latter is quadratic over a 256 KiB payload.
@@ -385,12 +394,13 @@ bash_edit_diff_paths() {
             # `]` ends the list; anything else is a cut-off or malformed tail.
             if [ "${rest:0:1}" != "]" ] && [ "$cut" = "1" ]; then
                 echo "$hook: bashEditDiff.changedFiles runs past the read window — $skipped" >&2
+                fb=$BASH_EDIT_FALLBACK_STATUS
             fi
-            return 0
+            return "$fb"
         fi
         if [ "$n" -ge 256 ]; then
             echo "$hook: bashEditDiff.changedFiles has more than 256 entries — $skipped" >&2
-            return 0
+            return "$BASH_EDIT_FALLBACK_STATUS"
         fi
         elem="${BASH_REMATCH[1]}"
         rest="${rest:${#BASH_REMATCH[0]}}"
@@ -411,8 +421,9 @@ bash_edit_diff_paths() {
         if [ "${rest:0:1}" != "," ]; then
             if [ "${rest:0:1}" != "]" ] && [ "$cut" = "1" ]; then
                 echo "$hook: bashEditDiff.changedFiles runs past the read window — $skipped" >&2
+                fb=$BASH_EDIT_FALLBACK_STATUS
             fi
-            return 0
+            return "$fb"
         fi
         rest="${rest:1}"
     done
