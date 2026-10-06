@@ -43,9 +43,20 @@ format_file() {
     esac
 }
 
+# is_generated_artifact <resolved> — true for a project-relative path a generator
+# or merge writes (the closed list below). Formatting these after the fact
+# drifts them from what the generator produces. Bash branch only.
+is_generated_artifact() {
+    case "${1#"$(get_project_root)/"}" in
+      docs/maps/*|.claude/manifest.json|docs/specs/*/review-triage.json) return 0 ;;
+    esac
+    return 1
+}
+
 if [ "$(json_string_field "$INPUT" tool_name)" = "Bash" ]; then
     while IFS= read -r BASH_EDITED; do
         RESOLVED=$(resolve_project_path "$(canonicalize_payload_path "$BASH_EDITED")") || continue
+        is_generated_artifact "$RESOLVED" && continue
         format_file "$RESOLVED"
     done < <(bash_edit_diff_paths post-tool-use)
     exit 0
