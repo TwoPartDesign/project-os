@@ -163,8 +163,8 @@ Reference (the specification these changes must satisfy):
 Changed files and test files:
 [Relevant source and test files]
 
-Project conventions:
-[Contents of docs/knowledge/patterns.md]
+Project conventions (read this file; it is not pasted here):
+`<main-repo absolute path>/docs/knowledge/patterns.md`
 
 Check for:
 1. Functions longer than 50 lines — should they be decomposed?
