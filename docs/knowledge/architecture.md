@@ -43,6 +43,8 @@ User (Approver) ──→ Workflow Commands ──→ Lead ──→ Sub-agents 
 
 ### Hooks (`.claude/hooks/`)
 
+Hook commands in `settings.json` use `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/<x>.sh"` rather than a cwd-relative path, because hooks run in the session's current directory (after the Bash tool runs `cd sub`, a relative path fails or runs a subtree's own hook scripts; probed in v3.1 #T238); Windows behaviour of the variable form is unverified.
+
 | Hook | Purpose |
 |------|---------|
 | `_common.sh` | Shared utilities: path resolution, validation, JSON extraction |

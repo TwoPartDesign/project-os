@@ -407,20 +407,20 @@ project-root/
     "PostToolUse": [
       {
         "matcher": "mcp__context7__.*",
-        "hooks": [{ "type": "command", "command": "bash \".claude/hooks/post-mcp-validate.sh\"" }]
+        "hooks": [{ "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-mcp-validate.sh\"" }]
       },
       {
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
-          { "type": "command", "command": "bash \".claude/hooks/post-tool-use.sh\"" },
-          { "type": "command", "command": "bash \".claude/hooks/post-write-session.sh\"" }
+          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-tool-use.sh\"" },
+          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-write-session.sh\"" }
         ]
       },
       {
         "matcher": ".*",
         "hooks": [
-          { "type": "command", "command": "bash \".claude/hooks/tool-failure-log.sh\"" },
-          { "type": "command", "command": "bash \".claude/hooks/compact-suggest.sh\"" }
+          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/tool-failure-log.sh\"" },
+          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/compact-suggest.sh\"" }
         ]
       }
     ]
