@@ -215,3 +215,16 @@ Track per-feature implementation metrics. Updated by `/workflows:ship` and query
 - **Lines changed**: +531 / -38 across 8 files (d5bad24..HEAD)
 - **Tests**: 15 dashboard (4 ReDoS regression) + 15 hook + 4 scanner — all passing
 - **Key findings**: (1) adversarial review earned its cost — three quadratic parse vectors found, two pre-existing in shipped code; (2) index-based parsing with anchored small-slice validation beats regex cleverness for attacker-influenceable text; (3) reviewer claims must be cross-validated — a codex review's 2 findings were empirically refuted earlier the same day, while the opus reviewer's ReDoS finding was empirically confirmed
+
+### Feature: changelog-alignment-2026-10 (v3.0 Lean Context)
+- **Duration**: 2026-10-05 → 2026-10-06 (approval to ship gate; first `task-spawned` 2026-10-06T00:07Z), one lead session across one compaction
+- **Tasks**: 29 built (#T202–#T228, #T231–#T232), 0 blocked at ship; 3 were classifier-blocked mid-build (#T208, #T211, #T223) and lead-applied after Approver permission; 10 follow-ups filed as drafts (#T229, #T233–#T240)
+- **Waves**: 3 build waves + 1 ship-gate fix wave (F1–F4)
+- **Revisions**: 1 worker send-back (C11 / #T225 dropped the triage scrub); the three-reviewer ship gate produced one 4-item fix wave; one architecture HIGH refuted by probe
+- **First-pass review rate**: 97% at worker level (28/29); ship gate not passed first time
+- **Harness fingerprint**: `d8a62cacbd3548c58c60e92d79f45f8465671035` (`git rev-parse HEAD:.claude` at ship)
+- **Model split**: Opus lead; `implementer`/`documenter` on Sonnet, judgment tasks and reviewers on Opus
+- **Sub-agent tokens**: ship-gate reviewers 480,723; fix wave 525,374 (F1 139,941, F2 127,513, F3 121,855, F4 135,665); build-wave totals reported per wave in-session
+- **Lines changed**: +3,797 / -5,942 across 98 files (`master...HEAD`, includes the unreleased v2.4-dev and changelog-alignment-2026-09 work on the branch)
+- **Tests**: `bash tests/run-all.sh` 10/10 suites PASS (259s)
+- **Key findings**: (1) agent-definition edits do not reach the session that made them, so a reviewer reading the cached definition reported `omitClaudeMd` as unhonoured; only a fresh-process probe settles it; (2) `cmd | grep -q` under `pipefail` is a latent SIGPIPE race (bugs.md, 2026-10-06), and ~20 more sites remain (#T240); (3) the auto-mode classifier blocks edits to agents, skills and rebuild steps even with in-chat permission; switching the session to Accept edits was the working path
