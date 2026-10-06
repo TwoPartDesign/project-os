@@ -47,7 +47,7 @@ run_test \
 # regex threw or a regression test's expected match/no-match assertion failed).
 TEST_RULES_OUTPUT="$(node "$SCANNER" test-rules 2>&1)"
 
-if echo "$TEST_RULES_OUTPUT" | grep -q ", 0 failed,"; then
+if [[ "$TEST_RULES_OUTPUT" == *", 0 failed,"* ]]; then
     PASS=$((PASS + 1))
     echo "  PASS: testRules_regressionSuite_zeroFailures"
 else
@@ -56,7 +56,7 @@ else
     echo "  FAIL: testRules_regressionSuite_zeroFailures"
 fi
 
-if echo "$TEST_RULES_OUTPUT" | grep -qE "^(SyntaxError|.*Invalid regular expression)"; then
+if grep -qE "^(SyntaxError|.*Invalid regular expression)" <<<"$TEST_RULES_OUTPUT"; then
     FAIL=$((FAIL + 1))
     ERRORS="${ERRORS}\n  FAIL: testRules_noUncaughtRegexError_none\n$TEST_RULES_OUTPUT"
     echo "  FAIL: testRules_noUncaughtRegexError_none"

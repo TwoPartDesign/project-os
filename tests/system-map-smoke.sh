@@ -188,7 +188,7 @@ set -e
 assert_eq "precommit_partialStaging_exitsZero" "0" "$EXIT_3A" "$OUT_3A"
 
 CACHED_NAMES="$(cd "$FIXTURE_3" && git diff --cached --name-only)"
-if echo "$CACHED_NAMES" | grep -q "^docs/maps/"; then
+if grep -q "^docs/maps/" <<<"$CACHED_NAMES"; then
     pass "precommit_partialStaging_docsMapsStaged"
 else
     fail "precommit_partialStaging_docsMapsStaged" "docs/maps not in cached diff:\n$CACHED_NAMES"
