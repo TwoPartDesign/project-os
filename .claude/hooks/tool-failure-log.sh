@@ -1,36 +1,27 @@
 #!/bin/bash
-# PostToolUse hook: log tool failures to .claude/logs/tool-failures.log
+# PostToolUseFailure hook: log tool failures to .claude/logs/tool-failures.log
 # Logs ONLY: timestamp, tool name. Never logs tool output or content.
 # This log enables post-session failure analysis.
 
 set -euo pipefail
 trap 'exit 0' ERR  # Advisory hook — never surface errors to Claude Code
 
-# This hook cannot bound its read the way the others do. `is_error` lives in
-# tool_response, which is serialized LAST, so a prefix window is exactly the
-# wrong end of the payload — bounding it would stop logging failures in
-# proportion to how much output the failing tool produced.
+# Registered on the native PostToolUseFailure event (#T213), so being invoked IS
+# the failure signal. This hook used to ride PostToolUse and grep the payload for
+# `is_error`, which matched a tool's own output text as readily as the real flag
+# and logged false positives. The failure payload carries tool_name, tool_input,
+# `error` (the message — never read here) and is_interrupt; it has no
+# tool_response, so there is nothing to scan beyond the one name.
 #
-# So it never slurps. One grep streams stdin and keeps only the two facts this
-# hook is allowed to know, which reduces a 20 MB payload from a 2.8s bash
-# command substitution to a single linear scan whose result is a few dozen
-# bytes. The extractions below then run over that, not over the payload.
-#
-# Semantics are unchanged on purpose: `is_error` still matches anywhere in the
-# payload (it has always been able to match a tool's own output text — that is
-# pre-existing and out of scope here), and tool_name still takes the first
-# match, which is sound because it is a top-level key ahead of tool_input.
-FACTS=$(grep -aoE '"(tool_name|is_error)"[[:space:]]*:[[:space:]]*("[^"]*"|true|false)' 2>/dev/null || true)
+# tool_name is a top-level key serialized ahead of tool_input, so the first match
+# is the right one, and the grep still streams stdin to the end rather than
+# stopping early: tool_input can carry a written file's whole contents, and a
+# hook that exited without draining it would hand the writer an EPIPE.
+TOOL_NAME_RAW=$(grep -aoE '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' 2>/dev/null | sed -n '1p' || true)
 
-# Check for error indicators in the response (minimal string matching)
-IS_ERROR=false
-if printf '%s\n' "$FACTS" | grep -qE '"is_error"[[:space:]]*:[[:space:]]*true'; then
-    IS_ERROR=true
-fi
-
-if [ "$IS_ERROR" = "true" ]; then
+if [ -n "$TOOL_NAME_RAW" ]; then
     # Extract tool name only — never log content/output
-    TOOL_NAME=$(printf '%s\n' "$FACTS" | grep -oE '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"tool_name"[^"]*"//;s/".*//' || true)
+    TOOL_NAME=$(printf '%s\n' "$TOOL_NAME_RAW" | sed 's/.*"tool_name"[^"]*"//;s/".*//' || true)
     # Sanitize: allow only alphanumeric, underscore, hyphen to prevent log injection
     TOOL_NAME=$(echo "${TOOL_NAME:-unknown}" | tr -cd '[:alnum:]_-')
 

@@ -157,7 +157,10 @@ index_calls() {
 
 # Minimal valid hook payloads.
 VALID_READ='{"tool_name":"Read","tool_input":{"file_path":"/x/test.txt"},"tool_response":"hello world","is_error":false}'
-VALID_ERROR='{"tool_name":"Bash","tool_input":{"command":"false"},"tool_response":"failed","is_error":true}'
+# The real PostToolUseFailure shape (captured from a nested headless session,
+# #T213): no tool_response and no is_error — the event itself is the failure
+# signal, and `error` carries the message.
+VALID_FAILURE='{"session_id":"smoke1","hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"false","description":"Run false"},"tool_use_id":"toolu_smoke","error":"Exit code 1 boom","is_interrupt":false,"duration_ms":12}'
 EMPTY_INPUT='{}'
 INVALID_JSON='not json at all'
 
@@ -270,22 +273,23 @@ echo ""
 # ── tool-failure-log.sh ─────────────────────────────────────────────────────
 echo "tool-failure-log.sh:"
 
+# #T213: the hook runs on the native PostToolUseFailure event, so being invoked
+# with a tool_name IS the failure signal. It used to ride PostToolUse and gate on
+# an `is_error` grep that matched a tool's own output text; the fixture below has
+# no is_error at all, which is what makes this test discriminate against that
+# gate coming back.
 SB=$(new_sandbox)
-run_hook "$SB" tool-failure-log.sh "$VALID_ERROR"
-assert_eq "toolFailureLog_isError_exitsZero" 0 "$HOOK_EXIT"
-assert_contains "toolFailureLog_isError_logsToolName" \
+run_hook "$SB" tool-failure-log.sh "$VALID_FAILURE"
+assert_eq "toolFailureLog_nativeFailure_exitsZero" 0 "$HOOK_EXIT"
+assert_contains "toolFailureLog_nativeFailure_logsToolName" \
     "$(cat "$SB/.claude/logs/tool-failures.log" 2>/dev/null || true)" "FAIL tool=Bash"
 # The hook's contract is that it never records content. A log line carrying the
-# command or the output would be a privacy regression that an exit code cannot
-# see.
-assert_not_contains "toolFailureLog_isError_doesNotLogOutput" \
-    "$(cat "$SB/.claude/logs/tool-failures.log" 2>/dev/null || true)" "failed"
-
-SB=$(new_sandbox)
-run_hook "$SB" tool-failure-log.sh "$VALID_READ"
-assert_eq "toolFailureLog_nonError_exitsZero" 0 "$HOOK_EXIT"
-assert_file_absent "toolFailureLog_nonError_writesNothing" \
-    "$SB/.claude/logs/tool-failures.log"
+# command or the error message would be a privacy regression that an exit code
+# cannot see.
+assert_not_contains "toolFailureLog_nativeFailure_doesNotLogErrorMessage" \
+    "$(cat "$SB/.claude/logs/tool-failures.log" 2>/dev/null || true)" "boom"
+assert_not_contains "toolFailureLog_nativeFailure_doesNotLogCommand" \
+    "$(cat "$SB/.claude/logs/tool-failures.log" 2>/dev/null || true)" "false"
 
 SB=$(new_sandbox)
 run_hook "$SB" tool-failure-log.sh "$INVALID_JSON"
@@ -294,35 +298,46 @@ assert_file_absent "toolFailureLog_invalidJson_writesNothing" \
     "$SB/.claude/logs/tool-failures.log"
 
 SB=$(new_sandbox)
+run_hook "$SB" tool-failure-log.sh "$EMPTY_INPUT"
+assert_eq "toolFailureLog_emptyJson_exitsZero" 0 "$HOOK_EXIT"
+assert_file_absent "toolFailureLog_emptyJson_writesNothing" \
+    "$SB/.claude/logs/tool-failures.log"
+
+SB=$(new_sandbox)
 # tool_name is attacker-influenced in the sense that matters here: it reaches an
 # append-only log a human reads. The sanitizer keeps [[:alnum:]_-], so the
 # separators that would forge a second entry are dropped rather than escaped.
 run_hook "$SB" tool-failure-log.sh \
-    '{"tool_name":"Bash; rm -rf /","tool_input":{},"tool_response":"x","is_error":true}'
+    '{"hook_event_name":"PostToolUseFailure","tool_name":"Bash; rm -rf /","tool_input":{},"error":"x","is_interrupt":false}'
 LOGGED=$(cat "$SB/.claude/logs/tool-failures.log" 2>/dev/null || true)
 assert_contains "toolFailureLog_punctuationInToolName_strippedNotEscaped" \
     "$LOGGED" "FAIL tool=Bashrm-rf"
 assert_eq "toolFailureLog_punctuationInToolName_stillOneLine" 1 \
     "$(printf '%s\n' "$LOGGED" | grep -c 'FAIL tool=')"
 
-# #T148 bounded the payload read in the other hooks. This one deliberately does
-# NOT bound it, and this is the assertion that keeps that decision from being
-# tidied away by someone applying read_hook_payload uniformly. `is_error` is in
-# tool_response, which is serialized last, so a prefix window would drop
-# failures in proportion to how much output the failing tool produced — the
-# loudest failures would be the ones that stopped being recorded.
-#
-# The bound is forced down to 64 bytes rather than padding the payload to
-# 256 KiB: same discrimination, no megabyte fixture. Any implementation that
-# honours the bound here sees a payload that ends before `is_error` and logs
-# nothing.
+# tool_input can carry a written file's entire contents, so a failing Write can
+# be megabytes. The hook must still log it AND consume the whole payload: one
+# that exited after the first match would hand the writer an EPIPE, which this
+# suite sees as HOOK_EXIT 141 because run_hook pipes under `set -o pipefail`.
+# 256 KB exceeds the pipe buffer, which is what makes the drain observable.
 SB=$(new_sandbox)
-FILLER=$(head -c 4096 /dev/zero | tr '\0' 'x')
+FILLER=$(head -c 262144 /dev/zero | tr '\0' 'x')
 run_hook "$SB" tool-failure-log.sh \
-    "{\"tool_name\":\"Bash\",\"tool_response\":{\"content\":\"$FILLER\",\"is_error\":true}}" \
-    PROJECT_OS_HOOK_PAYLOAD_BYTES=64
-assert_contains "toolFailureLog_isErrorBeyondPayloadBound_stillLogged" \
-    "$(cat "$SB/.claude/logs/tool-failures.log" 2>/dev/null || true)" "FAIL tool=Bash"
+    "{\"hook_event_name\":\"PostToolUseFailure\",\"tool_name\":\"Write\",\"tool_input\":{\"content\":\"$FILLER\"},\"error\":\"denied\",\"is_interrupt\":false}"
+assert_eq "toolFailureLog_largeToolInput_exitsZero" 0 "$HOOK_EXIT"
+assert_contains "toolFailureLog_largeToolInput_stillLogged" \
+    "$(cat "$SB/.claude/logs/tool-failures.log" 2>/dev/null || true)" "FAIL tool=Write"
+
+# Wiring: the hook is registered on PostToolUseFailure and nowhere else. Run on
+# the old PostToolUse `.*` entry it would log every successful call as a failure
+# the moment the is_error gate was gone. Static, like the payload-schema block
+# below: it reads the repo's own settings.json, not a sandbox. awk tracks the
+# four-space-indented event key above each "command" line, which also keeps the
+# permissions.allow entry for the same script out of the count.
+WIRED_EVENTS=$(awk '/^    "[A-Za-z]+": \[/ { ev = $1 } /"command".*tool-failure-log\.sh/ { print ev }' \
+    "$PROJECT_ROOT/.claude/settings.json" 2>/dev/null || true)
+assert_eq "toolFailureLog_settingsWiring_registeredOnlyOnPostToolUseFailure" \
+    '"PostToolUseFailure":' "$WIRED_EVENTS"
 
 echo ""
 
@@ -433,7 +448,7 @@ run_hook "$SB" post-write-session.sh \
     "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$WINPATH\"},\"tool_response\":\"ok\",\"is_error\":false}"
 assert_eq "postWriteSession_backslashPayloadPath_exitsZero" 0 "$HOOK_EXIT"
 assert_not_contains "postWriteSession_backslashPayloadPath_secretScrubbed" \
-    "$(cat "$SB/.claude/sessions/handoff.yaml" 2>/dev/null || true)" "sk-abcdefghijklmnopqrstuvwx"
+    "$(cat "$SB/.claude/sessions/handoff.yaml" 2>/dev/null || true)" "sk-abcdefghijklmnopqrstuvwx"  # scan:allow (fake fixture token, not a real secret)
 assert_contains "postWriteSession_backslashPayloadPath_redactionMarkerWritten" \
     "$(cat "$SB/.claude/sessions/handoff.yaml" 2>/dev/null || true)" "REDACTED:OPENAI_KEY"
 
@@ -452,7 +467,7 @@ if ln -s "$SB/.claude/sessions" "$SB/session-link" 2>/dev/null && [ -L "$SB/sess
         "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$SB/session-link/via-symlink.yaml\"},\"tool_response\":\"ok\",\"is_error\":false}"
     assert_eq "postWriteSession_symlinkedSessionsDir_exitsZero" 0 "$HOOK_EXIT"
     assert_not_contains "postWriteSession_symlinkedSessionsDir_secretScrubbed" \
-        "$(cat "$SB/.claude/sessions/via-symlink.yaml" 2>/dev/null || true)" "sk-abcdefghijklmnopqrstuvwx"
+        "$(cat "$SB/.claude/sessions/via-symlink.yaml" 2>/dev/null || true)" "sk-abcdefghijklmnopqrstuvwx"  # scan:allow (fake fixture token, not a real secret)
 else
     echo "  SKIP: postWriteSession_symlinkedSessionsDir_secretScrubbed (symlink creation unsupported)"
 fi

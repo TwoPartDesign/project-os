@@ -57,7 +57,7 @@ User (Approver) ──→ Workflow Commands ──→ Lead ──→ Sub-agents 
 | `session-start-setup.sh` | SessionStart — idempotent activation fallback: runs `setup.sh --check` so a cloned project installs its git hooks on first session |
 | `session-start-maintain.sh` | SessionStart — auto-runs the maintenance loop once per `auto_run_hours` (policy, default 24h); drafts-only, debounced on ledger age, skips worktrees |
 | `session-end-cleanup.sh` | SessionEnd — remove per-session counters and the session-private compaction markers (`.compact-base-*`, `.compact-nudged-*`, `.compact-cycle-*`); deliberately **keeps** `.compact-handoff-*`, the one marker concurrent sessions read, and lets the 7-day prune collect it; rotate append-only logs |
-| `tool-failure-log.sh` | Log tool failures (timestamp + tool name only) |
+| `tool-failure-log.sh` | PostToolUseFailure — log tool failures (timestamp + tool name only); the native event is the failure signal, no payload `is_error` grep |
 
 ### Scripts (`scripts/`)
 
