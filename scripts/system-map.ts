@@ -41,6 +41,7 @@ import {
   findManifestGaps,
   findBloat,
   findAlwaysLoadedOverBudget,
+  findRelativeHookCommands,
   findTemplateResidue,
   findInitIncomplete,
   hasUnfilledPlaceholders,
@@ -419,6 +420,15 @@ function runFindings(
       findings.push(...findManifestGaps(manifestContent, nodes));
     } catch {
       // Malformed manifest — skip this one check rather than aborting the whole build.
+    }
+  }
+
+  const settingsContent = contents.get(".claude/settings.json");
+  if (settingsContent !== undefined) {
+    try {
+      findings.push(...findRelativeHookCommands(settingsContent));
+    } catch {
+      // Malformed settings.json — skip this one check rather than aborting the whole build.
     }
   }
 
