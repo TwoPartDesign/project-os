@@ -129,3 +129,13 @@ Each entry: Date, Symptom, Root Cause, Fix, Prevention Rule
 **Fix**: None possible in the repo; the loading rule is the runtime's. Mitigation: `/tools:catchup` Step 2b probes with one deliberate failing Bash call and warns when `.claude/logs/tool-failures.log` gets no fresh `FAIL tool=Bash` line. A SessionStart hook cannot do this check, since it is one of the things that fails to load. The probe uses the failure log because no hook currently writes a per-session `.tool-count-<session_id>` marker (only `session-end-cleanup.sh` still references it), so that marker never exists to check for.
 
 **Prevention Rule**: Start Claude Code from the repo root. If a session did start elsewhere, restart it rather than `cd`ing in. Do not rely on a SessionStart hook to report that hooks are inactive.
+
+### 2026-10-06 — new-project-smoke: `git log | grep -q` under `pipefail` fails at random
+
+**Symptom**: The wave-3 gate failed once with `FAIL: scenario12b: adopt commit missing`. The same scenario run three times in isolation committed every time.
+
+**Root Cause**: `tests/new-project-smoke.sh` runs `set -uo pipefail`. In `git log --oneline | grep -q "adopt Project OS scaffold"`, the match is the first line, so `grep -q` exits immediately. If git is still writing the second line, it dies of SIGPIPE (141), and `pipefail` makes the whole condition false even though the commit exists. Whether it fails depends on scheduling.
+
+**Fix**: The three such assertions (:253, :790, :805) now test `[ -n "$(git log --oneline --fixed-strings --grep=...)" ]`, which has no pipe.
+
+**Prevention Rule**: Under `pipefail`, never pipe a producer into `grep -q` (or `head`) in a condition. Filter in the producer (`git log --grep`) or capture into a variable first.
