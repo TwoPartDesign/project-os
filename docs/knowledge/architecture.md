@@ -217,6 +217,12 @@ stop, so the chain steers it instead — three stages, two of them hooks:
    can deny a tool call, and an advisory hook must never be able to block a
    write.
 
+   Note (2.1.288): a PreToolUse or PermissionRequest hook that is skipped
+   because matching it failed, or because the tool's input could not be
+   serialized to JSON, now **blocks the call** instead of letting it through.
+   A malformed matcher in `settings.json` or an unserializable payload therefore
+   stops the tool, and this is true of every PreToolUse hook, not only this one.
+
    The pre-claim fires **only when nothing exists at the path yet** (`-e` fails
    *and* `-L` fails — the second catches a dangling symlink, which `-e` reports
    as absent). An unconditional pre-claim reopens the hole it was added to close,

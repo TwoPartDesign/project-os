@@ -131,6 +131,8 @@ Each entry: Date, Decision, Context, Alternatives Considered, Rationale
 
 **Update (2026-04-08)**: Extracted to standalone repo `web-fetch-mcp/` — the MCP server has no dependency on Project OS internals, and bundling it coupled two unrelated concerns. The extraction landed in commit `d2f7cec`. (Standalone repo link: TODO — to be added by the owner; not recorded anywhere in-tree.)
 
+**Update (2026-10-06)**: The "hooks are advisory-only" premise above is superseded. Since Claude Code 2.1.121 a PostToolUse hook can replace the output of any tool via `hookSpecificOutput.updatedToolOutput` (previously MCP-only), so a hook could now do this preprocessing. The decision stands as made (the server was extracted and is not part of this repo); the premise is recorded so the next reader does not rely on it.
+
 ---
 
 ## 2026-07-12 — Staleness-Audit Remediation: Native Primitives, Claude 5 Routing, Restrictive Permissions
