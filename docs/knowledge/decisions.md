@@ -243,6 +243,12 @@ treated as a defect to fix. Five hooks reach outside themselves this way:
 | `.claude/hooks/post-write-session.sh` | `bash scripts/scrub-secrets.sh` |
 | `.claude/hooks/output-index.sh` | `node scripts/knowledge-index.ts` (config, `index`, `index-observations`) and `node scripts/observation-parser.ts` |
 
+**Update 2026-10-06 (#T202)**: `post-tool-use.sh` now also fires on Bash-made
+changes. Its formatter step (prettier, black) resolves config, and for prettier
+JS config and plugins, from the working tree. The `Write|Edit` trigger already
+did this, so the Bash trigger stays inside this boundary. The scanner temp-file
+finding from the same review is tracked as #T232.
+
 **What this means concretely**: opening an untrusted clone of a Project OS
 repository in Claude Code runs that clone's `scripts/` — `setup.sh` and
 `maintain.sh` fire on `SessionStart`, before the operator has read a single
