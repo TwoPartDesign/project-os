@@ -109,6 +109,8 @@ Each entry: Date, Symptom, Root Cause, Fix, Prevention Rule
 
 **Prevention Rule**: Any brief to a worktree-isolated agent whose deliverable lands in a gitignored path (`docs/memory/`, `docs/specs/`, `.claude/sessions/`) must give the absolute main-repo path. Inputs under those paths are likewise invisible inside the worktree; pass absolute paths for them too. When a report claims files exist, verify with Glob against the main repo before the worktree is gone.
 
+**Update 2026-10-06**: On CLI 2.1.290 the harness refuses a worktree-isolated agent's writes to the shared checkout ("Edit the worktree copy of this file instead"). Outputs bound for gitignored paths now go to the session scratchpad, and the lead places them with Write; inputs still come by absolute main-repo path. Do not route around the refusal with `cp` or any Bash command. `worktree.baseRef: "head"` (#T216) also removed the brief's `git merge` step.
+
 ### 2026-10-06 — #T204 Project hooks and settings `env` do not load when the session starts in a parent folder
 
 **Symptom**: Observed 2026-09-16 in a session started in a parent folder that Bash-`cd`d into the repo. CLAUDE.md and `.claude/rules/` loaded, but there were no per-session markers in `.claude/logs/`, no `tool-failures.log` line for a failed call, and a handoff write went unclaimed, so `pre-compact.sh` could not forward it.
