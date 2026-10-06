@@ -8,8 +8,16 @@
 // `/workflows:review` prints. Nothing here calls a network service or
 // decides anything: the table is a hint for the lead.
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve, basename, posix } from "node:path";
+import { execFileSync } from "node:child_process";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { resolve, basename, dirname, join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** The four severities a finding line may carry. */
@@ -282,10 +290,115 @@ export function renderTable(rows: TriagedFinding[]): string {
   return [header, separator, ...body].join("\n");
 }
 
-/** The options bag {@link runTriage} takes. */
+/**
+ * The options bag {@link runTriage} takes. `scrubCmd` replaces the real
+ * scanner scrub subprocess (tests inject it); it receives the staged file
+ * path and returns the scrub's exit status.
+ */
 type TriageOpts = {
   jsonOnly?: boolean;
+  scrubCmd?: (file: string) => { status: number };
 };
+
+/** The placeholder both fields of every row carry when the scrub fails. */
+const WITHHELD = "[WITHHELD:scrub-failed]";
+
+/**
+ * Runs `node scripts/security-scanner.ts scrub <file>` (no shell) and reports
+ * its exit status without throwing: a nonzero exit surfaces as that status,
+ * any other failure (e.g. a spawn error) maps to status `1`. The child runs
+ * with the staging directory as its cwd: the scanner refuses paths outside
+ * its project root, and outside a git repo it takes its cwd as the root.
+ */
+function runScannerScrub(file: string): { status: number } {
+  try {
+    execFileSync(
+      process.execPath,
+      [
+        resolve(dirname(fileURLToPath(import.meta.url)), "security-scanner.ts"),
+        "scrub",
+        file,
+      ],
+      { cwd: dirname(file), stdio: "pipe" },
+    );
+    return { status: 0 };
+  } catch (err) {
+    const status = (err as { status?: number | null } | undefined)?.status;
+    return { status: typeof status === "number" ? status : 1 };
+  }
+}
+
+/** Escapes a field for one-per-line staging (backslash, newline, CR) so line count equals field count. */
+function escapeField(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/\r/g, "\\r");
+}
+
+/** Exact inverse of {@link escapeField}, in one left-to-right pass. */
+function unescapeField(s: string): string {
+  return s.replace(/\\\\|\\n|\\r/g, (m) =>
+    m === "\\\\" ? "\\" : m === "\\n" ? "\n" : "\r",
+  );
+}
+
+/**
+ * Scrubs every row's `issue` and `fix` through the project scanner before
+ * they reach disk or the table. All fields are staged one per line in a
+ * single file under a fresh `mkdtemp` directory, removed in `finally`. The
+ * scanner honours an inline `scan:allow` marker, which would let a field skip
+ * its own scrub, so the marker is defused to `scan-allow` first (not counted
+ * as a redaction). Fails closed: a nonzero exit, a throw, or a line-count
+ * mismatch after the scrub sets both fields on every row to
+ * `"[WITHHELD:scrub-failed]"` and counts every field as redacted. Otherwise
+ * `redactions` is the number of fields the scrub changed.
+ */
+function scrubRows(
+  rows: TriagedFinding[],
+  scrubCmd: (file: string) => { status: number },
+): { rows: TriagedFinding[]; redactions: number } {
+  if (rows.length === 0) return { rows, redactions: 0 };
+
+  const fields: string[] = [];
+  for (const r of rows) {
+    fields.push(
+      r.issue.replace(/scan:allow/gi, "scan-allow"),
+      r.fix.replace(/scan:allow/gi, "scan-allow"),
+    );
+  }
+  const withheld = {
+    rows: rows.map((r) => ({ ...r, issue: WITHHELD, fix: WITHHELD })),
+    redactions: fields.length,
+  };
+
+  let dir: string | undefined;
+  try {
+    dir = mkdtempSync(join(tmpdir(), "review-triage-"));
+    const file = join(dir, "fields.txt");
+    writeFileSync(file, fields.map(escapeField).join("\n") + "\n", "utf-8");
+    if (scrubCmd(file).status !== 0) return withheld;
+
+    const raw = readFileSync(file, "utf-8");
+    const lines = (raw.endsWith("\n") ? raw.slice(0, -1) : raw).split("\n");
+    if (lines.length !== fields.length) return withheld;
+
+    const scrubbed = lines.map(unescapeField);
+    let redactions = 0;
+    for (let i = 0; i < fields.length; i++) {
+      if (scrubbed[i] !== fields[i]) redactions++;
+    }
+    return {
+      rows: rows.map((r, i) => ({
+        ...r,
+        issue: scrubbed[i * 2],
+        fix: scrubbed[i * 2 + 1],
+      })),
+      redactions,
+    };
+  } catch {
+    return withheld;
+  } finally {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 /**
  * Reads every finding for one triage run, in a fixed order: the three
@@ -321,28 +434,32 @@ function readChangedFiles(changedFilesPath: string): string[] {
  * contributes zero findings and a stderr warning) and the changed-files list
  * at `changedFilesPath` (one path per line, blank lines ignored, trimmed);
  * computes heuristic candidates and applies them via {@link applyHeuristic};
- * writes the advisory `<specDir>/review-triage.json`; and returns the JSON
- * object and the rendered markdown table. The JSON header keeps its
- * historical shape: `backend` is always `"heuristic"`, `declined` is
- * `"disabled"` whenever there is at least one finding (and absent
- * otherwise), `redactions` is `0`, and `lift` is `null`.
+ * scrubs every row's `issue` and `fix` via {@link scrubRows}; writes the
+ * advisory `<specDir>/review-triage.json`; and returns the JSON object and
+ * the rendered markdown table. The JSON header keeps its historical shape:
+ * `backend` is always `"heuristic"`, `declined` is `"disabled"` whenever
+ * there is at least one finding (and absent otherwise), `redactions` is the
+ * scrub's count, and `lift` is `null`.
  */
 export async function runTriage(
   specDir: string,
   changedFilesPath: string,
-  _opts: TriageOpts = {},
+  opts: TriageOpts = {},
 ): Promise<{ json: object; table: string }> {
   const findings = readAllFindings(specDir);
   const changedFiles = readChangedFiles(changedFilesPath);
   const candidates = heuristicCandidates(findings, changedFiles);
-  const rows = applyHeuristic(findings, candidates);
+  const { rows, redactions } = scrubRows(
+    applyHeuristic(findings, candidates),
+    opts.scrubCmd ?? runScannerScrub,
+  );
 
   const json = {
     feature: basename(specDir),
     advisory: true,
     backend: "heuristic",
     declined: findings.length > 0 ? "disabled" : undefined,
-    redactions: 0,
+    redactions,
     lift: null,
     findings: rows,
   };

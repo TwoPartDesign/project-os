@@ -16,6 +16,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
@@ -522,6 +523,80 @@ describe("runTriage (unit, direct import)", () => {
       strictEqual(parsed.findings.length, 7);
       strictEqual(parsed.backend, "heuristic");
       strictEqual(parsed.declined, "disabled");
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("runTriage (secret scrub)", () => {
+  it("runTriage_awsKeyInIssue_redactedInJsonAndTable", async () => {
+    const tmp = freshTempDir();
+    try {
+      const specDir = resolve(tmp, "docs/specs/fx");
+      mkdirSync(resolve(specDir, "review-raw"), { recursive: true });
+      // The key sample from tests/entropy-threshold.test.ts, assembled from
+      // two halves so no scannable literal sits in this file.
+      const key = "AKIA" + "QYLPMN5HG3WKZ7TQ";
+      writeFileSync(
+        resolve(specDir, "review-raw/security.md"),
+        `HIGH / scripts/x.ts:1 / VULN: leaked aws_key = "${key}" in config / rotate it\n`,
+        "utf-8",
+      );
+      const changedFiles = resolve(tmp, "changed-files.txt");
+      writeFileSync(changedFiles, "scripts/x.ts\n", "utf-8");
+
+      const { json, table } = await runTriage(specDir, changedFiles);
+
+      const raw = readFileSync(resolve(specDir, "review-triage.json"), "utf-8");
+      ok(
+        raw.includes("[REDACTED:"),
+        `expected a redaction marker in the written JSON, got:\n${raw}`,
+      );
+      ok(!raw.includes(key), "the AWS key must not appear in the written JSON");
+      ok(!table.includes(key), "the AWS key must not appear in the table");
+      const parsed = json as { redactions: number };
+      ok(
+        parsed.redactions >= 1,
+        `expected redactions >= 1, got ${parsed.redactions}`,
+      );
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runTriage_failingScrubCmd_withholdsEveryRow", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupCliFixture(tmp);
+      const { json } = await runTriage(specDir, changedFiles, {
+        scrubCmd: () => ({ status: 1 }),
+      });
+
+      const parsed = json as { findings: TriagedFinding[]; redactions: number };
+      strictEqual(parsed.findings.length, 7);
+      for (const f of parsed.findings) {
+        strictEqual(f.issue, "[WITHHELD:scrub-failed]");
+        strictEqual(f.fix, "[WITHHELD:scrub-failed]");
+      }
+      strictEqual(parsed.redactions, 14);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runTriage_cleanFixture_redactionsZero", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupCliFixture(tmp);
+      const { json } = await runTriage(specDir, changedFiles);
+
+      const parsed = json as { findings: TriagedFinding[]; redactions: number };
+      strictEqual(parsed.redactions, 0);
+      ok(
+        parsed.findings.every((f) => !f.issue.includes("[WITHHELD")),
+        "a clean fixture must not be withheld",
+      );
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

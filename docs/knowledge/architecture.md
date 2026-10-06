@@ -85,7 +85,7 @@ User (Approver) ──→ Workflow Commands ──→ Lead ──→ Sub-agents 
 | `lib/project-root.ts` | Shared project-root resolution (imported by knowledge-index/system-map/maintain-draft) |
 | `new-project.sh` | Bootstrap a new Project OS project, or adopt Project OS in place into a pre-existing repo via `--adopt <target-dir>` (two-class collision policy, orphan quarantine, `--dry-run` plan preview) |
 | `observation-parser.ts` | Extract 5 typed observations from tool output (sensitive-key denylist) |
-| `review-triage.ts` | Advisory triage of the three reviewers' raw reports — heuristic duplicate/scope detection; writes `review-triage.json`; run by `/workflows:review` Synthesis step 0; decides nothing |
+| `review-triage.ts` | Advisory triage of the three reviewers' raw reports — heuristic duplicate/scope detection; writes scrubbed `review-triage.json`; run by `/workflows:review` Synthesis step 0; decides nothing |
 | `scrub-secrets.sh` | Scrub secret patterns from a file (delegates to scanner) |
 | `security-scanner.ts` | Zero-dep secrets/PII scanner (8 subcommands) |
 | `skill-apply.ts` | Anchored apply engine for skill-edit proposals — standard tier via `/pm:approve`, plus a narrow `--auto` tier gated by six deterministic conditions (policy flag, delete/replace only, `.claude/commands/`/`.claude/skills/` containment, non-increasing size, live `system-map.ts` dangling-ref evidence, edit-content correspondence) |
