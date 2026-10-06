@@ -13,7 +13,7 @@ This skill is a trigger/router. The step-by-step save protocol (handoff YAML sch
 |---|---|
 | User says "handoff", "done", "end session", or "switching" | Run `/tools:handoff` |
 | Major phase completes (design approved, build finished, review passed) | Run `/tools:handoff` |
-| Context usage high (~70%+ window, or conversation exceeds ~30 exchanges) | Run `/tools:handoff`, then conserve context (below) |
+| Context usage high (`compact-suggest.sh`'s nudge fires: the configured fire point minus 15 points, 65% under the 80% override; or conversation exceeds ~30 exchanges) | Run `/tools:handoff`, then conserve context (below) |
 | Before handing work to Codex or another agent | Run `/tools:handoff` |
 | New session resuming prior work | Run `/tools:catchup` |
 

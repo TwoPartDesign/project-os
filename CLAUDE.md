@@ -114,7 +114,7 @@ This project uses spec-first, governance-gated development:
 3. `/workflows:plan` — Atomic task decomposition (outputs `[?]` drafts with `#TN` IDs)
 4. `/pm:approve` — Governance gate (promotes `[?]` to `[ ]`)
 5. `/workflows:build` — Wave-based parallel implementation with worktree isolation
-6. `/workflows:review` — Adversarial quality gate (3 isolated reviewers)
+6. `/workflows:review` — Adversarial quality gate, sized to the diff (full 3-reviewer pass at the ship gate)
 7. `/workflows:ship` — Final validation, PR generation, metrics snapshot
 
 Optional: `/workflows:compete` + `/workflows:compete-review` for competitive implementation.
@@ -125,8 +125,7 @@ Never skip from idea to build. The design phase catches 80% of mistakes.
 - **Lead**: Opus (`opus`) at high effort, set via `"model"` in settings.json, with `"fallbackModel": ["sonnet"]`
 - **Default sub-agent**: `sonnet` at high effort via `implementer`/`documenter` frontmatter, for any task with a complete brief and checkable acceptance criteria
 - **Judgment tier**: `opus` at high effort via `(model: opus)` annotations or `researcher`, for reconciling sources, test design, root-causing, cross-system refactors, and escalation after a Sonnet failure; the top of the ladder is `opus` at xhigh. `fable` is no longer a rung: it stays available only as an Approver-confirmed choice through `/tools:set-models`. `CLAUDE_CODE_SUBAGENT_MODEL` stays `opus` as the tier for any unnamed spawn
-- **Reviewers**: `inherit`
-- **Adversarial review**: Primary model with isolated context
+- **Reviewers**: `inherit` in frontmatter; per-wave passes are sized to the diff per `.claude/rules/lead.md` (`sonnet` for text-shaped diffs, `opus` for code with a security or correctness surface); the full three-reviewer pass is the ship gate; each reviewer runs in an isolated context
 - **Agent adapters**: Per-task routing via `(agent: <name>)` — see `.claude/agents/adapters/INTERFACE.md`
 
 ## Roles (Advisory)
@@ -142,7 +141,7 @@ See `.claude/agents/roles.md` for full definitions.
 - Project knowledge: `docs/knowledge/` (decisions, patterns, bugs, architecture)
 - Persistent memory: `docs/memory/` (cross-session, searchable)
 - Specs & designs: `docs/specs/<feature>/` (per-feature lifecycle docs)
-- System map: `docs/maps/system-map.md` — CONSULT IT before changing hook/command/skill/script wiring (it answers "what references this?"); run `node scripts/system-map.ts report` for current health findings. Healed by pre-commit; never hand-edit.
+- System map: `docs/maps/system-map.md` — Consult it before changing hook/command/skill/script wiring (it answers "what references this?"); run `node scripts/system-map.ts report` for current health findings. Healed by pre-commit; never hand-edit.
 
 ## Maintenance Invariants
 - Files/git are the source of truth; the SQLite index is deletable and rebuildable at any time.

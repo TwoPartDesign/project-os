@@ -21,7 +21,7 @@ Before writing ANY code, check `docs/specs/[feature-name]/` for artifacts and ro
 | `design.md` APPROVED, no `tasks.md` | — | `/workflows:plan` |
 | `brief.md` + `design.md` (APPROVED) + `tasks.md` | No `[?]` (draft) tasks remain in ROADMAP.md for this feature — if drafts exist, run `/pm:approve` first | `/workflows:build` |
 
-NEVER skip this check. If the user says "just build it", explain:
+Run this check every time. If the user says "just build it", explain:
 > "I work best with a spec — it takes 5 minutes and prevents hours of rework. Let me run `/workflows:idea` to capture what you need, then we'll build it right."
 
 ## Exception

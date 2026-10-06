@@ -97,7 +97,7 @@ This allows the build phase to isolate each task's context without duplicating t
 
 ## Step 5: Update tracking
 
-Update ROADMAP.md with the new v2 format. Each task becomes a `[?]` (draft) entry under the feature heading, with `#TN` IDs and inline dependency declarations:
+Update ROADMAP.md with the ROADMAP format. Each task becomes a `[?]` (draft) entry under the feature heading, with `#TN` IDs and inline dependency declarations:
 
 ```
 ## Feature: $ARGUMENTS

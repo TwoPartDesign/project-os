@@ -37,7 +37,7 @@ If the named agent type is unknown, halt with the escalation message "Retry cap 
 
 "You are reviewing a competitive implementation.
 
-CRITICAL — BASH COMMAND RULES:
+BASH COMMAND RULES:
 [BASH_AGENT_RULES]
 
 AGENT RULES:

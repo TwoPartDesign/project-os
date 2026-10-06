@@ -20,7 +20,7 @@ pwd
 
 Then check what kind of directory this is. Run these checks:
 
-1. **Is CWD an existing Project OS project?** Check if `.claude/manifest.json` exists in CWD. (This is the Project OS marker — a bare `CLAUDE.md` no longer counts; a repo with only a `CLAUDE.md` is adoptable, see Case E.)
+1. **Is CWD an existing Project OS project?** Check if `.claude/manifest.json` exists in CWD. (This is the Project OS marker — a repo with only a `CLAUDE.md` is adoptable, see Case E.)
 2. **Is CWD a projects parent directory?** Check if CWD contains subdirectories that have `.git/` or `.claude/manifest.json` inside them (i.e., it holds multiple projects). Also match if the folder name contains "Projects" or "repos" (case-insensitive).
 3. **Is CWD an empty or near-empty folder?** (no `.git/`, no `.claude/manifest.json`, few or no files)
 4. **Is CWD a non-empty codebase that isn't Project OS?** True when checks 1 and 3 are both false — there's real content here (code, a `.git/`, maybe even a plain `CLAUDE.md`), but no `.claude/manifest.json`.
