@@ -239,9 +239,12 @@ json_string_field() {
 # past the bound. A Bash stdout over the bound pushes bashEditDiff out of the
 # window, and without this the edited files are skipped in silence. Memory
 # stays bounded: `"` becomes a newline, so a key is a record of its own, and
-# `cut -b1-13` caps every record (an escaped `\"bashEditDiff\"` leaves a
-# trailing `\` and never matches). Only the key's presence is taken from the
-# remainder — never a path.
+# `cut -b1-13` caps every record. An escaped `\"bashEditDiff\"` inside a
+# string leaves a trailing `\` and does not match, but a string whose content
+# ENDS in `bashEditDiff` (stdout `…\"bashEditDiff`, closed by the real quote)
+# does, so such output can raise a stray warning. That costs a spurious stderr
+# line, never an action: only the key's presence is taken from the remainder —
+# never a path.
 read_hook_payload() {
     local max="${1:-${PROJECT_OS_HOOK_PAYLOAD_BYTES:-262144}}"
     case "$max" in ''|*[!0-9]*) max=262144 ;; esac
