@@ -333,8 +333,9 @@ assert_contains "toolFailureLog_largeToolInput_stillLogged" \
 # the old PostToolUse `.*` entry it would log every successful call as a failure
 # the moment the is_error gate was gone. Static, like the payload-schema block
 # below: it reads the repo's own settings.json, not a sandbox. awk tracks the
-# four-space-indented event key above each "command" line, which also keeps the
-# permissions.allow entry for the same script out of the count.
+# four-space-indented event key above each "command" line, so only hook
+# wiring is counted (hook-only scripts have no permissions.allow entry since
+# v3.1; hooks are not permission-gated).
 WIRED_EVENTS=$(awk '/^    "[A-Za-z]+": \[/ { ev = $1 } /"command".*tool-failure-log\.sh/ { print ev }' \
     "$PROJECT_ROOT/.claude/settings.json" 2>/dev/null || true)
 assert_eq "toolFailureLog_settingsWiring_registeredOnlyOnPostToolUseFailure" \
