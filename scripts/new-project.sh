@@ -334,7 +334,6 @@ FRAMEWORK_FILES=(
   "scripts/validate-roadmap.sh"
   "scripts/create-pr.sh"
   "scripts/dashboard.sh"
-  "scripts/context-filter.sh"
   "scripts/validate-freshness.sh"
   "scripts/codex-review.sh"
   "scripts/generate-manifest.sh"
@@ -370,7 +369,7 @@ FRAMEWORK_FILES_OPTIONAL=(
 #
 # SOURCES ARE templates/, NEVER THIS REPO'S OWN LIVE FILES. Copying the live
 # docs/knowledge/*.md shipped ~190 lines about Project OS's own hook chain
-# into every clone as that project's architecture (CLAUDE.md @imports it), and
+# into every clone as that project's architecture (CLAUDE.md points to it), and
 # /tools:init could not see it -- init discovers work by scanning for
 # [ALL_CAPS_IN_BRACKETS], and leaked content is prose, not placeholders.
 # See docs/specs/template-content-leakage/design.md and templates/README.md.
@@ -390,7 +389,6 @@ CONTENT_FILES=(
   "templates/knowledge/patterns.md|docs/knowledge/patterns.md"
   "templates/knowledge/bugs.md|docs/knowledge/bugs.md"
   "templates/knowledge/architecture.md|docs/knowledge/architecture.md"
-  "templates/knowledge/kv.md|docs/knowledge/kv.md"
   "templates/knowledge/metrics.md|docs/knowledge/metrics.md"
   "templates/knowledge/skill-edit-rejections.md|docs/knowledge/skill-edit-rejections.md"
   "templates/docs/product.md|docs/product.md"
@@ -399,21 +397,19 @@ CONTENT_FILES=(
   # shipped files point at them, so a clone without them has dangling refs:
   #   ROADMAP.md:3                -> roadmap-format.md
   #   .claude/rules/bash.md       -> windows-bash-scanner.md
-  #   .claude/rules/bash.md       -> docs/proposals/pre-tool-approve-hook.md
   # They describe the FRAMEWORK's own contracts (ROADMAP marker legend, the
-  # Windows scanner catalog, the auto-approve hook proposal), which are
+  # Windows scanner catalog), which are
   # identical in every project, so they are correct to ship verbatim. They are
   # deliberately NOT in RESIDUE_WATCHED: staying byte-identical to the
   # template is the expected steady state for them.
   # Transferable engineering patterns learned building Project OS. Shipped as
-  # REFERENCE (not as docs/knowledge/patterns.md, which CLAUDE.md @imports as
-  # this project's active conventions) so the guidance survives the seed split
+  # REFERENCE (not as docs/knowledge/patterns.md, which CLAUDE.md points to and
+  # design, build and review read as this project's conventions) so the guidance survives the seed split
   # without asserting conventions the new project never established.
   "templates/knowledge/framework-patterns.md|docs/knowledge/framework-patterns.md"
   "docs/knowledge/roadmap-format.md|docs/knowledge/roadmap-format.md"
   "docs/knowledge/windows-bash-scanner.md|docs/knowledge/windows-bash-scanner.md"
   "docs/knowledge/design-principles.md|docs/knowledge/design-principles.md"
-  "docs/proposals/pre-tool-approve-hook.md|docs/proposals/pre-tool-approve-hook.md"
 )
 
 # Paths inside a FRAMEWORK_TREES tree that CONTENT_FILES owns instead. The
@@ -999,7 +995,7 @@ sed "s/\[PROJECT_NAME\]/$PROJECT_NAME/g" "$TEMPLATE_DIR/CLAUDE.template.md" > "$
 
 # Runs AFTER the FRAMEWORK_TREES loop above, so the templates/rules seed
 # overwrites the framework's own .claude/rules/preferences.md that the tree
-# copy just placed. mkdir -p because some destinations (docs/proposals/) are
+# copy just placed. mkdir -p because some destinations may be
 # outside the scaffold's initial mkdir set.
 for pair in "${CONTENT_FILES[@]}"; do
   src_rel="${pair%%|*}"

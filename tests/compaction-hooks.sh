@@ -1472,7 +1472,7 @@ CJK_BYTES=$(printf '%s' "$CJK_BODY" | LC_ALL=C wc -c | tr -d ' ')
 # bytes each, both assertions below would pass for the wrong reason.
 assert_eq "locale_cjkFixture_isThreeBytesPerCharacter" "$CJK_BYTES" "12000"
 
-if locale -a 2>/dev/null | grep -qx 'C.utf8'; then
+if grep -qx 'C.utf8' <<<"$(locale -a 2>/dev/null)"; then
     # A base of 118000 tokens against a 200000-token window is 59% — one point
     # under the 60% nudge line (75 - 15). Measured as bytes the pending payload
     # adds ~3000 tokens and crosses it; measured as characters it adds ~1000 and

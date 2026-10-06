@@ -20,17 +20,10 @@ description: Red-Green-Refactor test-driven development cycle with an edge-case 
 - Run the test, confirm it passes
 
 ### 3. REFACTOR — Clean up without changing behavior
-- Remove duplication
-- Improve naming
-- Extract functions if needed
-- Run tests again — must still pass
+- Run the tests again, confirm they still pass
 
 ## Edge Case Protocol
-After the happy path passes, add tests for:
-- Null/undefined/empty inputs
-- Boundary values (0, -1, MAX_INT, empty string)
-- Error conditions (network failure, malformed data)
-- Concurrent access (if applicable)
+After the happy path passes, add tests for edge cases.
 
 ## Test Naming
 `[unit]_[scenario]_[expected result]`

@@ -199,7 +199,6 @@ build_template_checkout() {
     for f in roadmap-format.md windows-bash-scanner.md design-principles.md; do
         cp "$REPO_ROOT/docs/knowledge/$f" "$dest/docs/knowledge/$f"
     done
-    cp "$REPO_ROOT/docs/proposals/pre-tool-approve-hook.md" "$dest/docs/proposals/pre-tool-approve-hook.md"
     cp "$REPO_ROOT/CLAUDE.template.md" "$dest/CLAUDE.template.md"
     cp "$REPO_ROOT/ROADMAP.template.md" "$dest/ROADMAP.template.md"
     cp "$REPO_ROOT/global-CLAUDE.md" "$dest/global-CLAUDE.md"
@@ -251,7 +250,7 @@ assert_file "$PROJ/scripts/lib/system-map-lib.ts" "lib copied: system-map-lib.ts
 
 # --- Git + activation ---------------------------------------------------------
 assert_dir "$PROJ/.git" "git repository initialized"
-if git -C "$PROJ" log --oneline 2>/dev/null | grep -q "initialize project"; then
+if [ -n "$(git -C "$PROJ" log --oneline --fixed-strings --grep="initialize project" 2>/dev/null)" ]; then
     pass "scaffold commit present"
 else
     fail "scaffold commit missing"
@@ -380,7 +379,7 @@ fi
 
 # Every docs/ path referenced by a shipped file must exist in the clone.
 for ref in docs/knowledge/roadmap-format.md docs/knowledge/windows-bash-scanner.md \
-           docs/knowledge/design-principles.md docs/proposals/pre-tool-approve-hook.md \
+           docs/knowledge/design-principles.md \
            docs/product.md docs/tech.md; do
     assert_file "$PROJ/$ref" "referenced doc shipped to the new project: $ref"
 done
@@ -788,7 +787,7 @@ else
     fail "scenario12a: .git/hooks/pre-commit missing after adopt"
 fi
 if [ -f "$CANARY_12A" ]; then fail "scenario12a: spoofed hook was executed (canary present)"; else pass "scenario12a: spoofed hook never executed (canary absent)"; fi
-if git -C "$S12A" log --oneline 2>/dev/null | grep -q "adopt Project OS scaffold"; then pass "scenario12a: adopt commit exists"; else fail "scenario12a: adopt commit missing"; fi
+if [ -n "$(git -C "$S12A" log --oneline --fixed-strings --grep="adopt Project OS scaffold" 2>/dev/null)" ]; then pass "scenario12a: adopt commit exists"; else fail "scenario12a: adopt commit missing"; fi
 
 # --- Scenario 12b: planted commit-msg hook quarantined, never invoked --------
 echo ""
@@ -803,7 +802,7 @@ if [ "$ADOPT_EC" -eq 0 ]; then pass "scenario12b: adopt exits 0"; else fail "sce
 assert_file "$S12B/.git/hooks/commit-msg.pre-adopt" "scenario12b: commit-msg hook quarantined to .pre-adopt"
 if [ -f "$S12B/.git/hooks/commit-msg" ]; then fail "scenario12b: commit-msg hook still present at original (non-quarantined) path"; else pass "scenario12b: commit-msg hook no longer live at original path"; fi
 if [ -f "$CANARY_12B" ]; then fail "scenario12b: commit-msg hook was executed (canary present)"; else pass "scenario12b: commit-msg hook never executed (canary absent)"; fi
-if git -C "$S12B" log --oneline 2>/dev/null | grep -q "adopt Project OS scaffold"; then pass "scenario12b: adopt commit succeeded"; else fail "scenario12b: adopt commit missing"; fi
+if [ -n "$(git -C "$S12B" log --oneline --fixed-strings --grep="adopt Project OS scaffold" 2>/dev/null)" ]; then pass "scenario12b: adopt commit succeeded"; else fail "scenario12b: adopt commit missing"; fi
 
 # --- Scenario 12c: core.hooksPath honored -- quarantine + install land at the
 # git-honored path, not the ignored default .git/hooks -------------------------

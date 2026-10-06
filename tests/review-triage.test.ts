@@ -27,15 +27,9 @@ import {
   applyHeuristic,
   renderTable,
   runTriage,
-  buildQuestions,
-  applyAnswers,
-  jevAnswers,
   type Finding,
   type TriagedFinding,
-  type Candidates,
-  type Severity,
 } from "../scripts/review-triage.ts";
-import type { Answer, DecisionResult } from "../scripts/lib/decide.ts";
 
 /** Walks up from this test file to find the nearest ancestor with `.claude` — the project root. */
 function findProjectRoot(): string {
@@ -60,19 +54,6 @@ function freshTempDir(): string {
   return mkdtempSync(resolve(tmpdir(), "review-triage-test-"));
 }
 
-/** A disabled `JevConfig` for tests that call `runTriage` directly, so it never reads real settings. */
-const DISABLED_CONFIG = {
-  enabled: false,
-  model: "jev-latest",
-  timeout_ms: 5000,
-  max_body_tokens: 60000,
-  thresholds: {
-    duplicate_p: 0.85,
-    out_of_scope_p: 0.8,
-    severity_confidence: 0.8,
-  },
-};
-
 /** Recursively lists every file's absolute path under `dir`. */
 function listAbsoluteFiles(dir: string): string[] {
   const out: string[] = [];
@@ -91,7 +72,7 @@ function listFilesRecursive(root: string): string[] {
     .sort();
 }
 
-/** Sets up `<tmp>/docs/specs/fx/review-raw/` from the shared fixtures plus a jev-disabled settings.json. */
+/** Sets up `<tmp>/docs/specs/fx/review-raw/` from the shared fixtures. */
 function setupCliFixture(tmp: string): {
   specDir: string;
   changedFiles: string;
@@ -99,145 +80,10 @@ function setupCliFixture(tmp: string): {
   const specDir = resolve(tmp, "docs/specs/fx");
   mkdirSync(resolve(specDir, "review-raw"), { recursive: true });
   cpSync(FIXTURES_DIR, resolve(specDir, "review-raw"), { recursive: true });
-  mkdirSync(resolve(tmp, ".claude"), { recursive: true });
-  writeFileSync(
-    resolve(tmp, ".claude/settings.json"),
-    JSON.stringify({ project_os: { jev: { enabled: false } } }) + "\n",
-    "utf-8",
-  );
   return {
     specDir,
     changedFiles: resolve(specDir, "review-raw/changed-files.txt"),
   };
-}
-
-/**
- * Copies the real security scanner (`scripts/security-scanner.ts`,
- * `scripts/lib/scan-rules.js`, `.claude/security/allowlist.json`) into
- * `tmp` so `guardEgressFields`'s default (real) scrub/scan commands can run
- * against it, mirroring `tests/egress-guard.test.ts`'s
- * `withCopiedScannerRoot`.
- */
-function copyScannerInto(tmp: string): void {
-  mkdirSync(resolve(tmp, "scripts/lib"), { recursive: true });
-  mkdirSync(resolve(tmp, ".claude/security"), { recursive: true });
-  cpSync(
-    resolve(PROJECT_ROOT, "scripts/security-scanner.ts"),
-    resolve(tmp, "scripts/security-scanner.ts"),
-  );
-  cpSync(
-    resolve(PROJECT_ROOT, "scripts/lib/scan-rules.js"),
-    resolve(tmp, "scripts/lib/scan-rules.js"),
-  );
-  cpSync(
-    resolve(PROJECT_ROOT, ".claude/security/allowlist.json"),
-    resolve(tmp, ".claude/security/allowlist.json"),
-  );
-}
-
-/**
- * The PAT-shaped literal the redaction test needs, assembled from two halves
- * so the scannable shape exists only in memory. `tests/fixtures/review-raw/
- * security.md` carries the placeholder `__PLANTED_TOKEN__` instead of a real
- * token, so the fixture on disk holds nothing the security scanner would
- * flag (it is only path-ignored, not clean, if a literal lives there).
- */
-function plantedSecret(): string {
-  return "ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789";
-}
-
-/**
- * Substitutes {@link plantedSecret} for the `__PLANTED_TOKEN__` placeholder
- * in the COPIED fixture under `specDir`, so the triage run scrubs a real
- * token shape. Returns the token it planted.
- */
-function plantSecretInFixture(specDir: string): string {
-  const path = resolve(specDir, "review-raw/security.md");
-  const secret = plantedSecret();
-  const text = readFileSync(path, "utf-8");
-  ok(
-    text.includes("__PLANTED_TOKEN__"),
-    "expected the security.md fixture to carry the __PLANTED_TOKEN__ placeholder",
-  );
-  writeFileSync(path, text.replace("__PLANTED_TOKEN__", secret), "utf-8");
-  return secret;
-}
-
-/** A `JevConfig`-shaped object with jev enabled, for tests that stub the Jev HTTP call. */
-const ENABLED_CONFIG = {
-  enabled: true,
-  model: "jev-latest",
-  timeout_ms: 5000,
-  max_body_tokens: 60000,
-  thresholds: {
-    duplicate_p: 0.85,
-    out_of_scope_p: 0.8,
-    severity_confidence: 0.8,
-  },
-};
-
-/**
- * A `fetchImpl` stand-in for the Jev endpoint, built for the fixture in
- * `tests/fixtures/review-raw/`. Parses the request body's `questions` and
- * answers each per the T186 test brief: the architecture-1/security-1 dup
- * pair gets noul 0.9 (above the 0.85 threshold), every other dup pair gets
- * 0.5 (below); `scope_security-3` is `"unrelated"` at 0.95 confidence;
- * every other `scope_` is `"in_diff"` at 0.9 confidence; every `sev_`
- * answer echoes the finding's own severity index — parsed back out of the
- * request body's own `state` text — at 0.9 confidence.
- */
-function jevFetchStub(): typeof fetch {
-  const LEVELS = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
-  return (async (_url: string | URL, init?: RequestInit) => {
-    const body = JSON.parse(String(init?.body ?? "{}"));
-    const state: string = body.state ?? "";
-    const questions: Record<string, { type: string }> = body.questions ?? {};
-    const answers: Record<string, unknown> = {};
-
-    const severityIndexById = new Map<string, number>();
-    for (const m of state.matchAll(/Finding ([^\n:]+):\nseverity: (\w+)/g)) {
-      severityIndexById.set(m[1], LEVELS.indexOf(m[2]));
-    }
-
-    for (const name of Object.keys(questions)) {
-      if (name.startsWith("dup_")) {
-        answers[name] = {
-          type: "noul",
-          noul: name === "dup_architecture-1__security-1" ? 0.9 : 0.5,
-        };
-      } else if (name === "scope_security-3") {
-        answers[name] = {
-          type: "choice",
-          choice: "unrelated",
-          probabilities: { in_diff: 0.02, adjacent: 0.03, unrelated: 0.95 },
-          confidence: 0.95,
-        };
-      } else if (name.startsWith("scope_")) {
-        answers[name] = {
-          type: "choice",
-          choice: "in_diff",
-          probabilities: { in_diff: 0.9, adjacent: 0.05, unrelated: 0.05 },
-          confidence: 0.9,
-        };
-      } else if (name.startsWith("sev_")) {
-        const id = name.slice("sev_".length);
-        answers[name] = {
-          type: "score",
-          score: severityIndexById.get(id) ?? 0,
-          probabilities: {},
-          confidence: 0.9,
-        };
-      }
-    }
-
-    return new Response(
-      JSON.stringify({
-        answers,
-        usage: { input_tokens: 10, output_tokens: 5 },
-      }),
-      { status: 200 },
-    );
-  }) as unknown as typeof fetch;
 }
 
 describe("parseFindings", () => {
@@ -301,6 +147,66 @@ describe("parseFindings", () => {
     strictEqual(findings.length, 0);
   });
 
+  it("parseFindings_indentedReports_matchColumnZeroFindings", () => {
+    const body = [
+      "HIGH / a.ts:1-2 / DRIFT: things drifted / fix the drift",
+      "MEDIUM / b.ts:3 / VULN: things are vulnerable / fix the vuln",
+      "LOW / c.ts / ISSUE: things are wrong / fix the issue",
+    ];
+    const expected = parseFindings(body.join("\n"), "rev");
+    strictEqual(expected.length, 3);
+
+    for (const indent of ["  ", "    ", "\t"]) {
+      const indented = body.map((l) => indent + l).join("\n");
+      deepStrictEqual(parseFindings(indented, "rev"), expected);
+    }
+  });
+
+  it("parseFindings_fullyIndentedReportWithProse_findsAllFindings", () => {
+    const text = [
+      "  Review of the change:",
+      "  HIGH / a.ts:1 / DRIFT: x / fix x",
+      "  CRITICAL / b.ts:2 / VULN: y / fix y",
+      "  PASS: everything else",
+    ].join("\n");
+    const findings = parseFindings(text, "rev");
+    strictEqual(findings.length, 2);
+    strictEqual(findings[0].severity, "HIGH");
+    strictEqual(findings[1].severity, "CRITICAL");
+    strictEqual(findings[1].file, "b.ts");
+  });
+
+  it("parseFindings_layerTaggedIssue_keepsTagInIssueAndFixIsLastField", () => {
+    const text = [
+      "HIGH / a.ts:1-2 / DRIFT[design]: design omits the retry cap / amend design.md",
+      "MEDIUM / b.ts:3 / VULN[worker-brief]: brief lacked the path rule / add it to the brief",
+      "LOW / c.ts / ISSUE[rule]: bash.md is ambiguous / tighten the rule",
+    ].join("\n");
+    const findings = parseFindings(text, "rev");
+    strictEqual(findings.length, 3);
+    strictEqual(findings[0].issue, "DRIFT[design]: design omits the retry cap");
+    strictEqual(findings[0].fix, "amend design.md");
+    strictEqual(
+      findings[1].issue,
+      "VULN[worker-brief]: brief lacked the path rule",
+    );
+    strictEqual(findings[1].fix, "add it to the brief");
+    strictEqual(findings[2].issue, "ISSUE[rule]: bash.md is ambiguous");
+    strictEqual(findings[2].fix, "tighten the rule");
+  });
+
+  it("parseFindings_taggedAndUntaggedMixed_bothParse", () => {
+    const text = [
+      "HIGH / a.ts:1 / DRIFT[implementation]: code does Y / restore X",
+      "HIGH / a.ts:9 / DRIFT: untagged still parses / fix it",
+    ].join("\n");
+    const findings = parseFindings(text, "rev");
+    strictEqual(findings.length, 2);
+    strictEqual(findings[0].issue, "DRIFT[implementation]: code does Y");
+    strictEqual(findings[1].issue, "DRIFT: untagged still parses");
+    strictEqual(findings[1].fix, "fix it");
+  });
+
   it("parseFindings_severityLineUnparseable_warnsWithLine", () => {
     const warnings: string[] = [];
     const findings = parseFindings("HIGH / only-two-parts", "rev", (s) =>
@@ -339,6 +245,35 @@ describe("heuristicCandidates", () => {
     ];
     const { pairs } = heuristicCandidates(findings, []);
     deepStrictEqual(pairs, [["architecture-1", "security-1"]]);
+  });
+
+  it("heuristicCandidates_layerTagNotCountedInJaccard_taggedMatchesUntagged", () => {
+    // Different files, non-overlapping lines: only the Jaccard rule can pair
+    // them. If the `[worker-brief]` tag were tokenized, the sets would be
+    // {drift, worker, brief, alpha, beta} vs {alpha, beta} = 2/5 = 0.4, below
+    // the 0.6 threshold; stripped, they are identical (1.0).
+    const findings: Finding[] = [
+      {
+        id: "a-1",
+        reviewer: "a",
+        severity: "LOW",
+        file: "one.ts",
+        lines: "1",
+        issue: "DRIFT[worker-brief]: alpha beta",
+        fix: "f",
+      },
+      {
+        id: "b-1",
+        reviewer: "b",
+        severity: "LOW",
+        file: "two.ts",
+        lines: "99",
+        issue: "DRIFT: alpha beta",
+        fix: "f",
+      },
+    ];
+    const { pairs } = heuristicCandidates(findings, []);
+    deepStrictEqual(pairs, [["a-1", "b-1"]]);
   });
 
   it("heuristicCandidates_jaccardBelowThreshold_noPair", () => {
@@ -578,17 +513,7 @@ describe("runTriage (unit, direct import)", () => {
     const tmp = freshTempDir();
     try {
       const { specDir, changedFiles } = setupCliFixture(tmp);
-      const logged: Array<{ event: string; kv: Record<string, string> }> = [];
-      const { json } = await runTriage(specDir, changedFiles, {
-        config: DISABLED_CONFIG,
-        env: {},
-        log: (event, kv) => logged.push({ event, kv }),
-        // T186 adds a real output-scrub step that runs regardless of
-        // backend; pin it to the temp root so it never touches this
-        // repo's own .claude/logs/ (see tests/fixtures note in
-        // docs/specs/jev-integration/tasks/T186/context.md).
-        projectRoot: tmp,
-      });
+      const { json } = await runTriage(specDir, changedFiles);
 
       const parsed = json as {
         findings: TriagedFinding[];
@@ -598,927 +523,471 @@ describe("runTriage (unit, direct import)", () => {
       strictEqual(parsed.findings.length, 7);
       strictEqual(parsed.backend, "heuristic");
       strictEqual(parsed.declined, "disabled");
-      // T186: decide()'s own "jev-declined" event, then this run's new
-      // "review-triaged" lift-record event (dup_pairs/dup_changed/etc. are
-      // logged for every run, per the T186 spec).
-      strictEqual(logged.length, 2);
-      strictEqual(logged[0].event, "jev-declined");
-      strictEqual(logged[1].event, "review-triaged");
-      strictEqual(logged[1].kv.backend, "heuristic");
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
 });
 
-describe("buildQuestions", () => {
-  it("buildQuestions_bodyContainsOnlyWhitelistedFields", () => {
-    const findings = [
-      {
-        id: "a-1",
-        reviewer: "a",
-        severity: "LOW",
-        file: "one.ts",
-        lines: "1",
-        issue: "issue text",
-        fix: "fix text",
-        internalNote: "SECRETNOTE",
-      },
-    ] as unknown as Finding[];
-    const candidates: Candidates = { pairs: [], scope: { "a-1": "in_diff" } };
-
-    const chunks = buildQuestions(findings, candidates, ["one.ts"]);
-    const serialized = JSON.stringify(chunks);
-
-    for (const field of [
-      "severity",
-      "reviewer",
-      "file",
-      "lines",
-      "issue",
-      "fix",
-    ]) {
-      ok(
-        serialized.includes(field),
-        `expected chunks to mention field name "${field}"`,
-      );
-    }
-    ok(
-      !serialized.includes("SECRETNOTE"),
-      "chunks must not leak internalNote's value",
-    );
-    ok(
-      !serialized.includes("internalNote"),
-      "chunks must not leak the internalNote key",
-    );
-  });
-
-  it("buildQuestions_questionNamesAndTypes_asSpecified", () => {
-    const findings: Finding[] = [];
-    for (const reviewer of ["architecture", "security", "tests"] as const) {
-      const text = readFileSync(
-        resolve(FIXTURES_DIR, `${reviewer}.md`),
-        "utf-8",
-      );
-      findings.push(...parseFindings(text, reviewer));
-    }
-    const changedFiles = readFileSync(
-      resolve(FIXTURES_DIR, "changed-files.txt"),
-      "utf-8",
-    )
-      .split(/\r\n|\n/)
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
-
-    const candidates = heuristicCandidates(findings, changedFiles);
-    // The fixture's only two candidate pairs, confirmed by
-    // triage_fixture_heuristicBackend_marksTwoDuplicatesOneOutOfScope above:
-    // architecture-1/security-1 (same file, overlapping lines) and
-    // security-2/tests-2 (same file, exact line match).
-    deepStrictEqual(candidates.pairs, [
-      ["architecture-1", "security-1"],
-      ["security-2", "tests-2"],
-    ]);
-
-    const chunks = buildQuestions(findings, candidates, changedFiles);
-    const allQuestions: Record<string, any> = {};
-    for (const chunk of chunks) Object.assign(allQuestions, chunk.questions);
-
-    const dup = allQuestions["dup_architecture-1__security-1"];
-    ok(dup, "expected dup_architecture-1__security-1 question to exist");
-    strictEqual(dup.type, "noul");
-    ok("true" in dup.criteria, "expected noul criteria.true");
-    ok("false" in dup.criteria, "expected noul criteria.false");
-
-    const scope = allQuestions["scope_security-3"];
-    ok(scope, "expected scope_security-3 question to exist");
-    strictEqual(scope.type, "choice");
-    deepStrictEqual(Object.keys(scope.criteria).sort(), [
-      "adjacent",
-      "in_diff",
-      "unrelated",
-    ]);
-
-    const sev = allQuestions["sev_tests-1"];
-    ok(sev, "expected sev_tests-1 question to exist");
-    strictEqual(sev.type, "score");
-    deepStrictEqual(sev.criteria, ["LOW", "MEDIUM", "HIGH", "CRITICAL"]);
-  });
-
-  it("buildQuestions_manyFindings_chunksUnderLimit", () => {
-    const findings: Finding[] = [];
-    for (let i = 1; i <= 300; i++) {
-      findings.push({
-        id: `synthetic-${i}`,
-        reviewer: "synthetic",
-        severity: "LOW",
-        file: `scripts/file${i}.ts`,
-        lines: "1",
-        issue: "x".repeat(200),
-        fix: "fix it",
-      });
-    }
-    const pairs: [string, string][] = [];
-    for (let i = 1; i < 300; i++) {
-      pairs.push([`synthetic-${i}`, `synthetic-${i + 1}`]);
-    }
-    const candidates: Candidates = { pairs, scope: {} };
-
-    const chunks = buildQuestions(findings, candidates, []);
-
-    for (const chunk of chunks) {
-      const size = JSON.stringify(chunk).length;
-      ok(size <= 160000, `expected chunk size <= 160000, got ${size}`);
-    }
-
-    for (const [lo, hi] of pairs) {
-      const chunk = chunks.find((c) => `dup_${lo}__${hi}` in c.questions);
-      ok(chunk, `expected a chunk holding dup_${lo}__${hi}`);
-      ok(
-        chunk!.state.includes(`Finding ${lo}:`),
-        `expected chunk state to include Finding ${lo}: block`,
-      );
-      ok(
-        chunk!.state.includes(`Finding ${hi}:`),
-        `expected chunk state to include Finding ${hi}: block`,
-      );
-    }
-  });
-});
-
-/** A fresh one-finding fixture (id `a-1`, scope `in_diff`, no pairs) at `severity`, for the threshold-boundary tests below. */
-function singleFindingFixture(severity: Severity): {
-  findings: Finding[];
-  candidates: Candidates;
-} {
-  return {
-    findings: [
-      {
-        id: "a-1",
-        reviewer: "a",
-        severity,
-        file: "x.ts",
-        lines: "1",
-        issue: "i",
-        fix: "f",
-      },
-    ],
-    candidates: { pairs: [], scope: { "a-1": "in_diff" } },
-  };
-}
-
-/** A fresh `jev`-backend `DecisionResult` carrying exactly `answers`, as `decide()` returns on an accepted call. */
-function jevResult(answers: Record<string, Answer>): DecisionResult {
-  return {
-    answers,
-    backend: "jev",
-    rejected: [],
-    redactions: 0,
-    duration_ms: 1,
-  };
-}
-
-/** A fresh copy of the shipped default thresholds (0.85 / 0.8 / 0.8), so no test mutates another's. */
-function defaultThresholds(): {
-  duplicate_p: number;
-  out_of_scope_p: number;
-  severity_confidence: number;
-} {
-  return {
-    duplicate_p: 0.85,
-    out_of_scope_p: 0.8,
-    severity_confidence: 0.8,
-  };
-}
-
-describe("applyAnswers", () => {
-  it("applyAnswers_dupAboveThreshold_merged_belowCleared", () => {
-    const findings: Finding[] = [
-      {
-        id: "a-1",
-        reviewer: "a",
-        severity: "LOW",
-        file: "x.ts",
-        lines: "1",
-        issue: "i1",
-        fix: "f1",
-      },
-      {
-        id: "b-1",
-        reviewer: "b",
-        severity: "LOW",
-        file: "x.ts",
-        lines: "1",
-        issue: "i2",
-        fix: "f2",
-      },
-      {
-        id: "c-1",
-        reviewer: "c",
-        severity: "LOW",
-        file: "y.ts",
-        lines: "1",
-        issue: "i3",
-        fix: "f3",
-      },
-      {
-        id: "d-1",
-        reviewer: "d",
-        severity: "LOW",
-        file: "y.ts",
-        lines: "1",
-        issue: "i4",
-        fix: "f4",
-      },
-    ];
-    const candidates: Candidates = {
-      pairs: [
-        ["a-1", "b-1"],
-        ["c-1", "d-1"],
-      ],
-      scope: {
-        "a-1": "in_diff",
-        "b-1": "in_diff",
-        "c-1": "in_diff",
-        "d-1": "in_diff",
-      },
-    };
-    const thresholds = {
-      duplicate_p: 0.85,
-      out_of_scope_p: 0.8,
-      severity_confidence: 0.8,
-    };
-    const results: DecisionResult[] = [
-      {
-        answers: {
-          "dup_a-1__b-1": { type: "noul", noul: 0.9 },
-          "dup_c-1__d-1": { type: "noul", noul: 0.5 },
-        },
-        backend: "jev",
-        redactions: 0,
-        duration_ms: 1,
-      },
-    ];
-
-    const rows = applyAnswers(findings, candidates, results, thresholds);
-    const byId: Record<string, TriagedFinding> = {};
-    for (const r of rows) byId[r.id] = r;
-
-    strictEqual(byId["b-1"].duplicate_of, "a-1");
-    strictEqual(byId["b-1"].duplicate_p, 0.9);
-    strictEqual(byId["d-1"].duplicate_of, null);
-    strictEqual(byId["d-1"].duplicate_p, 0.5);
-  });
-
-  it("applyAnswers_scoreHalf_roundsDown", () => {
-    const findings: Finding[] = [
-      {
-        id: "a-1",
-        reviewer: "a",
-        severity: "LOW",
-        file: "x.ts",
-        lines: "1",
-        issue: "i",
-        fix: "f",
-      },
-    ];
-    const candidates: Candidates = { pairs: [], scope: { "a-1": "in_diff" } };
-    const thresholds = {
-      duplicate_p: 0.85,
-      out_of_scope_p: 0.8,
-      severity_confidence: 0.8,
-    };
-    const results: DecisionResult[] = [
-      {
-        answers: {
-          "sev_a-1": {
-            type: "score",
-            score: 1.5,
-            probabilities: {},
-            confidence: 0.9,
-          },
-        },
-        backend: "jev",
-        redactions: 0,
-        duration_ms: 1,
-      },
-    ];
-
-    const rows = applyAnswers(findings, candidates, results, thresholds);
-    strictEqual(rows[0].calibrated_severity, "MEDIUM");
-  });
-
-  it("applyAnswers_lowConfidence_keepsOriginalSeverity", () => {
-    const findings: Finding[] = [
-      {
-        id: "a-1",
-        reviewer: "a",
-        severity: "HIGH",
-        file: "x.ts",
-        lines: "1",
-        issue: "i",
-        fix: "f",
-      },
-    ];
-    const candidates: Candidates = { pairs: [], scope: { "a-1": "in_diff" } };
-    const thresholds = {
-      duplicate_p: 0.85,
-      out_of_scope_p: 0.8,
-      severity_confidence: 0.8,
-    };
-    const results: DecisionResult[] = [
-      {
-        answers: {
-          "sev_a-1": {
-            type: "score",
-            score: 3,
-            probabilities: {},
-            confidence: 0.5,
-          },
-        },
-        backend: "jev",
-        redactions: 0,
-        duration_ms: 1,
-      },
-    ];
-
-    const rows = applyAnswers(findings, candidates, results, thresholds);
-    strictEqual(rows[0].calibrated_severity, rows[0].severity);
-    strictEqual(rows[0].severity_confidence, 0.5);
-  });
-
-  it("applyAnswers_declinedChunk_keepsHeuristicRows", () => {
-    const findings: Finding[] = [
-      {
-        id: "a-1",
-        reviewer: "a",
-        severity: "LOW",
-        file: "x.ts",
-        lines: "1",
-        issue: "i1",
-        fix: "f1",
-      },
-      {
-        id: "b-1",
-        reviewer: "b",
-        severity: "LOW",
-        file: "x.ts",
-        lines: "1",
-        issue: "i2",
-        fix: "f2",
-      },
-      {
-        id: "c-1",
-        reviewer: "c",
-        severity: "HIGH",
-        file: "y.ts",
-        lines: "1",
-        issue: "i3",
-        fix: "f3",
-      },
-    ];
-    const candidates: Candidates = {
-      pairs: [["a-1", "b-1"]],
-      scope: { "a-1": "in_diff", "b-1": "in_diff", "c-1": "adjacent" },
-    };
-    const thresholds = {
-      duplicate_p: 0.85,
-      out_of_scope_p: 0.8,
-      severity_confidence: 0.8,
-    };
-    // Chunk 1 timed out: its answers are heuristic stubs (noul 0.5, first
-    // choice with confidence 0) and must NOT override applyHeuristic's rows.
-    const declined: DecisionResult = {
-      answers: {
-        "dup_a-1__b-1": { type: "noul", noul: 0.5 },
-        "scope_b-1": {
-          type: "choice",
-          choice: "in_diff",
-          probabilities: { in_diff: 0.34, adjacent: 0.33, unrelated: 0.33 },
-          confidence: 0,
-        },
-      },
-      backend: "heuristic",
-      declined: "timeout",
-      rejected: [],
-      redactions: 0,
-      duration_ms: 1,
-    };
-    // Chunk 2 answered: its sev answer is applied.
-    const answered: DecisionResult = {
-      answers: {
-        "sev_c-1": {
-          type: "score",
-          score: 3,
-          probabilities: {},
-          confidence: 0.95,
-        },
-      },
-      backend: "jev",
-      rejected: [],
-      redactions: 0,
-      duration_ms: 1,
-    };
-
-    const rows = applyAnswers(
-      findings,
-      candidates,
-      [declined, answered],
-      thresholds,
-    );
-    const byId: Record<string, TriagedFinding> = {};
-    for (const r of rows) byId[r.id] = r;
-
-    strictEqual(byId["b-1"].duplicate_of, "a-1");
-    strictEqual(byId["b-1"].duplicate_p, 1);
-    strictEqual(byId["b-1"].in_scope, "in_diff");
-    strictEqual(byId["b-1"].in_scope_p, 1);
-    strictEqual(byId["c-1"].calibrated_severity, "CRITICAL");
-    strictEqual(byId["c-1"].severity_confidence, 0.95);
-  });
-
-  it("applyAnswers_rejectedName_keepsHeuristicRow", () => {
-    const findings: Finding[] = [
-      {
-        id: "a-1",
-        reviewer: "a",
-        severity: "LOW",
-        file: "x.ts",
-        lines: "1",
-        issue: "i1",
-        fix: "f1",
-      },
-      {
-        id: "b-1",
-        reviewer: "b",
-        severity: "LOW",
-        file: "x.ts",
-        lines: "1",
-        issue: "i2",
-        fix: "f2",
-      },
-    ];
-    const candidates: Candidates = {
-      pairs: [["a-1", "b-1"]],
-      scope: { "a-1": "in_diff", "b-1": "in_diff" },
-    };
-    const thresholds = {
-      duplicate_p: 0.85,
-      out_of_scope_p: 0.8,
-      severity_confidence: 0.8,
-    };
-    // Jev answered the chunk, but the dup question failed validation and
-    // decide() substituted the heuristic stub (noul 0.5) and listed it in
-    // `rejected`. The stub must not clear applyHeuristic's duplicate verdict.
-    const results: DecisionResult[] = [
-      {
-        answers: {
-          "dup_a-1__b-1": { type: "noul", noul: 0.5 },
-          "sev_b-1": {
-            type: "score",
-            score: 0,
-            probabilities: {},
-            confidence: 0.9,
-          },
-        },
-        backend: "jev",
-        declined: "malformed-response",
-        rejected: ["dup_a-1__b-1"],
-        redactions: 0,
-        duration_ms: 1,
-      },
-    ];
-
-    const rows = applyAnswers(findings, candidates, results, thresholds);
-    const byId: Record<string, TriagedFinding> = {};
-    for (const r of rows) byId[r.id] = r;
-
-    strictEqual(byId["b-1"].duplicate_of, "a-1");
-    strictEqual(byId["b-1"].duplicate_p, 1);
-    strictEqual(byId["b-1"].calibrated_severity, "LOW");
-    strictEqual(byId["b-1"].severity_confidence, 0.9);
-  });
-
-  it("jevAnswers_mixedResults_onlyAcceptedJevAnswers", () => {
-    const results: DecisionResult[] = [
-      {
-        answers: { q_h: { type: "noul", noul: 0.5 } },
-        backend: "heuristic",
-        declined: "disabled",
-        rejected: [],
-        redactions: 0,
-        duration_ms: 0,
-      },
-      {
-        answers: {
-          q_ok: { type: "noul", noul: 0.9 },
-          q_bad: { type: "noul", noul: 0.5 },
-        },
-        backend: "jev",
-        declined: "malformed-response",
-        rejected: ["q_bad"],
-        redactions: 0,
-        duration_ms: 1,
-      },
-    ];
-    deepStrictEqual(Object.keys(jevAnswers(results)), ["q_ok"]);
-  });
-
-  it("applyAnswers_dupExactlyAtThreshold_merged", () => {
-    // The rule is `noul >= duplicate_p`, so a noul of exactly 0.85 merges.
-    const findings: Finding[] = [
-      {
-        id: "a-1",
-        reviewer: "a",
-        severity: "LOW",
-        file: "x.ts",
-        lines: "1",
-        issue: "i1",
-        fix: "f1",
-      },
-      {
-        id: "b-1",
-        reviewer: "b",
-        severity: "LOW",
-        file: "x.ts",
-        lines: "1",
-        issue: "i2",
-        fix: "f2",
-      },
-    ];
-    const candidates: Candidates = {
-      pairs: [["a-1", "b-1"]],
-      scope: { "a-1": "in_diff", "b-1": "in_diff" },
-    };
-    const rows = applyAnswers(
-      findings,
-      candidates,
-      [jevResult({ "dup_a-1__b-1": { type: "noul", noul: 0.85 } })],
-      defaultThresholds(),
-    );
-
-    const hi = rows.find((r) => r.id === "b-1")!;
-    strictEqual(hi.duplicate_of, "a-1");
-    strictEqual(hi.duplicate_p, 0.85);
-  });
-
-  it("applyAnswers_unrelatedExactlyAtThreshold_appliesUnrelated", () => {
-    // The rule is `probabilities.unrelated >= out_of_scope_p`, so exactly
-    // 0.8 overrides the heuristic's `in_diff`.
-    const { findings, candidates } = singleFindingFixture("LOW");
-    const rows = applyAnswers(
-      findings,
-      candidates,
-      [
-        jevResult({
-          "scope_a-1": {
-            type: "choice",
-            choice: "unrelated",
-            probabilities: { in_diff: 0.1, adjacent: 0.1, unrelated: 0.8 },
-            confidence: 0.9,
-          },
-        }),
-      ],
-      defaultThresholds(),
-    );
-
-    strictEqual(rows[0].in_scope, "unrelated");
-    strictEqual(rows[0].in_scope_p, 0.8);
-  });
-
-  it("applyAnswers_severityConfidenceExactlyAtThreshold_appliesCalibrated", () => {
-    // The rule is `confidence >= severity_confidence`, so exactly 0.8 applies.
-    const { findings, candidates } = singleFindingFixture("LOW");
-    const rows = applyAnswers(
-      findings,
-      candidates,
-      [
-        jevResult({
-          "sev_a-1": {
-            type: "score",
-            score: 3,
-            probabilities: {},
-            confidence: 0.8,
-          },
-        }),
-      ],
-      defaultThresholds(),
-    );
-
-    strictEqual(rows[0].calibrated_severity, "CRITICAL");
-    strictEqual(rows[0].severity_confidence, 0.8);
-  });
-
-  it("applyAnswers_scoreExactlyPointFive_mapsToLow", () => {
-    // scoreToLevel: round(0.5 - 0.5) = 0 -> LOW, below the finding's own HIGH.
-    const { findings, candidates } = singleFindingFixture("HIGH");
-    const rows = applyAnswers(
-      findings,
-      candidates,
-      [
-        jevResult({
-          "sev_a-1": {
-            type: "score",
-            score: 0.5,
-            probabilities: {},
-            confidence: 0.9,
-          },
-        }),
-      ],
-      defaultThresholds(),
-    );
-
-    strictEqual(rows[0].calibrated_severity, "LOW");
-  });
-
-  it("applyAnswers_scoreExactlyTwoPointFive_mapsToHigh", () => {
-    // scoreToLevel: round(2.5 - 0.5) = 2 -> HIGH (the half rounds down).
-    const { findings, candidates } = singleFindingFixture("LOW");
-    const rows = applyAnswers(
-      findings,
-      candidates,
-      [
-        jevResult({
-          "sev_a-1": {
-            type: "score",
-            score: 2.5,
-            probabilities: {},
-            confidence: 0.9,
-          },
-        }),
-      ],
-      defaultThresholds(),
-    );
-
-    strictEqual(rows[0].calibrated_severity, "HIGH");
-  });
-
-  it("applyAnswers_scoreExactlyThree_mapsToCritical", () => {
-    // scoreToLevel: round(3 - 0.5) = 3 -> CRITICAL, the top level index.
-    const { findings, candidates } = singleFindingFixture("LOW");
-    const rows = applyAnswers(
-      findings,
-      candidates,
-      [
-        jevResult({
-          "sev_a-1": {
-            type: "score",
-            score: 3,
-            probabilities: {},
-            confidence: 0.9,
-          },
-        }),
-      ],
-      defaultThresholds(),
-    );
-
-    strictEqual(rows[0].calibrated_severity, "CRITICAL");
-  });
-
-  it("applyAnswers_scoreAboveTopIndex_clampsToCritical", () => {
-    // scoreToLevel clamps with Math.min(3, ...).
-    const { findings, candidates } = singleFindingFixture("LOW");
-    const rows = applyAnswers(
-      findings,
-      candidates,
-      [
-        jevResult({
-          "sev_a-1": {
-            type: "score",
-            score: 9,
-            probabilities: {},
-            confidence: 0.9,
-          },
-        }),
-      ],
-      defaultThresholds(),
-    );
-
-    strictEqual(rows[0].calibrated_severity, "CRITICAL");
-  });
-
-  it("applyAnswers_scoreBelowZero_clampsToLow", () => {
-    // scoreToLevel clamps with Math.max(0, ...).
-    const { findings, candidates } = singleFindingFixture("HIGH");
-    const rows = applyAnswers(
-      findings,
-      candidates,
-      [
-        jevResult({
-          "sev_a-1": {
-            type: "score",
-            score: -1,
-            probabilities: {},
-            confidence: 0.9,
-          },
-        }),
-      ],
-      defaultThresholds(),
-    );
-
-    strictEqual(rows[0].calibrated_severity, "LOW");
-  });
-});
-
-describe("runTriage — Jev path", () => {
-  it("runTriage_fixture_jevStub_appliesThresholds", async () => {
+describe("runTriage (secret scrub)", () => {
+  it("runTriage_awsKeyInIssue_redactedInJsonAndTable", async () => {
     const tmp = freshTempDir();
     try {
       const specDir = resolve(tmp, "docs/specs/fx");
       mkdirSync(resolve(specDir, "review-raw"), { recursive: true });
-      cpSync(FIXTURES_DIR, resolve(specDir, "review-raw"), {
-        recursive: true,
-      });
-      const changedFiles = resolve(specDir, "review-raw/changed-files.txt");
+      // The key sample from tests/entropy-threshold.test.ts, assembled from
+      // two halves so no scannable literal sits in this file.
+      const key = "AKIA" + "QYLPMN5HG3WKZ7TQ";
+      writeFileSync(
+        resolve(specDir, "review-raw/security.md"),
+        `HIGH / scripts/x.ts:1 / VULN: leaked aws_key = "${key}" in config / rotate it\n`,
+        "utf-8",
+      );
+      const changedFiles = resolve(tmp, "changed-files.txt");
+      writeFileSync(changedFiles, "scripts/x.ts\n", "utf-8");
 
-      const { json } = await runTriage(specDir, changedFiles, {
-        config: ENABLED_CONFIG,
-        env: { TYPESAFE_API_KEY: "k" },
-        fetchImpl: jevFetchStub(),
-        scrubCmd: () => ({ status: 0 }),
-        scanCmd: () => ({ status: 0 }),
-        // `decide()` takes the project root as a dep, so this run's
-        // egress-guard staging stays inside the test's own temp root
-        // instead of the real repo's .claude/logs/.
-        projectRoot: tmp,
-        log: () => {},
-      });
+      const { json, table } = await runTriage(specDir, changedFiles);
 
-      const parsed = json as { findings: TriagedFinding[]; backend: string };
-      const byId: Record<string, TriagedFinding> = {};
-      for (const f of parsed.findings) byId[f.id] = f;
-
-      strictEqual(byId["security-1"].duplicate_of, "architecture-1");
-      strictEqual(byId["tests-2"].duplicate_of, null);
-      strictEqual(byId["security-3"].in_scope, "unrelated");
-      strictEqual(parsed.backend, "jev");
+      const raw = readFileSync(resolve(specDir, "review-triage.json"), "utf-8");
+      ok(!raw.includes(key), "the AWS key must not appear in the written JSON");
+      ok(!table.includes(key), "the AWS key must not appear in the table");
+      const parsed = json as { redactions: number; findings: TriagedFinding[] };
+      strictEqual(parsed.redactions, 1);
+      strictEqual(parsed.findings.length, 1);
+      strictEqual(
+        parsed.findings[0].issue,
+        'VULN: leaked aws_key = "[REDACTED:aws-access-token]" in config',
+      );
+      strictEqual(parsed.findings[0].fix, "rotate it");
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
 
-  it("runTriage_outputJson_isScrubbed_evenOnHeuristicPath", async () => {
+  it("runTriage_failingScrubCmd_withholdsEveryRow", async () => {
     const tmp = freshTempDir();
     try {
       const { specDir, changedFiles } = setupCliFixture(tmp);
-      copyScannerInto(tmp);
-      // The fixture on disk holds a placeholder; the real token shape is
-      // planted into this test's own copy of it, so the scanner subprocess
-      // has a genuine `ghp_` token to scrub.
-      const secret = plantSecretInFixture(specDir);
+      const { json } = await runTriage(specDir, changedFiles, {
+        scrubCmd: () => ({ status: 1 }),
+      });
+
+      const parsed = json as { findings: TriagedFinding[]; redactions: number };
+      strictEqual(parsed.findings.length, 7);
+      for (const f of parsed.findings) {
+        strictEqual(f.issue, "[WITHHELD:scrub-failed]");
+        strictEqual(f.fix, "[WITHHELD:scrub-failed]");
+      }
+      strictEqual(parsed.redactions, 14);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runTriage_cleanFixture_redactionsZero", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupCliFixture(tmp);
+      const { json } = await runTriage(specDir, changedFiles);
+
+      const parsed = json as { findings: TriagedFinding[]; redactions: number };
+      strictEqual(parsed.redactions, 0);
+      ok(
+        parsed.findings.every((f) => !f.issue.includes("[WITHHELD")),
+        "a clean fixture must not be withheld",
+      );
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+/** Writes `<tmp>/docs/specs/fx/review-raw/security.md` with `lines` and a one-file changed list. */
+function setupSecuritySpec(
+  tmp: string,
+  lines: string[],
+): { specDir: string; changedFiles: string } {
+  const specDir = resolve(tmp, "docs/specs/fx");
+  mkdirSync(resolve(specDir, "review-raw"), { recursive: true });
+  writeFileSync(
+    resolve(specDir, "review-raw/security.md"),
+    lines.join("\n") + "\n",
+    "utf-8",
+  );
+  const changedFiles = resolve(tmp, "changed-files.txt");
+  writeFileSync(changedFiles, "x.ts\n", "utf-8");
+  return { specDir, changedFiles };
+}
+
+/** Same sample key as the AWS test above, split so no scannable literal sits in this file. */
+const AWS_KEY = "AKIA" + "QYLPMN5HG3WKZ7TQ";
+
+type TriageJson = { findings: TriagedFinding[]; redactions: number };
+
+describe("runTriage (scan:allow defusal)", () => {
+  it("runTriage_scanAllowMarkerInIssue_stillRedacted", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupSecuritySpec(tmp, [
+        `HIGH / x.ts:1 / VULN: aws_key = "${AWS_KEY}" # scan:allow / rotate`,
+      ]);
+
+      const { json, table } = await runTriage(specDir, changedFiles);
+
+      const raw = readFileSync(resolve(specDir, "review-triage.json"), "utf-8");
+      ok(!raw.includes(AWS_KEY), "the key must not appear in the JSON");
+      ok(!table.includes(AWS_KEY), "the key must not appear in the table");
+      const parsed = json as TriageJson;
+      strictEqual(
+        parsed.findings[0].issue,
+        'VULN: aws_key = "[REDACTED:aws-access-token]" # scan-allow',
+      );
+      strictEqual(parsed.findings[0].fix, "rotate");
+      strictEqual(parsed.redactions, 1);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runTriage_upperCaseScanAllowMarkerInFix_stillRedacted", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupSecuritySpec(tmp, [
+        `HIGH / x.ts:1 / VULN: plain issue text / rotate aws_key = "${AWS_KEY}" # SCAN:ALLOW`,
+      ]);
+
+      const { json, table } = await runTriage(specDir, changedFiles);
+
+      const raw = readFileSync(resolve(specDir, "review-triage.json"), "utf-8");
+      ok(!raw.includes(AWS_KEY), "the key must not appear in the JSON");
+      ok(!table.includes(AWS_KEY), "the key must not appear in the table");
+      const parsed = json as TriageJson;
+      strictEqual(parsed.findings[0].issue, "VULN: plain issue text");
+      strictEqual(
+        parsed.findings[0].fix,
+        'rotate aws_key = "[REDACTED:aws-access-token]" # scan-allow',
+      );
+      strictEqual(parsed.redactions, 1);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("runTriage (fail closed)", () => {
+  it("runTriage_scrubDropsALine_withholdsEveryField", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupCliFixture(tmp);
+      const { json } = await runTriage(specDir, changedFiles, {
+        scrubCmd: (file) => {
+          const kept = readFileSync(file, "utf-8").split("\n").slice(1);
+          writeFileSync(file, kept.join("\n"), "utf-8");
+          return { status: 0 };
+        },
+        scanCmd: () => ({ status: 0 }),
+      });
+
+      const parsed = json as TriageJson;
+      strictEqual(parsed.findings.length, 7);
+      for (const f of parsed.findings) {
+        strictEqual(f.issue, "[WITHHELD:scrub-failed]");
+        strictEqual(f.fix, "[WITHHELD:scrub-failed]");
+      }
+      strictEqual(parsed.redactions, 2 * parsed.findings.length);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runTriage_scrubCmdThrows_withholdsEveryField", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupCliFixture(tmp);
+      const { json } = await runTriage(specDir, changedFiles, {
+        scrubCmd: () => {
+          throw new Error("spawn failed");
+        },
+        scanCmd: () => ({ status: 0 }),
+      });
+
+      const parsed = json as TriageJson;
+      strictEqual(parsed.findings.length, 7);
+      for (const f of parsed.findings) {
+        strictEqual(f.issue, "[WITHHELD:scrub-failed]");
+        strictEqual(f.fix, "[WITHHELD:scrub-failed]");
+      }
+      strictEqual(parsed.redactions, 14);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runTriage_rescanExitsNonzero_withholdsEveryField", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupCliFixture(tmp);
+      let scrubbedFile = "";
+      let scanned: { file: string; content: string } | undefined;
+      const { json } = await runTriage(specDir, changedFiles, {
+        scrubCmd: (file) => {
+          scrubbedFile = file;
+          return { status: 0 };
+        },
+        scanCmd: (file) => {
+          scanned = { file, content: readFileSync(file, "utf-8") };
+          return { status: 1 };
+        },
+      });
+
+      const parsed = json as TriageJson;
+      strictEqual(parsed.findings.length, 7);
+      for (const f of parsed.findings) {
+        strictEqual(f.issue, "[WITHHELD:scrub-failed]");
+        strictEqual(f.fix, "[WITHHELD:scrub-failed]");
+      }
+      strictEqual(parsed.redactions, 14);
+      strictEqual(
+        scanned?.file,
+        scrubbedFile,
+        "re-scan must target the scrubbed file",
+      );
+      strictEqual(
+        scanned?.content.split("\n").length,
+        15,
+        "14 fields plus the trailing newline",
+      );
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runTriage_scrubReportsCleanButKeyRemains_realRescanWithholds", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupSecuritySpec(tmp, [
+        `HIGH / x.ts:1 / VULN: aws_key = "${AWS_KEY}" / rotate`,
+      ]);
+      // A scrub that claims success without touching the file: only the
+      // real `scan-files --quiet` re-scan can catch it.
+      const { json } = await runTriage(specDir, changedFiles, {
+        scrubCmd: () => ({ status: 0 }),
+      });
+
+      const raw = readFileSync(resolve(specDir, "review-triage.json"), "utf-8");
+      ok(!raw.includes(AWS_KEY), "the key must not reach the JSON");
+      const parsed = json as TriageJson;
+      strictEqual(parsed.findings[0].issue, "[WITHHELD:scrub-failed]");
+      strictEqual(parsed.findings[0].fix, "[WITHHELD:scrub-failed]");
+      strictEqual(parsed.redactions, 2);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("runTriage (staging file and escaping)", () => {
+  it("runTriage_scrubStaging_removedAfterSuccessAndFailure", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupCliFixture(tmp);
+      const seen: string[] = [];
+
+      await runTriage(specDir, changedFiles, {
+        scrubCmd: (file) => {
+          seen.push(file);
+          return { status: 0 };
+        },
+        scanCmd: () => ({ status: 0 }),
+      });
+      await runTriage(specDir, changedFiles, {
+        scrubCmd: (file) => {
+          seen.push(file);
+          return { status: 1 };
+        },
+      });
+
+      strictEqual(seen.length, 2);
+      for (const file of seen) {
+        strictEqual(
+          existsSync(dirname(file)),
+          false,
+          `staging dir must be gone: ${dirname(file)}`,
+        );
+      }
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runTriage_backslashesInFields_roundTripUnchanged", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupSecuritySpec(tmp, [
+        "HIGH / x.ts:1 / ISSUE: opens C:\\new\\dir and a\\\\nb / use C:\\temp\\r",
+      ]);
 
       const { json } = await runTriage(specDir, changedFiles, {
-        config: DISABLED_CONFIG,
-        env: {},
-        projectRoot: tmp,
-        log: () => {},
+        scrubCmd: () => ({ status: 0 }),
+        scanCmd: () => ({ status: 0 }),
+      });
+
+      const parsed = json as TriageJson;
+      strictEqual(
+        parsed.findings[0].issue,
+        "ISSUE: opens C:\\new\\dir and a\\\\nb",
+      );
+      strictEqual(parsed.findings[0].fix, "use C:\\temp\\r");
+      strictEqual(parsed.redactions, 0);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("runTriage (sensitive key=value redaction)", () => {
+  // Assembled at runtime; none of these is a token shape the scanner knows.
+  const PW = "Tr0ub4dor" + "-9x";
+  const DB_PW = "s3cr3t" + "-7q";
+
+  it("runTriage_passwordEqualsValue_valueRedacted", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupSecuritySpec(tmp, [
+        `HIGH / x.ts:1 / VULN: config has password=${PW} committed / rotate`,
+      ]);
+
+      const { json } = await runTriage(specDir, changedFiles, {
+        scrubCmd: () => ({ status: 0 }),
+        scanCmd: () => ({ status: 0 }),
+      });
+
+      const parsed = json as TriageJson;
+      strictEqual(
+        parsed.findings[0].issue,
+        "VULN: config has password=[REDACTED:sensitive-key] committed",
+      );
+      strictEqual(parsed.findings[0].fix, "rotate");
+      strictEqual(parsed.redactions, 1);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runTriage_passwordColonValue_valueRedacted", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupSecuritySpec(tmp, [
+        `HIGH / x.ts:1 / VULN: config has password: ${PW} committed / rotate`,
+      ]);
+
+      const { json } = await runTriage(specDir, changedFiles, {
+        scrubCmd: () => ({ status: 0 }),
+        scanCmd: () => ({ status: 0 }),
+      });
+
+      const parsed = json as TriageJson;
+      strictEqual(
+        parsed.findings[0].issue,
+        "VULN: config has password: [REDACTED:sensitive-key] committed",
+      );
+      strictEqual(parsed.redactions, 1);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runTriage_quotedDbPasswordInFix_valueRedactedAndCountedOnce", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupSecuritySpec(tmp, [
+        `HIGH / x.ts:1 / VULN: env leaks credentials / drop DB_PASSWORD: "${DB_PW}" and password=${PW}`,
+      ]);
+
+      const { json, table } = await runTriage(specDir, changedFiles, {
+        scrubCmd: () => ({ status: 0 }),
+        scanCmd: () => ({ status: 0 }),
       });
 
       const raw = readFileSync(resolve(specDir, "review-triage.json"), "utf-8");
       ok(
-        raw.includes("[REDACTED:"),
-        `expected a redaction marker in the written JSON, got:\n${raw}`,
+        !raw.includes(DB_PW) && !raw.includes(PW),
+        "values must not reach the JSON",
       );
-      ok(
-        !raw.includes(secret),
-        "the planted ghp_ token must not appear in the written JSON",
+      ok(!table.includes(DB_PW), "values must not reach the table");
+      const parsed = json as TriageJson;
+      strictEqual(parsed.findings[0].issue, "VULN: env leaks credentials");
+      strictEqual(
+        parsed.findings[0].fix,
+        "drop DB_PASSWORD: [REDACTED:sensitive-key] and password=[REDACTED:sensitive-key]",
       );
-
-      const parsed = json as { redactions: number };
-      ok(
-        parsed.redactions >= 1,
-        `expected header redactions >= 1, got ${parsed.redactions}`,
-      );
+      strictEqual(parsed.redactions, 1, "one changed field, two pairs");
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
 
-  it("runTriage_calibrate_printsProbabilitiesWithoutApplying", async () => {
+  it("runTriage_dbPasswordRightAfterVulnPrefix_valueRedacted", async () => {
     const tmp = freshTempDir();
     try {
-      const specDir = resolve(tmp, "docs/specs/fx");
-      mkdirSync(resolve(specDir, "review-raw"), { recursive: true });
-      cpSync(FIXTURES_DIR, resolve(specDir, "review-raw"), {
-        recursive: true,
-      });
-      const changedFiles = resolve(specDir, "review-raw/changed-files.txt");
-
-      const { table } = await runTriage(specDir, changedFiles, {
-        config: ENABLED_CONFIG,
-        env: { TYPESAFE_API_KEY: "k" },
-        fetchImpl: jevFetchStub(),
-        scrubCmd: () => ({ status: 0 }),
-        scanCmd: () => ({ status: 0 }),
-        // `decide()` takes the project root as a dep, so this run's
-        // egress-guard staging stays inside the test's own temp root
-        // instead of the real repo's .claude/logs/.
-        projectRoot: tmp,
-        calibrate: true,
-        log: () => {},
-      });
-
-      ok(
-        table.includes("jev dup p"),
-        `expected a "jev dup p" column, got:\n${table}`,
-      );
-      ok(
-        table.includes("0.9"),
-        `expected a 0.9 probability value in the table, got:\n${table}`,
-      );
-      ok(
-        !existsSync(resolve(specDir, "review-triage.json")),
-        "review-triage.json must not be written in --calibrate mode",
-      );
-
-      const calPath = resolve(specDir, "review-triage-calibration.json");
-      ok(
-        existsSync(calPath),
-        "expected review-triage-calibration.json to be written",
-      );
-      const calibration = JSON.parse(readFileSync(calPath, "utf-8"));
-      strictEqual(calibration.agreement.dup.total, 2);
-      // The security-2/tests-2 pair's 0.5 noul (below the 0.85 threshold)
-      // disagrees with the heuristic's pairing (which merged them, so its
-      // heuristic answer was "duplicate"); the architecture-1/security-1
-      // pair's 0.9 noul agrees with the heuristic's pairing. So exactly 1
-      // of 2 pairs agrees.
-      strictEqual(calibration.agreement.dup.agreed, 1);
-      strictEqual(calibration.rows.length, 7);
-    } finally {
-      rmSync(tmp, { recursive: true, force: true });
-    }
-  });
-
-  it("runTriage_jevStub_recordsLiftInHeaderAndLog", async () => {
-    const tmp = freshTempDir();
-    try {
-      const specDir = resolve(tmp, "docs/specs/fx");
-      mkdirSync(resolve(specDir, "review-raw"), { recursive: true });
-      cpSync(FIXTURES_DIR, resolve(specDir, "review-raw"), {
-        recursive: true,
-      });
-      const changedFiles = resolve(specDir, "review-raw/changed-files.txt");
-
-      const logged: Array<{ event: string; kv: Record<string, string> }> = [];
-      const { json } = await runTriage(specDir, changedFiles, {
-        config: ENABLED_CONFIG,
-        env: { TYPESAFE_API_KEY: "k" },
-        fetchImpl: jevFetchStub(),
-        scrubCmd: () => ({ status: 0 }),
-        scanCmd: () => ({ status: 0 }),
-        // `decide()` takes the project root as a dep, so this run's
-        // egress-guard staging stays inside the test's own temp root
-        // instead of the real repo's .claude/logs/.
-        projectRoot: tmp,
-        log: (event, kv) => logged.push({ event, kv }),
-      });
-
-      const parsed = json as { lift: unknown };
-      // architecture-2's scope flips heuristic "unrelated" -> Jev "in_diff"
-      // (it gets the blanket "in_diff" answer every non-security-3 finding
-      // gets in this stub), so scope_changed is 1; the security-2/tests-2
-      // pair's 0.5 noul clears the heuristic's pairing, so dup_changed is 1;
-      // every severity answer echoes its heuristic index, so
-      // severity_changed is 0. See tests/fixtures/review-raw/ and
-      // docs/specs/jev-integration/tasks/T186/context.md.
-      deepStrictEqual(parsed.lift, {
-        dup_pairs: 2,
-        dup_changed: 1,
-        scope_changed: 1,
-        severity_changed: 0,
-      });
-
-      const triagedEvents = logged.filter((l) => l.event === "review-triaged");
-      strictEqual(triagedEvents.length, 1);
-      strictEqual(triagedEvents[0].kv.backend, "jev");
-      strictEqual(triagedEvents[0].kv.severity_changed, "0");
-    } finally {
-      rmSync(tmp, { recursive: true, force: true });
-    }
-  });
-
-  it("runTriage_heuristicPath_liftIsNull", async () => {
-    const tmp = freshTempDir();
-    try {
-      const { specDir, changedFiles } = setupCliFixture(tmp);
-      const logged: Array<{ event: string; kv: Record<string, string> }> = [];
+      const { specDir, changedFiles } = setupSecuritySpec(tmp, [
+        `HIGH / x.ts:2 / VULN: DB_PASSWORD: "${DB_PW}" in env / rotate`,
+      ]);
 
       const { json } = await runTriage(specDir, changedFiles, {
-        config: DISABLED_CONFIG,
-        env: {},
-        projectRoot: tmp,
         scrubCmd: () => ({ status: 0 }),
         scanCmd: () => ({ status: 0 }),
-        log: (event, kv) => logged.push({ event, kv }),
       });
 
-      const parsed = json as { lift: unknown };
-      strictEqual(parsed.lift, null);
+      const parsed = json as TriageJson;
+      strictEqual(
+        parsed.findings[0].issue,
+        "VULN: DB_PASSWORD: [REDACTED:sensitive-key] in env",
+      );
+      strictEqual(parsed.redactions, 1);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 
-      const triagedEvents = logged.filter((l) => l.event === "review-triaged");
-      strictEqual(triagedEvents.length, 1);
-      strictEqual(triagedEvents[0].kv.backend, "heuristic");
+  it("runTriage_nonSensitiveKeyValue_leftAlone", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupSecuritySpec(tmp, [
+        "HIGH / x.ts:1 / ISSUE: timeout=30 and mode: strict are fine / keep",
+      ]);
+
+      const { json } = await runTriage(specDir, changedFiles, {
+        scrubCmd: () => ({ status: 0 }),
+        scanCmd: () => ({ status: 0 }),
+      });
+
+      const parsed = json as TriageJson;
+      strictEqual(
+        parsed.findings[0].issue,
+        "ISSUE: timeout=30 and mode: strict are fine",
+      );
+      strictEqual(parsed.redactions, 0);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runTriage_passwordShapesWithRealScanner_valuesAbsentFromJson", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupSecuritySpec(tmp, [
+        `HIGH / x.ts:1 / VULN: config has password=${PW} committed / rotate`,
+        `HIGH / x.ts:2 / VULN: DB_PASSWORD: "${DB_PW}" in env / rotate`,
+      ]);
+
+      const { json } = await runTriage(specDir, changedFiles);
+
+      const raw = readFileSync(resolve(specDir, "review-triage.json"), "utf-8");
+      ok(!raw.includes(PW), "password value must not reach the JSON");
+      ok(!raw.includes(DB_PW), "DB_PASSWORD value must not reach the JSON");
+      const parsed = json as TriageJson;
+      strictEqual(parsed.redactions, 2);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

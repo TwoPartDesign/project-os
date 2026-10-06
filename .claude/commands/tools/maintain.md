@@ -46,8 +46,8 @@ ledger and the run continues.
 
 Drafts are deduplicated by a content-derived fingerprint (`grep -F` substring
 match against `maint-fp:` comments) — an unchanged finding never re-files; a
-changed one (different file set, different failing tool, different count)
-does.
+changed one (different file set, different failing tool) does. The failures
+check re-files once per ISO week per tool (one draft per tool per week).
 
 ## Policy file
 
@@ -111,3 +111,12 @@ Filed drafts land under `## Feature: maintenance-inbox` in `ROADMAP.md` as
 ```
 
 Nothing else in the repo changes as a result of this command running.
+
+## Manual step: prompt audit
+
+Periodically (after a model upgrade or a large instruction-file edit), run
+`/doctor prompt-audit` (2.1.283) interactively and triage the report. Stale
+paths, stale commands and contradicting instruction files lead the report;
+fix those first. File anything that needs a real change as a `[?]` draft.
+This is not part of `scripts/maintain.sh`: the audit needs an interactive
+session.

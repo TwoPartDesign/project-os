@@ -17,6 +17,8 @@
 #   PROJECT_OS_ROOT   Override the project root (used by tests to point the
 #                     loop at a fixture project instead of walking up from
 #                     this script's own directory).
+#   PROJECT_OS_WEEK   Override the ISO week (YYYY-Www) used in the failures
+#                     draft fingerprint (used by tests to pin the window).
 #
 # Exit: always 0 on a completed or gracefully-skipped run (lock contention,
 # unavailable checks). Nonzero only on a genuine script bug.
@@ -420,11 +422,11 @@ run_check_staleness() {
         ledger_skip_unavailable "staleness"
         return 0
     fi
-    if printf '%s\n' "$out" | grep -q "^Index not found"; then
+    if grep -q "^Index not found" <<< "$out"; then
         ledger_skip_unavailable "staleness"
         return 0
     fi
-    if printf '%s\n' "$out" | grep -q "^No stale files"; then
+    if grep -q "^No stale files" <<< "$out"; then
         return 0
     fi
 
@@ -473,8 +475,9 @@ run_check_failures() {
                     continue
                 fi
             fi
-            tool=$(printf '%s' "$line" | sed -E 's/.*FAIL tool=([A-Za-z0-9_-]+).*/\1/')
-            [ -z "$tool" ] && continue
+            # A line without `FAIL tool=` is skipped, never counted under its raw text.
+            [[ "$line" =~ FAIL\ tool=([A-Za-z0-9_-]+) ]] || continue
+            tool="${BASH_REMATCH[1]}"
             tool_counts["$tool"]=$((${tool_counts["$tool"]:-0} + 1))
         done <"$log"
     fi
@@ -483,7 +486,7 @@ run_check_failures() {
         local aline ats
         while IFS= read -r aline; do
             [ -z "$aline" ] && continue
-            printf '%s' "$aline" | grep -qE '"event":[[:space:]]*"task-failed"' || continue
+            grep -qE '"event":[[:space:]]*"task-failed"' <<< "$aline" || continue
             ats=$(printf '%s' "$aline" | grep -oE '"timestamp":[[:space:]]*"[^"]*"' | sed -E 's/.*"([^"]*)"$/\1/') || true
             if [ -n "$LAST_RUN_TS" ] && [ -n "$ats" ]; then
                 if [[ ! "$ats" > "$LAST_RUN_TS" ]]; then
@@ -498,6 +501,24 @@ run_check_failures() {
     # the ledger timestamp advances every run, so a co-occurring second tool
     # skipped here would be lost permanently, not merely deferred. Sorted for
     # deterministic ordering; the global draft cap still bounds how many land.
+    # Dedupe is a weekly window, not an exact count: the fingerprint carries
+    # the ISO week (failures:<tool>:YYYY-Www), so a changing count cannot
+    # re-file a duplicate within a week, a tool that keeps failing refiles the
+    # next week, and the trailing week stops prefix collisions between tools
+    # or with old failures:<tool>:<count> lines. The count lives in the title
+    # only. The threshold of 5 is provisional and will be recalibrated after a
+    # week of real data.
+    # PROJECT_OS_WEEK is honoured only when well-formed; blank/junk falls back
+    # to the computed week.
+    local week_re='^[0-9]{4}-W[0-9]{2}$'
+    local week="${PROJECT_OS_WEEK:-}"
+    if ! [[ "$week" =~ $week_re ]]; then
+        week=$(date -u +%G-W%V) || week=""
+    fi
+    if ! [[ "$week" =~ $week_re ]]; then
+        echo "maintain: could not compute a well-formed ISO week; skipping failures draft for this run" >&2
+        return 0
+    fi
     local over_tools=() t
     for t in "${!tool_counts[@]}"; do
         if [ "${tool_counts[$t]}" -ge "$FAILURE_DRAFT_THRESHOLD" ]; then
@@ -508,7 +529,7 @@ run_check_failures() {
     mapfile -t SORTED_TOOLS < <(printf '%s\n' "${over_tools[@]}" | sort)
     for t in "${SORTED_TOOLS[@]}"; do
         [ -z "$t" ] && continue
-        add_finding "Investigate recurring ${t} failures (${tool_counts[$t]} since ${LAST_RUN_TS:-start})" "failures:${t}:${tool_counts[$t]}"
+        add_finding "Investigate recurring ${t} failures (${tool_counts[$t]} since ${LAST_RUN_TS:-start})" "failures:${t}:${week}"
     done
 }
 

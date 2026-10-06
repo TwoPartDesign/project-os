@@ -108,3 +108,34 @@ Each entry: Date, Symptom, Root Cause, Fix, Prevention Rule
 **Fix**: Recovered the files by replaying the `Write` tool calls from the agent transcript (`~/.claude/projects/<project>/<session>/subagents/agent-<id>.jsonl`) into the main repo. `dream.md` Step 3 now requires an absolute main-repo staging path and warns that the worktree is not the destination.
 
 **Prevention Rule**: Any brief to a worktree-isolated agent whose deliverable lands in a gitignored path (`docs/memory/`, `docs/specs/`, `.claude/sessions/`) must give the absolute main-repo path. Inputs under those paths are likewise invisible inside the worktree; pass absolute paths for them too. When a report claims files exist, verify with Glob against the main repo before the worktree is gone.
+
+**Update 2026-10-06**: On CLI 2.1.290 the harness refuses a worktree-isolated agent's writes to the shared checkout ("Edit the worktree copy of this file instead"). Outputs bound for gitignored paths now go to the session scratchpad, and the lead places them with Write; inputs still come by absolute main-repo path. Do not route around the refusal with `cp` or any Bash command. `worktree.baseRef: "head"` (#T216) also removed the brief's `git merge` step.
+
+### 2026-10-06 — #T204 Project hooks and settings `env` do not load when the session starts in a parent folder
+
+**Symptom**: Observed 2026-09-16 in a session started in a parent folder that Bash-`cd`d into the repo. CLAUDE.md and `.claude/rules/` loaded, but there were no per-session markers in `.claude/logs/`, no `tool-failures.log` line for a failed call, and a handoff write went unclaimed, so `pre-compact.sh` could not forward it.
+
+**Investigation**: Reproduced with two throwaway git roots, each with a settings `env` var and SessionStart and PostToolUse hooks (absolute paths, so only loading was under test) that touch a marker. Session A started in the parent directory and ran `cd <root>` as a Bash call, then another call. Session B started in the root itself.
+
+| | Session A (parent, `cd` in) | Session B (in the root) |
+|---|---|---|
+| `pwd` after the `cd` | the root | the root |
+| `$P_ENV` from settings `env` | empty | set |
+| SessionStart marker | absent | present |
+| PostToolUse marker | absent | present |
+
+**Root Cause**: Claude Code reads project settings, and so registers project hooks and `env`, from the directory the session starts in. A Bash `cd` moves the shell, not the project. Project OS enforcement (format, secret scrub, failure log, handoff claim) lives entirely in those hooks, so such a session runs with the governance layer silently off.
+
+**Fix**: None possible in the repo; the loading rule is the runtime's. Mitigation: `/tools:catchup` Step 2b probes with one deliberate failing Bash call and warns when `.claude/logs/tool-failures.log` gets no fresh `FAIL tool=Bash` line. A SessionStart hook cannot do this check, since it is one of the things that fails to load. The probe uses the failure log because no hook currently writes a per-session `.tool-count-<session_id>` marker (only `session-end-cleanup.sh` still references it), so that marker never exists to check for.
+
+**Prevention Rule**: Start Claude Code from the repo root. If a session did start elsewhere, restart it rather than `cd`ing in. Do not rely on a SessionStart hook to report that hooks are inactive.
+
+### 2026-10-06 — new-project-smoke: `git log | grep -q` under `pipefail` fails at random
+
+**Symptom**: The wave-3 gate failed once with `FAIL: scenario12b: adopt commit missing`. The same scenario run three times in isolation committed every time.
+
+**Root Cause**: `tests/new-project-smoke.sh` runs `set -uo pipefail`. In `git log --oneline | grep -q "adopt Project OS scaffold"`, the match is the first line, so `grep -q` exits immediately. If git is still writing the second line, it dies of SIGPIPE (141), and `pipefail` makes the whole condition false even though the commit exists. Whether it fails depends on scheduling.
+
+**Fix**: The three such assertions (:253, :790, :805) now test `[ -n "$(git log --oneline --fixed-strings --grep=...)" ]`, which has no pipe.
+
+**Prevention Rule**: Under `pipefail`, never pipe a producer into `grep -q` (or `head`) in a condition. Filter in the producer (`git log --grep`) or capture into a variable first.

@@ -16,7 +16,7 @@
 // holds stale command copies and is never read.
 
 import { describe, it } from "node:test";
-import { ok, deepStrictEqual, throws } from "node:assert";
+import { ok, deepStrictEqual, strictEqual, throws } from "node:assert";
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { resolve, dirname, join, basename } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -95,6 +95,28 @@ const FINDING_FORMAT = "SEVERITY / FILE:LINES / ISSUE / FIX";
  */
 const ALLOW_MARKER_RE =
   /<!--\s*roster-test:\s*allow\s+([a-z0-9_,\s-]+?)\s*-->/i;
+
+/**
+ * Stale routing shapes that name `fable` as the top rung or the lead. `fable`
+ * itself stays a valid alias; only these two statements are retired.
+ */
+const FABLE_RUNG_PATTERNS: ReadonlyArray<{
+  re: RegExp;
+  why: string;
+  tag: string;
+}> = [
+  {
+    // An arrow chain whose last rung is fable (not followed by another arrow).
+    re: /(?:→|->)\s*[`"']?fable[`"']?(?![\w-])(?!\s*(?:→|->))/i,
+    why: "ladder ending in fable",
+    tag: "fable-rung",
+  },
+  {
+    re: /\bLead:\s*[`"']?fable[`"']?(?![\w-])/i,
+    why: "fable lead",
+    tag: "fable-rung",
+  },
+];
 
 type FrontmatterValue = string | string[];
 
@@ -289,6 +311,12 @@ function registrationProblems(rel: string, fm: Frontmatter): string[] {
       `${rel}: disallowedTools is ${JSON.stringify(f.disallowedTools)}, must include "Agent" — fan-out is the Lead's job`,
     );
   }
+  // The frontmatter parser keeps scalars as strings, so `true` arrives as "true".
+  if (f.omitClaudeMd !== "true") {
+    problems.push(
+      `${rel}: omitClaudeMd is ${JSON.stringify(f.omitClaudeMd)}, must be true — briefs carry the conventions (#T208)`,
+    );
+  }
   return problems;
 }
 
@@ -416,6 +444,42 @@ describe("agent roster registration", () => {
 
     // No frontmatter at all.
     deepStrictEqual(parseFrontmatter("# Roles\n\nAdvisory only.\n"), null);
+  });
+
+  it("registrationProblems_omitClaudeMdFalseOrAbsent_reportsProblem", () => {
+    /** Fixture frontmatter for `implementer` with the given extra lines. */
+    const fixture = (extra: string[]): string =>
+      [
+        "---",
+        "name: implementer",
+        'description: "Implements one task: exactly as specified."',
+        "model: sonnet",
+        "effort: high",
+        "disallowedTools: [Agent]",
+        ...extra,
+        "---",
+        "",
+        "# Implementer Agent",
+        "",
+      ].join("\n");
+    const rel = ".claude/agents/implementer.md";
+
+    const falseFm = parseFrontmatter(fixture(["omitClaudeMd: false"]));
+    ok(falseFm !== null, "fixture with omitClaudeMd: false must parse");
+    deepStrictEqual(registrationProblems(rel, falseFm!), [
+      `${rel}: omitClaudeMd is "false", must be true — briefs carry the conventions (#T208)`,
+    ]);
+
+    const absentFm = parseFrontmatter(fixture([]));
+    ok(absentFm !== null, "fixture without omitClaudeMd must parse");
+    deepStrictEqual(registrationProblems(rel, absentFm!), [
+      `${rel}: omitClaudeMd is undefined, must be true — briefs carry the conventions (#T208)`,
+    ]);
+
+    // Control: the same fixture with `omitClaudeMd: true` registers cleanly.
+    const trueFm = parseFrontmatter(fixture(["omitClaudeMd: true"]));
+    ok(trueFm !== null, "fixture with omitClaudeMd: true must parse");
+    deepStrictEqual(registrationProblems(rel, trueFm!), []);
   });
 });
 
@@ -576,9 +640,75 @@ describe("model-routing guidance", () => {
     ok(
       offenders.length === 0,
       "live guidance still names a retired tier or a dated model id. " +
-        'The ladder is sonnet -> opus -> fable on bare aliases. Add "<!-- roster-test: allow <tag> -->" ' +
+        'The ladder is sonnet (high) -> opus (high) -> opus (xhigh) on bare aliases. Add "<!-- roster-test: allow <tag> -->" ' +
         'naming the pattern tag it excuses (e.g. "haiku" or "dated-id") ' +
         "to a line that legitimately names one (e.g. prose about the retirement itself).\n" +
+        offenders.join("\n"),
+    );
+  });
+
+  it("guidance_fableRungPatterns_matchLadderEndAndLeadHeadingOnly", () => {
+    const hits = (line: string): boolean =>
+      FABLE_RUNG_PATTERNS.some(({ re }) => re.test(line));
+
+    // The stale shapes: a ladder ending in fable, and a fable lead.
+    strictEqual(
+      hits("Ladder: `sonnet` → `opus` → `fable`. Move one rung"),
+      true,
+    );
+    strictEqual(
+      hits("The ladder is `sonnet` -> `opus` -> `fable`; raise"),
+      true,
+    );
+    strictEqual(hits("### Lead: `fable`"), true);
+    strictEqual(hits('Lead: "fable"'), true);
+
+    // Legitimate mentions: the valid alias list, the opt-in prose, and the
+    // current ladder, which ends in opus (xhigh).
+    strictEqual(hits("prefer a bare alias (`opus`/`sonnet`/`fable`)"), false);
+    strictEqual(
+      hits("`fable` is no longer a rung: it stays available only as an opt-in"),
+      false,
+    );
+    strictEqual(
+      hits("`sonnet` (high) → `opus` (high) → `opus` (xhigh)"),
+      false,
+    );
+    strictEqual(hits("### Lead: `opus`"), false);
+  });
+
+  it("guidance_allFiles_noLadderEndingInFableOrFableLead", () => {
+    // `fable` is a valid alias (VALID_MODELS), so it may be named; it must not
+    // be the lead or the top rung of the ladder (ADR 2026-10-05). The ladder is
+    // sonnet (high) -> opus (high) -> opus (xhigh); fable is an Approver-
+    // confirmed opt-in only. Excuse a line with
+    // `<!-- roster-test: allow fable-rung -->`.
+    const offenders: string[] = [];
+    for (const rel of guidanceFiles()) {
+      read(rel)
+        .split(/\r?\n/)
+        .forEach((line, i) => {
+          const marker = line.match(ALLOW_MARKER_RE);
+          const allowed = marker
+            ? new Set(
+                marker[1]
+                  .split(/[\s,]+/)
+                  .filter(Boolean)
+                  .map((t) => t.toLowerCase()),
+              )
+            : null;
+          for (const { re, why, tag } of FABLE_RUNG_PATTERNS) {
+            if (!re.test(line) || allowed?.has(tag)) continue;
+            offenders.push(`${rel}:${i + 1} (${why})`);
+            return;
+          }
+        });
+    }
+    deepStrictEqual(
+      offenders,
+      [],
+      "live guidance still states a fable lead or a ladder ending in fable; " +
+        "the lead is opus and the ladder is sonnet (high) -> opus (high) -> opus (xhigh):\n" +
         offenders.join("\n"),
     );
   });

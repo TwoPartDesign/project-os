@@ -113,7 +113,6 @@ For small changes (< 20 lines, single file) skip the pipeline and describe the c
 | `/tools:catchup` | Restore context from last session handoff |
 | `/tools:commit` | Quality-checked git commit with pre-flight scan |
 | `/tools:research [topic]` | Spawn parallel research agents |
-| `/tools:kv set/get/list` | Quick key-value notes in `docs/knowledge/kv.md` |
 | `/tools:dashboard [path]` | Cross-project status dashboard (CLI + live web view) |
 | `/tools:metrics [feature]` | Query activity logs and feature metrics |
 
@@ -160,7 +159,7 @@ Five layers with distinct lifespans:
 
 | Role | Model | Why |
 |---|---|---|
-| Lead | `fable` (`opus` on plans without Fable) | Complex reasoning, architecture, dispatch |
+| Lead | `opus` at high effort (fallback `sonnet`) | Complex reasoning, architecture, dispatch |
 | Default sub-agent | `sonnet` at high effort | Any task with a complete brief and checkable acceptance criteria |
 | Judgment tier | `opus` at high effort | Reconciling sources, test design, root-causing, cross-system refactors, escalation after a Sonnet failure |
 | Reviewers | `inherit` | Consistent judgment with the lead |

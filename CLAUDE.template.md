@@ -24,13 +24,9 @@
 See `docs/knowledge/architecture.md` for full details.
 
 ## Active Conventions
-<!-- /tools:init: replace with one line per established pattern (name — rule
-     enforced) as patterns.md accumulates entries — then keep the pointer
-     line below. -->
-This project has no recorded patterns yet.
-
-See `docs/knowledge/patterns.md` for full rationale, examples, and
-anti-patterns per pattern.
+The established patterns live in `docs/knowledge/patterns.md`, one entry each
+with rationale, examples, and anti-patterns. Read it before design and build
+decisions.
 
 ## Workflow
 This project uses spec-driven development:
@@ -47,9 +43,9 @@ Optional: `/workflows:compete` + `/workflows:compete-review` for competitive imp
 Never skip from idea to build. The design phase catches 80% of mistakes.
 
 ## Model Routing
-- **Lead**: `fable` (set via `"model"` in settings.json; `opus` on plans without Fable)
+- **Lead**: Opus (`opus`) at high effort, set via `"model"` in settings.json, with `"fallbackModel": ["sonnet"]`
 - **Default sub-agent**: `sonnet` at high effort via `implementer`/`documenter` frontmatter, for any task with a complete brief and checkable acceptance criteria
-- **Judgment tier**: `opus` at high effort via `(model: opus)` annotations or `researcher`, for reconciling sources, test design, root-causing, cross-system refactors, and escalation after a Sonnet failure. `CLAUDE_CODE_SUBAGENT_MODEL` stays `opus` as the tier for any unnamed spawn
+- **Judgment tier**: `opus` at high effort via `(model: opus)` annotations or `researcher`, for reconciling sources, test design, root-causing, cross-system refactors, and escalation after a Sonnet failure; the top of the ladder is `opus` at xhigh. `fable` is no longer a rung: it stays available only as an Approver-confirmed choice through `/tools:set-models`. `CLAUDE_CODE_SUBAGENT_MODEL` stays `opus` as the tier for any unnamed spawn
 - **Reviewers**: `inherit`
 - **Adversarial review**: Primary model with isolated context
 - **Agent adapters**: Per-task routing via `(agent: <name>)` — see `.claude/agents/adapters/INTERFACE.md`
@@ -72,10 +68,11 @@ See `.claude/agents/roles.md` for full definitions.
 | Pattern | Skill | Loads |
 |---|---|---|
 | implement, build, add feature | spec-driven-dev | SDD protocol |
-| test, tdd, verify, coverage | tdd-workflow | Red-Green-Refactor |
+| test, tdd, coverage | tdd-workflow | Red-Green-Refactor |
+| commit, pre-commit, verify | verify | Fast suite before commit |
 | handoff, done, end session | session-management | Auto-save protocol |
 | deploy, ship, release, external | workflows:ship | Pre-ship checklist + PR generation |
-| filter, compress, large output, stale, fresh | context-filter | Filter protocol |
+| stale, fresh, knowledge search | context-filter | Freshness-scored knowledge search |
 
 ## Rules
 - Never commit with TODO, FIXME, or HACK without a linked task in ROADMAP.md

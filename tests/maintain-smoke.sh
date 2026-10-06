@@ -263,7 +263,7 @@ scenario_4() {
         return
     fi
 
-    if printf '%s' "$line" | grep -q 'stale_threshold_days'; then
+    if [[ "$line" == *"stale_threshold_days"* ]]; then
         pass "$name: ledger policy_warnings mentions the malformed key"
     else
         fail "$name: expected policy_warnings to mention stale_threshold_days: $line"
@@ -331,7 +331,7 @@ scenario_6() {
 
     local line
     line="$(tail -n1 "$fx/.claude/logs/maintenance-ledger.jsonl" 2>/dev/null || true)"
-    if printf '%s' "$line" | grep -q '"skipped":"lock-held"'; then
+    if [[ "$line" == *'"skipped":"lock-held"'* ]]; then
         pass "$name: ledger records a lock-held note"
     else
         fail "$name: expected a lock-held ledger note, got: $line"
@@ -394,7 +394,7 @@ scenario_8() {
         return
     fi
 
-    if printf '%s\n' "$out" | grep -q "^would file:"; then
+    if grep -q -- "^would file:" <<<"$out"; then
         pass "$name: dry-run prints would-file lines"
     else
         fail "$name: expected would-file output, got: $out"
@@ -468,17 +468,17 @@ scenario_9() {
 
     local roadmap
     roadmap="$(cat "$fx/ROADMAP.md")"
-    if printf '%s' "$roadmap" | grep -q "stub-hook.sh"; then
+    if grep -q -- "stub-hook.sh" <<<"$roadmap"; then
         pass "$name: HIGH subject cited in the draft"
     else
         fail "$name: HIGH subject stub-hook.sh missing from ROADMAP"
     fi
-    if printf '%s' "$roadmap" | grep -q "stub-doc.md"; then
+    if grep -q -- "stub-doc.md" <<<"$roadmap"; then
         fail "$name: LOW subject stub-doc.md leaked into the draft (should be HIGH-only)"
     else
         pass "$name: LOW subject correctly excluded"
     fi
-    if printf '%s' "$roadmap" | grep -q "map:stub-hook.sh"; then
+    if grep -q -- "map:stub-hook.sh" <<<"$roadmap"; then
         pass "$name: fingerprint derived from HIGH subjects"
     else
         fail "$name: expected fingerprint map:stub-hook.sh"
@@ -514,12 +514,12 @@ scenario_10() {
 
     local roadmap
     roadmap="$(cat "$fx/ROADMAP.md")"
-    if printf '%s' "$roadmap" | grep -q "recurring Bash failures"; then
+    if [[ "$roadmap" == *"recurring Bash failures"* ]]; then
         pass "$name: Bash failures drafted"
     else
         fail "$name: Bash failures draft missing"
     fi
-    if printf '%s' "$roadmap" | grep -q "recurring Read failures"; then
+    if [[ "$roadmap" == *"recurring Read failures"* ]]; then
         pass "$name: co-occurring Read failures also drafted (not lost)"
     else
         fail "$name: Read failures draft missing — single-winner regression"
@@ -555,14 +555,14 @@ scenario_11() {
 
     local roadmap
     roadmap="$(cat "$fx/ROADMAP.md")"
-    if printf '%s' "$roadmap" | grep -q "Search recall gaps"; then
+    if [[ "$roadmap" == *"Search recall gaps"* ]]; then
         pass "$name: search-miss draft filed"
     else
         fail "$name: expected a search-miss draft"
     fi
     local leaked=0
     for secret in "SHOULDNOTLEAK1234567890" "hunter2secretvalue" "ABCDEFGHIJKLMNOPQRST" "aVeryLongOpaqueTokenValue1234567890ABCD"; do
-        if printf '%s' "$roadmap" | grep -qF "$secret"; then
+        if [[ "$roadmap" == *"$secret"* ]]; then
             fail "$name: secret leaked into ROADMAP draft: $secret"
             leaked=1
         fi
@@ -570,7 +570,7 @@ scenario_11() {
     if [ "$leaked" -eq 0 ]; then
         pass "$name: all secret-shaped substrings redacted from the draft"
     fi
-    if printf '%s' "$roadmap" | grep -q "harmless query"; then
+    if [[ "$roadmap" == *"harmless query"* ]]; then
         pass "$name: non-secret query text preserved"
     else
         fail "$name: harmless query text was over-redacted or missing"
@@ -631,7 +631,7 @@ scenario_12() {
     #     prints the visible notice
     printf '%s\n' "auto_run_hours: 24" >"$fx/.claude/maintenance-policy.yaml"
     out=$(PROJECT_OS_ROOT="$fx" bash "$hook" 2>&1)
-    if printf '%s' "$out" | grep -q "^Project OS maintenance auto-run: filed"; then
+    if grep -q -- "^Project OS maintenance auto-run: filed" <<<"$out"; then
         pass "$name: first auto-run files drafts and prints the notice"
     else
         fail "$name: expected a filed-drafts notice, got '$out'"
@@ -654,6 +654,153 @@ scenario_12() {
 }
 
 # ==========================================================================
+# Scenario 13: two runs with DIFFERENT failure counts for the same tool file
+# exactly one draft in the same ISO week (T229 — the fingerprint is
+# failures:<tool>:YYYY-Www, so a changing count must not re-file a duplicate,
+# an old failures:<tool>:<count> line must not suppress the draft, and the
+# next week refiles). The week is pinned via PROJECT_OS_WEEK.
+# ==========================================================================
+
+scenario_13() {
+    local name="scenario13-failures-weekly-fingerprint"
+    local fx
+    fx="$(new_fixture)"
+    local i
+    for i in 1 2 3 4 5; do
+        printf '2026-01-01T00:00:0%sZ FAIL tool=Bash\n' "$i" >>"$fx/.claude/logs/tool-failures.log"
+    done
+    printf '%s\n' "checks: failures" >"$fx/.claude/maintenance-policy.yaml"
+    # A pre-existing closed draft from the old count-keyed scheme.
+    printf '%s\n' \
+        "- [x] Old recurring-failures draft #T1" \
+        "  <!-- maint-fp: failures:Bash:5 -->" \
+        >>"$fx/ROADMAP.md"
+
+    local out ec
+    out=$(PROJECT_OS_ROOT="$fx" PROJECT_OS_WEEK="2026-W41" bash "$MAINTAIN_SH" 2>&1)
+    ec=$?
+    if [ "$ec" -ne 0 ]; then
+        fail "$name: first run exited $ec: $out"
+        return
+    fi
+
+    # Second window: 7 more failures stamped after the first run's ledger
+    # timestamp, so this run counts 7 (the first counted 5). The 2099 stamps are
+    # deliberately far-future: the ledger timestamp is the real wall-clock run
+    # time, so a fixed 2099 date stays later than it whenever the suite runs.
+    for i in 1 2 3 4 5 6 7; do
+        printf '2099-01-01T00:00:0%sZ FAIL tool=Bash\n' "$i" >>"$fx/.claude/logs/tool-failures.log"
+    done
+    out=$(PROJECT_OS_ROOT="$fx" PROJECT_OS_WEEK="2026-W41" bash "$MAINTAIN_SH" 2>&1)
+    ec=$?
+    if [ "$ec" -ne 0 ]; then
+        fail "$name: second run exited $ec: $out"
+        return
+    fi
+
+    local drafts
+    drafts="$(grep -c -- "recurring Bash failures" "$fx/ROADMAP.md")"
+    if [ "$drafts" = "1" ]; then
+        pass "$name: pre-existing failures:Bash:5 line did not suppress, and counts 5 then 7 in one week filed exactly one draft"
+    else
+        fail "$name: expected exactly 1 Bash failures draft, got '$drafts'"
+    fi
+
+    local roadmap
+    roadmap="$(cat "$fx/ROADMAP.md")"
+    if [[ "$roadmap" == *"maint-fp: failures:Bash:2026-W41 -->"* ]]; then
+        pass "$name: fingerprint is failures:<tool>:<ISO week>"
+    else
+        fail "$name: expected 'maint-fp: failures:Bash:2026-W41 -->' in ROADMAP"
+    fi
+    if [[ "$roadmap" == *"(5 since"* ]]; then
+        pass "$name: first-run count kept in the draft title"
+    else
+        fail "$name: expected the count '(5 since' in the draft title"
+    fi
+
+    # Third window, next ISO week: the tool still failing refiles.
+    for i in 1 2 3 4 5; do
+        printf '2099-02-01T00:00:0%sZ FAIL tool=Bash\n' "$i" >>"$fx/.claude/logs/tool-failures.log"
+    done
+    out=$(PROJECT_OS_ROOT="$fx" PROJECT_OS_WEEK="2026-W42" bash "$MAINTAIN_SH" 2>&1)
+    ec=$?
+    if [ "$ec" -ne 0 ]; then
+        fail "$name: third run exited $ec: $out"
+        return
+    fi
+    drafts="$(grep -c -- "recurring Bash failures" "$fx/ROADMAP.md")"
+    if [ "$drafts" = "2" ]; then
+        pass "$name: next ISO week refiles a Bash failures draft"
+    else
+        fail "$name: expected 2 Bash failures drafts after the week rolled, got '$drafts'"
+    fi
+}
+
+# ==========================================================================
+# Scenario 14: no PROJECT_OS_WEEK override -> the computed default week is a
+# well-formed ISO week (T19); a blank or junk override falls back to the same
+# well-formed default (S4); two tools at threshold in one run (one a name
+# prefix of the other) each file under their own week fingerprint (T18).
+# ==========================================================================
+
+# Seed 5 failures for each named tool in one fixture and run maintain.sh with
+# the given PROJECT_OS_WEEK (the literal word "unset" leaves it out). Prints the
+# fixture ROADMAP.md contents.
+run_failures_week() {
+    local week_mode="$1"
+    shift
+    local fx i t
+    fx="$(new_fixture)"
+    for t in "$@"; do
+        for i in 1 2 3 4 5; do
+            printf '2026-01-01T00:00:0%sZ FAIL tool=%s\n' "$i" "$t" >>"$fx/.claude/logs/tool-failures.log"
+        done
+    done
+    printf '%s\n' "checks: failures" >"$fx/.claude/maintenance-policy.yaml"
+    if [ "$week_mode" = "unset" ]; then
+        env -u PROJECT_OS_WEEK PROJECT_OS_ROOT="$fx" bash "$MAINTAIN_SH" >/dev/null 2>&1 || true
+    else
+        PROJECT_OS_ROOT="$fx" PROJECT_OS_WEEK="$week_mode" bash "$MAINTAIN_SH" >/dev/null 2>&1 || true
+    fi
+    cat "$fx/ROADMAP.md"
+}
+
+scenario_14() {
+    local name="scenario14-failures-week-default-and-override"
+    local re='maint-fp: failures:Bash:[0-9]{4}-W[0-9]{2} -->'
+    local roadmap
+
+    roadmap="$(run_failures_week unset Bash)"
+    if [[ "$roadmap" =~ $re ]]; then
+        pass "$name: no override -> fingerprint failures:Bash:<YYYY-Www>"
+    else
+        fail "$name: no override: expected '$re' in ROADMAP"
+    fi
+
+    roadmap="$(run_failures_week "" Bash)"
+    if [[ "$roadmap" =~ $re ]]; then
+        pass "$name: blank override falls back to a well-formed week"
+    else
+        fail "$name: blank override: expected '$re' in ROADMAP"
+    fi
+
+    roadmap="$(run_failures_week "  junk week/../" Bash)"
+    if [[ "$roadmap" =~ $re && "$roadmap" != *"junk"* ]]; then
+        pass "$name: junk override falls back to a well-formed week"
+    else
+        fail "$name: junk override: expected '$re' and no 'junk' in ROADMAP"
+    fi
+
+    roadmap="$(run_failures_week "2026-W41" Bash BashOutput)"
+    if [[ "$roadmap" == *"maint-fp: failures:Bash:2026-W41 -->"* && "$roadmap" == *"maint-fp: failures:BashOutput:2026-W41 -->"* ]]; then
+        pass "$name: Bash and BashOutput both filed in one run (no prefix collision)"
+    else
+        fail "$name: expected both failures:Bash:2026-W41 and failures:BashOutput:2026-W41 fingerprints"
+    fi
+}
+
+# ==========================================================================
 # Main
 # ==========================================================================
 
@@ -671,6 +818,8 @@ scenario_9
 scenario_10
 scenario_11
 scenario_12
+scenario_13
+scenario_14
 
 REAL_ROADMAP_STATUS_AFTER="$(git -C "$REPO_ROOT" status --porcelain -- ROADMAP.md .claude/logs .claude/maintenance-lock 2>/dev/null)"
 if [ "$REAL_ROADMAP_STATUS_BEFORE" = "$REAL_ROADMAP_STATUS_AFTER" ]; then

@@ -37,7 +37,7 @@ If the named agent type is unknown, halt with the escalation message "Retry cap 
 
 "You are reviewing a competitive implementation.
 
-CRITICAL — BASH COMMAND RULES:
+BASH COMMAND RULES:
 [BASH_AGENT_RULES]
 
 AGENT RULES:
@@ -54,7 +54,7 @@ Evaluate on these axes:
 3. **Robustness**: How does it handle edge cases and errors?
 4. **Readability**: Can another developer understand it quickly?
 5. **Testability**: Are tests thorough and maintainable?
-6. **Convention alignment**: Does it follow CLAUDE.md patterns?
+6. **Convention alignment**: Does it follow the patterns in `<main-repo absolute path>/CLAUDE.md`? (You run with `omitClaudeMd: true`, so read it from that absolute path.)
 
 Score each axis 1-5. Provide specific code references for your scoring."
 

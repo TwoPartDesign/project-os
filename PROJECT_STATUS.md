@@ -9,18 +9,17 @@ Project OS is a personal governance layer for solo development. Markdown + Bash 
 ## Current State
 - v2.2 released (security-scanner + adaptive-memory; web-fetch MCP server built then extracted to a standalone repo in `d2f7cec`)
 - **Audit-remediation work (T17–T32) implemented and in review** on branch `claude/repo-staleness-audit-zbnon0`, driven by `docs/audits/2026-07-11-staleness-audit.md`:
-  - Model routing on the current tiers (Fable 5.1 lead, Sonnet 5 default executor, Opus 5 judgment tier) — settings, tier tables, escalation ladder, docs all agree now
+  - Model routing on the current tiers (Opus lead, Sonnet default executor, Opus judgment tier; ladder `sonnet` → `opus` → `opus` xhigh, `fable` Approver opt-in only) — settings, tier tables, escalation ladder, docs all agree now
   - Build/ship migrated to native worktrees + native Task scheduling; adapter layer collapsed to `codex.sh` only (native Task dispatch is the default)
   - MCP output validation fixed (alerts actually reach the model); Bash permission allows scoped to specific subcommands
   - package.json engines pin + node guard for TS hooks; log rotation + SessionEnd cleanup hook
-  - bash.md slimmed — Windows scanner catalog moved to `docs/knowledge/windows-bash-scanner.md`; auto-approval hook proposed in `docs/proposals/pre-tool-approve-hook.md`
+  - bash.md slimmed — Windows scanner catalog moved to `docs/knowledge/windows-bash-scanner.md`; the proposed auto-approval hook was later dropped in favour of auto mode as the default (decisions.md, 2026-10-04)
   - Status docs reconciled (this file, CHANGELOG v2.1/v2.2/v2.3-dev entries, vault frontmatter dates, guide) — T31
 
 ## Next Steps
 - Land the audit-remediation review and merge `claude/repo-staleness-audit-zbnon0`
 - **T9 (adaptive-memory tests + docs) remains open** — `tests/observation-parser.test.ts` still does not exist; being re-statused in ROADMAP by the orchestrator
 - Fix `scan-rules.js` invalid regex (#T33 draft — see Known Issues)
-- Owner decision on installing the auto-approval hook proposal (`docs/proposals/pre-tool-approve-hook.md`)
 - Copy simplified `codex-review.sh` to remaining downstream projects (Service-Drive-Advisor-Prep, Dry_Run_MVP)
 - Bootstrap update system into downstream projects; hook fixes there still uncommitted
 - Fix `update-project.sh` manifest regeneration after conflicts (hashes local, not upstream)
@@ -32,12 +31,11 @@ Project OS is a personal governance layer for solo development. Markdown + Bash 
 - **Zero-dep scanner over gitleaks binary**: ADR in decisions.md. 219 gitleaks rules + 14 custom PII/privacy ported to JS; 24 PCRE patterns couldn't convert (SKIP)
 - **Defense-in-depth hook chain**: pre-commit (scan-staged) → pre-push (scan-diff) → ship workflow step 1.5 (scan-diff against base)
 - **scan-rules.js self-allowlisted**: rules file contains secret-like test data; path-allowlisted in allowlist.json — intentional, documented in bugs.md
-- **Model routing**: lead model set via settings.json `"model"` (bare alias `fable`, or `opus` on plans without Fable), `sonnet` at high effort as the default sub-agent tier (via `implementer`/`documenter` frontmatter), `opus` at high effort as the judgment tier (via `(model: opus)` annotations or `researcher`)
+- **Model routing**: lead model set via settings.json `"model"` (bare alias `opus` at high effort; `fable` only as an Approver-confirmed choice through `/tools:set-models`), `sonnet` at high effort as the default sub-agent tier (via `implementer`/`documenter` frontmatter), `opus` at high effort as the judgment tier (via `(model: opus)` annotations or `researcher`)
 - **Codex review flow**: write prompt to `./codex-prompt.txt` (project root), run `bash scripts/codex-review.sh --prompt-file ./codex-prompt.txt`, clean up after
 
 ## Known Issues / Blockers
 - **scan-rules.js invalid regex on Node 22**: the atlassian rule's `(?-i:)` inline-modifier group is unsupported by Node 22 V8 — `security-scanner.ts test-rules` errors (found during #T29; #T33 draft covers the fix + auditing other rules)
-- **Auto-approval hook proposal awaiting owner installation** (`docs/proposals/pre-tool-approve-hook.md`) — proposal only, not wired into settings
 - T9 (adaptive-memory tests + docs) still open — `tests/observation-parser.test.ts` missing
 - `cmdIndex` rejects temp files from hooks (path traversal guard) — pre-existing, affects all output-index.sh indexing of mktemp paths (only `index-vault` works)
 - `eval` in output-index.sh:48 is a pre-existing security concern (works but brittle)
@@ -71,7 +69,6 @@ package.json            — NEW: engines pin + node --test script
 
 docs/
   audits/2026-07-11-staleness-audit.md — The audit driving v2.3-dev
-  proposals/pre-tool-approve-hook.md   — NEW: auto-approval hook (proposal, not installed)
   knowledge/windows-bash-scanner.md    — NEW: Windows scanner-workaround catalog (moved out of bash.md)
   knowledge/*.md        — Vault refreshed 2026-07-12 (frontmatter dates now truthful)
 

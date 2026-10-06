@@ -25,9 +25,12 @@ import { describe, it } from "node:test";
 import { strictEqual, ok, match } from "node:assert";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
+  chmodSync,
   mkdtempSync,
   mkdirSync,
   writeFileSync,
+  readFileSync,
+  readdirSync,
   rmSync,
   realpathSync,
   symlinkSync,
@@ -392,6 +395,125 @@ describe("scan-files flags a bare sk- token", () => {
         0,
         `expected zero findings, got ${parsed.findings.length}: ${r.stdout}`,
       );
+    });
+  });
+});
+
+describe("scrub writes its temp file exclusively (#T232)", () => {
+  it("scrub_symlinkPlantedAtOldTmpName_outsideFileUntouchedAndTargetScrubbed", (t) => {
+    withProbeDir((dir) => {
+      const outsideDir = mkdtempSync(join(tmpdir(), "scanner-t232-"));
+      try {
+        const outsideFile = join(outsideDir, "victim.txt");
+        const outsideBytes = "outside file, must stay byte-identical\n";
+        writeFileSync(outsideFile, outsideBytes, "utf-8");
+
+        const target = join(dir, "notes.txt");
+        writeFileSync(target, `aws_key = "${AWS_FIXTURE}"\n`, "utf-8");
+
+        try {
+          symlinkSync(outsideFile, target + ".tmp");
+        } catch {
+          // Windows without developer mode / symlink privilege: EPERM.
+          t.skip("symlink creation unsupported");
+          return;
+        }
+
+        const r = runScanner(["scrub", target], ROOT);
+        strictEqual(r.status, 0, `expected exit 0: ${r.stdout}${r.stderr}`);
+        strictEqual(readFileSync(outsideFile, "utf-8"), outsideBytes);
+        const scrubbed = readFileSync(target, "utf-8");
+        ok(
+          !scrubbed.includes(AWS_FIXTURE),
+          `target must be scrubbed, got: ${scrubbed}`,
+        );
+        match(scrubbed, /\[REDACTED:aws-access-token\]/);
+      } finally {
+        rmSync(outsideDir, { recursive: true, force: true, maxRetries: 3 });
+      }
+    });
+  });
+
+  it("scrub_successfulScrub_leavesNoTmpFileBesideTarget", () => {
+    withProbeDir((dir) => {
+      const target = join(dir, "notes.txt");
+      writeFileSync(target, `aws_key = "${AWS_FIXTURE}"\n`, "utf-8");
+
+      const r = runScanner(["scrub", target], ROOT);
+      strictEqual(r.status, 0, `expected exit 0: ${r.stdout}${r.stderr}`);
+      match(readFileSync(target, "utf-8"), /\[REDACTED:aws-access-token\]/);
+      strictEqual(
+        readdirSync(dir)
+          .filter((n) => n.endsWith(".tmp"))
+          .join(","),
+        "",
+      );
+    });
+  });
+});
+
+describe("scrub exit status and completeness", () => {
+  it("scrub_unreadableFile_exitsNonzeroAndKeepsWarning", (t) => {
+    if (process.platform === "win32" || process.getuid?.() === 0) {
+      t.skip("chmod 000 has no effect on Windows or for root");
+      return;
+    }
+    withProbeDir((dir) => {
+      const target = join(dir, "locked.txt");
+      writeFileSync(target, `aws_key = "${AWS_FIXTURE}"\n`, "utf-8");
+      chmodSync(target, 0o000);
+      try {
+        const r = runScanner(["scrub", target], ROOT);
+        strictEqual(r.status, 1, `expected exit 1: ${r.stdout}${r.stderr}`);
+        match(r.stderr, /Warning: could not read .*locked\.txt: EACCES/);
+      } finally {
+        chmodSync(target, 0o600);
+      }
+    });
+  });
+
+  it("scrub_missingPath_exitsNonzeroAndKeepsWarning", () => {
+    withProbeDir((dir) => {
+      const r = runScanner(["scrub", join(dir, "absent.txt")], ROOT);
+      strictEqual(r.status, 1, `expected exit 1: ${r.stdout}${r.stderr}`);
+      match(r.stderr, /Warning: could not read .*absent\.txt: ENOENT/);
+    });
+  });
+
+  it("scrub_unreadableAmongReadable_stillScrubsReadableAndExitsNonzero", () => {
+    withProbeDir((dir) => {
+      const good = join(dir, "good.txt");
+      writeFileSync(good, `aws_key = "${AWS_FIXTURE}"\n`, "utf-8");
+      const r = runScanner(["scrub", join(dir, "absent.txt"), good], ROOT);
+      strictEqual(r.status, 1, `expected exit 1: ${r.stdout}${r.stderr}`);
+      ok(!readFileSync(good, "utf-8").includes(AWS_FIXTURE));
+    });
+  });
+
+  it("scrub_twoDistinctGhpTokensOnOneLine_bothRedacted", () => {
+    // Split so no token-shaped literal sits in this file (see AWS_FIXTURE).
+    const first = "ghp_" + "aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3zA5";
+    const second = "ghp_" + "Zq8Yw6Xe4Vr2Ut0Ts9Rp7Qo5Pn3Om1Nl8Mk6";
+    withProbeDir((dir) => {
+      const target = join(dir, "tokens.txt");
+      writeFileSync(target, `tokens: ${first} and ${second}\n`, "utf-8");
+
+      const r = runScanner(["scrub", target], ROOT);
+      strictEqual(r.status, 0, `expected exit 0: ${r.stdout}${r.stderr}`);
+      strictEqual(
+        readFileSync(target, "utf-8"),
+        "tokens: [REDACTED:github-pat] and [REDACTED:github-pat]\n",
+      );
+    });
+  });
+
+  it("scrub_cleanFile_exitsZeroAndLeavesFileUntouched", () => {
+    withProbeDir((dir) => {
+      const target = join(dir, "clean.txt");
+      writeFileSync(target, "nothing secret here\n", "utf-8");
+      const r = runScanner(["scrub", target], ROOT);
+      strictEqual(r.status, 0, `expected exit 0: ${r.stdout}${r.stderr}`);
+      strictEqual(readFileSync(target, "utf-8"), "nothing secret here\n");
     });
   });
 });

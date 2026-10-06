@@ -1,6 +1,6 @@
 {
-  "model": "fable",
-  "fallbackModel": ["opus", "sonnet"],
+  "model": "opus",
+  "fallbackModel": ["sonnet"],
   "effortLevel": "high",
   "permissions": {
     "allow": [
@@ -36,7 +36,6 @@
       "Bash(bash scripts/validate-roadmap.sh*)",
       "Bash(bash scripts/create-pr.sh*)",
       "Bash(bash scripts/dashboard.sh*)",
-      "Bash(bash scripts/context-filter.sh*)",
       "Bash(bash scripts/validate-freshness.sh*)",
       "Bash(bash scripts/codex-review.sh*)",
       "Bash(bash scripts/generate-manifest.sh*)",
@@ -47,16 +46,6 @@
       "Bash(bash scripts/install-hooks.sh*)",
       "Bash(bash scripts/install-global-commands.sh*)",
       "Bash(bash scripts/setup.sh*)",
-      "Bash(bash .claude/hooks/post-mcp-validate.sh*)",
-      "Bash(bash .claude/hooks/post-tool-use.sh*)",
-      "Bash(bash .claude/hooks/post-write-session.sh*)",
-      "Bash(bash .claude/hooks/output-index.sh*)",
-      "Bash(bash .claude/hooks/tool-failure-log.sh*)",
-      "Bash(bash .claude/hooks/compact-suggest.sh*)",
-      "Bash(bash .claude/hooks/pre-compact.sh*)",
-      "Bash(bash .claude/hooks/session-start-setup.sh*)",
-      "Bash(bash .claude/hooks/session-start-maintain.sh*)",
-      "Bash(bash .claude/hooks/session-end-cleanup.sh*)",
       "Bash(bash .claude/hooks/notify-phase-change.sh*)",
       "Bash(bash .claude/hooks/log-activity.sh*)",
       "Bash(node scripts/knowledge-index.ts*)",
@@ -70,8 +59,6 @@
       "Bash(node scripts/skill-ledger.ts*)",
       "Bash(node scripts/review-triage.ts*)",
       "Bash(node scripts/compaction-metrics.ts*)",
-      "Bash((cd * && *))",
-      "Bash((cd * ; *))",
       "Read",
       "Write",
       "Edit"
@@ -81,21 +68,14 @@
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "opus",
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "80",
-    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "350000",
-    "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "500000",
+    "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1",
+    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "4"
+  },
+  "worktree": {
+    "baseRef": "head"
   },
   "project_os": {
-    "parallel": {
-      "max_concurrent_agents": 4,
-      "worktree_base": ".claude/worktrees",
-      "auto_cleanup": true,
-      "session_handoff_location": ".claude/sessions",
-      "backoff": {
-        "initial_delay_ms": 1000,
-        "max_delay_ms": 30000,
-        "multiplier": 2
-      }
-    },
     "compete": {
       "default_approaches": 3,
       "strategies": ["literal", "minimal", "extensible"]
@@ -120,17 +100,6 @@
         "auto_detect_dates": true,
         "recency_halflife_days": 14
       }
-    },
-    "jev": {
-      "enabled": false,
-      "model": "jev-latest",
-      "timeout_ms": 5000,
-      "max_body_tokens": 60000,
-      "thresholds": {
-        "duplicate_p": 0.85,
-        "out_of_scope_p": 0.8,
-        "severity_confidence": 0.8
-      }
     }
   },
   "hooks": {
@@ -140,7 +109,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/compact-suggest.sh\"",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/compact-suggest.sh\"",
             "timeout": 15
           }
         ]
@@ -152,25 +121,25 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/post-mcp-validate.sh\""
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-mcp-validate.sh\""
           }
         ]
       },
       {
-        "matcher": "Write|Edit",
+        "matcher": "Write|Edit|Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/post-tool-use.sh\""
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-tool-use.sh\""
           }
         ]
       },
       {
-        "matcher": "Write|Edit",
+        "matcher": "Write|Edit|Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/post-write-session.sh\""
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-write-session.sh\""
           }
         ]
       },
@@ -179,7 +148,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/output-index.sh\""
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/output-index.sh\""
           }
         ]
       },
@@ -188,12 +157,29 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/tool-failure-log.sh\""
-          },
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/compact-suggest.sh\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": ".*",
+        "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/compact-suggest.sh\"",
-            "timeout": 15
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/tool-failure-log.sh\""
+          }
+        ]
+      }
+    ],
+    "PostModelSwitch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/log-activity.sh\" model-switched --stdin"
           }
         ]
       }
@@ -204,7 +190,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/pre-compact.sh\"",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-compact.sh\"",
             "timeout": 30,
             "statusMessage": "Saving auto-checkpoint..."
           }
@@ -216,12 +202,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/session-start-setup.sh\"",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start-setup.sh\"",
             "timeout": 30
           },
           {
             "type": "command",
-            "command": "bash \".claude/hooks/session-start-maintain.sh\"",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start-maintain.sh\"",
             "timeout": 120
           }
         ]
@@ -232,7 +218,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \".claude/hooks/session-end-cleanup.sh\"",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-end-cleanup.sh\"",
             "timeout": 30
           }
         ]

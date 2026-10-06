@@ -37,7 +37,7 @@ adapter.sh <command> [args...]
 
 **Input:** The adapter receives a `context_dir` containing:
 - `task.md` — The task description and acceptance criteria
-- `conventions.md` — Project conventions (from CLAUDE.md)
+- `conventions.md` — Project conventions (from CLAUDE.md plus the matching docs/knowledge/patterns.md entries)
 - `design.md` — Relevant design section
 - `files/` — Current state of files the task will modify (read-only reference copies)
 
@@ -79,7 +79,7 @@ Adapter scripts live in `.claude/agents/adapters/<name>.sh`.
 
 - Native Task-tool dispatch handles all Claude sub-agent work; adapters cover external agents only
 - Codex adapter is functional for users with `codex` CLI installed
-- The former claude-code no-op adapter and the gemini/aider/amp stubs were removed — to add a new external agent, implement the 3-command contract below
+- To add a new external agent, implement the 3-command contract above (see "Adding a New Adapter")
 - Trust boundary: Codex adapter uses `-s danger-full-access` — see Security section below
 
 ## Security

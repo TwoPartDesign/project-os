@@ -1,5 +1,5 @@
 ---
-globs: ["**/api/**", "**/routes/**", "**/handlers/**"]
+paths: ["**/api/**", "**/routes/**", "**/handlers/**"]
 description: "Rules applied when working with API code"
 ---
 

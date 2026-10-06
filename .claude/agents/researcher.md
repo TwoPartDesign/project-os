@@ -3,6 +3,7 @@ name: researcher
 description: "Investigates one specific question against local sources — knowledge, prior research, the codebase, and vendored dependency docs. Used by /tools:research and /workflows:idea."
 model: opus
 effort: high
+omitClaudeMd: true
 disallowedTools: [Agent, Task]
 role: Architect
 permissions:

@@ -50,7 +50,6 @@ TEMPLATE_FILES=(
     "docs/knowledge/patterns.md"
     "docs/knowledge/bugs.md"
     "docs/knowledge/architecture.md"
-    "docs/knowledge/kv.md"
     "docs/knowledge/metrics.md"
     "docs/knowledge/skill-edit-rejections.md"
 )
@@ -169,7 +168,6 @@ TEMPLATE_SCRIPTS=(
     "scripts/validate-roadmap.sh"
     "scripts/create-pr.sh"
     "scripts/dashboard.sh"
-    "scripts/context-filter.sh"
     "scripts/validate-freshness.sh"
     "scripts/codex-review.sh"
     "scripts/generate-manifest.sh"

@@ -7,7 +7,7 @@
 import { describe, it } from "node:test";
 import { strictEqual, deepStrictEqual } from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -26,6 +26,8 @@ const SCRIPT = resolve(
   dirname(fileURLToPath(import.meta.url)),
   "../scripts/compaction-metrics.ts",
 );
+
+const REPO_ROOT = resolve(dirname(SCRIPT), "..");
 
 /** Builds one main-thread assistant record line with the given usage. */
 function assistantLine(opts: {
@@ -219,6 +221,246 @@ describe("compaction-metrics", () => {
     strictEqual(cycles[1].cutBy, "end");
   });
 
+  it("segmentCycles_backToBackBoundaries_keepsEveryCompaction", () => {
+    // Two compact_boundary records with no assistant usage between them.
+    const lines = [
+      ctxLine("a1", 100000),
+      ctxLine("a2", 260000),
+      boundaryLine(290000, 12000, "2026-09-20T00:30:00.000Z"),
+      boundaryLine(280000, 11000, "2026-09-20T00:31:00.000Z"),
+      ctxLine("a3", 70000),
+    ];
+
+    const boundaries = parseBoundaries(lines);
+    const cycles = segmentCycles(parseTranscript(lines));
+
+    strictEqual(boundaries.length, 2);
+    strictEqual(
+      cycles.filter((c) => c.cutBy === "boundary").length,
+      boundaries.length,
+    );
+    strictEqual(cycles.length, 3);
+    // The first boundary is kept as-is, not overwritten by the second.
+    strictEqual(cycles[0].turns.length, 2);
+    strictEqual(cycles[0].preTokens, 290000);
+    strictEqual(cycles[0].postTokens, 12000);
+    // The second closes its own empty cycle with its own record's postTokens,
+    // not a figure borrowed from the next cycle.
+    strictEqual(cycles[1].turns.length, 0);
+    strictEqual(cycles[1].cutBy, "boundary");
+    strictEqual(cycles[1].preTokens, 280000);
+    strictEqual(cycles[1].postTokens, 11000);
+    strictEqual(cycles[2].turns.length, 1);
+    strictEqual(cycles[2].cutBy, "end");
+  });
+
+  it("segmentCycles_trailingBoundary_closesCycleWithRecordPostTokens", () => {
+    // A compaction fired and the transcript ends: no turn follows it.
+    const lines = [
+      ctxLine("a1", 100000),
+      ctxLine("a2", 260000),
+      boundaryLine(290000, 12000),
+    ];
+
+    const boundaries = parseBoundaries(lines);
+    const cycles = segmentCycles(parseTranscript(lines), { boundaries });
+
+    strictEqual(cycles.length, 1);
+    strictEqual(cycles[0].turns.length, 2);
+    strictEqual(cycles[0].cutBy, "boundary");
+    strictEqual(cycles[0].preTokens, 290000);
+    // The boundary record's own value, as for a mid-transcript boundary.
+    strictEqual(cycles[0].postTokens, 12000);
+  });
+
+  it("segmentCycles_boundaryWithoutPostTokens_reportsNull", () => {
+    const noPost = JSON.stringify({
+      type: "system",
+      subtype: "compact_boundary",
+      isSidechain: false,
+      compactMetadata: { trigger: "auto", preTokens: 290000 },
+      timestamp: "2026-09-20T00:30:00.000Z",
+    });
+    const lines = [ctxLine("a1", 100000), ctxLine("a2", 260000), noPost];
+
+    const cycles = segmentCycles(parseTranscript(lines), {
+      boundaries: parseBoundaries(lines),
+    });
+
+    strictEqual(cycles[0].preTokens, 290000);
+    strictEqual(cycles[0].postTokens, null);
+  });
+
+  it("segmentCycles_boundariesListShorterThanAttached_throwsDescriptiveError", () => {
+    const lines = [
+      ctxLine("a1", 100000),
+      boundaryLine(290000, 12000),
+      ctxLine("a2", 70000),
+    ];
+    const turns = parseTranscript(lines);
+
+    let message = "";
+    try {
+      segmentCycles(turns, { boundaries: [] });
+    } catch (e) {
+      message = (e as Error).message;
+    }
+
+    strictEqual(
+      message,
+      "segmentCycles: turns carry 1 boundaries but opts.boundaries lists only 0; pass the complete parseBoundaries() list",
+    );
+  });
+
+  it("segmentCycles_trailingBackToBackBoundaries_eachGetsACycle", () => {
+    const lines = [
+      ctxLine("a1", 100000),
+      ctxLine("a2", 260000),
+      boundaryLine(290000, 12000, "2026-09-20T00:30:00.000Z"),
+      boundaryLine(280000, 11000, "2026-09-20T00:31:00.000Z"),
+    ];
+
+    const boundaries = parseBoundaries(lines);
+    const cycles = segmentCycles(parseTranscript(lines), { boundaries });
+
+    strictEqual(cycles.length, 2);
+    strictEqual(cycles[0].turns.length, 2);
+    strictEqual(cycles[0].preTokens, 290000);
+    strictEqual(cycles[0].postTokens, 12000);
+    strictEqual(cycles[1].turns.length, 0);
+    strictEqual(cycles[1].cutBy, "boundary");
+    strictEqual(cycles[1].preTokens, 280000);
+    strictEqual(cycles[1].postTokens, 11000);
+  });
+
+  it("segmentCycles_boundariesBeforeFirstTurn_eachClosesZeroTurnCycle", () => {
+    // Two compact_boundary records precede any assistant turn, so there is
+    // no previous turn for either to cut.
+    const lines = [
+      boundaryLine(290000, 12000, "2026-09-20T00:30:00.000Z"),
+      boundaryLine(280000, 11000, "2026-09-20T00:31:00.000Z"),
+      ctxLine("a1", 70000),
+      ctxLine("a2", 90000),
+    ];
+
+    const turns = parseTranscript(lines);
+    const boundaries = parseBoundaries(lines);
+    const cycles = segmentCycles(turns, { boundaries });
+
+    // The first turn carries the run: the earlier boundary as skipped.
+    strictEqual(turns[0].skippedBoundaries?.length, 1);
+    strictEqual(turns[0].skippedBoundaries?.[0].preTokens, 290000);
+    strictEqual(turns[0].boundaryBefore?.preTokens, 280000);
+
+    strictEqual(cycles.length, 3);
+    strictEqual(cycles[0].turns.length, 0);
+    strictEqual(cycles[0].cutBy, "boundary");
+    strictEqual(cycles[0].preTokens, 290000);
+    strictEqual(cycles[0].postTokens, 12000);
+    strictEqual(cycles[1].turns.length, 0);
+    strictEqual(cycles[1].cutBy, "boundary");
+    strictEqual(cycles[1].preTokens, 280000);
+    strictEqual(cycles[1].postTokens, 11000);
+    strictEqual(cycles[2].turns.length, 2);
+    strictEqual(cycles[2].cutBy, "end");
+  });
+
+  it("segmentCycles_singleBoundaryBeforeFirstTurn_getsItsOwnCycle", () => {
+    const lines = [boundaryLine(290000, 12000), ctxLine("a1", 70000)];
+
+    const cycles = segmentCycles(parseTranscript(lines), {
+      boundaries: parseBoundaries(lines),
+    });
+
+    strictEqual(cycles.length, 2);
+    strictEqual(cycles[0].turns.length, 0);
+    strictEqual(cycles[0].cutBy, "boundary");
+    strictEqual(cycles[0].preTokens, 290000);
+    strictEqual(cycles[0].postTokens, 12000);
+    strictEqual(cycles[1].turns.length, 1);
+    strictEqual(cycles[1].cutBy, "end");
+  });
+
+  it("segmentCycles_boundariesWithNoTurns_oneCycleEach", () => {
+    const lines = [
+      boundaryLine(290000, 12000, "2026-09-20T00:30:00.000Z"),
+      boundaryLine(280000, 11000, "2026-09-20T00:31:00.000Z"),
+    ];
+
+    const cycles = segmentCycles(parseTranscript(lines), {
+      boundaries: parseBoundaries(lines),
+    });
+
+    strictEqual(cycles.length, 2);
+    deepStrictEqual(
+      cycles.map((c) => [c.turns.length, c.cutBy, c.preTokens, c.postTokens]),
+      [
+        [0, "boundary", 290000, 12000],
+        [0, "boundary", 280000, 11000],
+      ],
+    );
+  });
+
+  it("segmentCycles_everyBoundaryShape_cycleTableCountEqualsParseBoundaries", () => {
+    const shapes: Record<string, string[]> = {
+      none: [ctxLine("a1", 100000), ctxLine("a2", 120000)],
+      middle: [
+        ctxLine("a1", 100000),
+        boundaryLine(290000, 12000),
+        ctxLine("a2", 70000),
+      ],
+      backToBack: [
+        ctxLine("a1", 100000),
+        boundaryLine(290000, 12000, "2026-09-20T00:30:00.000Z"),
+        boundaryLine(280000, 11000, "2026-09-20T00:31:00.000Z"),
+        ctxLine("a2", 70000),
+      ],
+      trailing: [ctxLine("a1", 100000), boundaryLine(290000, 12000)],
+      trailingRun: [
+        ctxLine("a1", 100000),
+        boundaryLine(290000, 12000, "2026-09-20T00:30:00.000Z"),
+        boundaryLine(280000, 11000, "2026-09-20T00:31:00.000Z"),
+        boundaryLine(270000, 10000, "2026-09-20T00:32:00.000Z"),
+      ],
+      leading: [boundaryLine(290000, 12000), ctxLine("a1", 70000)],
+      leadingRun: [
+        boundaryLine(290000, 12000, "2026-09-20T00:30:00.000Z"),
+        boundaryLine(280000, 11000, "2026-09-20T00:31:00.000Z"),
+        ctxLine("a1", 70000),
+      ],
+      leadingMiddleTrailing: [
+        boundaryLine(290000, 12000, "2026-09-20T00:30:00.000Z"),
+        ctxLine("a1", 70000),
+        ctxLine("a2", 90000),
+        boundaryLine(280000, 11000, "2026-09-20T00:31:00.000Z"),
+        boundaryLine(275000, 11500, "2026-09-20T00:32:00.000Z"),
+        ctxLine("a3", 75000),
+        boundaryLine(270000, 10000, "2026-09-20T00:33:00.000Z"),
+      ],
+      boundariesOnly: [
+        boundaryLine(290000, 12000, "2026-09-20T00:30:00.000Z"),
+        boundaryLine(280000, 11000, "2026-09-20T00:31:00.000Z"),
+      ],
+      empty: [],
+    };
+
+    for (const [name, lines] of Object.entries(shapes)) {
+      const boundaries = parseBoundaries(lines);
+      const cycles = segmentCycles(parseTranscript(lines), { boundaries });
+      strictEqual(
+        cycles.filter((c) => c.cutBy === "boundary").length,
+        boundaries.length,
+        `shape ${name}: boundary cycles must equal parseBoundaries count`,
+      );
+      // Boundaries keep transcript order in the table.
+      deepStrictEqual(
+        cycles.filter((c) => c.cutBy === "boundary").map((c) => c.preTokens),
+        boundaries.map((b) => b.preTokens),
+        `shape ${name}: boundary preTokens must follow transcript order`,
+      );
+    }
+  });
+
   it("segmentCycles_usageDropFallback_splitsWithoutBoundary", () => {
     const dropping = segmentCycles(
       turnsFromContexts([60000, 120000, 20000, 30000]),
@@ -243,7 +485,7 @@ describe("compaction-metrics", () => {
     strictEqual(belowFloor[0].postTokens, null);
   });
 
-  it("cycleStats_sumsUsageAndCountsOver200k", () => {
+  it("cycleStats_twoTurnCycle_sumsUsageAndCountsOver200k", () => {
     const lines = [
       assistantLine({
         id: "a1",
@@ -275,7 +517,7 @@ describe("compaction-metrics", () => {
     strictEqual(stats.turnsOver200k, 1);
   });
 
-  it("errorRateByDecile_bucketsByContextOverWindow", () => {
+  it("errorRateByDecile_turnsAcrossContexts_bucketsByContextOverWindow", () => {
     const lines = [
       assistantLine({ id: "a1", cacheRead: 5000 }),
       assistantLine({ id: "a2", cacheRead: 95000, toolUseId: "tu-2" }),
@@ -378,7 +620,7 @@ describe("compaction-metrics", () => {
     }
   });
 
-  it("pinCompactionPoint_reportsGapAgainstConfigured", () => {
+  it("pinCompactionPoint_singleBoundary_reportsGapAgainstConfigured", () => {
     const lines = [
       ctxLine("a1", 120000, "2026-09-20T00:00:00.000Z"),
       ctxLine("a2", 263000, "2026-09-20T00:20:00.000Z"),
@@ -447,6 +689,27 @@ describe("compaction-metrics", () => {
     deepStrictEqual(pin.observedLastContext, [263000]);
   });
 
+  it("pinCompactionPoint_backToBackBoundaries_eachPinsToLastTurnBeforeRun", () => {
+    // Two boundaries with no turn between them: the earlier one is carried in
+    // the next turn's skippedBoundaries, not its boundaryBefore.
+    const lines = [
+      ctxLine("a1", 100000, "2026-09-20T00:00:00.000Z"),
+      ctxLine("a2", 260000, "2026-09-20T00:20:00.000Z"),
+      boundaryLine(290000, 12000, "2026-09-20T00:30:00.000Z"),
+      boundaryLine(280000, 11000, "2026-09-20T00:31:00.000Z"),
+      ctxLine("a3", 70000, "2026-09-20T00:40:00.000Z"),
+    ];
+    const turns = parseTranscript(lines);
+    const boundaries = parseBoundaries(lines);
+    strictEqual(turns.length, 3);
+    strictEqual(boundaries.length, 2);
+
+    const pin = pinCompactionPoint(turns, boundaries, 350000, 80);
+
+    deepStrictEqual(pin.observedPreTokens, [290000, 280000]);
+    deepStrictEqual(pin.observedLastContext, [260000, 260000]);
+  });
+
   it("cli_jsonFlag_printsParseableResult", () => {
     const dir = mkdtempSync(join(tmpdir(), "compaction-metrics-cli-"));
     try {
@@ -469,9 +732,78 @@ describe("compaction-metrics", () => {
       strictEqual(result.cycles.length, 1);
       strictEqual(result.cycles[0].stats.turns, 3);
       strictEqual(result.turns, 3);
-      strictEqual(result.window, 350000);
-      strictEqual(result.configured, 280000);
+      strictEqual(result.window, 500000);
+      strictEqual(result.configured, 400000);
       strictEqual(result.files.length, 1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("compactionMetrics_defaultWindow_matchesShippedSettingsEnv", () => {
+    const dir = mkdtempSync(join(tmpdir(), "compaction-metrics-cli-"));
+    try {
+      writeFileSync(join(dir, "session.jsonl"), ctxLine("a1", 100000) + "\n");
+      const settings = JSON.parse(
+        readFileSync(join(REPO_ROOT, ".claude/settings.json"), "utf8"),
+      );
+      const env = settings.env as Record<string, string>;
+
+      const result = JSON.parse(
+        execFileSync("node", [SCRIPT, dir, "--json"], { encoding: "utf8" }),
+      );
+
+      strictEqual(result.window, Number(env.CLAUDE_CODE_AUTO_COMPACT_WINDOW));
+      strictEqual(result.pct, Number(env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("cli_trailingBoundary_cycleTableCountsIt", () => {
+    const dir = mkdtempSync(join(tmpdir(), "compaction-metrics-cli-"));
+    try {
+      writeFileSync(
+        join(dir, "session.jsonl"),
+        [
+          boundaryLine(290000, 12000, "2026-09-20T00:10:00.000Z"),
+          ctxLine("a1", 100000),
+          ctxLine("a2", 260000),
+          boundaryLine(280000, 11000, "2026-09-20T00:30:00.000Z"),
+        ].join("\n") + "\n",
+        "utf8",
+      );
+
+      const stdout = execFileSync("node", [SCRIPT, dir, "--json"], {
+        encoding: "utf8",
+      });
+      const result = JSON.parse(stdout);
+
+      // One leading boundary, one trailing boundary: two boundary cycles.
+      strictEqual(
+        result.cycles.filter((c: { cutBy: string }) => c.cutBy === "boundary")
+          .length,
+        2,
+      );
+      deepStrictEqual(
+        result.cycles.map(
+          (c: {
+            stats: { turns: number };
+            cutBy: string;
+            preTokens: number | null;
+            postTokens: number | null;
+          }) => [c.stats.turns, c.cutBy, c.preTokens, c.postTokens],
+        ),
+        [
+          [0, "boundary", 290000, 12000],
+          [2, "boundary", 280000, 11000],
+        ],
+      );
+
+      // The markdown table renders the same two rows.
+      const table = execFileSync("node", [SCRIPT, dir], { encoding: "utf8" });
+      strictEqual(table.includes("| boundary | 290,000 | 12,000 |"), true);
+      strictEqual(table.includes("| boundary | 280,000 | 11,000 |"), true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

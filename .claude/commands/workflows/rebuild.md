@@ -39,7 +39,13 @@ Before unblocking:
 3. For each blocked task, display:
    - Task ID and description
    - Specific findings from revision-request.md that blocked this task
-4. Ask the user: "Mode 1 (re-implement) or Mode 2 (re-plan)?"
+4. Route each finding by the layer tag in its ISSUE prefix (`DRIFT[design]:`, see review.md), so the fix lands where the defect started:
+   - `implementation`, or no tag: Mode 1 below, unchanged.
+   - `worker-brief`: add the missing context to that task's section of `rebuild-context.md`, so the re-implementation brief carries it.
+   - `tasks`, `design` or `brief`: draft the smallest edit to `tasks.md`, `design.md` or `brief.md` that fixes the finding, show it to the user, and apply it with Edit only after they accept. Edit in place; never delete or regenerate the document.
+   - `rule`: do not edit here. List it for `/tools:reflect`, which owns rule edits.
+   Show the routing table (finding, layer, target file) before asking about the mode.
+5. Ask the user: "Mode 1 (re-implement) or Mode 2 (re-plan)?"
 
 ## Mode 1: Re-implement
 

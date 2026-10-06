@@ -40,7 +40,8 @@ export type UsageParts = {
 export type BoundaryMarker = {
   trigger: string;
   preTokens: number;
-  postTokens: number;
+  /** The record's `compactMetadata.postTokens`, or `null` when it has none. */
+  postTokens: number | null;
   timestamp: string;
 };
 
@@ -58,6 +59,11 @@ export type TurnRecord = {
   errors: number;
   /** The compaction boundary that fired immediately before this turn. */
   boundaryBefore: BoundaryMarker | null;
+  /**
+   * Earlier boundaries of a back-to-back run that arrived with no assistant
+   * turn between them, oldest first. Absent unless a run occurred.
+   */
+  skippedBoundaries?: BoundaryMarker[];
 };
 
 /** A run of turns between two compactions. */
@@ -66,7 +72,10 @@ export type Cycle = {
   turns: TurnRecord[];
   /** Context (or `compactMetadata.preTokens`) when this cycle was cut. */
   preTokens: number | null;
-  /** Context the next cycle restarted at. */
+  /**
+   * The closing boundary record's `compactMetadata.postTokens`; `null` when
+   * the record has none, or the cycle was not closed by a boundary record.
+   */
   postTokens: number | null;
   /** How the cycle ended. */
   cutBy: "boundary" | "usage-drop" | "end";
@@ -131,6 +140,19 @@ export type SegmentOptions = {
   dropRatio?: number;
   /** Only cut on a drop when the previous turn was above this context. */
   minPrevContext?: number;
+  /**
+   * Every boundary on the transcript, in order (`parseBoundaries`). Turns
+   * carry the boundaries that precede them; the ones left over are trailing
+   * boundaries no turn follows, which each still get a cycle.
+   *
+   * Precondition: when given, this must be the complete, unfiltered list
+   * that `turns` were parsed from, in transcript order. The trailing
+   * boundaries are found by skipping as many entries as the turns already
+   * carry, so a filtered or differently ordered list gives phantom or missing
+   * cycles; `segmentCycles` throws when the turns carry more boundaries than
+   * the list holds. Omitted, no trailing boundaries are considered.
+   */
+  boundaries?: BoundaryMarker[];
 };
 
 /** Context above which a turn is counted as an expensive turn. */
@@ -140,7 +162,7 @@ const OVER_CONTEXT = 200000;
 const DEFAULT_POST_TOKENS = 15000;
 
 /** Default window and percentage, matching `.claude/settings.json` `env`. */
-const DEFAULT_WINDOW = 350000;
+const DEFAULT_WINDOW = 500000;
 const DEFAULT_PCT = 80;
 
 /** Number of context buckets in the error-rate table. */
@@ -163,22 +185,18 @@ function num(usage: Record<string, unknown>, key: string): number {
   return typeof v === "number" && Number.isFinite(v) ? v : 0;
 }
 
-/**
- * Parses transcript lines into main-thread assistant turns.
- *
- * Lines that are not JSON are skipped, as are sub-agent (`isSidechain`)
- * records. Consecutive records sharing a response id are one turn — the
- * transcript writes one record per content block and repeats the usage on
- * each. A `compact_boundary` record attaches to the next turn as
- * `boundaryBefore`; `is_error` tool results attach to the turn whose
- * `tool_use` block they answer, falling back to the nearest preceding turn.
- */
-export function parseTranscript(lines: string[]): TurnRecord[] {
-  const turns: TurnRecord[] = [];
-  const byToolUseId = new Map<string, TurnRecord>();
-  let pendingBoundary: BoundaryMarker | null = null;
-  let last: TurnRecord | null = null;
+/** One main-thread transcript record and the line number it came from. */
+type ParsedRecord = { line: number; rec: Record<string, unknown> };
 
+/**
+ * Parses each transcript line's JSON once, keeping main-thread records only.
+ *
+ * Blank lines, non-JSON lines, non-object values and sub-agent
+ * (`isSidechain`) records are dropped. Shared by `turnsFromRecords` and
+ * `boundariesFromRecords` so a line is never parsed twice.
+ */
+function parseRecords(lines: string[]): ParsedRecord[] {
+  const out: ParsedRecord[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line || !line.trim()) continue;
@@ -190,15 +208,56 @@ export function parseTranscript(lines: string[]): TurnRecord[] {
     }
     if (!rec || typeof rec !== "object") continue;
     if (!isMainThread(rec)) continue;
+    out.push({ line: i, rec });
+  }
+  return out;
+}
 
-    if (rec.type === "system" && rec.subtype === "compact_boundary") {
-      const meta = (rec.compactMetadata ?? {}) as Record<string, unknown>;
-      pendingBoundary = {
-        trigger: typeof meta.trigger === "string" ? meta.trigger : "unknown",
-        preTokens: num(meta, "preTokens"),
-        postTokens: num(meta, "postTokens"),
-        timestamp: typeof rec.timestamp === "string" ? rec.timestamp : "",
-      };
+/** Returns `true` for a `compact_boundary` system record. */
+function isBoundaryRecord(rec: Record<string, unknown>): boolean {
+  return rec.type === "system" && rec.subtype === "compact_boundary";
+}
+
+/** Reads a `compact_boundary` record's metadata into a marker. */
+function toBoundaryMarker(rec: Record<string, unknown>): BoundaryMarker {
+  const meta = (rec.compactMetadata ?? {}) as Record<string, unknown>;
+  return {
+    trigger: typeof meta.trigger === "string" ? meta.trigger : "unknown",
+    preTokens: num(meta, "preTokens"),
+    postTokens:
+      typeof meta.postTokens === "number" && Number.isFinite(meta.postTokens)
+        ? meta.postTokens
+        : null,
+    timestamp: typeof rec.timestamp === "string" ? rec.timestamp : "",
+  };
+}
+
+/**
+ * Parses transcript lines into main-thread assistant turns.
+ *
+ * Lines that are not JSON are skipped, as are sub-agent (`isSidechain`)
+ * records. Consecutive records sharing a response id are one turn — the
+ * transcript writes one record per content block and repeats the usage on
+ * each. A `compact_boundary` record attaches to the next turn as
+ * `boundaryBefore`; when several arrive before that turn, the last is
+ * `boundaryBefore` and the earlier ones are kept, in order, as
+ * `skippedBoundaries`. `is_error` tool results attach to the turn whose
+ * `tool_use` block they answer, falling back to the nearest preceding turn.
+ */
+export function parseTranscript(lines: string[]): TurnRecord[] {
+  return turnsFromRecords(parseRecords(lines));
+}
+
+/** Builds turns from already-parsed records (see `parseTranscript`). */
+function turnsFromRecords(records: ParsedRecord[]): TurnRecord[] {
+  const turns: TurnRecord[] = [];
+  const byToolUseId = new Map<string, TurnRecord>();
+  let pendingBoundaries: BoundaryMarker[] = [];
+  let last: TurnRecord | null = null;
+
+  for (const { line: i, rec } of records) {
+    if (isBoundaryRecord(rec)) {
+      pendingBoundaries.push(toBoundaryMarker(rec));
       continue;
     }
 
@@ -228,9 +287,15 @@ export function parseTranscript(lines: string[]): TurnRecord[] {
           context: parts.uncached + parts.cacheRead + parts.cacheCreate,
           usage: parts,
           errors: 0,
-          boundaryBefore: pendingBoundary,
+          boundaryBefore:
+            pendingBoundaries.length > 0
+              ? pendingBoundaries[pendingBoundaries.length - 1]
+              : null,
         };
-        pendingBoundary = null;
+        if (pendingBoundaries.length > 1) {
+          turn.skippedBoundaries = pendingBoundaries.slice(0, -1);
+        }
+        pendingBoundaries = [];
         turns.push(turn);
         last = turn;
       }
@@ -272,27 +337,14 @@ export function parseTranscript(lines: string[]): TurnRecord[] {
  * including one that no turn follows.
  */
 export function parseBoundaries(lines: string[]): BoundaryMarker[] {
-  const out: BoundaryMarker[] = [];
-  for (const line of lines) {
-    if (!line || !line.trim()) continue;
-    let rec: Record<string, unknown>;
-    try {
-      rec = JSON.parse(line) as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-    if (!rec || typeof rec !== "object") continue;
-    if (!isMainThread(rec)) continue;
-    if (rec.type !== "system" || rec.subtype !== "compact_boundary") continue;
-    const meta = (rec.compactMetadata ?? {}) as Record<string, unknown>;
-    out.push({
-      trigger: typeof meta.trigger === "string" ? meta.trigger : "unknown",
-      preTokens: num(meta, "preTokens"),
-      postTokens: num(meta, "postTokens"),
-      timestamp: typeof rec.timestamp === "string" ? rec.timestamp : "",
-    });
-  }
-  return out;
+  return boundariesFromRecords(parseRecords(lines));
+}
+
+/** Collects boundary markers from already-parsed records. */
+function boundariesFromRecords(records: ParsedRecord[]): BoundaryMarker[] {
+  return records
+    .filter((r) => isBoundaryRecord(r.rec))
+    .map((r) => toBoundaryMarker(r.rec));
 }
 
 /**
@@ -301,6 +353,18 @@ export function parseBoundaries(lines: string[]): BoundaryMarker[] {
  * A cycle is cut at a `compact_boundary` marker, and — for transcripts that
  * predate those markers — when a turn's context falls below `dropRatio` of
  * the previous turn's while that previous turn was above `minPrevContext`.
+ *
+ * Every boundary gets a boundary-cut cycle, so the table's boundary count
+ * equals `parseBoundaries`. A boundary before the first turn has no previous
+ * turn to cut: it closes its own zero-turn cycle, like the later boundaries
+ * of a back-to-back run. Trailing boundaries (pass `opts.boundaries`) that no
+ * turn follows close the running cycle, or their own zero-turn cycle.
+ *
+ * A cycle closed by boundary `b` reports `b.postTokens` (the record's
+ * `compactMetadata.postTokens`) everywhere — mid-transcript, trailing,
+ * leading and back-to-back zero-turn cycles alike — and `null` only when the
+ * record has no value. A cycle cut by a usage drop reports the next turn's
+ * context, and the final `end` cycle reports `null`.
  */
 export function segmentCycles(
   turns: TurnRecord[],
@@ -328,14 +392,30 @@ export function segmentCycles(
 
     if (cut && current && prev) {
       current.cutBy = cut;
-      if (cut === "boundary" && turn.boundaryBefore) {
-        current.preTokens = turn.boundaryBefore.preTokens;
-        current.postTokens = turn.boundaryBefore.postTokens;
+      // A back-to-back run: the oldest boundary cuts the running cycle.
+      const run = turn.boundaryBefore
+        ? [...(turn.skippedBoundaries ?? []), turn.boundaryBefore]
+        : [];
+      if (cut === "boundary" && run.length > 0) {
+        current.preTokens = run[0].preTokens;
+        current.postTokens = run[0].postTokens;
       } else {
         current.preTokens = prev.context;
         current.postTokens = turn.context;
       }
       current = null;
+      // Each later boundary of the run closes its own zero-turn cycle, with
+      // its own record's postTokens, never borrowed from the next cycle.
+      for (const b of run.slice(1)) pushEmptyBoundaryCycle(cycles, b);
+    } else if (!prev && turn.boundaryBefore) {
+      // Boundaries before the first turn: no previous turn to cut, so each
+      // one closes its own zero-turn cycle ahead of the first real cycle.
+      for (const b of [
+        ...(turn.skippedBoundaries ?? []),
+        turn.boundaryBefore,
+      ]) {
+        pushEmptyBoundaryCycle(cycles, b);
+      }
     }
 
     if (!current) {
@@ -351,7 +431,46 @@ export function segmentCycles(
     current.turns.push(turn);
   }
 
+  // Trailing boundaries: the ones no turn carries. The first closes the
+  // running cycle; later ones, and any with no running cycle, close their
+  // own zero-turn cycles. Each reports its own record's postTokens.
+  const attached = turns.reduce(
+    (sum, t) =>
+      sum + (t.boundaryBefore ? 1 : 0) + (t.skippedBoundaries?.length ?? 0),
+    0,
+  );
+  const boundaries = opts.boundaries ?? [];
+  if (opts.boundaries && attached > boundaries.length) {
+    throw new Error(
+      `segmentCycles: turns carry ${attached} boundaries but opts.boundaries lists only ${boundaries.length}; pass the complete parseBoundaries() list`,
+    );
+  }
+  for (const b of boundaries.slice(attached)) {
+    if (current) {
+      current.cutBy = "boundary";
+      current.preTokens = b.preTokens;
+      current.postTokens = b.postTokens;
+      current = null;
+    } else {
+      pushEmptyBoundaryCycle(cycles, b);
+    }
+  }
+
   return cycles;
+}
+
+/**
+ * Appends a zero-turn cycle closed by `boundary`, reporting the record's own
+ * `postTokens` (`null` when the record has none).
+ */
+function pushEmptyBoundaryCycle(cycles: Cycle[], boundary: BoundaryMarker) {
+  cycles.push({
+    index: cycles.length,
+    turns: [],
+    preTokens: boundary.preTokens,
+    postTokens: boundary.postTokens,
+    cutBy: "boundary",
+  });
 }
 
 /** A turn list's aggregate stats, plus the raw context sum and error count. */
@@ -566,8 +685,9 @@ function sameBoundary(a: BoundaryMarker | null, b: BoundaryMarker): boolean {
  *
  * Boundaries are matched to turns by position, not by timestamp: each
  * boundary takes the next turn — at or after the previous match — whose
- * `boundaryBefore` is that boundary, so two boundaries carrying the same (or
- * an empty) timestamp still resolve to distinct turns. A trailing boundary
+ * `boundaryBefore` (or one of its `skippedBoundaries`) is that boundary, so two
+ * boundaries carrying the same (or an empty) timestamp still resolve to
+ * distinct matches. A trailing boundary
  * that no turn follows reports the last turn's context instead.
  */
 export function pinCompactionPoint(
@@ -581,10 +701,19 @@ export function pinCompactionPoint(
   const observedLastContext: number[] = [];
   const gapTokens: number[] = [];
 
-  // Positions of the turns that carry a boundary, in transcript order.
-  const marked: number[] = [];
+  // Every boundary a turn follows, in transcript order, with that turn's
+  // position. A back-to-back run contributes its skipped boundaries first,
+  // then `boundaryBefore`, so each pins to the last turn before the run.
+  const marked: Array<{ at: number; boundary: BoundaryMarker }> = [];
   for (let i = 0; i < turns.length; i++) {
-    if (turns[i].boundaryBefore !== null) marked.push(i);
+    const turn = turns[i];
+    if (turn.boundaryBefore === null) continue;
+    for (const boundary of [
+      ...(turn.skippedBoundaries ?? []),
+      turn.boundaryBefore,
+    ]) {
+      marked.push({ at: i, boundary });
+    }
   }
 
   let cursor = 0;
@@ -594,7 +723,7 @@ export function pinCompactionPoint(
 
     let found = -1;
     for (let k = cursor; k < marked.length; k++) {
-      if (sameBoundary(turns[marked[k]].boundaryBefore, b)) {
+      if (sameBoundary(marked[k].boundary, b)) {
         found = k;
         break;
       }
@@ -605,7 +734,7 @@ export function pinCompactionPoint(
       // Only advance on a hit, so a boundary with no turn of its own does
       // not consume the next boundary's match.
       cursor = found + 1;
-      const at = marked[found];
+      const at = marked[found].at;
       if (at > 0) lastContext = turns[at - 1].context;
     } else if (turns.length > 0) {
       lastContext = turns[turns.length - 1].context;
@@ -644,9 +773,11 @@ export function analyze(
 
   for (const file of files) {
     const lines = readFileSync(file, "utf8").split("\n");
-    const turns = parseTranscript(lines);
-    perFile.push({ turns, boundaries: parseBoundaries(lines) });
-    for (const cycle of segmentCycles(turns)) {
+    const records = parseRecords(lines);
+    const turns = turnsFromRecords(records);
+    const boundaries = boundariesFromRecords(records);
+    perFile.push({ turns, boundaries });
+    for (const cycle of segmentCycles(turns, { boundaries })) {
       cycles.push({
         ...cycle,
         index: cycles.length,

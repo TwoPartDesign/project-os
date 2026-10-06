@@ -2,7 +2,9 @@
 # PostToolUse advisory hook: index large tool outputs and hint Claude via additionalContext
 # Fires for: Bash, Read, Grep, WebFetch
 # Behavior: If output exceeds threshold, index it and print hint to stderr (becomes additionalContext)
-# Does NOT modify tool output — advisory only.
+# Does NOT modify tool output — advisory only. (Since 2.1.121 a PostToolUse hook can
+# replace the output of any tool via hookSpecificOutput.updatedToolOutput; this hook
+# deliberately does not use it.)
 
 set -euo pipefail
 trap 'exit 0' ERR  # Advisory hook — never surface errors to Claude Code

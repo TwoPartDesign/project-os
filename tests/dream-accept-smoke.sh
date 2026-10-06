@@ -117,7 +117,7 @@ else
     fail "dreamAccept_invalidTimestamp_exitsNonzero" "expected nonzero exit, got 0\n$OUTPUT_B"
 fi
 
-if echo "$OUTPUT_B" | grep -q "invalid timestamp"; then
+if [[ "$OUTPUT_B" == *"invalid timestamp"* ]]; then
     pass "dreamAccept_invalidTimestamp_errorMessageMentionsFormat"
 else
     fail "dreamAccept_invalidTimestamp_errorMessageMentionsFormat" "$OUTPUT_B"
@@ -156,7 +156,7 @@ else
     fail "dreamAccept_missingStagingDir_exitsNonzero" "expected nonzero exit, got 0\n$OUTPUT_C"
 fi
 
-if echo "$OUTPUT_C" | grep -q "staging directory not found"; then
+if [[ "$OUTPUT_C" == *"staging directory not found"* ]]; then
     pass "dreamAccept_missingStagingDir_errorMessageIsSpecific"
 else
     fail "dreamAccept_missingStagingDir_errorMessageIsSpecific" "$OUTPUT_C"
@@ -197,7 +197,7 @@ set -e
 
 assert_eq "dreamAccept_interruptedSwap_exitsOne" "1" "$EXIT_D" "$OUTPUT_D"
 
-if echo "$OUTPUT_D" | grep -q "recovered interrupted swap from $TS_D"; then
+if [[ "$OUTPUT_D" == *"recovered interrupted swap from $TS_D"* ]]; then
     pass "dreamAccept_interruptedSwap_printsRecoveryMessage"
 else
     fail "dreamAccept_interruptedSwap_printsRecoveryMessage" "$OUTPUT_D"
@@ -284,7 +284,7 @@ else
     fail "dreamAccept_manifestRemoval_unlistedFileSurvives" "c.md missing or modified\n$OUTPUT_E"
 fi
 
-if echo "$OUTPUT_E" | grep -q "removed 2 consumed source file(s) per manifest.yaml"; then
+if grep -q -- "removed 2 consumed source file(s) per manifest.yaml" <<<"$OUTPUT_E"; then
     pass "dreamAccept_manifestRemoval_reportsRemovedCount"
 else
     fail "dreamAccept_manifestRemoval_reportsRemovedCount" "$OUTPUT_E"
@@ -313,7 +313,7 @@ set -e
 
 assert_eq "dreamAccept_missingManifest_exitsZero" "0" "$EXIT_F" "$OUTPUT_F"
 
-if echo "$OUTPUT_F" | grep -q "warning: manifest.yaml missing or unparseable — additive apply only; sources not removed; clean up manually"; then
+if grep -q -- "warning: manifest.yaml missing or unparseable — additive apply only; sources not removed; clean up manually" <<<"$OUTPUT_F"; then
     pass "dreamAccept_missingManifest_printsExactWarning"
 else
     fail "dreamAccept_missingManifest_printsExactWarning" "$OUTPUT_F"

@@ -29,7 +29,8 @@ resolve_project_path() {
 
     # Canonicalize: resolve symlinks and relative paths
     local resolved
-    resolved="$(realpath "$file" 2>/dev/null || readlink -f "$file" 2>/dev/null)" || {
+    # `--`: a payload path like `-x.ts` or `--write` is a file, not an option.
+    resolved="$(realpath -- "$file" 2>/dev/null || readlink -f -- "$file" 2>/dev/null)" || {
         echo "WARNING: cannot canonicalize '$file' (realpath/readlink unavailable)" >&2
         return 1
     }
@@ -231,6 +232,19 @@ json_string_field() {
 # enough write can push it past the window. That is why the flag exists rather
 # than the bound being applied silently: a caller that needed a key and did not
 # find one can check whether the payload was cut and say so.
+#
+# `read_hook_payload "" bash-edit-diff` (#T202): when the window's tool_name is
+# Bash, the remainder is drained through `tr | cut | awk` instead, which also
+# sets HOOK_PAYLOAD_TAIL_EDIT_DIFF=1 if the literal key "bashEditDiff" lies
+# past the bound. A Bash stdout over the bound pushes bashEditDiff out of the
+# window, and without this the edited files are skipped in silence. Memory
+# stays bounded: `"` becomes a newline, so a key is a record of its own, and
+# `cut -b1-13` caps every record. An escaped `\"bashEditDiff\"` inside a
+# string leaves a trailing `\` and does not match, but a string whose content
+# ENDS in `bashEditDiff` (stdout `…\"bashEditDiff`, closed by the real quote)
+# does, so such output can raise a stray warning. That costs a spurious stderr
+# line, never an action: only the key's presence is taken from the remainder —
+# never a path.
 read_hook_payload() {
     local max="${1:-${PROJECT_OS_HOOK_PAYLOAD_BYTES:-262144}}"
     case "$max" in ''|*[!0-9]*) max=262144 ;; esac
@@ -238,10 +252,24 @@ read_hook_payload() {
 
     INPUT=$(head -c "$max" 2>/dev/null || true)
 
+    local scanned=0 counts
+    HOOK_PAYLOAD_TAIL_EDIT_DIFF=0
+    if [ "${2:-}" = "bash-edit-diff" ] && [ "$(json_string_field "$INPUT" tool_name)" = "Bash" ]; then
+        counts=$(LC_ALL=C tr '"' '\n' 2>/dev/null | LC_ALL=C cut -b1-13 2>/dev/null \
+            | awk '{ n++ } $0 == "bashEditDiff" { k++ } END { print n + 0, k + 0 }' 2>/dev/null || true)
+        case "$counts" in
+            *[!0-9\ ]*|'') counts="0 0" ;;
+        esac
+        scanned="${counts%% *}"
+        if [ "${counts##* }" -gt 0 ]; then
+            HOOK_PAYLOAD_TAIL_EDIT_DIFF=1
+        fi
+    fi
+
     local rest
     rest=$(wc -c 2>/dev/null || echo 0)
     rest="${rest//[^0-9]/}"
-    if [ "${rest:-0}" -gt 0 ]; then
+    if [ "$(( ${rest:-0} + scanned ))" -gt 0 ]; then
         HOOK_PAYLOAD_TRUNCATED=1
     else
         HOOK_PAYLOAD_TRUNCATED=0
@@ -294,4 +322,156 @@ get_project_root() {
     local script_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
     ( cd "$script_dir/../.." && pwd -P )
+}
+
+# Print each tool_response.bashEditDiff.changedFiles element of $INPUT on its
+# own line, deduped, for post-tool-use.sh and post-write-session.sh (#T202).
+# The caller canonicalizes and contains each path exactly as it would a
+# Write|Edit file_path; nothing here is trusted as contained.
+#
+# - No eval, no JSON parser: one anchored ERE per element. An element carrying
+#   any JSON escape (quote, backslash, control character, \uXXXX) is rejected
+#   with a stderr line, never unescaped. The one exception is a Windows-native
+#   path whose only escape is `\\` (#T233): it is converted with `cygpath -u`,
+#   and rejected as above when cygpath is not on PATH (fail-closed). cygpath is
+#   resolved once per call and used only when `command -v` yields an absolute
+#   path, so a PATH entry of `.` or a shell function cannot stand in for it.
+# - Absent key or empty list: silent.
+# - Every way of processing fewer files than the change touched says so on
+#   stderr: moreFiles > 0, more than 256 entries, the array running past the
+#   read window (payload bound or 64 KiB parse cap), bashEditDiff lying
+#   past the bound with changedFiles unreadable (set by
+#   `read_hook_payload "" bash-edit-diff` via HOOK_PAYLOAD_TAIL_EDIT_DIFF),
+#   bashEditDiff.skipped=true (unknown change set, not an empty one), a
+#   truncated payload whose list closes but whose `skipped` field lies past the
+#   bound, a malformed list tail, and a rejected element (quote, backslash or
+#   control character, or a Windows path cygpath could not convert): the file
+#   it named is unknown, so the scrub caller must not trust the list.
+#
+# Exit status: 0, or 3 (BASH_EDIT_FALLBACK_STATUS) when any of those eight
+# skips fired, meaning the printed list is incomplete. A caller that must not
+# miss a file (post-write-session.sh's session scrub) captures the output with
+# `out=$(…) || rc=$?` and falls back to a directory sweep on 3; a caller that
+# reads through `< <(…)` never sees the status and is unaffected.
+#
+# Usage: while IFS= read -r p; do …; done < <(bash_edit_diff_paths <hook-name>)
+BASH_EDIT_FALLBACK_STATUS=3
+bash_edit_diff_paths() {
+    local LC_ALL=C hook="$1" before rest elem win conv tail13 i n=0 cut=0 edge=0 fb=0 seen=$'\n' cyg=""
+    # Resolved once per call, accepted only as an absolute path (#S3): `command
+    # -v` also answers with a bare name for a function or alias, and with a
+    # PATH-relative hit when PATH holds `.` or an empty entry.
+    cyg=$(command -v cygpath 2>/dev/null) || cyg=""
+    [[ "$cyg" == /* ]] || cyg=""
+    local key='"changedFiles"[[:space:]]*:[[:space:]]*\['
+    local str='^"(([^"\\]|\\.)*)"'
+    local more='"moreFiles"[[:space:]]*:[[:space:]]*([0-9]+)'
+    local lit='"bashEditDiff"'
+    local skipped="the remaining files were not processed"
+
+    if [[ "$INPUT" =~ $more ]]; then
+        elem="${BASH_REMATCH[1]:0:12}"
+        if [[ "$elem" =~ [1-9] ]]; then
+            echo "$hook: bashEditDiff.moreFiles=$elem — the platform listed only part of the change; $skipped" >&2
+            fb=$BASH_EDIT_FALLBACK_STATUS
+        fi
+    fi
+
+    # `skipped:true` (the platform declined to compute the diff, e.g. after
+    # `git checkout <file>`) means the change set is unknown, not empty. It is
+    # the last field of tool_response, so it is matched anywhere after the
+    # literal `"bashEditDiff"` key, whatever objects (`files`) come between. An
+    # escaped `\"bashEditDiff\"` inside a stdout string is `"bashEditDiff\"`
+    # on the wire and cannot form the key.
+    local skip_re='"bashEditDiff"[[:space:]]*:.*"skipped"[[:space:]]*:[[:space:]]*true'
+    if [[ "$INPUT" =~ $skip_re ]]; then
+        echo "$hook: bashEditDiff.skipped=true — the platform did not list the changed files; $skipped" >&2
+        fb=$BASH_EDIT_FALLBACK_STATUS
+    fi
+
+    if ! [[ "$INPUT" =~ $key ]]; then
+        [ "${HOOK_PAYLOAD_TRUNCATED:-0}" = "1" ] || return "$fb"
+        # The key itself may straddle the bound: the window then ends in a
+        # proper prefix of it (`"bash…`) and the tail scan sees only the rest.
+        tail13="${INPUT: -13}"
+        for ((i = 2; i <= 13; i++)); do
+            if [[ "$tail13" == *"${lit:0:i}" ]]; then edge=1; fi
+        done
+        if [[ "$INPUT" == *"$lit"* ]] || [ "${HOOK_PAYLOAD_TAIL_EDIT_DIFF:-0}" = "1" ] || [ "$edge" = "1" ]; then
+            echo "$hook: payload exceeded ${PROJECT_OS_HOOK_PAYLOAD_BYTES:-262144} bytes before bashEditDiff.changedFiles — Bash-edited files skipped" >&2
+            fb=$BASH_EDIT_FALLBACK_STATUS
+        fi
+        return "$fb"
+    fi
+
+    # `%%lit*`, not `#*lit`: the latter is quadratic over a 256 KiB payload.
+    before="${INPUT%%"${BASH_REMATCH[0]}"*}"
+    rest="${INPUT:$((${#before} + ${#BASH_REMATCH[0]}))}"
+    if [ "${#rest}" -gt 65536 ]; then
+        rest="${rest:0:65536}"
+        cut=1
+    fi
+    if [ "${HOOK_PAYLOAD_TRUNCATED:-0}" = "1" ]; then cut=1; fi
+
+    while :; do
+        rest="${rest#"${rest%%[![:space:]]*}"}"
+        # `]` ends the list; anything else is a cut-off or malformed tail.
+        if ! [[ "$rest" =~ $str ]]; then break; fi
+        if [ "$n" -ge 256 ]; then
+            echo "$hook: bashEditDiff.changedFiles has more than 256 entries — $skipped" >&2
+            return "$BASH_EDIT_FALLBACK_STATUS"
+        fi
+        elem="${BASH_REMATCH[1]}"
+        rest="${rest:${#BASH_REMATCH[0]}}"
+        n=$((n + 1))
+        # A Windows-native path arrives JSON-escaped (`C:\\Users\\x\\a.ts`). The
+        # one escape accepted is `\\` -> `\`, and only when every backslash in
+        # the element is part of such a pair (removing the pairs leaves none)
+        # and the result looks like a Windows path: a drive letter, or no `/`
+        # at all. `cygpath -u` then yields the POSIX spelling, which goes through
+        # the same dedupe and the caller's containment as any other element.
+        # Without cygpath the element stays rejected (fail closed).
+        if [[ "$elem" == *\\* && "${elem//\\\\/}" != *\\* && "$elem" != *[[:cntrl:]]* ]]; then
+            win="${elem//\\\\/\\}"
+            if [[ "$win" =~ ^[A-Za-z]: || "$win" != */* ]] && [ -n "$cyg" ]; then
+                if conv=$("$cyg" -u -- "$win" 2>/dev/null) && [ -n "$conv" ] && [[ "$conv" != *[[:cntrl:]]* ]]; then
+                    elem="$conv"
+                fi
+            fi
+        fi
+        case "$elem" in
+            '') ;;
+            # [[:cntrl:]]: a raw newline is invalid JSON, but would split one
+            # element into two lines for the caller's `read`.
+            *\\*|*\"*|*[[:cntrl:]]*)
+                echo "$hook: rejected a bashEditDiff path containing a quote, backslash or control character" >&2
+                # The file it named is unknown: a scrub caller must sweep.
+                fb=$BASH_EDIT_FALLBACK_STATUS
+                ;;
+            *)
+                case "$seen" in
+                    *$'\n'"$elem"$'\n'*) ;;
+                    *) seen="$seen$elem"$'\n'; printf '%s\n' "$elem" ;;
+                esac
+                ;;
+        esac
+        rest="${rest#"${rest%%[![:space:]]*}"}"
+        if [ "${rest:0:1}" != "," ]; then break; fi
+        rest="${rest:1}"
+    done
+
+    if [ "${rest:0:1}" != "]" ]; then
+        if [ "$cut" = "1" ]; then
+            echo "$hook: bashEditDiff.changedFiles runs past the read window — $skipped" >&2
+        else
+            echo "$hook: bashEditDiff.changedFiles is malformed — $skipped" >&2
+        fi
+        fb=$BASH_EDIT_FALLBACK_STATUS
+    elif [ "$cut" = "1" ] && ! [[ "${rest:1}" =~ \"skipped\"[[:space:]]*: ]]; then
+        # The list closed inside the window but `skipped`, the last field, lies
+        # past it: a `skipped:true` there would go unseen.
+        echo "$hook: payload exceeded ${PROJECT_OS_HOOK_PAYLOAD_BYTES:-262144} bytes before bashEditDiff.skipped — $skipped" >&2
+        fb=$BASH_EDIT_FALLBACK_STATUS
+    fi
+    return "$fb"
 }

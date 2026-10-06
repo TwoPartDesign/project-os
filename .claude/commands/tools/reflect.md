@@ -70,6 +70,12 @@ If an artifact is missing for `ship` or `review-fail`, treat it as empty
 evidence and continue — do not stop the reflection over a missing metrics
 line or empty activity log.
 
+Review findings carry a layer tag in the ISSUE prefix (`ISSUE[rule]:`).
+Only `rule` findings are evidence for a rule, skill, or command edit; findings
+tagged `brief`, `design`, `tasks`, `worker-brief`, or `implementation` belong
+to other layers and are fixed there by `/workflows:rebuild`, so do not cite
+them as evidence for a proposal. An untagged finding counts as `implementation`.
+
 ## Step 3: Load negative feedback
 
 Read `docs/knowledge/skill-edit-rejections.md` if it exists (treat a missing
@@ -122,8 +128,8 @@ Constraints, all mandatory:
 - **Size math**: compute estimated tokens as `chars / 4` for the target
   file's content before and after the edit. If the target is an
   always-loaded file (anything under `.claude/rules/`, or `CLAUDE.md`
-  itself) and the edit would grow it past 2500 tokens — or it is already
-  past 2500 tokens — the proposal must either include a compensating
+  itself) and the edit would grow it past 4000 tokens — or it is already
+  past 4000 tokens — the proposal must either include a compensating
   deletion elsewhere in the same block, or state an explicit
   size-growth justification in the Rationale.
 
@@ -153,6 +159,7 @@ Scope: <comma-separated instruction files in play>
 - **Draft task**: #TN (filled after filing)
 - **Evidence**: <concrete artifact pointer>
 - **Size**: <before> → <after> (chars/4)
+- **Predicted effect**: <one grep-checkable line: the observable change in the next builds or reviews, e.g. "no 'heredoc' scanner prompt in review.md findings">
 
 #### Anchor
 ```
@@ -167,6 +174,11 @@ Scope: <comma-separated instruction files in play>
 #### Rationale
 <why this edit prevents recurrence of the evidence>
 ````
+
+`Predicted effect` makes the edit falsifiable: a later reader greps for it to
+check whether the edit worked, and it is a single line on one bullet.
+`skill-apply-lib.ts` reads proposal fields by name, so the extra bullet is
+ignored by the parser.
 
 `topic-slug` is a 2-4 word kebab-case label for the **problem being
 addressed** (e.g. `stale-argv-example`, `missing-refusal-case`) — never a

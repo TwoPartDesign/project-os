@@ -54,19 +54,22 @@ name, never `general-purpose`). Contradiction detection between sources requires
 judgment, and this command runs infrequently enough that the cost difference
 doesn't matter.
 
-**Staging path must be absolute and point at the main repo.** `documenter` runs in
-an isolated worktree, and `docs/memory/` is gitignored. A worktree with no tracked
-changes is deleted when the agent finishes, and the gitignored staging directory
-goes with it — the 2026-09-06 dream pass lost all ten output files this way and
-had to be recovered from the agent transcript. Give the agent the full absolute
-path `<main-repo-root>/docs/memory/.dream-output/<timestamp>/` and say explicitly
-that its worktree is not the destination. The same applies to any input paths you
-hand it: the worktree copy of `docs/memory/` and `.claude/sessions/` is empty,
-because both are gitignored.
+**Staging output goes to the session scratchpad; the lead places it.** `documenter`
+runs in an isolated worktree, and `docs/memory/` is gitignored. A worktree with no
+tracked changes is deleted when the agent finishes, and anything gitignored in it
+goes too — the 2026-09-06 dream pass lost all ten output files this way. An isolated
+agent also cannot write the shared checkout, so do not hand it
+`<main-repo-root>/docs/memory/.dream-output/`. Give the agent a path under the
+session scratchpad (`<scratchpad>/dream-output/<timestamp>/`) to write its staging
+output to, and place the files into `docs/memory/.dream-output/<timestamp>/`
+yourself with Write (Step 4). Input paths you hand it must be main-repo absolute
+paths: the worktree copy of `docs/memory/` and `.claude/sessions/` is empty, because
+both are gitignored.
 
 Before spawning, read `.claude/rules/bash.md` and `.claude/rules/lead.md` and extract
-the full content of each one's `## Agent Rules` section — sub-agents do not inherit
-CLAUDE.md, so append both verbatim to the agent prompt.
+the full content of each one's `## Agent Rules` section — roster agents set
+`omitClaudeMd: true` and load neither CLAUDE.md nor the unscoped rules, so append both
+verbatim to the agent prompt.
 
 Give the sub-agent everything gathered in Step 1 (file contents, not just paths — it
 should not need to re-read them), the volatility tiering scheme from Step 2, and this
@@ -84,7 +87,7 @@ consolidation contract:
    recurs across 2+ sources, propose it as a candidate for `docs/knowledge/patterns.md`
    in `promotions.md`. This is a proposal file only — the sub-agent must not edit
    `docs/knowledge/patterns.md` itself.
-5. **Write ONLY inside the staging directory** (see Step 4 path). It must not modify
+5. **Write ONLY inside the scratchpad staging directory** (see Step 4). It must not modify
    `docs/memory/*.md`, any `.claude/sessions/*.yaml` file, or `docs/knowledge/*`.
 
 Give the sub-agent write access scoped to the staging directory only; it should not
@@ -92,7 +95,8 @@ need to touch anything else.
 
 ## Step 4: Staging output
 
-The sub-agent (or you, after it returns its proposed content) writes to:
+The sub-agent writes to its scratchpad staging directory; you then place each file
+with Write at:
 
 `docs/memory/.dream-output/<YYYY-MM-DD-HHMM>/`
 

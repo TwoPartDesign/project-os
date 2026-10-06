@@ -11,7 +11,6 @@ flowchart LR
     c_tools_dream[".claude/commands/tools/dream.md"]
     c_tools_handoff[".claude/commands/tools/handoff.md"]
     c_tools_init[".claude/commands/tools/init.md"]
-    c_tools_kv[".claude/commands/tools/kv.md"]
     c_tools_maintain[".claude/commands/tools/maintain.md"]
     c_tools_metrics[".claude/commands/tools/metrics.md"]
     c_tools_new_project[".claude/commands/tools/new-project.md"]
@@ -51,8 +50,6 @@ flowchart LR
   subgraph lib
     l_common[".claude/hooks/_common.sh"]
     l_dashboard_render["scripts/lib/dashboard-render.ts"]
-    l_decide["scripts/lib/decide.ts"]
-    l_egress_guard["scripts/lib/egress-guard.ts"]
     l_json["scripts/lib/json.sh"]
     l_policy["scripts/lib/policy.ts"]
     l_project_root["scripts/lib/project-root.ts"]
@@ -64,7 +61,6 @@ flowchart LR
     s_audit_context["scripts/audit-context.sh"]
     s_codex_review["scripts/codex-review.sh"]
     s_compaction_metrics["scripts/compaction-metrics.ts"]
-    s_context_filter["scripts/context-filter.sh"]
     s_create_pr["scripts/create-pr.sh"]
     s_dashboard_server["scripts/dashboard-server.ts"]
     s_dashboard["scripts/dashboard.sh"]
@@ -91,15 +87,14 @@ flowchart LR
     s_validate_freshness["scripts/validate-freshness.sh"]
     s_validate_roadmap["scripts/validate-roadmap.sh"]
     s_agent_roster_test["tests/agent-roster.test.ts"]
+    s_audit_context_test["tests/audit-context.test.ts"]
     s_compaction_hooks["tests/compaction-hooks.sh"]
     s_compaction_metrics_test["tests/compaction-metrics.test.ts"]
     s_critical_rules_test["tests/critical-rules.test.ts"]
     s_dashboard_render_test["tests/dashboard-render.test.ts"]
     s_dashboard_smoke["tests/dashboard-smoke.sh"]
-    s_decide_test["tests/decide.test.ts"]
     s_detect_stack_test["tests/detect-stack.test.ts"]
     s_dream_accept_smoke["tests/dream-accept-smoke.sh"]
-    s_egress_guard_test["tests/egress-guard.test.ts"]
     s_entropy_threshold_test["tests/entropy-threshold.test.ts"]
     s_hook_smoke_negctl["tests/hook-smoke-negctl.sh"]
     s_hook_smoke["tests/hook-smoke.sh"]
@@ -125,12 +120,14 @@ flowchart LR
     s_template_residue_test["tests/template-residue.test.ts"]
     s_template_seeds_test["tests/template-seeds.test.ts"]
     s_test_hygiene_test["tests/test-hygiene.test.ts"]
+    s_update_project_smoke["tests/update-project-smoke.sh"]
   end
   subgraph skill
     sk_context_filter_skill[".claude/skills/context-filter/SKILL.md"]
     sk_session_management_skill[".claude/skills/session-management/SKILL.md"]
     sk_spec_driven_dev_skill[".claude/skills/spec-driven-dev/SKILL.md"]
     sk_tdd_workflow_skill[".claude/skills/tdd-workflow/SKILL.md"]
+    sk_verify_skill[".claude/skills/verify/SKILL.md"]
   end
   c_pm_approve -->|references| s_skill_apply
   c_pm_approve -->|references| s_skill_ledger
@@ -158,6 +155,7 @@ flowchart LR
   c_tools_update -->|references| s_update_project
   c_workflows_build -->|references| h_log_activity
   c_workflows_build -->|references| h_notify_phase_change
+  c_workflows_build -->|references| s_generate_manifest
   c_workflows_build -->|references| s_knowledge_index
   c_workflows_build -->|references| s_system_map
   c_workflows_build -->|references| s_validate_roadmap
@@ -174,6 +172,7 @@ flowchart LR
   c_workflows_ship -->|references| s_security_scanner
   c_workflows_ship -->|references| s_system_map
   cfg_settings -->|wires| h_compact_suggest
+  cfg_settings -->|wires| h_log_activity
   cfg_settings -->|wires| h_output_index
   cfg_settings -->|wires| h_post_mcp_validate
   cfg_settings -->|wires| h_post_tool_use
@@ -191,28 +190,21 @@ flowchart LR
   h_pre_compact -->|sources| l_common
   h_session_end_cleanup -->|sources| l_common
   h_tool_failure_log -->|sources| l_common
-  l_decide -->|imports| l_egress_guard
-  l_decide -->|imports| l_project_root
   l_policy -->|imports| l_project_root
+  s_audit_context_test -->|imports| l_system_map_lib
   s_compaction_hooks -->|sources| l_common
   s_compaction_metrics_test -->|imports| s_compaction_metrics
   s_dashboard -->|sources| l_json
   s_dashboard_render_test -->|imports| l_dashboard_render
   s_dashboard_server -->|imports| l_dashboard_render
-  s_decide_test -->|imports| l_decide
-  s_decide_test -->|imports| l_project_root
   s_detect_stack_test -->|imports| s_detect_stack
-  s_egress_guard_test -->|imports| l_egress_guard
   s_knowledge_index -->|imports| l_project_root
   s_knowledge_index_test -->|imports| s_knowledge_index
   s_maintain_draft -->|imports| l_dashboard_render
   s_maintain_draft -->|imports| l_project_root
   s_observation_parser_test -->|imports| s_observation_parser
   s_policy_test -->|imports| l_policy
-  s_review_triage -->|imports| l_decide
-  s_review_triage -->|imports| l_egress_guard
-  s_review_triage -->|imports| l_project_root
-  s_review_triage_test -->|imports| l_decide
+  s_review_triage -->|imports| s_observation_parser
   s_review_triage_test -->|imports| s_review_triage
   s_skill_apply -->|imports| l_policy
   s_skill_apply -->|imports| l_project_root

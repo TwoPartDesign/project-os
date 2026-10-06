@@ -14,7 +14,12 @@ import { fileURLToPath } from "node:url";
 // ============================================================================
 
 export interface Observation {
-  type: "error-pattern" | "file-relationship" | "config-key" | "function-sig" | "dependency-chain";
+  type:
+    | "error-pattern"
+    | "file-relationship"
+    | "config-key"
+    | "function-sig"
+    | "dependency-chain";
   content: string;
   confidence: "high" | "medium" | "low";
   line_number: number;
@@ -56,7 +61,9 @@ export function extractErrorPatterns(lines: string[]): Observation[] {
     const trimmed = line.trim();
 
     // Check for high-confidence error prefixes
-    const isHighError = highPrefixes.some((prefix) => trimmed.startsWith(prefix));
+    const isHighError = highPrefixes.some((prefix) =>
+      trimmed.startsWith(prefix),
+    );
 
     // Check for medium-confidence FAIL/FAILED
     const isFailLine = /^(FAIL|FAILED)\b/.test(trimmed);
@@ -73,7 +80,11 @@ export function extractErrorPatterns(lines: string[]): Observation[] {
       let content = trimmed;
       let stackCount = 0;
       let j = i + 1;
-      while (j < lines.length && stackCount < 3 && stackTraceRe.test(lines[j])) {
+      while (
+        j < lines.length &&
+        stackCount < 3 &&
+        stackTraceRe.test(lines[j])
+      ) {
         const stackLineTrimmed = lines[j].trim();
         content += "\n" + stackLineTrimmed;
         // Mark the merged stack line's standalone form as seen so the outer
@@ -191,6 +202,20 @@ export function extractFileRelationships(lines: string[]): Observation[] {
 }
 
 /**
+ * True when `k` names a key that may hold a secret value. The key is
+ * normalized by stripping `_`/`-` before the test so camelCase JSON keys are
+ * caught too: `apiKey`/`privateKey` would otherwise slip past
+ * `API_KEY`/`PRIVATE_KEY` (which require the underscore) and leak a secret
+ * value into the index. Over-suppression is the safe direction here — a
+ * missed observation never leaks; a missed secret does.
+ */
+export function isSensitiveKey(k: string): boolean {
+  return /SECRET|TOKEN|PASSWORD|CREDENTIAL|APIKEY|PRIVATEKEY|AUTH/i.test(
+    k.replace(/[_-]/g, ""),
+  );
+}
+
+/**
  * Extract configuration key-value pairs from lines.
  * Match env-var style (ALL_CAPS=value) and JSON-style ("key": "value")
  * Confidence: always "medium"
@@ -207,15 +232,6 @@ export function extractConfigKeys(lines: string[]): Observation[] {
   // "oauth2Token" are captured too — the sensitive-key denylist below still
   // applies to the widened charset.
   const jsonKvRe = /"([a-zA-Z_][a-zA-Z0-9_]*)":\s*"?([^",}\n]+)"?/g;
-
-  // Skip keys that may contain sensitive values. The key is normalized by
-  // stripping `_`/`-` before the test so camelCase JSON keys are caught too:
-  // `apiKey`/`privateKey` would otherwise slip past `API_KEY`/`PRIVATE_KEY`
-  // (which require the underscore) and leak a secret value into the index.
-  // Over-suppression is the safe direction here — a missed observation never
-  // leaks; a missed secret does.
-  const sensitivePatterns = /SECRET|TOKEN|PASSWORD|CREDENTIAL|APIKEY|PRIVATEKEY|AUTH/i;
-  const isSensitiveKey = (k: string): boolean => sensitivePatterns.test(k.replace(/[_-]/g, ""));
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -301,7 +317,12 @@ export function extractFunctionSigs(lines: string[]): Observation[] {
           content,
           confidence: "high",
           line_number: i + 1,
-          metadata: { name, params, return_type: "unknown", is_async: isAsync ? "true" : "false" },
+          metadata: {
+            name,
+            params,
+            return_type: "unknown",
+            is_async: isAsync ? "true" : "false",
+          },
         });
       }
       continue;
@@ -321,7 +342,12 @@ export function extractFunctionSigs(lines: string[]): Observation[] {
           content,
           confidence: "high",
           line_number: i + 1,
-          metadata: { name, params, return_type: "unknown", is_async: isAsync ? "true" : "false" },
+          metadata: {
+            name,
+            params,
+            return_type: "unknown",
+            is_async: isAsync ? "true" : "false",
+          },
         });
       }
       continue;
@@ -475,7 +501,8 @@ export function parseObservations(text: string): Observation[] {
   }
 
   // Sort: high confidence first, then medium, then low
-  const rank = (o: Observation) => (o.confidence === "high" ? 0 : o.confidence === "medium" ? 1 : 2);
+  const rank = (o: Observation) =>
+    o.confidence === "high" ? 0 : o.confidence === "medium" ? 1 : 2;
   deduped.sort((a, b) => rank(a) - rank(b));
 
   // Cap at 100
@@ -508,18 +535,24 @@ export function parse(text: string): ParseResult {
 function printHelp(): void {
   console.log("Usage:");
   console.log("  node scripts/observation-parser.ts <file>   — parse a file");
-  console.log("  node scripts/observation-parser.ts --stdin  — read from stdin");
+  console.log(
+    "  node scripts/observation-parser.ts --stdin  — read from stdin",
+  );
   console.log("  node scripts/observation-parser.ts --help   — show this help");
   console.log("");
   console.log("Output: JSON to stdout with extracted observations.");
-  console.log("Exit 0 on success (even with 0 observations), exit 1 on errors.");
+  console.log(
+    "Exit 0 on success (even with 0 observations), exit 1 on errors.",
+  );
 }
 
 function readStdin(): Promise<string> {
   return new Promise((res, rej) => {
     let data = "";
     process.stdin.setEncoding("utf-8");
-    process.stdin.on("data", (chunk) => { data += chunk; });
+    process.stdin.on("data", (chunk) => {
+      data += chunk;
+    });
     process.stdin.on("end", () => res(data));
     process.stdin.on("error", rej);
   });
@@ -530,7 +563,8 @@ function readStdin(): Promise<string> {
 // ============================================================================
 
 const __filename = fileURLToPath(import.meta.url);
-const isMain = process.argv[1] && resolve(process.argv[1]) === resolve(__filename);
+const isMain =
+  process.argv[1] && resolve(process.argv[1]) === resolve(__filename);
 
 if (isMain) {
   (async () => {
@@ -547,7 +581,9 @@ if (isMain) {
       try {
         text = await readStdin();
       } catch (e) {
-        console.error(`Error reading stdin: ${e instanceof Error ? e.message : String(e)}`);
+        console.error(
+          `Error reading stdin: ${e instanceof Error ? e.message : String(e)}`,
+        );
         process.exit(1);
       }
     } else {
@@ -555,7 +591,9 @@ if (isMain) {
       try {
         text = readFileSync(filePath, "utf-8");
       } catch (e) {
-        console.error(`Error reading file: ${e instanceof Error ? e.message : String(e)}`);
+        console.error(
+          `Error reading file: ${e instanceof Error ? e.message : String(e)}`,
+        );
         process.exit(1);
       }
     }

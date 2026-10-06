@@ -16,7 +16,11 @@ prose.
 Read the brief at `docs/specs/$ARGUMENTS/brief.md`.
 Read `docs/knowledge/architecture.md` for current system design.
 Read `docs/knowledge/patterns.md` for established conventions.
-Read `docs/knowledge/decisions.md` for past ADRs that may apply.
+Route `docs/knowledge/decisions.md` by section — do not read it whole (it is ~66 KB):
+1. Grep its headings: `Grep(pattern: "^## ", path: "docs/knowledge/decisions.md", output_mode: "content")`. Each ADR is one `## <date> — <title>` section.
+2. Compare the headings against the brief's topic, constraints, and the files it will touch. Pick the entries that plausibly apply.
+3. Read only those entries: Grep with `-A` context from the matching heading, or Read with `offset`/`limit` bounded by the next `## ` line.
+Record the ADR headings you opened (and any you ruled out on a close call) so the design's Architecture Decision can cite or deliberately depart from each.
 
 ## Step 1: First-Principles Analysis
 
@@ -101,7 +105,8 @@ Agent(
 
 "You are a critical code reviewer. Read the design at `<main-repo absolute path>/docs/specs/$ARGUMENTS/design.md` (docs/specs is gitignored; worktrees cannot see it). Your job is to find flaws. Check:
 1. Are any UNVERIFIED assumptions load-bearing? Flag them.
-2. Does the approach conflict with patterns in docs/knowledge/patterns.md?
+2. Does the approach conflict with patterns in docs/knowledge/patterns.md or the conventions in `<main-repo absolute path>/CLAUDE.md` (you run with `omitClaudeMd: true`, so read it from that absolute path)?
+2a. ADR-conflict check: grep the `^## ` headings of docs/knowledge/decisions.md, open every ADR whose topic touches this design, and flag any place the design contradicts or silently reverses a recorded decision (cite the ADR heading). A deliberate departure must say so in the design's Architecture Decision.
 3. Are there security gaps in the Security Considerations section?
 4. Is the testing strategy sufficient to catch regressions?
 5. Are there simpler alternatives the designer missed?
@@ -110,7 +115,7 @@ Output format — one line per finding:
 `SEVERITY / FILE:LINES / ISSUE / FIX`
 Severity is one of CRITICAL, HIGH, MEDIUM, LOW. Report everything; the designer filters. After the findings, add the ranked list of findings ordered CRITICAL > HIGH > MEDIUM > LOW.
 
-CRITICAL — BASH COMMAND RULES:
+BASH COMMAND RULES:
 [BASH_AGENT_RULES]
 
 AGENT RULES:

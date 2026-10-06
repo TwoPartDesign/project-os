@@ -54,7 +54,7 @@ make_fixture() {
         '      {' \
         '        "matcher": "Write",' \
         '        "hooks": [' \
-        '          { "type": "command", "command": "bash \".claude/hooks/demo-hook.sh\"" }' \
+        '          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/demo-hook.sh\"" }' \
         '        ]' \
         '      }' \
         '    ]' \
@@ -188,7 +188,7 @@ set -e
 assert_eq "precommit_partialStaging_exitsZero" "0" "$EXIT_3A" "$OUT_3A"
 
 CACHED_NAMES="$(cd "$FIXTURE_3" && git diff --cached --name-only)"
-if echo "$CACHED_NAMES" | grep -q "^docs/maps/"; then
+if grep -q "^docs/maps/" <<<"$CACHED_NAMES"; then
     pass "precommit_partialStaging_docsMapsStaged"
 else
     fail "precommit_partialStaging_docsMapsStaged" "docs/maps not in cached diff:\n$CACHED_NAMES"
@@ -283,6 +283,91 @@ EXIT_5C=$?
 set -e
 assert_eq "realRepo_report_exitsZero" "0" "$EXIT_5C" "$OUT_5C"
 
+echo ""
+
+# --- Scenario 6: always-loaded budget wiring in runFindings ------------------
+# Guards the push of findAlwaysLoadedOverBudget results into `report`: the unit
+# tests cover the function, only this exercises the wiring.
+echo "Scenario 6: 16,004-byte unscoped rule -> report names it as over the always-loaded budget"
+
+FIXTURE_6="$(mktemp -d)"
+make_fixture "$FIXTURE_6"
+mkdir -p "$FIXTURE_6/.claude/rules"
+# 16004 bytes of spaces = 4001 tokens at 4 bytes per token, one over budget.
+printf '%*s' 16004 '' > "$FIXTURE_6/.claude/rules/big.md"
+# 12004 bytes = 3001 tokens: over the old 2500 budget, under the pinned 4000.
+printf '%*s' 12004 '' > "$FIXTURE_6/.claude/rules/mid.md"
+(cd "$FIXTURE_6" && git add -A && git commit -q -m "fixture: big always-loaded rule")
+
+set +e
+OUT_6="$(cd "$FIXTURE_6" && node "$SYSTEM_MAP" report 2>&1)"
+EXIT_6=$?
+set -e
+assert_eq "report_bigUnscopedRule_exitsZero" "0" "$EXIT_6" "$OUT_6"
+if [[ "$OUT_6" == *".claude/rules/big.md is always loaded and is approximately 4001 tokens"* ]]; then
+    pass "report_bigUnscopedRule_namesFileAndTokens"
+else
+    fail "report_bigUnscopedRule_namesFileAndTokens" "report output lacks the always-loaded finding:\n$OUT_6"
+fi
+if [[ "$OUT_6" == *"always-loaded-over-budget"* ]]; then
+    pass "report_bigUnscopedRule_namesFindingKind"
+else
+    fail "report_bigUnscopedRule_namesFindingKind" "report output lacks always-loaded-over-budget:\n$OUT_6"
+fi
+if [[ "$OUT_6" != *"mid.md is always loaded"* ]]; then
+    pass "report_3001TokenRule_notReportedAsOverBudget"
+else
+    fail "report_3001TokenRule_notReportedAsOverBudget" "a 3,001-token rule is under the 4000-token budget but was reported:\n$OUT_6"
+fi
+
+rm -rf "$FIXTURE_6"
+echo ""
+
+# --- Scenario 7: relative hook command wiring in runFindings ------------------
+# Guards the push of findRelativeHookCommands results into `report` (#T244).
+echo "Scenario 7: settings.json hook command without \$CLAUDE_PROJECT_DIR -> report flags it"
+
+FIXTURE_7="$(mktemp -d)"
+make_fixture "$FIXTURE_7"
+printf '%s\n' \
+    '{' \
+    '  "hooks": {' \
+    '    "PostToolUse": [' \
+    '      { "hooks": [ { "type": "command", "command": "bash .claude/hooks/demo-hook.sh" } ] }' \
+    '    ]' \
+    '  }' \
+    '}' > "$FIXTURE_7/.claude/settings.json"
+(cd "$FIXTURE_7" && git add -A && git commit -q -m "fixture: relative hook command")
+
+set +e
+OUT_7="$(cd "$FIXTURE_7" && node "$SYSTEM_MAP" report 2>&1)"
+EXIT_7=$?
+set -e
+assert_eq "report_relativeHookCommand_exitsZero" "0" "$EXIT_7" "$OUT_7"
+if [[ "$OUT_7" == *"relative-hook-command"* && "$OUT_7" == *".claude/hooks/demo-hook.sh"* ]]; then
+    pass "report_relativeHookCommand_namesKindAndHook"
+else
+    fail "report_relativeHookCommand_namesKindAndHook" "report output lacks relative-hook-command finding:\n$OUT_7"
+fi
+
+rm -rf "$FIXTURE_7"
+echo ""
+
+# --- Scenario 8: malformed settings.json does not abort report ----------------
+echo "Scenario 8: truncated settings.json -> report still exits 0"
+
+FIXTURE_8="$(mktemp -d)"
+make_fixture "$FIXTURE_8"
+printf '%s\n' '{"hooks": ' > "$FIXTURE_8/.claude/settings.json"
+(cd "$FIXTURE_8" && git add -A && git commit -q -m "fixture: malformed settings")
+
+set +e
+OUT_8="$(cd "$FIXTURE_8" && node "$SYSTEM_MAP" report 2>&1)"
+EXIT_8=$?
+set -e
+assert_eq "report_malformedSettings_exitsZero" "0" "$EXIT_8" "$OUT_8"
+
+rm -rf "$FIXTURE_8"
 echo ""
 
 # --- Summary ------------------------------------------------------------------

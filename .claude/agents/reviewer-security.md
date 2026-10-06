@@ -3,6 +3,7 @@ name: reviewer-security
 description: "Audits an artifact against its reference for security vulnerabilities — injection, secrets, auth gaps, unsafe data handling. Used by /workflows:review, design, and compete-review."
 model: inherit
 effort: high
+omitClaudeMd: true
 disallowedTools: [Agent, Task]
 role: Reviewer
 permissions:

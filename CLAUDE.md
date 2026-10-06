@@ -8,7 +8,6 @@
 - Stack: Markdown + Bash
 
 ## Principles
-
 Core principles guide all architecture decisions. See `docs/knowledge/design-principles.md` for full details.
 
 - Ship working software over perfect software
@@ -60,51 +59,9 @@ See `docs/knowledge/architecture.md` for the full module map, hook/script
 tables, security scanning, and self-maintenance details.
 
 ## Active Conventions
-One line per established pattern (name — rule enforced); see the full file for
-rationale, examples, and anti-patterns.
-
-- **Ship Seeds, Not Live Content** — a template seeds new projects from a
-  dedicated seed tier, never from its own live working files.
-- **ROADMAP↔Tasks Dual-Track** — ROADMAP.md markers are the authoritative
-  state; native Tasks are the runtime scheduler; re-derive from markers on
-  every batch drain.
-- **Schema Contract Across File Boundaries** — verify a producer's output
-  schema matches its consumer's input expectations at integration time.
-- **Security Scanning Gate** — defense-in-depth (pre-commit/pre-push/ship
-  scan-diff); never bypass with `--no-verify` without the ship-workflow
-  backstop.
-- **Sole-Writer Self-Enforcement** — the sole sanctioned writer to a sensitive
-  artifact sanitizes every field it writes, not just the obvious one.
-- **Deterministic Artifact: Heal, Don't Block** — on drift, regenerate a
-  generated artifact from the staged index and re-stage it; fail the commit
-  only when the machine genuinely can't resolve it.
-- **Denylist Before Emit** — normalize the key, then check a separator-free
-  sensitive-name denylist, before emitting any config/key-value observation.
-- **Mitigate Against the Platform's Real Surface, Not Its Defaults** —
-  enumerate where the platform actually looks (all hook types, indirection
-  like `core.hooksPath`) and mitigate there, not just the default location.
-- **Invert Open-Ended Recognition Predicates to Closed Allowlists** — define
-  the closed set of safe residue and refuse anything outside it, rather than
-  enumerating unsafe shapes.
-- **One Command Runs Every Check, On The Machine That Ships** — one entry
-  point discovers and runs every suite by glob, and it must run on the
-  platform that actually ships.
-- **Verify the Channel Before Designing the Gate** — check a design's
-  load-bearing observability assumption against the shipped runtime before
-  building enforcement around it.
-- **Test Behaviour in a Copied Project Root** — copy self-locating scripts
-  into a throwaway root and assert what they *do*, not just their exit code.
-- **Registered Roster, Not Pasted Prose** — an agent's identity, tier, and
-  scope live once in `.claude/agents/<name>.md`; dispatch by name, never fall
-  back to `general-purpose`.
-- **Brief Every Worktree Worker to Self-Ground First** — a worktree brief
-  opens with `git merge master`, passes absolute main-repo paths for
-  anything under a gitignored directory (inputs and outputs), and requires
-  a commit; the lead Globs the main repo for claimed files before the
-  worktree is gone.
-
-See `docs/knowledge/patterns.md` for full rationale, examples, and
-anti-patterns per pattern.
+The established patterns live in `docs/knowledge/patterns.md`, one entry each
+with rationale, examples, and anti-patterns. Read it before design and build
+decisions.
 
 ## Workflow
 This project uses spec-first, governance-gated development:
@@ -113,7 +70,7 @@ This project uses spec-first, governance-gated development:
 3. `/workflows:plan` — Atomic task decomposition (outputs `[?]` drafts with `#TN` IDs)
 4. `/pm:approve` — Governance gate (promotes `[?]` to `[ ]`)
 5. `/workflows:build` — Wave-based parallel implementation with worktree isolation
-6. `/workflows:review` — Adversarial quality gate (3 isolated reviewers)
+6. `/workflows:review` — Adversarial quality gate, sized to the diff (full 3-reviewer pass at the ship gate)
 7. `/workflows:ship` — Final validation, PR generation, metrics snapshot
 
 Optional: `/workflows:compete` + `/workflows:compete-review` for competitive implementation.
@@ -121,11 +78,10 @@ Optional: `/workflows:compete` + `/workflows:compete-review` for competitive imp
 Never skip from idea to build. The design phase catches 80% of mistakes.
 
 ## Model Routing
-- **Lead**: `fable` (set via `"model"` in settings.json; `opus` on plans without Fable)
+- **Lead**: Opus (`opus`) at high effort, set via `"model"` in settings.json, with `"fallbackModel": ["sonnet"]`
 - **Default sub-agent**: `sonnet` at high effort via `implementer`/`documenter` frontmatter, for any task with a complete brief and checkable acceptance criteria
-- **Judgment tier**: `opus` at high effort via `(model: opus)` annotations or `researcher`, for reconciling sources, test design, root-causing, cross-system refactors, and escalation after a Sonnet failure. `CLAUDE_CODE_SUBAGENT_MODEL` stays `opus` as the tier for any unnamed spawn
-- **Reviewers**: `inherit`
-- **Adversarial review**: Primary model with isolated context
+- **Judgment tier**: `opus` at high effort via `(model: opus)` annotations or `researcher`, for reconciling sources, test design, root-causing, cross-system refactors, and escalation after a Sonnet failure; the top of the ladder is `opus` at xhigh. `fable` is no longer a rung: it stays available only as an Approver-confirmed choice through `/tools:set-models`. `CLAUDE_CODE_SUBAGENT_MODEL` stays `opus` as the tier for any unnamed spawn
+- **Reviewers**: `inherit` in frontmatter; per-wave passes are sized to the diff per `.claude/rules/lead.md` (`sonnet` for text-shaped diffs, `opus` for code with a security or correctness surface); the full three-reviewer pass is the ship gate; each reviewer runs in an isolated context
 - **Agent adapters**: Per-task routing via `(agent: <name>)` — see `.claude/agents/adapters/INTERFACE.md`
 
 ## Roles (Advisory)
@@ -141,7 +97,7 @@ See `.claude/agents/roles.md` for full definitions.
 - Project knowledge: `docs/knowledge/` (decisions, patterns, bugs, architecture)
 - Persistent memory: `docs/memory/` (cross-session, searchable)
 - Specs & designs: `docs/specs/<feature>/` (per-feature lifecycle docs)
-- System map: `docs/maps/system-map.md` — CONSULT IT before changing hook/command/skill/script wiring (it answers "what references this?"); run `node scripts/system-map.ts report` for current health findings. Healed by pre-commit; never hand-edit.
+- System map: `docs/maps/system-map.md` — Consult it before changing hook/command/skill/script wiring (it answers "what references this?"); run `node scripts/system-map.ts report` for current health findings. Healed by pre-commit; never hand-edit.
 
 ## Maintenance Invariants
 - Files/git are the source of truth; the SQLite index is deletable and rebuildable at any time.
@@ -152,10 +108,11 @@ See `.claude/agents/roles.md` for full definitions.
 | Pattern | Skill | Loads |
 |---|---|---|
 | implement, build, add feature | spec-driven-dev | SDD protocol |
-| test, tdd, verify, coverage | tdd-workflow | Red-Green-Refactor |
+| test, tdd, coverage | tdd-workflow | Red-Green-Refactor |
+| commit, pre-commit, verify | verify | Fast suite before commit |
 | handoff, done, end session | session-management | Auto-save protocol |
 | deploy, ship, release, external | workflows:ship | Pre-ship checklist + PR generation |
-| filter, compress, large output, stale, fresh | context-filter | Filter protocol |
+| stale, fresh, knowledge search | context-filter | Freshness-scored knowledge search |
 | drift, unwired, orphan, health check, maintenance | tools:maintain | Draft-only health sweep + `system-map.ts report` |
 
 ## Rules

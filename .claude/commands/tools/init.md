@@ -274,25 +274,15 @@ Record answers as `FEATURE_OBSIDIAN` (yes/no) and `FEATURE_CONTEXT7` (yes/no).
 
 Ask:
 
-> "Which Claude subscription tier are you on? This sets the model routing for orchestration and sub-agents."
->
-> 1. **Max** — Fable for orchestration, Opus for sub-agents *(default when Fable is available)*
-> 2. **Pro** — Opus for orchestration, Sonnet for sub-agents
-> 3. **Custom** — I'll specify models manually
+> "Keep the default model routing — orchestration `opus`, sub-agents `opus` (unnamed spawns), fallback `sonnet` — or name different models?"
 
-If **Custom**, ask:
-- Orchestration model ID — prefer a bare alias (`fable`/`opus`/`sonnet`), which always resolves to the latest model in that family. Pin a dated ID only when you need a specific version.
+If the user names different models:
+- Orchestration model ID — prefer a bare alias (`opus`/`sonnet`/`fable`), which always resolves to the latest model in that family. Pin a dated ID only when you need a specific version.
 - Sub-agent model ID — same: prefer a bare alias (`opus`/`sonnet`) over a dated ID.
 
 Record as:
-- `MODEL_ORCHESTRATION` — the primary/orchestration model ID
-- `MODEL_SUBAGENT` — the sub-agent model ID
-
-Standard tier mappings (bare aliases so routing always tracks the latest release):
-| Tier | Orchestration | Sub-agent |
-|---|---|---|
-| Max | `fable` | `opus` |
-| Pro | `opus` | `sonnet` |
+- `MODEL_ORCHESTRATION` — the primary/orchestration model ID (default `opus`)
+- `MODEL_SUBAGENT` — the sub-agent model ID (default `opus`)
 
 Never set `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`; it overrides agent-file frontmatter and collapses the mechanical tier. `set-models` changes the env-var tier only; per-agent tiers live in `.claude/agents/*.md` frontmatter.
 
@@ -384,24 +374,14 @@ Standard mappings:
 
 For each file containing placeholders, make all replacements in a single edit pass.
 
-Also apply model routing from Round 5: update the `## Model Routing` section of `CLAUDE.md` to reflect the chosen models. Emit the block below — it is `CLAUDE.template.md`'s `## Model Routing` section line for line, with `[MODEL_ORCHESTRATION]` and `[MODEL_SUBAGENT]` substituted in the two model positions. Do not shorten it to the retired two-line orchestration/sub-agent shape:
-
-```markdown
-## Model Routing
-- **Lead**: `[MODEL_ORCHESTRATION]` (set via `"model"` in settings.json; `opus` on plans without Fable)
-- **Default sub-agent**: `sonnet` at high effort via `implementer`/`documenter` frontmatter, for any task with a complete brief and checkable acceptance criteria
-- **Judgment tier**: `opus` at high effort via `(model: opus)` annotations or `researcher`, for reconciling sources, test design, root-causing, cross-system refactors, and escalation after a Sonnet failure. `CLAUDE_CODE_SUBAGENT_MODEL` stays `[MODEL_SUBAGENT]` as the tier for any unnamed spawn
-- **Reviewers**: `inherit`
-- **Adversarial review**: Primary model with isolated context
-- **Agent adapters**: Per-task routing via `(agent: <name>)` — see `.claude/agents/adapters/INTERFACE.md`
-```
+`CLAUDE.md`'s `## Model Routing` section ships correct from `CLAUDE.template.md` (Lead `opus`, `CLAUDE_CODE_SUBAGENT_MODEL` `opus`); do not rewrite it. Only if Round 5 chose something other than those defaults, edit the Lead line and the `CLAUDE_CODE_SUBAGENT_MODEL` mention in place to name the chosen models.
 
 Set the models in `.claude/settings.json` (create the file if it doesn't exist, preserving any existing keys):
 
 ```json
 {
   "model": "[MODEL_ORCHESTRATION]",
-  "fallbackModel": ["opus", "sonnet"],
+  "fallbackModel": ["sonnet"],
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "[MODEL_SUBAGENT]",
     "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "[COMPACT_WINDOW]",
@@ -415,17 +395,18 @@ window. The compaction chain (`compact-suggest.sh` and
 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`) measures context pressure against it, and
 the runtime caps it at the real window, so the one rule is: **it must not
 exceed the smallest real window of any model the session can land on** —
-the lead *and* every `fallbackModel` entry. `350000` when the whole chain
-runs at 1M (Fable 5.1 / Opus 5 / Sonnet 5 on a plan with 1M context — check
-with `/context`); `200000` when any model in the chain runs at 200k. A cap
-above a chain member's real window makes the handoff nudge fire past the end
+the lead *and* every `fallbackModel` entry. `500000` when the whole chain
+runs at 1M (Opus, Sonnet and Fable on a plan with 1M context — check with
+`/context`); `200000` when any model in the chain runs at 200k. The default
+chain (`opus` lead, `sonnet` fallback) is all 1M, so the 500k cap still sits
+below every window in it. A cap above a chain member's real window makes the handoff nudge fire past the end
 of that window, i.e. never (`docs/knowledge/decisions.md`, 2026-09-04 rider
 and its 2026-09-16 resolution).
 
 - `"model"` sets the orchestration/session model (aliases like `"opus"` resolve to the current Opus)
-- `"fallbackModel"` is the safety net: an ordered list the session falls back through when the primary model is unavailable, so a plan without Fable still lands on `opus`, then `sonnet`, instead of failing
+- `"fallbackModel"` is the safety net: an ordered list the session falls back through when the primary model is unavailable, so an unavailable `opus` lands on `sonnet` instead of failing
 - `env.CLAUDE_CODE_SUBAGENT_MODEL` routes sub-agent tasks that are spawned without a roster name; a named roster agent takes its own `model:` frontmatter first
-- `env.CLAUDE_CODE_ENABLE_TODO_TOOLS` keeps the native Task tools (`TaskCreate`/`TaskUpdate`/`TaskList`) available on Opus 4.8, Sonnet 5, Fable 5 and newer — Claude Code ≥ 2.1.233 withholds them there by default, and `/workflows:build` schedules on them
+- `env.CLAUDE_CODE_ENABLE_TODO_TOOLS` keeps the native Task tools (`TaskCreate`/`TaskUpdate`/`TaskList`) available on the current Opus, Sonnet and Fable models — Claude Code ≥ 2.1.233 withholds them there by default, and `/workflows:build` schedules on them
 
 Settings take effect on the next Claude Code session — no shell profile changes needed.
 
@@ -464,7 +445,7 @@ invented architecture is the exact failure this seeding exists to prevent — an
 ground truth and designs against a system that does not exist. If a PRD or spec was discovered in
 Step 1b and states real architecture, cite it: `Source: docs/PRD.md §3`.
 
-Leave `decisions.md`, `patterns.md`, `bugs.md`, `metrics.md`, and `kv.md` **untouched**. They are
+Leave `decisions.md`, `patterns.md`, `bugs.md`, and `metrics.md` **untouched**. They are
 append-only logs; the correct content for a brand-new project is zero entries. `/workflows:design`
 writes ADRs, `/workflows:review` writes patterns, `/workflows:ship` writes metrics.
 
@@ -695,10 +676,10 @@ Append a new entry to `docs/memory/project-profiles.md` (create it if it doesn't
 - **One-liner**: [one sentence description]
 - **Features**: Obsidian=[yes/no], Context7=[yes/no]
 - **Code review**: [Codex/Copilot/other/none]
-- **Model tier**: [Max/Pro/Custom] — orchestration=[MODEL_ORCHESTRATION], sub-agent=[MODEL_SUBAGENT]
+- **Models**: orchestration=[MODEL_ORCHESTRATION], sub-agent=[MODEL_SUBAGENT]
 ```
 
-This record will be available as a recommendation source for future projects. In Round 5, offer the saved tier as the default recommendation for the next project.
+This record will be available as a recommendation source for future projects. In Round 5, offer the saved models as the default recommendation for the next project.
 
 ## Step 8: Install /tools:new-project globally
 
@@ -808,7 +789,7 @@ whether this init actually succeeded:
 > - Obsidian vault: [enabled — wikilinks + frontmatter active / disabled]
 > - Context7 MCP: [enabled — `.mcp.json` created / disabled]
 > - Code review: [Codex / GitHub Copilot CLI / other / none — Claude handles reviews internally]
-> **Model routing** ([Max/Pro/Custom]):
+> **Model routing**:
 > - Orchestration: [MODEL_ORCHESTRATION]
 > - Sub-agents: [MODEL_SUBAGENT] (`CLAUDE_CODE_SUBAGENT_MODEL`)
 > - Config: `.claude/settings.json` — applies on next session

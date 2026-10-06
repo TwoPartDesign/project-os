@@ -3,6 +3,7 @@ name: implementer
 description: "Implements one approved ROADMAP task exactly as specified, with tests. Used by /workflows:build, compete, and rebuild."
 model: sonnet
 effort: high
+omitClaudeMd: true
 isolation: worktree
 disallowedTools: [Agent, Task]
 role: Developer

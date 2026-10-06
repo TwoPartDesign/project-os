@@ -89,7 +89,7 @@ Loaded every session, every project. Personal preferences, interaction style, mo
 - No `any` types in TypeScript. No bare `except` in Python.
 
 ## Model Routing
-- Lead: `fable` (`opus` on plans without Fable)
+- Lead: `opus` at high effort (fallback `sonnet`)
 - Default sub-agent: `sonnet` at high effort via `implementer`/`documenter` frontmatter, for any task with a complete brief and checkable acceptance criteria
 - Judgment tier: `opus` at high effort via `(model: opus)` annotations or `researcher`, for reconciling sources, test design, root-causing, cross-system refactors, and escalation after a Sonnet failure. `CLAUDE_CODE_SUBAGENT_MODEL` stays `opus` as the tier for any unnamed spawn
 - Reviewers: `inherit`
@@ -261,7 +261,6 @@ project-root/
 │   │   │   ├── init.md                 # /tools:init — first-run project setup
 │   │   │   ├── research.md             # /tools:research — parallel research agents
 │   │   │   ├── commit.md               # /tools:commit — quality-checked git commit
-│   │   │   ├── kv.md                   # /tools:kv — quick key-value memory operations
 │   │   │   ├── metrics.md              # /tools:metrics — query activity logs
 │   │   │   └── dashboard.md            # /tools:dashboard — cross-project status view
 │   │   └── pm/                         # Product management
@@ -356,7 +355,8 @@ project-root/
 **`.claude/settings.json`**:
 ```json
 {
-  "model": "fable",
+  "model": "opus",
+  "fallbackModel": ["sonnet"],
   "permissions": {
     "allow": [
       "Bash(git *)",
@@ -383,20 +383,13 @@ project-root/
     ]
   },
   "env": {
-    "CLAUDE_CODE_SUBAGENT_MODEL": "opus"
+    "CLAUDE_CODE_SUBAGENT_MODEL": "opus",
+    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "4"
+  },
+  "worktree": {
+    "baseRef": "head"
   },
   "project_os": {
-    "parallel": {
-      "max_concurrent_agents": 4,
-      "worktree_base": ".claude/worktrees",
-      "auto_cleanup": true,
-      "session_handoff_location": ".claude/sessions",
-      "backoff": {
-        "initial_delay_ms": 1000,
-        "max_delay_ms": 30000,
-        "multiplier": 2
-      }
-    },
     "compete": {
       "default_approaches": 3,
       "strategies": ["literal", "minimal", "extensible"]
@@ -413,27 +406,17 @@ project-root/
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "mcp__context7__.*",
-        "hooks": [{ "type": "command", "command": "bash \".claude/hooks/post-mcp-validate.sh\"" }]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit",
+        "matcher": "Write|Edit|Bash",
         "hooks": [
-          { "type": "command", "command": "bash \".claude/hooks/post-tool-use.sh\"" },
-          { "type": "command", "command": "bash \".claude/hooks/post-write-session.sh\"" }
-        ]
-      },
-      {
-        "matcher": ".*",
-        "hooks": [
-          { "type": "command", "command": "bash \".claude/hooks/tool-failure-log.sh\"" },
-          { "type": "command", "command": "bash \".claude/hooks/compact-suggest.sh\"" }
+          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-tool-use.sh\"" }
         ]
       }
     ]
   }
 }
 ```
+
+The `hooks` block above is one representative entry. `.claude/settings.json` holds the full hook wiring.
 
 ---
 
@@ -572,7 +555,6 @@ The following tools support the workflow. Each tool has detailed implementation 
 | `/tools:catchup` | Restore context from last session by reading `.claude/sessions/` and synthesizing objective, in-flight work, and prioritized next steps. | `.claude/commands/tools/catchup.md` |
 | `/tools:research [topic]` | Spawn parallel research agents to investigate independent questions, then synthesize findings into `docs/research/[topic].md`. | `.claude/commands/tools/research.md` |
 | `/tools:commit` | Quality-checked git commit with pre-commit validation: scans for TODOs without tickets, debug statements, commented code, hardcoded secrets, and large files. Uses conventional commit format. | `.claude/commands/tools/commit.md` |
-| `/tools:kv` | Quick key-value memory for storing/recalling facts without full ADR ceremony. Operations: `set [key] [value]`, `get [key]`, `list`, `search [query]`. Storage: `docs/knowledge/kv.md`. | `.claude/commands/tools/kv.md` |
 | `/tools:init` | First-run project setup: finds unfilled placeholders, asks configuration questions, fills in all variables across the project, saves project profile to memory, initializes git. | `.claude/commands/tools/init.md` |
 | `/tools:metrics [feature]` | Query activity logs and feature metrics. Shows summary of all features or detailed metrics for a specific feature, slowest tasks, or feature comparisons. | `.claude/commands/tools/metrics.md` |
 | `/tools:dashboard [project]` | Cross-project status dashboard from `.claude/settings.json` → `project_os.dashboard.projects_root`. Shows all Project OS projects with task counts, active worktrees, and recent activity. | `.claude/commands/tools/dashboard.md` |
@@ -676,7 +658,7 @@ Skills provide on-demand protocol loading for specific triggers. Each skill has 
 
 ```markdown
 ---
-globs: ["**/*.test.*", "**/*.spec.*", "**/test_*", "**/tests/**"]
+paths: ["**/*.test.*", "**/*.spec.*", "**/test_*", "**/tests/**"]
 description: "Rules applied when working with test files"
 ---
 
@@ -695,7 +677,7 @@ description: "Rules applied when working with test files"
 
 ```markdown
 ---
-globs: ["**/api/**", "**/routes/**", "**/handlers/**"]
+paths: ["**/api/**", "**/routes/**", "**/handlers/**"]
 description: "Rules applied when working with API code"
 ---
 
@@ -981,7 +963,7 @@ sed "s/\[PROJECT_NAME\]/$PROJECT_NAME/g" \
 cp "$TEMPLATE_DIR/ROADMAP.md"        "$PROJECT_PATH/"
 cp "$TEMPLATE_DIR/global-CLAUDE.md"  "$PROJECT_PATH/"
 
-for f in decisions.md patterns.md bugs.md architecture.md kv.md metrics.md; do
+for f in decisions.md patterns.md bugs.md architecture.md metrics.md; do
   cp "$TEMPLATE_DIR/docs/knowledge/$f" "$PROJECT_PATH/docs/knowledge/"
 done
 
@@ -1215,7 +1197,7 @@ Don't build everything at once. Highest-leverage sequence for bootstrapping a ne
 
 **Week 4 — PM & Governance**: Implement the product management layer: `/pm:prd`, `/pm:epic`, `/pm:status`. Start using `[?]` draft tasks and `/pm:approve` as your governance gate. Never let unapproved work enter the build queue.
 
-**Week 5 — Parallel Builds**: Enable wave-based parallel builds in `settings.json` (`project_os.parallel.enabled: true`). Set `max_concurrent_agents` based on your machine's capacity. Run `scripts/validate-roadmap.sh` before every build to catch dependency errors early.
+**Week 5 — Parallel Builds**: Set `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` in `settings.json` `env` based on your machine's capacity (the runtime default is 20). Run `scripts/validate-roadmap.sh` before every build to catch dependency errors early.
 
 **Week 6 — Observability**: Enable activity logging (`log-activity.sh`). Use `/tools:metrics` to view feature velocity, slow tasks, and agent performance. Set up `notify-phase-change.sh` for desktop notifications. Run `/tools:dashboard` to see cross-project status.
 

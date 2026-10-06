@@ -83,6 +83,8 @@ export interface Finding {
     | "dangling-ref"
     | "manifest-gap"
     | "bloat"
+    | "always-loaded-over-budget"
+    | "relative-hook-command"
     | "unlocalized-template-content"
     | "init-incomplete";
   subject: string;
@@ -676,6 +678,134 @@ export function findBloat(
   return findings;
 }
 
+/**
+ * Token budget for always-loaded instruction files (CLAUDE.md and every
+ * unscoped `.claude/rules/*.md`). Single named constant: the budget in
+ * `.claude/commands/tools/reflect.md` ("Size math", 4000 tokens) is prose, not
+ * machine-readable, so it is mirrored here.
+ */
+export const ALWAYS_LOADED_BUDGET_TOKENS = 4000;
+
+/** True when `content` opens with YAML frontmatter that declares a `paths:` key (a lazily-loaded rule). */
+function hasPathsFrontmatter(content: string): boolean {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
+  return m !== null && /^paths\s*:/m.test(m[1]);
+}
+
+/**
+ * Flags every always-loaded file over {@link ALWAYS_LOADED_BUDGET_TOKENS} as a
+ * LOW (advisory) finding naming the file and its estimated tokens. Always-loaded
+ * means `CLAUDE.md` plus each `.claude/rules/*.md` whose frontmatter has no
+ * `paths:` key; `paths:`-scoped rules load lazily and are excluded, as is
+ * everything else (e.g. `docs/knowledge/`). The estimate is bytes / 4, floored
+ * — the same estimate `scripts/audit-context.sh` uses.
+ */
+export function findAlwaysLoadedOverBudget(
+  files: { path: string; content: string }[],
+  budgetTokens: number = ALWAYS_LOADED_BUDGET_TOKENS,
+): Finding[] {
+  const findings: Finding[] = [];
+  for (const f of files) {
+    const isRule =
+      f.path.startsWith(".claude/rules/") && f.path.endsWith(".md");
+    if (f.path !== "CLAUDE.md" && !isRule) continue;
+    if (isRule && hasPathsFrontmatter(f.content)) continue;
+    const estimate = Math.floor(Buffer.byteLength(f.content, "utf8") / 4);
+    if (estimate > budgetTokens) {
+      findings.push({
+        severity: "LOW",
+        kind: "always-loaded-over-budget",
+        subject: f.path,
+        detail: `${f.path} is always loaded and is approximately ${estimate} tokens, exceeding the ${budgetTokens}-token always-loaded budget.`,
+      });
+    }
+  }
+  return findings;
+}
+
+const HOOK_DIR = ".claude/hooks/";
+const PROJECT_DIR_PREFIXES = [
+  "$CLAUDE_PROJECT_DIR/",
+  "${CLAUDE_PROJECT_DIR}/",
+  '$CLAUDE_PROJECT_DIR"/',
+  '${CLAUDE_PROJECT_DIR}"/',
+];
+
+/**
+ * Flags every `.claude/hooks/` occurrence inside a `hooks` command string of
+ * `.claude/settings.json` that is not anchored to the project root (#T244). A
+ * cwd-relative hook path runs a different project's hooks after a Bash `cd`
+ * into a subtree; a project whose settings.json conflicted on update keeps
+ * that form silently. Closed allowlist: the occurrence must directly follow
+ * one of {@link PROJECT_DIR_PREFIXES} (`$CLAUDE_PROJECT_DIR/`,
+ * `${CLAUDE_PROJECT_DIR}/`, or either with the variable quoted), and that
+ * prefix must start a word (string start, whitespace or `"`) — so a
+ * wrong-root `/x$CLAUDE_PROJECT_DIR/…` or an unexpanded single-quoted
+ * `'$CLAUDE_PROJECT_DIR/…'` is flagged. Any file under the directory counts,
+ * whatever its depth or extension. Only string values under the top-level
+ * `hooks` object are inspected (any depth); `permissions`, `env` and other
+ * keys are ignored. Emits one MEDIUM finding per distinct (hook path, event)
+ * pair. Throws on malformed JSON — callers skip the check in that case.
+ */
+export function findRelativeHookCommands(settingsJsonText: string): Finding[] {
+  const data: unknown = JSON.parse(settingsJsonText);
+  const hooksObj =
+    data && typeof data === "object"
+      ? (data as Record<string, unknown>).hooks
+      : undefined;
+  if (!hooksObj || typeof hooksObj !== "object" || Array.isArray(hooksObj)) {
+    return [];
+  }
+
+  const findings: Finding[] = [];
+  const seen = new Set<string>();
+
+  const anchored = (command: string, at: number): boolean =>
+    PROJECT_DIR_PREFIXES.some((p) => {
+      const start = at - p.length;
+      if (start < 0 || !command.startsWith(p, start)) return false;
+      return start === 0 || /[\s"]/.test(command[start - 1]);
+    });
+
+  const scan = (command: string, event: string): void => {
+    for (
+      let at = command.indexOf(HOOK_DIR);
+      at !== -1;
+      at = command.indexOf(HOOK_DIR, at + HOOK_DIR.length)
+    ) {
+      if (anchored(command, at)) continue;
+      const rest = /^[A-Za-z0-9_.\/-]*/.exec(
+        command.slice(at + HOOK_DIR.length),
+      );
+      const subject = HOOK_DIR + (rest ? rest[0] : "");
+      const key = `${subject}\u0000${event}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      findings.push({
+        severity: "MEDIUM",
+        kind: "relative-hook-command",
+        subject,
+        detail: `Hook command under ${event} in .claude/settings.json runs ${subject} without the $CLAUDE_PROJECT_DIR prefix, so a Bash cd into a subtree runs another project's hooks. Use: bash "$CLAUDE_PROJECT_DIR/${subject}".`,
+      });
+    }
+  };
+
+  const walk = (val: unknown, event: string): void => {
+    if (typeof val === "string") {
+      scan(val, event);
+    } else if (Array.isArray(val)) {
+      for (const item of val) walk(item, event);
+    } else if (val && typeof val === "object") {
+      for (const v of Object.values(val as Record<string, unknown>)) {
+        walk(v, event);
+      }
+    }
+  };
+
+  for (const [event, val] of Object.entries(hooksObj)) walk(val, event);
+  return findings;
+}
+
 // ==========================================================================
 // Template residue — is this project's content still the framework's seed?
 //
@@ -714,12 +844,13 @@ export const RESIDUE_WATCHED: ReadonlyArray<{
     path: "docs/knowledge/architecture.md",
     severity: "HIGH",
     reason:
-      "@import'ed into CLAUDE.md, so it loads as this project's architecture every session",
+      "CLAUDE.md points to it; design, build and review read it as this project's architecture",
   },
   {
     path: "docs/knowledge/patterns.md",
     severity: "HIGH",
-    reason: "@import'ed into CLAUDE.md as this project's active conventions",
+    reason:
+      "CLAUDE.md points to it; design, build and review read it as this project's conventions",
   },
   {
     path: ".claude/rules/preferences.md",

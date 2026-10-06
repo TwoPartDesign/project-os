@@ -40,6 +40,8 @@ import {
   findDanglingRefs,
   findManifestGaps,
   findBloat,
+  findAlwaysLoadedOverBudget,
+  findRelativeHookCommands,
   findTemplateResidue,
   findInitIncomplete,
   hasUnfilledPlaceholders,
@@ -350,7 +352,13 @@ function buildEdges(
   const settingsContent = contents.get(".claude/settings.json");
   const settingsId = pathToId.get(".claude/settings.json");
   if (settingsContent !== undefined && settingsId) {
-    for (const hookPath of extractHookWiring(settingsContent)) {
+    let wired: string[] = [];
+    try {
+      wired = extractHookWiring(settingsContent);
+    } catch {
+      // Malformed settings.json — no wiring edges rather than aborting the build.
+    }
+    for (const hookPath of wired) {
       edges.push({
         from: settingsId,
         to: pathToId.get(hookPath) ?? hookPath,
@@ -421,7 +429,18 @@ function runFindings(
     }
   }
 
-  findings.push(...findBloat(collectBloatFiles(source), loadBloatThreshold()));
+  const settingsContent = contents.get(".claude/settings.json");
+  if (settingsContent !== undefined) {
+    try {
+      findings.push(...findRelativeHookCommands(settingsContent));
+    } catch {
+      // Malformed settings.json — skip this one check rather than aborting the whole build.
+    }
+  }
+
+  const bloatFiles = collectBloatFiles(source);
+  findings.push(...findBloat(bloatFiles, loadBloatThreshold()));
+  findings.push(...findAlwaysLoadedOverBudget(bloatFiles));
   return sortFindings(findings);
 }
 

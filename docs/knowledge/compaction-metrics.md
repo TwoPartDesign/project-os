@@ -1,5 +1,9 @@
 # Compaction Metrics — Does the 350k / 80% Constraint Help or Hurt?
 
+> **2026-10-06 note:** the window became 500k on 2026-10-06 (#T243; fire point
+> 400,000, nudge 325,000). The analysis below is the historical record of the
+> 350k / 80% constraint and is not rewritten.
+
 Measured 2026-09-21 from one long lead session's transcript (session
 `696f7242`, 305 main-thread turns, 5 auto-compactions). Aggregate numbers
 only — no transcript message content is reproduced here.

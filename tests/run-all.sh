@@ -26,7 +26,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 LOG_DIR="$SCRIPT_DIR/.logs"
 
-# Suites that take more than ~30s. --fast skips these; CI and pre-push do not.
+# Suites that take more than ~30s. --fast skips these; CI and the wave gate do not (pre-push runs only the scanner's scan-diff).
 SLOW="new-project-smoke"
 
 # A suite that hangs (a hook waiting on stdin, a prompt nobody answers) blocks

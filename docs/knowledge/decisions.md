@@ -49,6 +49,14 @@ Each entry: Date, Decision, Context, Alternatives Considered, Rationale
 
 **Accepted residual risk**: pre-existing non-template scripts under `scripts/**` are left in place (moving them risks breaking a repo's own build) but are enumerated in the adopt report's UNREVIEWED-EXECUTABLE section — the template's `settings.json` pre-approves `bash scripts/*` / `node scripts/*`, so a hostile doc could in principle steer a later session into running one without a fresh permission prompt. Accepted for v1 with loud reporting; recommended follow-up (narrow the blanket `scripts/*` allows to enumerated template script names) is to be filed as a `[?]` draft at ship time, not bundled into this feature. Follow-up shipped as #T76: `.claude/settings.json`'s `bash scripts/*` / `node scripts/*` / `bash .claude/hooks/*` blanket allows were replaced with one enumerated entry per template-owned script and wired hook — any new template script or hook added to `TEMPLATE_SCRIPTS` (`scripts/generate-manifest.sh`) / `FRAMEWORK_FILES(_OPTIONAL)` (`scripts/new-project.sh`) / the `hooks` block must add a matching `permissions.allow` line in the same change or it will hit a permission prompt instead of running silently.
 
+**Update 2026-10-06 (#T238)**: hook commands bypass permissions — the v3.1
+probe fired every hook for every event probed with no allow rule present — so
+an allow entry gates only a manual `bash .claude/hooks/<x>.sh` run. The ten
+entries for scripts that run only as hook commands were dropped as dead rules;
+`log-activity.sh` and `notify-phase-change.sh` keep theirs because commands
+invoke them by hand. A new hook script that a command or doc runs by hand
+still gets an enumerated entry; one that only a hook runs does not.
+
 **Context**: The threat model is a hostile repo crafted to look adoptable — it could pre-plant a `.claude/settings.json` whose hooks auto-execute next session, a `scripts/setup.sh` that the adopt sequence itself would then run, or git hooks that fire on the adopt commit. This design decision went through 3 adversarial review rounds (REJECT → REJECT → APPROVE-WITH-REVISIONS) before landing.
 
 **Alternatives Considered**:
@@ -131,6 +139,8 @@ Each entry: Date, Decision, Context, Alternatives Considered, Rationale
 
 **Update (2026-04-08)**: Extracted to standalone repo `web-fetch-mcp/` — the MCP server has no dependency on Project OS internals, and bundling it coupled two unrelated concerns. The extraction landed in commit `d2f7cec`. (Standalone repo link: TODO — to be added by the owner; not recorded anywhere in-tree.)
 
+**Update (2026-10-06)**: The "hooks are advisory-only" premise above is superseded. Since Claude Code 2.1.121 a PostToolUse hook can replace the output of any tool via `hookSpecificOutput.updatedToolOutput` (previously MCP-only), so a hook could now do this preprocessing. The decision stands as made (the server was extracted and is not part of this repo); the premise is recorded so the next reader does not rely on it.
+
 ---
 
 ## 2026-07-12 — Staleness-Audit Remediation: Native Primitives, Claude 5 Routing, Restrictive Permissions
@@ -153,6 +163,8 @@ Each entry: Date, Decision, Context, Alternatives Considered, Rationale
 **Rationale**: Every hand-rolled system replaced here now has a strictly better native equivalent, and each deletion shrinks the always-loaded context (a core principle: context is noise). Governance value — gates, markers, adversarial review — is preserved untouched; only the execution plumbing changed.
 
 **Update (2026-09-04)**: routing superseded, see the 2026-09-04 entry. Decision 2 above (the ladder and the cheapest-tier rung) is historical record only; live guidance is the registered roster and the `sonnet → opus → fable` ladder.
+
+**Update (2026-10-05)**: superseded by the 2026-10-05 "Lead Model Moves to Opus (#T228)" entry. The live ladder is `sonnet` (high) → `opus` (high) → `opus` (xhigh); `fable` is no longer a rung.
 
 ---
 
@@ -240,6 +252,12 @@ treated as a defect to fix. Five hooks reach outside themselves this way:
 | `.claude/hooks/session-start-maintain.sh` | `bash scripts/maintain.sh` |
 | `.claude/hooks/post-write-session.sh` | `bash scripts/scrub-secrets.sh` |
 | `.claude/hooks/output-index.sh` | `node scripts/knowledge-index.ts` (config, `index`, `index-observations`) and `node scripts/observation-parser.ts` |
+
+**Update 2026-10-06 (#T202)**: `post-tool-use.sh` now also fires on Bash-made
+changes. Its formatter step (prettier, black) resolves config, and for prettier
+JS config and plugins, from the working tree. The `Write|Edit` trigger already
+did this, so the Bash trigger stays inside this boundary. The scanner temp-file
+finding from the same review is tracked as #T232.
 
 **What this means concretely**: opening an untrusted clone of a Project OS
 repository in Claude Code runs that clone's `scripts/` — `setup.sh` and
@@ -385,6 +403,10 @@ thing that varies, and on this plan nothing in the chain drops below the cap.
 Rule that survives: the cap must not exceed the smallest real window in the
 chain — a plan where any chain model runs at 200k sets it to `200000`.
 
+**Superseded 2026-10-06 (#T243)**: window now 500000; the rule stands.
+
+**Update (2026-10-05)**: superseded by the 2026-10-05 "Lead Model Moves to Opus (#T228)" entry. The lead is `opus` at high effort, and the ladder is `sonnet` (high) → `opus` (high) → `opus` (xhigh); `fable` is no longer a rung and is available only as an Approver-confirmed choice through `/tools:set-models`. The registered roster and the `sonnet` floor stand.
+
 ---
 
 ## 2026-09-06 — Orchestration Cost Controls
@@ -429,7 +451,7 @@ count the dispatches under twenty lines) and give the user a lever to adjust.
 
 **Alternatives Considered**:
 - **Follow the session directive (shell-first)** — rejected: every project hook that protects a write is matched on the tool name. `post-tool-use.sh` (prettier + scrub), `post-write-session.sh`, and `compact-suggest.sh` (handoff claim) all run on `Write|Edit`; a `sed -i` or heredoc edit skips formatting, secret scrubbing on write, and handoff ownership. That is the "Mitigate Against the Platform's Real Surface" pattern: the surface is the tool matcher, and a shell edit is off it.
-- **Widen the hooks to also match Bash** — rejected: a Bash matcher cannot tell an edit from a test run without parsing the command string, which is the open-ended recognition problem `patterns.md` says to invert, not chase.
+- **Widen the hooks to also match Bash** — rejected: a Bash matcher cannot tell an edit from a test run without parsing the command string, which is the open-ended recognition problem `patterns.md` says to invert, not chase. **Update (2026-10-06)**: reversed by #T202. `settings.json` now matches `Write|Edit|Bash`, and the hooks read the structured `tool_response.bashEditDiff` channel (changed file paths and hunks) instead of parsing the command string, which answers this rejection's reason. See the 2026-10-06 probe entry (e) and `bash.md` rule 7.
 - **Case-by-case** — rejected: the reviewer showed the ambiguity costs a paragraph of reasoning per agent per session; a stated precedence costs one line.
 
 **Rationale**: On performance the shell buys nothing: Grep is ripgrep, Read takes offset/limit, Edit is an exact-match atomic replace with harness-tracked file state, and each dedicated call integrates with the permission allowlist so sub-agents never stall on a prompt. Structured tool calls with typed arguments are also the current practice across agent harnesses because they are observable, permission-scoped, and hookable, whereas a shell string is opaque to all three. Bash keeps the jobs only it can do: run scripts and tests, drive git, list or count across many files in one call.
@@ -437,6 +459,8 @@ count the dispatches under twenty lines) and give the user a lever to adjust.
 ---
 
 ## 2026-09-20 — Hosted Decision API (Jev) as an Optional Addon Behind a Local Heuristic
+
+**Update (2026-10-06)**: retired, see #T225 (the 2026-10-06 "Jev Triage Path Retired" entry). `decide.ts`, `egress-guard.ts`, the `--calibrate` mode and the settings `project_os.jev` block no longer exist; the text below is historical record only.
 
 **Decision**: `scripts/lib/decide.ts` exposes a typed `decide(state, questions, deps)` interface backed by a deterministic heuristic that always answers. A second backend, Jev (TypeSafe), calls the fixed endpoint constant `JEV_ENDPOINT` (`POST https://api.typesafe.ai/v1/systemone`) — never configurable — and runs only when `project_os.jev.enabled` is `true` in `.claude/settings.json` **and** `TYPESAFE_API_KEY` is set. `decide()` never throws; every fallback path carries a typed `DeclineReason` (`disabled`, `no-key`, `egress-dir-unsafe`, `scrub-failed`, `too-large`, `timeout`, `network`, `redirect`, `http-<status>`, `malformed-response`) and logs `jev-queried` / `jev-declined`. `scripts/lib/decide.ts` is the sole outbound HTTP caller in the repo. Every outbound text field passes through `scripts/lib/egress-guard.ts` before serialization: a scanner scrub subprocess (`node scripts/security-scanner.ts scrub`) verified by a positive re-scan (`scan-files --quiet`) — required because `cmdScrub` exits 0 on a write failure and a bare exit-code check would silently ship unscrubbed content; a key-name denylist redaction (`[REDACTED:key]`, regex ported from `observation-parser.ts`); and a context-free Shannon-entropy floor (≥ 4.0 bits/char on tokens of 24+ chars, `[REDACTED:entropy]`) for bare credentials no naming rule can see. Staging happens in `.claude/logs/jev` (mode 0700, realpath-contained inside the project root), files written mode 0600 with `wx`, and `.tmp`/`.tmp.bak` residue is cleaned up. Any guard failure refuses the send — fail-open for the calling workflow (the heuristic answers instead), fail-closed for egress (nothing partial goes out). The first and only consumer is `scripts/review-triage.ts`, which asks optional `dup_`/`scope_`/`sev_` questions against thresholds `duplicate_p 0.85`, `out_of_scope_p 0.8`, `severity_confidence 0.8`, offline and advisory — the triage table it writes decides nothing.
 
@@ -474,6 +498,8 @@ Generate with: `node scripts/review-triage.ts docs/specs/<feature> --changed-fil
 
 ## 2026-09-21 — Compaction Constraint Stays at 350k / 80%; the Threshold Replay Ignores Real Boundaries
 
+*Superseded 2026-10-06 by "Always-Loaded Budget 4,000 and Compaction Window 500k (#T242, #T243)": the window is now 500000; the 80% fire point and the replay design stand.*
+
 **Decision**: `CLAUDE_CODE_AUTO_COMPACT_WINDOW` stays 350000 and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` stays 80. The window is never narrowed; the percentage is the only knob, and 70 is the spend-first option to revisit once a second session's transcript has been measured. `scripts/compaction-metrics.ts` is the measuring instrument, and its threshold replay models "what if the fire point were X" by adding only positive turn-to-turn context growth, ignoring the transcript's real compaction drops, and resetting only when the simulated threshold fires — to the observed re-seed floor (context of the first turn after each real boundary), never to the boundary's summary-only `postTokens`.
 
 **Context**: #T189 asked whether the constraint helps or hurts Fable sessions. The first build's replay carried its running total across real cycles, stacking each cycle's ~88k re-seed on the previous cycle's total; the resulting tables reproduced the session's real compaction count, which the doc took as validation. Review (reviewer-security, Opus) showed the match was circular: the session's peak was 263k, under the 280k threshold, so every simulated compaction at 80% came from the stacking bug. The same review found `process.exit(0)` after `stdout.write` truncating piped `--json` at 64 KB.
@@ -485,3 +511,146 @@ Generate with: `node scripts/review-triage.ts docs/specs/<feature> --changed-fil
 - **Narrow the window to 200k** — rejected on the numbers: seven extra compactions (~81 s each of dead wall clock) for a 34% saving, and every long build becomes a chain of handoffs.
 
 **Rationale**: Context length, not compaction count, drives Fable input spend (cache read is 97% of input tokens; uncached input was 7,724 tokens across 305 turns), so the percentage is a genuine trade between cache read and handoff count, and the doc says so with the corrected numbers instead of calling lowering "strictly a loss". The tool-error decile table shows no quality penalty deep in the window once the closing phase's permission-classifier denials are set aside. Calibration replaced the circular claim: at the configured threshold the replay fires 4 compactions and projects 56.6M cache read against 5 real compactions and 52.4M billed, and the gap has one named cause (the runtime fires at ~263k, not 280k). Result and method: `docs/knowledge/compaction-metrics.md`; review: `docs/specs/compaction-gate/review.md`.
+
+---
+
+## 2026-10-04 — Auto Mode Is the Standing Default; the Auto-Approval Hook Proposal Is Deleted
+
+**Decision**: Sessions run in auto mode. `permissions.defaultMode` stays unset in `.claude/settings.json`, which starts a session in auto mode since Claude Code 2.1.284. `docs/proposals/pre-tool-approve-hook.md` (never installed) is deleted along with its references. `.claude/rules/bash.md` Core Rules 2-5 are marked default-mode/Windows guidance; rules 1 and 7 (hook wiring) and rule 6 (the Bash tool's cwd persists across calls) stay unconditional. `docs/knowledge/windows-bash-scanner.md` stays. Approver: Jacob Nickel (#T210).
+
+**Context**: The proposal described a PreToolUse hook that auto-approves sanctioned Bash commands so sub-agents never stall on prompts. It was held for owner opt-in and never wired. Since then auto mode became the default and its classifier decides in place of the prompt matcher, which is the job the hook was drafted to do; the changelog cross-check in the Windows catalog shows the scanner's prompt-avoidance triggers matter mainly in default permission mode and on Windows.
+
+**Alternatives Considered**:
+- **Install the hook** — rejected: it duplicates what the classifier does natively, adds a hook that auto-approves tool calls (the highest-trust hook class) and a policy file to maintain.
+- **Pin `permissions.defaultMode` explicitly** — rejected: leaving it unset follows the platform default and avoids a second place that can drift.
+- **Delete rules 2-5 from bash.md** — rejected: they still bind in default permission mode and on Windows, and the Agent Rules are shipped to every sub-agent prompt.
+
+**Rationale**: Native auto mode covers the proposal's purpose with no custom code, and the hook-wiring rules (1 and 7) are independent of permission mode because the format, scrub and handoff-claim hooks fire only on `Write|Edit`.
+
+---
+
+## 2026-10-06 — Native-feature probe results (#T207)
+
+**Decision**: Wave 2 of the v3.0 release (#T208 worker context, #T216 worktree base, #T202 Bash-edit hook, #T205 rule scoping) designs from these measured behaviours of CLI 2.1.290, not from changelog wording.
+
+**Context**: Each probe ran as a nested `claude -p --model sonnet` in a throwaway root, with hook payloads captured by a stdin-dump hook.
+
+**Findings**:
+- **(a) Instruction loading.** Evidence: `InstructionsLoaded` payloads plus each agent's own list of the markers it could see.
+  - The main session loads CLAUDE.md and every rule without `paths:` at `session_start`.
+  - A named subagent inherits that eager set and fires no new events for it.
+  - `omitClaudeMd: true` drops CLAUDE.md **and** every unscoped `.claude/rules/*.md`, `lead.md` included. A `paths:` rule still lazy-loads into that agent when it reads a matching file.
+  - `paths:` loads lazily on the first matching Read (`load_reason: path_glob_match`, with `agent_id`/`agent_type`/`effort`).
+  - The legacy `globs:` key is not a scope: that rule loaded eagerly at `session_start`, and reading a matching file fired nothing (#T205).
+- **(b) Worktree base.** A default isolation-worktree agent reported `origin/master`'s sha. With `worktree.baseRef: "head"`, the same agent reported the unpushed feature HEAD.
+- **(c) Compact window.**
+  - `/autocompact 300k` writes user settings at `modelSettings.<canonical-model>.autoCompactWindow`.
+  - `CLAUDE_CODE_AUTO_COMPACT_WINDOW` wins over it, including when set through a settings `env` block. Status then reads "(from CLAUDE_CODE_AUTO_COMPACT_WINDOW)", and `/autocompact <n>` refuses to save: "is set and takes precedence".
+  - Our `env` value of 350000 therefore masks every per-model `/autocompact` choice.
+- **(d) Auto-memory directory.**
+  - The relative path `"docs/memory"` is silently rejected: the validator accepts only absolute or `~/` paths, so memory went to `~/.claude/projects/<slug>/memory/` from project, local and flag settings alike.
+  - An absolute path, in local or project settings, wrote `docs/memory/<fact>.md` and indexed it in `MEMORY.md`. The pre-existing file stayed byte-identical (`cmp`).
+  - Auto-memory is off entirely when `CLAUDE_CODE_REMOTE` is set (cloud sessions), unless `CLAUDE_CODE_REMOTE_MEMORY_DIR` is set.
+- **(e) Bash-edit diff channel.**
+  - PostToolUse for a Bash edit carries `tool_response.bashEditDiff = {files:[{filePath, hunks:[{oldStart, oldLines, newStart, newLines, lines}]}], moreFiles, changedFiles:[abs paths]}`.
+  - It appears only when enabled from user, flag or policy settings, or by `CLAUDE_CODE_BASH_EDIT_DIFF`, or by default in `auto`/`bypassPermissions` mode.
+  - Project `.claude/settings.json` `true` was ignored in default mode: 0 of 1 payloads had the key, against 1 of 1 with `--settings`.
+  - A `false` anywhere turns it off.
+- **(f) Prompt audit.** `/doctor prompt-audit` runs headlessly and produced 17 findings. There is no `claude doctor` subcommand form.
+
+**Alternatives Considered**:
+- **Trust the changelog lines alone.** Rejected: they omit the relative-path rejection, the trusted-source gate on `bashEditDiffEnabled`, and `omitClaudeMd` dropping rules. Each of these changes a wave-2 design.
+
+**Rationale**: "Verify the Channel Before Designing the Gate." Setup, commands, raw payload excerpts and per-probe verdicts are in `docs/specs/changelog-alignment-2026-10/probe-results.md`; the audit report is `prompt-audit.md` in the same directory.
+
+---
+
+## 2026-10-05 — Lead Model Moves to Opus (#T228)
+
+**Decision**: The lead runs Opus (`opus`) at high effort via the settings.json `model` key, with `"fallbackModel": ["sonnet"]`. Workers are unchanged: `implementer`/`documenter` run `sonnet` at high effort; judgment tasks use a per-invocation `(model: opus)`; `researcher` runs `opus`; reviewers `inherit`; `CLAUDE_CODE_SUBAGENT_MODEL` stays `opus`. The escalation ladder is `sonnet` (high) → `opus` (high) → `opus` (xhigh); `fable` is no longer a rung and stays available only as an explicit, Approver-confirmed choice through `/tools:set-models`' cost confirmation. Prose uses version-free family names with the alias, so a new model release no longer leaves stale version numbers behind (#T209). Approver: Jacob Nickel, 2026-10-05: "use opus 5.5 as the lead with opus and sonnet 5.5 agents".
+
+**Context**: Opus 5.5 became the default Opus (Claude Code 2.1.280) and Sonnet 5.5 the default Sonnet (2.1.284), so the bare aliases already resolve to the intended models. The 350k compact window (`CLAUDE_CODE_AUTO_COMPACT_WINDOW`) still sits below every window in the chain (all 1M), so the compaction constraint is unchanged.
+
+**Alternatives Considered**:
+- **Keep `fable` as the lead and top rung** — rejected: the Approver chose Opus as the lead on 2026-10-05.
+- **Keep a version-pinned prose per model** — rejected: it drifted within weeks (Fable 5.1, Opus 5, Sonnet 5 across lead.md, set-models.md and init.md).
+
+**Rationale**: Claude Code 2.1.280 honours `effortLevel` on a Fable fallback; that is moot for the default chain now (Opus falls back to Sonnet) and matters only if a project opts into `fable` through `/tools:set-models`.
+
+---
+
+## 2026-10-06 — Per-Wave Review Stays on `reviewer-*`; `/code-review` Is Not a Substitute (#T219)
+
+**Decision**: The per-wave single-reviewer pass in `.claude/rules/lead.md` keeps the `reviewer-*` agents. `/code-review high` is not adopted as a replacement and is not added to the routine; a lead may still run it ad hoc as an extra correctness sweep on a code-surface wave. The ship gate is unchanged.
+
+**Context**: #T219 ran `/code-review high` headlessly on the compaction-gate feature diff (`3aec993..f135812`) and scored it against that feature's 21 triaged review findings. Strict recall was 6/21 (29%) on Fable and 3/21 (14%) on Opus; LOW 0/7 on both; no exposure finding (settings wildcard, echoed `responseId`, committed host path) on either; the pipe-truncation HIGH appeared on one model only. On the nine correctness bugs it scored 6/9 and 4/9, and it found real defects the baseline missed (filed as #T231). One Opus run cost $0.85 and 143 s. Report: `docs/specs/changelog-alignment-2026-10/code-review-probe.md` (local).
+
+**Alternatives Considered**:
+- **Replace the per-wave reviewer with `/code-review high`** — rejected: 14–29% recall, unstable across models, blind to exposure and test-coverage findings.
+- **Make `/code-review high` a mandatory extra sweep on every code wave** — not adopted: its unique finds were LOW–MEDIUM; revisit if a correctness bug escapes a per-wave review.
+
+**Rationale**: The per-wave pass exists to catch what the worker missed; a cheaper reviewer that misses most of what the current one catches trades that away, and its measured strength (correctness bugs) is a subset of what `reviewer-*` already covers.
+
+---
+
+## 2026-10-06 — Jev Triage Path Retired; Heuristic Triage Table Kept (#T225)
+
+**Decision** (Approver, 2026-10-06):
+- (a) Retire the Jev calibration path: `scripts/lib/decide.ts`, `scripts/lib/egress-guard.ts`, the Jev code and `--calibrate` mode in `scripts/review-triage.ts`, the settings `project_os.jev` block, the `api.typesafe.ai` egress-allowlist entry and the Jev docs. `review-triage.ts`'s heuristic table stays, with unchanged output.
+- (b) `skill-apply --auto` stays off by policy; no change.
+- (c) `compaction-metrics.ts` stays as the named instrument for the pending 70% revisit.
+
+**Context**: Jev had been disabled in settings since it shipped, its calibration was never run, and the triage table "decides nothing" (review.md). The 2026-09-20 entry kept Jev as an optional backend; nothing used it in the meantime. The path was about 1.2k lines of library code plus the Jev branches of review-triage.ts. It was also the only caller of the one approved egress host.
+
+**Alternatives Considered**:
+- **Retire review-triage.ts entirely** — rejected: the heuristic table is cheap advisory input to every review, and #T206 had just fixed its parser.
+- **Keep Jev dormant** — rejected: unexercised code with an outbound data path is a liability with no measured benefit (principle: "Code is a liability").
+
+**Rationale**: The egress surface and its guard existed only to serve a backend that never ran. Removing it shrinks the security review surface and the triage code. The calibration question can come back as a new proposal if a backend is ever worth measuring.
+
+---
+
+## 2026-10-06 — Worker Context and Worktree Base (#T208, #T216)
+
+**Decision**:
+- (#T208) All six roster agents set `omitClaudeMd: true` (option A). Briefs keep pasting the `## Agent Rules` sections and the relevant CLAUDE.md conventions, because the worker no longer loads them itself.
+- (#T216) `.claude/settings.json` sets `worktree.baseRef: "head"`, so an Agent-tool worktree branches from the lead's current HEAD. The native concurrency cap `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` replaces the `project_os.parallel` setting. The brief's self-ground merge step is dropped.
+
+**Context**: Probe (a) in the 2026-10-06 probe entry measured that a named subagent inherits the main session's eager instruction set and that `omitClaudeMd: true` drops CLAUDE.md and every unscoped rule, `lead.md` included. A fresh-process probe on 2026-10-06 confirmed it on the real roster: a roster agent sees neither CLAUDE.md nor `lead.md`, while a control agent sees both. Probe (b) measured that a default isolation worktree branched from `origin/master`, and from the unpushed feature HEAD with `baseRef: "head"`.
+
+**Alternatives Considered**:
+- **Leave workers on the inherited context (no `omitClaudeMd`)** — rejected: every worker pays for the lead's orchestration rules and CLAUDE.md, which it does not act on.
+- **`omitClaudeMd` with nothing pasted** — rejected: CLAUDE.md is then the only home of the conventions workers must follow; the brief has to carry them.
+- **Keep the self-ground `git merge` step in every brief** — rejected: with `baseRef: "head"` the worktree already holds the lead's HEAD, and the step costs a command and a failure mode per worker.
+- **Keep `project_os.parallel`** — rejected: the native cap does the same job without a custom setting.
+
+**Rationale**: A worker needs its brief, its Agent Rules and the conventions the lead chose to paste, not the lead's own operating rules; pasting keeps those rules while the worker's baseline load shrinks. `baseRef: "head"` makes the base correct by construction. If the setting is removed, worktrees fall back to `origin/<default>` and the brief must again start with the merge command (`build.md`, Worktree base).
+
+---
+
+## 2026-10-06 — Always-Loaded Budget 4,000 and Compaction Window 500k (#T242, #T243)
+
+**Decision**: The Approver raised two limits on 2026-10-06. The always-loaded token budget goes from 2,500 to 4,000; `bloat_warn_tokens` stays 2,500. `CLAUDE_CODE_AUTO_COMPACT_WINDOW` goes from 350000 to 500000, with `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` still 80, so the fire point is 400k and the `compact-suggest.sh` nudge (65%) fires at 325k. The rule "never above the smallest real window in the model chain" stands; the default `opus`/`sonnet` chain is all 1M. This supersedes the 2026-09-21 "Compaction Constraint Stays at 350k / 80%" entry.
+
+**Context**: v3.0 grew the always-loaded files (CLAUDE.md and the unscoped rules), so the 2,500-token budget no longer fit them and a longer window is cheaper than compacting a context that starts larger. The Approver asked to "increase total context before compaction". `scripts/compaction-metrics.ts` `DEFAULT_WINDOW`, the `--window` example in `metrics.md`, and the `set-models.md` and `init.md` scaffold prose now say 500000. `docs/knowledge/compaction-metrics.md` keeps its 350k analysis as the historical record, with a dated note.
+
+**Consequences**:
+- Compactions fire later, so each cycle carries more context and more cache read per turn; fewer compactions and fewer re-seeds. Re-measure with `compaction-metrics.ts` on a session run under 500k before changing the percentage.
+- A project whose chain includes a 200k model must still set `200000`; a 500k cap above that window would make the nudge fire past it, i.e. never.
+- The 2026-09-21 replay design is unchanged: only the configured window moved.
+
+---
+
+## 2026-10-06 — Platform Facts Behind v3.1 Hook Changes (#T236, #T238, #T239)
+
+**Decision**: the v3.1 hook changes rest on probes run on 2026-10-06 against Claude Code CLI 2.1.291 (`-p --model sonnet`, one throwaway git repo per probe, launched with `CLAUDE_PROJECT_DIR` unset so nothing was inherited). Verdicts:
+
+- **Hook cwd follows a Bash `cd`** (#T238). After `cd sub`, every later hook ran with the subdirectory as its cwd, starting with the PostToolUse of the `cd` call itself. A cwd-relative `bash .claude/hooks/x.sh` command then failed (`No such file or directory`) for PostToolUse, PreToolUse, PostToolUseFailure, Stop and SessionEnd. A resumed session starts at the project root again.
+- **`$CLAUDE_PROJECT_DIR` is set and expanded for every event probed** (#T238): SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop, SessionEnd, PreCompact and PostModelSwitch. Every shipped hook command is therefore `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/<x>.sh"`.
+- **`bashEditDiff.changedFiles` lists merges and generator-script edits** (#T236): a fast-forward `git merge`, `bash gen.sh` (overwrite and create), `git checkout <rev> -- <path>` and `git restore` all appear. `git checkout <file>` without `--` is ambiguous with a branch switch and yields `skipped:true` with no `changedFiles`. So `post-tool-use.sh` consumes `changedFiles` where present, and treats `skipped` as unknown edits, never as "nothing changed". Generated artifacts are filtered out before formatting.
+- **`Bash((cd * && *))` and `Bash((cd * ; *))` approve nothing in default mode** (#T239): the parenthesised subshell is refused by the shell-operator safety check before any allow rule is read, with or without the rules. The bare `cd <dir> && <allowed cmd>` form is matched per subcommand and passes. The rules were removed; steer default-mode users to `git -C` or absolute paths. The lead's `(cd …)` commands succeed through auto-mode classifier approval, not these rules.
+- A workspace that has not been trusted ignores project `permissions.allow` entries; a probe must supply rules through `--settings`.
+
+**Also recorded — #T229 shipped as a per-ISO-week fingerprint, not count-free.** The lead's recommendation was a count-free `failures:<tool>` fingerprint. It collided by substring (`Bash` vs `Bashful`, and old `failures:Bash:N` lines) and one closed draft would have suppressed that tool forever. The shipped fingerprint is `failures:<tool>:<ISO week>`: at most one draft per tool per week, refiled the next week if the tool keeps failing, and a changed count inside a week does not re-file. `PROJECT_OS_WEEK` pins the week for tests.
+
+**Rationale**: these are platform behaviours, not repo choices; recording the evidence keeps a later CLI release from silently invalidating a hook rule. Re-run the probes when the CLI version moves past 2.1.291.

@@ -166,12 +166,12 @@ if [ "$DIFF_UPSTREAM" = true ]; then
         hash="${line%% *}"
         files=$(git -C "$UPSTREAM_CACHE" show --name-only --pretty=format: "$hash" -- .claude/ scripts/ 2>/dev/null || true)
         areas=""
-        echo "$files" | grep -q '^\.claude/commands/' && areas="$areas command"
-        echo "$files" | grep -q '^\.claude/skills/' && areas="$areas skill"
-        echo "$files" | grep -q '^\.claude/hooks/' && areas="$areas hook"
-        echo "$files" | grep -q '^\.claude/agents/' && areas="$areas agent"
-        echo "$files" | grep -q '^\.claude/rules/' && areas="$areas rule"
-        echo "$files" | grep -qE '^scripts/' && areas="$areas script"
+        grep -q '^\.claude/commands/' <<< "$files" && areas="$areas command"
+        grep -q '^\.claude/skills/' <<< "$files" && areas="$areas skill"
+        grep -q '^\.claude/hooks/' <<< "$files" && areas="$areas hook"
+        grep -q '^\.claude/agents/' <<< "$files" && areas="$areas agent"
+        grep -q '^\.claude/rules/' <<< "$files" && areas="$areas rule"
+        grep -qE '^scripts/' <<< "$files" && areas="$areas script"
         areas="${areas# }"
         [ -z "$areas" ] && areas="other"
         for area in $areas; do
@@ -256,9 +256,9 @@ else
         # User specified a target
         CHOSEN="$TARGET_VERSION"
         # Validate it exists
-        if ! echo "$RELEASES" | grep -Fqx "$CHOSEN"; then
+        if ! grep -Fqx "$CHOSEN" <<< "$RELEASES"; then
             # Try with v prefix
-            if echo "$RELEASES" | grep -Fqx "v$CHOSEN"; then
+            if grep -Fqx "v$CHOSEN" <<< "$RELEASES"; then
                 CHOSEN="v$CHOSEN"
             else
                 echo "ERROR: Version $TARGET_VERSION not found in releases." >&2
@@ -328,11 +328,24 @@ else
         exit 1
     fi
 
-    # Extract (validate archive contents first — reject absolute or traversal paths)
+    # Extract (validate archive contents first — reject absolute or traversal paths, then links/special entries)
     EXTRACT_DIR="$TMPDIR/extracted"
     mkdir -p "$EXTRACT_DIR"
-    if tar tzf "$ARCHIVE" | grep -qE '(^/|\.\.)'; then
+    # Capture the listing first: piping into `grep -q` lets grep exit on an
+    # early match and SIGPIPE tar, which pipefail would turn into a skipped guard.
+    listing=$(tar tzf "$ARCHIVE")
+    if grep -qE '(^/|\.\.)' <<< "$listing"; then
         echo "ERROR: Archive contains suspicious paths (absolute or ..). Aborting." >&2
+        exit 1
+    fi
+    # Closed allowlist: every entry must be a regular file ('-') or a directory
+    # ('d'). Symlinks, hard links, devices and FIFOs are refused outright rather
+    # than reasoning about where a link points. The pax global header that
+    # `git archive` and GitHub emit (type 'g') is the one non-file header type
+    # allowed, but `tar tv` does not list it, so no extra pattern is needed.
+    verbose_listing=$(tar tvzf "$ARCHIVE")
+    if grep -qvE '^[-d]' <<< "$verbose_listing"; then
+        echo "ERROR: Archive contains a link or special entry (only regular files and directories are allowed). Aborting." >&2
         exit 1
     fi
     tar xzf "$ARCHIVE" -C "$EXTRACT_DIR"
@@ -384,7 +397,6 @@ SEED_EXCLUDE=(
     "docs/knowledge/patterns.md"
     "docs/knowledge/decisions.md"
     "docs/knowledge/bugs.md"
-    "docs/knowledge/kv.md"
     "docs/knowledge/metrics.md"
     "docs/knowledge/skill-edit-rejections.md"
     ".claude/rules/preferences.md"
@@ -430,7 +442,6 @@ TEMPLATE_SCRIPTS=(
     "scripts/validate-roadmap.sh"
     "scripts/create-pr.sh"
     "scripts/dashboard.sh"
-    "scripts/context-filter.sh"
     "scripts/validate-freshness.sh"
     "scripts/codex-review.sh"
     "scripts/generate-manifest.sh"

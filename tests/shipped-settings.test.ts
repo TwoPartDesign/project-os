@@ -12,7 +12,7 @@
 // gitignored and therefore never ships.
 
 import { describe, it } from "node:test";
-import { ok, strictEqual } from "node:assert";
+import { deepStrictEqual, ok, strictEqual } from "node:assert";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -65,6 +65,30 @@ describe("shipped settings.json carries no framework-only permissions", () => {
     ok(
       !ALLOW.includes("Bash(bash tests/*)"),
       "Bash(bash tests/*) is a framework-only blanket grant; keep it in settings.local.json",
+    );
+  });
+
+  it("shippedSettings_noCompoundCdAllowRules", () => {
+    // #T239: `(cd * && *)` / `(cd * ; *)` approve nothing in default mode
+    // (probe-verified), so they are dead rules and mislead the reader.
+    deepStrictEqual(
+      ALLOW.filter(
+        (e) => e === "Bash((cd * && *))" || e === "Bash((cd * ; *))",
+      ),
+      [],
+    );
+  });
+
+  it("shippedSettings_hookOnlyScripts_haveNoAllowEntry", () => {
+    // #T238: hook commands bypass permissions, so only hook scripts that a
+    // command or doc also runs by hand keep an allow entry.
+    const manual = [
+      "Bash(bash .claude/hooks/notify-phase-change.sh*)",
+      "Bash(bash .claude/hooks/log-activity.sh*)",
+    ];
+    deepStrictEqual(
+      ALLOW.filter((e) => e.includes(".claude/hooks/")),
+      manual,
     );
   });
 

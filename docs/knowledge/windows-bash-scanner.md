@@ -19,13 +19,16 @@ construct tripped the scanner and the known-safe alternative.
 
 **First-line defense instead of this catalog:** the slim rules in
 `.claude/rules/bash.md` (prefer dedicated tools; scripts-in-files; simple
-single commands) plus the project auto-approval policy hook proposal in
-`docs/proposals/pre-tool-approve-hook.md`. If a trusted command still
-prompts, extend the hook's allowlist once instead of re-teaching agents.
+single commands). Auto mode is the standing default (2.1.284), so this
+catalog binds in default permission mode and on Windows. If a trusted command
+still prompts, add it to `permissions.allow` once instead of re-teaching
+agents.
 
 ---
 
-## Changelog cross-check (2026-09-16, Claude Code 2.1.221 → 2.1.269)
+## Changelog cross-check (2026-09-16, Claude Code 2.1.221 → 2.1.289)
+
+Extended 2026-10-06 from 2.1.269 through 2.1.289 (the last six rows).
 
 The catalog below was reverse-engineered on 2.1.2xx builds from July. These
 release notes changed the permission checker since; each entry says what moved
@@ -44,6 +47,12 @@ command that sails through there proves nothing about the scanner (#T200).
 | Allow rules with a wildcard before the subcommand (`Bash(git * main)`) | 2.1.246 added a startup warning: they also match options inserted before the subcommand. | `settings.local.json` has `Bash(for * in *)` and `Bash(MSYS_NO_PATHCONV=1 git *)` — expect the warning; harmless. |
 | Malformed compound commands (dangling `&&` / `\|\|`) | 2.1.246: always require approval. | New trigger; consistent with "one command per call". |
 | zsh-specific bypasses (`[[ ]]` regex conditionals, `REPORTTIME=` assignments, arithmetic integer assignments) | 2.1.221 / 2.1.251 / 2.1.257 / 2.1.260 each closed one and now prompt. | Git Bash is bash, not zsh — not reachable here. |
+| Argument and wildcard file checks | 2.1.271: permission checks now find the file that `fmt`, `column` and similar commands read after an unrecognized option, and the files a wildcard expands to when it sits in a command's pattern or option value (`grep -v dir/* file`). | Only bites when a `Read()` deny rule matches the file; empty deny list here, so not a trigger. |
+| `cd` chains under `blockReadsOutsideWorkingDirectories` | 2.1.271: two directory changes, a subshell, or a `cd`+`git` chain no longer skip the prompt under that setting in bypass and auto mode. | Setting is off in this repo; `git -C` stays the safe spelling. |
+| Special shell variables and worktree-isolated Bash | 2.1.274: commands that loop over or assign certain special shell variables now ask; worktree-isolated sessions refuse Bash commands with certain nested shell expansions. | **Worktree workers (`implementer`, `documenter`) now get a refusal, not a prompt.** A sub-agent cannot answer a prompt, so a refused shape fails the call: keep `$()`, nested expansions and loops out of worker commands. |
+| `rm -rf "$(…)"` | 2.1.281: a recursive `rm` whose target is only command-substitution output (`rm -rf "$(pwd)"`) asks even in auto mode and under a Bash allow rule, unless `CLAUDE_CODE_DISABLE_SUBSTITUTION_RM_PROMPT=1`. | Extends the 2.1.261 `rm -rf` trigger above; give `rm` literal paths. |
+| Rules with a NUL byte | 2.1.281: a permission rule containing a NUL byte now matches nothing instead of expanding to a wildcard. | Not relevant here. |
+| Smaller checker fixes, 2.1.282–2.1.289 | 2.1.282: Bash rules with a mid-pattern `:*` now work from settings files too (startup warning). 2.1.287: whole-tool `Bash` allow rules and allowing hooks prompt for shell writes to files the file tools refuse (profile store, credentials file). 2.1.288: a `BASHPID` assignment evaluated as arithmetic prompts; a dangerous `rm` inside `bash -c` / `sh -c` no longer runs unprompted under an allow rule or bypass. | None is a new trigger for the rules in bash.md; the `bash -c` shape was already banned. |
 
 ---
 

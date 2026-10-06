@@ -24,11 +24,12 @@
 #      postToolUse_backslashPayloadPath_stillResolved. A mutant that fails more
 #      than its one target is not isolating anything.
 #
-#   3. UNIFIED-BOUND — tool-failure-log.sh switched to the bounded read the
-#      other hooks use. This is the mutant a future tidying pass would write:
-#      the hooks look inconsistent, and making them consistent breaks the one
-#      that reads a key from the END of the payload. Must kill
-#      toolFailureLog_isErrorBeyondPayloadBound_stillLogged.
+#   3. IS-ERROR-GATE — tool-failure-log.sh gating on an `is_error` grep again,
+#      the pre-#T213 spelling from when it rode PostToolUse. The native
+#      PostToolUseFailure payload carries no `is_error`, so every assertion that
+#      expects a logged failure must die, and the mutant must kill exactly those
+#      and nothing else — the negative assertions (invalid JSON, empty JSON) and
+#      the settings-wiring check are untouched by it.
 #
 #   4. NO-DRAIN — read_hook_payload stops at the bound without consuming the
 #      rest. The hook itself still works, which is exactly why this needs a
@@ -36,12 +37,39 @@
 #      only because the suite pipes the payload in under `set -o pipefail`. Must
 #      kill postToolUse_payloadPastBound_exitsZero. It also kills the truncation
 #      notice, because the same `wc -c` both drains and counts — this is the one
-#      mutant here with two victims, and it is meant to.
+#      mutant here with two victims per hook, and it is meant to: post-tool-use
+#      and post-write-session each lose _payloadPastBound_exitsZero and
+#      _filePathBeyondBound_saysSoOnStderr.
 #
 #   5. SILENT-TRUNCATION — the stderr notice for a file_path that fell outside
 #      the window removed. The bound's blind spot is defensible only while it is
 #      audible; this proves the assertion that keeps it so. Must kill
-#      postToolUse_filePathBeyondBound_saysSoOnStderr.
+#      postToolUse_filePathBeyondBound_saysSoOnStderr and its post-write-session
+#      twin (the Write path's "not scrubbing" notice is removed too).
+#
+#   6. NO-CONTAINMENT — resolve_project_path's root comparison disabled
+#      (#T202). Every path that exists is then "ours". Must kill exactly the
+#      out-of-repo assertions on post-tool-use.sh: the Write one and the
+#      bashEditDiff outside, prefix-collision, symlink-to-outside, parent-dir
+#      symlink and `..`-escape ones. The session scrub keeps its own
+#      .claude/sessions/ prefix check, so no post-write-session assertion dies.
+#
+#   7. SCRUB-NO-CONTAINMENT — post-write-session.sh's Bash branch scrubs the
+#      raw payload path with no canonicalization, no containment and no
+#      session-scope check. Must kill exactly the scrub-scope assertions:
+#      outside, prefix-collision, in-repo non-session file, and `..` through
+#      sessions/ to an outside file.
+#
+#   8. SCRUB-SCOPE-ONLY — post-write-session.sh's Bash branch keeps the
+#      .claude/sessions/ scope check but takes the raw payload path
+#      (`RESOLVED="$BASH_EDITED"`): no canonicalization, no containment. Only
+#      a path spelled under sessions/ that leaves the root can tell, so it must
+#      kill exactly the `..`-through-sessions case and the sessions/ symlink to
+#      an outside file. The symlink case tells only because it also asserts the
+#      link is still a link: scrub-secrets.sh does not write through it, it
+#      replaces it with a regular file, so the outside file is intact either
+#      way and the content check alone cannot see this mutant. Mutant 7 kills
+#      it for the same reason.
 
 # THIS SCRIPT'S OWN PASS CONDITION. A negative control that cannot fail is the
 # same vacuous test it exists to prevent, and until #T170 this was one: it ran
@@ -61,7 +89,7 @@ WORK="$(mktemp -d)"
 # makes that true on the failure paths too.
 trap 'rm -rf "$WORK"' EXIT
 
-HOOK_NAMES="_common.sh output-index.sh compact-suggest.sh tool-failure-log.sh post-tool-use.sh session-end-cleanup.sh post-write-session.sh"
+HOOK_NAMES="_common.sh output-index.sh compact-suggest.sh tool-failure-log.sh post-tool-use.sh session-end-cleanup.sh post-write-session.sh log-activity.sh post-mcp-validate.sh"
 
 CTL_FAIL=0
 
@@ -114,7 +142,7 @@ done
 # assertions, which a hook that does nothing at all trivially satisfies. Any
 # other survivor is an assertion that names an EFFECT and passed against a stub,
 # which is the exact defect this file exists to catch.
-STUB_SURVIVORS_OK='_(exitsZero|notOnStdout|doesNotIndex|noHint|indexerNeverInvoked|emitsNothing|doesNotLogOutput|writesNothing|noSideEffect|deliberatelyKept|notPruned|nothingDeleted[A-Za-z]*|doesNotCreateOne)$'
+STUB_SURVIVORS_OK='_(exitsZero|notOnStdout|doesNotIndex|noHint|indexerNeverInvoked|emitsNothing|doesNotLog[A-Za-z]*|writesNothing|noSideEffect|deliberatelyKept|notPruned|nothingDeleted[A-Za-z]*|doesNotCreateOne)$'
 
 # Explicit, not pattern-matched: hook-smoke.sh's "payload schema" block greps
 # the repo's own source (this file and $PROJECT_ROOT/.claude/hooks) rather than
@@ -129,6 +157,9 @@ STUB_SURVIVORS_OK='_(exitsZero|notOnStdout|doesNotIndex|noHint|indexerNeverInvok
 # directly rather than $REAL_HOOKS. It is therefore invariant here too.
 STUB_STATIC_SURVIVORS="payloadSchema_fixturesInThisFile_nameToolInputAndToolResponse
 payloadSchema_hookScripts_readToolInputAndToolResponse
+toolFailureLog_settingsWiring_registeredOnlyOnPostToolUseFailure
+activityLog_settingsWiring_modelSwitchedOnPostModelSwitch
+bashEditDiff_settingsWiring_bothHooksOnBashMatcher
 notifyPhaseChange_windowsTerminalOnly_exit0StderrLineNoStdout"
 
 echo "=== mutant 1: all hooks stubbed to \`exit 0\` ==="
@@ -202,21 +233,41 @@ fi
 run_mutant "mutant 2: post-tool-use.sh takes the payload path unconverted" \
     "$RAW" "postToolUse_backslashPayloadPath_stillResolved"
 
-# ── Mutants 3-5: the #T148 payload bound ────────────────────────────────────
-BOUND="$WORK/unified-bound"
-build_mutant "$BOUND"
-# The tidying pass, in its smallest honest form: the streaming grep replaced by
-# a bounded read of the same payload. It does not call read_hook_payload — that
-# would need _common.sh sourced earlier than this hook sources it, and the
-# mutant should differ from the original in one dimension, not two.
-sed -i 's|^FACTS=$(grep -aoE.*|FACTS=$(head -c "${PROJECT_OS_HOOK_PAYLOAD_BYTES:-262144}")|' \
-    "$BOUND/tool-failure-log.sh"
-if grep -q 'FACTS=$(grep -aoE' "$BOUND/tool-failure-log.sh"; then
-    fatal "mutant 3" "NOT APPLIED — the streaming read is still there"
+# ── Mutant 3: the #T213 failure-event move ──────────────────────────────────
+# Mutant 3 is #T213's regression: the hook is moved off PostToolUse and no longer
+# looks for `is_error`. The mutant restores the gate by rewriting the one line
+# that reads the name, in a pass over the file rather than sed, because the
+# replacement is three lines of shell full of quotes.
+GATE="$WORK/is-error-gate"
+build_mutant "$GATE"
+# stdin is single-use, so the gate slurps it once and the name is read from the
+# copy — which is also the unbounded slurp the old hook avoided; irrelevant to
+# what this mutant is for.
+cat > "$WORK/gate-block.txt" <<'GATEBLOCK'
+PAYLOAD=$(cat)
+grep -qaE '"is_error"[[:space:]]*:[[:space:]]*true' <<<"$PAYLOAD" || exit 0
+TOOL_NAME_RAW=$(printf '%s\n' "$PAYLOAD" | grep -aoE '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' 2>/dev/null | sed -n '1p' || true)
+GATEBLOCK
+GATE_TMP="$WORK/is-error-gate.new"
+: > "$GATE_TMP"
+while IFS= read -r line; do
+    case "$line" in
+        'TOOL_NAME_RAW=$(grep -aoE'*) cat "$WORK/gate-block.txt" >> "$GATE_TMP" ;;
+        *) printf '%s\n' "$line" >> "$GATE_TMP" ;;
+    esac
+done < "$GATE/tool-failure-log.sh"
+cp "$GATE_TMP" "$GATE/tool-failure-log.sh"
+if ! grep -q 'is_error' "$GATE/tool-failure-log.sh"; then
+    fatal "mutant 3" "NOT APPLIED — the is_error gate is not in the mutant"
 fi
-run_mutant "mutant 3: tool-failure-log.sh uses a bounded read" \
-    "$BOUND" "toolFailureLog_isErrorBeyondPayloadBound_stillLogged"
+run_mutant "mutant 3: tool-failure-log.sh gates on is_error again" \
+    "$GATE" \
+    "toolFailureLog_nativeFailure_logsToolName" \
+    "toolFailureLog_punctuationInToolName_strippedNotEscaped" \
+    "toolFailureLog_punctuationInToolName_stillOneLine" \
+    "toolFailureLog_largeToolInput_stillLogged"
 
+# ── Mutants 4-5: the #T148 payload bound ────────────────────────────────────
 NODRAIN="$WORK/no-drain"
 build_mutant "$NODRAIN"
 # Drop the `wc -c` that consumes the remainder. It also reports the count, so
@@ -234,16 +285,64 @@ fi
 # and counts, so removing it takes the truncation notice with it.
 run_mutant "mutant 4: read_hook_payload does not drain the remainder" \
     "$NODRAIN" "postToolUse_payloadPastBound_exitsZero" \
-    "postToolUse_filePathBeyondBound_saysSoOnStderr"
+    "postToolUse_filePathBeyondBound_saysSoOnStderr" \
+    "postWriteSession_payloadPastBound_exitsZero" \
+    "postWriteSession_filePathBeyondBound_saysSoOnStderr"
 
 SILENT="$WORK/silent-truncation"
 build_mutant "$SILENT"
 sed -i '/post-tool-use: payload exceeded/d' "$SILENT/post-tool-use.sh"
-if grep -q 'not formatting' "$SILENT/post-tool-use.sh"; then
+sed -i '/post-write-session: payload exceeded/d' "$SILENT/post-write-session.sh"
+if grep -q 'not formatting' "$SILENT/post-tool-use.sh" || grep -q 'not scrubbing' "$SILENT/post-write-session.sh"; then
     fatal "mutant 5" "NOT APPLIED — the notice is still there"
 fi
 run_mutant "mutant 5: truncated file_path degrades silently" \
-    "$SILENT" "postToolUse_filePathBeyondBound_saysSoOnStderr"
+    "$SILENT" "postToolUse_filePathBeyondBound_saysSoOnStderr" \
+    "postWriteSession_filePathBeyondBound_saysSoOnStderr"
+
+# ── Mutant 6: containment removed (#T202) ───────────────────────────────────
+NOCONTAIN="$WORK/no-containment"
+build_mutant "$NOCONTAIN"
+sed -i 's|^    if \[\[ "$resolved" != "$project_root"/\* \]\]; then$|    if false; then|' "$NOCONTAIN/_common.sh"
+if ! grep -q '^    if false; then$' "$NOCONTAIN/_common.sh"; then
+    fatal "mutant 6" "NOT APPLIED — the containment comparison is still there"
+fi
+run_mutant "mutant 6: resolve_project_path does not check containment" \
+    "$NOCONTAIN" "postToolUse_outOfProjectFile_noSideEffect" \
+    "postToolUse_bashEditDiffOutsideRepo_noSideEffect" \
+    "postToolUse_bashEditDiffPrefixCollision_noSideEffect" \
+    "postToolUse_bashEditDiffSymlinkToOutside_noSideEffect" \
+    "postToolUse_bashEditDiffParentDirSymlink_noSideEffect" \
+    "postToolUse_bashEditDiffDotDotEscape_noSideEffect" \
+    "postToolUse_bashEditDiffWindowsPathOutsideRoot_noSideEffect" \
+    "postToolUse_bashEditDiffWindowsPathSymlinkToOutside_noSideEffect"
+
+# ── Mutant 7: scrub without containment on the Bash branch (#T202) ─────────
+SCRUBRAW="$WORK/scrub-no-containment"
+build_mutant "$SCRUBRAW"
+sed -i 's#^        RESOLVED=$(resolve_project_path "$(canonicalize_payload_path "$BASH_EDITED")") || continue$#        bash "$PROJECT_ROOT/scripts/scrub-secrets.sh" "$BASH_EDITED"; continue#' \
+    "$SCRUBRAW/post-write-session.sh"
+if ! grep -q 'scrub-secrets.sh" "$BASH_EDITED"; continue$' "$SCRUBRAW/post-write-session.sh"; then
+    fatal "mutant 7" "NOT APPLIED — the Bash branch still resolves its paths"
+fi
+run_mutant "mutant 7: post-write-session.sh Bash branch scrubs uncontained paths" \
+    "$SCRUBRAW" "postWriteSession_bashEditDiffNonSessionFile_noSideEffect" \
+    "postWriteSession_bashEditDiffOutsideRepo_noSideEffect" \
+    "postWriteSession_bashEditDiffPrefixCollision_noSideEffect" \
+    "postWriteSession_bashEditDiffDotDotThroughSessions_noSideEffect" \
+    "postWriteSession_bashEditDiffSessionSymlinkToOutside_noSideEffect"
+
+# ── Mutant 8: scrub scope check kept, containment dropped (#T202) ───────────
+SCOPEONLY="$WORK/scrub-scope-only"
+build_mutant "$SCOPEONLY"
+sed -i 's#^        RESOLVED=$(resolve_project_path "$(canonicalize_payload_path "$BASH_EDITED")") || continue$#        RESOLVED="$BASH_EDITED"#' \
+    "$SCOPEONLY/post-write-session.sh"
+if ! grep -q '^        RESOLVED="$BASH_EDITED"$' "$SCOPEONLY/post-write-session.sh"; then
+    fatal "mutant 8" "NOT APPLIED — the Bash branch still resolves its paths"
+fi
+run_mutant "mutant 8: post-write-session.sh Bash branch keeps scope, drops containment" \
+    "$SCOPEONLY" "postWriteSession_bashEditDiffDotDotThroughSessions_noSideEffect" \
+    "postWriteSession_bashEditDiffSessionSymlinkToOutside_noSideEffect"
 
 # ── Verdict ─────────────────────────────────────────────────────────────────
 echo "=== negative control ==="
@@ -252,5 +351,5 @@ if [ "$CTL_FAIL" -gt 0 ]; then
     echo "  Either hook-smoke.sh lost an assertion, or a mutant no longer applies."
     exit 1
 fi
-echo "  all 5 mutants behaved as documented — hook-smoke.sh detects broken hooks"
+echo "  all 8 mutants behaved as documented — hook-smoke.sh detects broken hooks"
 exit 0

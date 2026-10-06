@@ -4,12 +4,12 @@ description: "Execute implementation from task plan using dependency-scheduled p
 
 # Phase 4: Dependency-Scheduled Parallel Implementation
 
-You are the Lead for this build. You coordinate sub-agents but NEVER write implementation code yourself. Your job is to delegate, monitor, and unblock.
+You are the Lead for this build. You coordinate sub-agents but do not write implementation code yourself; the one exception is lead.md's threshold: a change under about twenty lines in one file, or a review finding whose fix is already named. Your job is to delegate, monitor, and unblock.
 
 ## Input
 Read `docs/specs/$ARGUMENTS/tasks.md`. Verify all tasks have status markers.
-Read `CLAUDE.md` for project conventions (this is the ONLY shared context for agents).
-Read `.claude/settings.json` for `project_os.parallel` config (max_concurrent_agents, backoff).
+Read `CLAUDE.md` and `docs/knowledge/patterns.md` for project conventions (CLAUDE.md only points to patterns.md). Roster agents set `omitClaudeMd: true` and never load it, so the brief's pasted excerpt is their only copy.
+Read `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` from `.claude/settings.json` `env` (the native cap on concurrently running sub-agents; the runtime default is 20 when unset).
 
 **Runtime state:** Native Tasks (TaskCreate/TaskUpdate/TaskList) drive dependency scheduling during build execution. ROADMAP.md remains the authoritative source of truth. See "Task Scheduling (Native Tasks)" below.
 
@@ -32,7 +32,9 @@ Before dispatching any agents:
 4. Run `bash scripts/validate-roadmap.sh` to verify dependency integrity.
 5. Run `node scripts/knowledge-index.ts index-vault` to ensure the knowledge index is current before spawning sub-agents.
 6. Run `node scripts/system-map.ts check` (heal with `--heal` if drifted) and skim `node scripts/system-map.ts report` — starting a build on top of unknown HIGH readiness findings (unwired hooks, dangling refs) compounds them. Findings that overlap this feature's task files should be flagged to the user before dispatch; unrelated findings are the maintenance loop's job, not this build's.
-7. Confirm native Tasks are actually available. Since Claude Code 2.1.233, `TaskCreate`/`TaskUpdate`/`TaskList` are withheld on Opus 4.8, Sonnet 5, Fable 5 and newer unless `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` is set in `.claude/settings.json` `env` (the shipped settings set it). If `TaskCreate` is not in your tool list, say so before dispatching — `Native Tasks unavailable (CLAUDE_CODE_ENABLE_TODO_TOOLS unset?) — scheduling from ROADMAP markers` — and continue on the marker fallback. Never take the fallback silently: that is how a month of builds ran without dependency enforcement and nobody noticed.
+7. Confirm native Tasks are actually available. Since Claude Code 2.1.233, `TaskCreate`/`TaskUpdate`/`TaskList` are withheld on Opus 4.8, Sonnet 5, Fable 5 and newer unless `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` is set in `.claude/settings.json` `env` (the shipped settings set it). If `TaskCreate` is not in your tool list, say so before dispatching — `Native Tasks unavailable (CLAUDE_CODE_ENABLE_TODO_TOOLS unset?) — scheduling from ROADMAP markers` — and continue on the marker fallback. Never take the fallback silently: that is how a month of builds ran without dependency enforcement and nobody noticed. `claude --debug` names settings env vars Claude Code ignored (2.1.281), so use it when the Task tools are missing despite `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`.
+8. Warn-only staleness check (never blocking): compare file mtimes (`test -nt`) and, if `docs/specs/$ARGUMENTS/brief.md` is newer than `design.md`, or `design.md` is newer than `tasks.md`, tell the user the downstream doc may predate an upstream edit, then continue.
+9. Read the effective `worktree.baseRef`: `.claude/settings.local.json` first, then `.claude/settings.json`. When it is not `"head"` (absent, or `"fresh"`), warn the user — `worktree.baseRef is not "head": worktrees branch from the default branch and will miss unpushed commits and prior batches — adding the self-ground merge to every worker brief` — and put the self-ground step back into every worker brief (see "Worktree base" in the Execution Protocol). Continue the build.
 
 **Agent Rules note:** The `## Agent Rules` sections in `.claude/rules/*.md` are hand-maintained distillations, included verbatim in agent prompts (see Execution Protocol). When editing a rule file, update its `## Agent Rules` section in the same edit — there is no automated freshness check.
 
@@ -77,7 +79,7 @@ Resolve per task:
 2. No annotation → the `model:` (and `effort:`) frontmatter of the registered agent file in `.claude/agents/` (`implementer.md` is `sonnet`/`high`; `documenter.md` is `sonnet`/`high`)
 3. No agent-file frontmatter → the sub-agent default model (`CLAUDE_CODE_SUBAGENT_MODEL` in `.claude/settings.json`)
 
-**Tiers:** `sonnet`/`high` is the default executor — any task with a complete brief and checkable acceptance criteria. `opus`/`high` is the judgment tier: reach it with a `(model: opus)` annotation (step 0) when the task asks the worker to decide — reconciling conflicting sources, designing a test, root-causing a bug, a refactor spanning systems. Move the model, not the effort. The ladder is `sonnet` → `opus` → `fable`; raise effort `high` → `xhigh` before raising the model when the failure is reasoning depth rather than capability.
+**Tiers:** `sonnet`/`high` is the default executor — any task with a complete brief and checkable acceptance criteria. `opus`/`high` is the judgment tier: reach it with a `(model: opus)` annotation (step 0) when the task asks the worker to decide — reconciling conflicting sources, designing a test, root-causing a bug, a refactor spanning systems. Move the model, not the effort. The ladder is `sonnet` (high) → `opus` (high) → `opus` (xhigh); `fable` is not a rung and is available only as an Approver-confirmed choice through `/tools:set-models`.
 
 `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` is never set — it would override every agent file's own `model:` frontmatter and collapse the roster onto one tier.
 
@@ -119,18 +121,18 @@ For each task in the batch, assemble ONLY:
 - The specific task description from tasks.md (NOT the full task list)
 - The relevant section from `docs/specs/$ARGUMENTS/design.md` (NOT the full design)
 - If the task creates or modifies framework wiring (hook, command, or skill files, or anything under scripts/): the relevant node/edge lines from `docs/maps/system-map.md` for the touched files — so the agent sees what references what it's changing without grepping for it. Excerpt only; never the whole map.
-- Project conventions from CLAUDE.md
+- Project conventions from CLAUDE.md, plus the `docs/knowledge/patterns.md` entries that bear on the task (CLAUDE.md only points to patterns.md)
 - Agent rules: extract the `## Agent Rules` section from `.claude/rules/tests.md`, `.claude/rules/escalation.md`, and `.claude/rules/lead.md` and include them in the conventions block. Do NOT include the full rule files — only the `## Agent Rules` section from each. Bash rules go in the dedicated CRITICAL section below, not here.
 - The specific files the task mentions (read them for current state)
 
-**Paths:** every path the packet hands the agent that lives under `docs/specs/`, `docs/research/`, `docs/memory/`, or `.claude/sessions/` must be written as a **main-repo absolute path** (e.g. `<main-repo-root>/docs/specs/$ARGUMENTS/design.md`), never a repo-relative one. Those directories are gitignored, so a worktree cannot see them — a relative path resolves inside the worktree and silently finds nothing.
+**Paths:** every input the packet hands the agent that lives under `docs/specs/`, `docs/research/`, `docs/memory/`, or `.claude/sessions/` must be written as a **main-repo absolute path** (e.g. `<main-repo-root>/docs/specs/$ARGUMENTS/design.md`), never a repo-relative one. Those directories are gitignored, so a worktree cannot see them — a relative path resolves inside the worktree and silently finds nothing. Outputs bound for those directories go to the session scratchpad: a worktree-isolated agent cannot write the shared checkout, so the brief names a scratchpad path and the lead places the file with Write.
 
 DO NOT give agents: full spec history, other tasks, the brief, research findings, or review comments. Context isolation is critical.
 
-**Worktree base:** an Agent-tool worktree branches from the merge-base with the default branch, not from the current HEAD. When the build runs on a feature branch, the brief's first command must be `git -C "<worktree>" merge <current-branch> --no-edit` (the branch `git branch --show-current` prints), not `git merge master` — otherwise the worker builds against a tree missing every prior batch's integration.
+**Worktree base:** `.claude/settings.json` sets `worktree.baseRef: "head"`, so an Agent-tool worktree branches from the lead's current HEAD, including unpushed commits and every prior batch's integration. No self-ground merge is needed. If that setting is removed, worktrees fall back to `origin/<default>` (`fresh`), and the brief's first command must again be `git -C "<worktree>" merge <current-branch> --no-edit` (the branch `git branch --show-current` prints, not `git merge master`). Pre-flight step 9 detects this: when `worktree.baseRef` is not `"head"`, every worker brief starts with that self-ground merge, so the worker builds against the lead's HEAD instead of a tree missing every prior batch's integration.
 
 **3. Dispatch sub-agents (parallel)**
-Dispatch up to `max_concurrent_agents` (default: 4) sub-agents simultaneously.
+Dispatch up to `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` (this repo sets 4) sub-agents simultaneously.
 Each agent is dispatched via the Agent tool with `isolation: "worktree"`, which automatically creates an isolated git worktree in `.claude/worktrees/` and cleans it up after the agent completes (kept with a branch name if changes were made).
 
 **Native path (default):** dispatch a **registered roster agent by name** via the Agent tool with the context packet from step 2:
@@ -169,11 +171,13 @@ Each agent's prompt:
 
 [TASK DESCRIPTION]
 
-CRITICAL — BASH COMMAND RULES:
+BASH COMMAND RULES:
 [BASH_AGENT_RULES]
 
+[IF worktree.baseRef != "head"] FIRST COMMAND: git -C "<worktree>" merge <current-branch> --no-edit
+
 Conventions to follow:
-[RELEVANT CLAUDE.md EXCERPT]
+[RELEVANT CLAUDE.md + docs/knowledge/patterns.md EXCERPTS]
 
 Design context:
 [RELEVANT DESIGN SECTION ONLY]
@@ -186,7 +190,7 @@ Instructions:
 2. Do NOT modify any files not listed in this task
 3. If you encounter an ambiguity, make the simplest choice and document it as a code comment"
 
-If more tasks exist than `max_concurrent_agents`, queue the overflow and dispatch as slots free up. Never dispatch a task whose dependencies are not yet `completed` — native Task `addBlockedBy` enforces this; the ROADMAP `(depends:)` clauses are the fallback check.
+If more tasks exist than `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`, queue the overflow and dispatch as slots free up. Never dispatch a task whose dependencies are not yet `completed` — native Task `addBlockedBy` enforces this; the ROADMAP `(depends:)` clauses are the fallback check.
 
 **4. On agent completion**
 For each agent that finishes:
@@ -225,7 +229,7 @@ Each time the running set drains (all dispatched agents have completed) and befo
 ### After all tasks complete:
 
 1. Run final full test suite
-2. Workers commit on their worktree branch. Collect each branch (`git log --oneline master..<branch>`, then merge or cherry-pick) before the worktree is cleaned up; an uncommitted worktree is discarded. Worktree lifecycle is otherwise native: worktrees are cleaned up automatically and kept as a branch when changes were made. No manual session-preservation step.
+2. Workers commit on their worktree branch. Collect each branch (`git log --oneline master..<branch>`, then merge or cherry-pick) before the worktree is cleaned up; an uncommitted worktree is discarded. When a merge conflicts on a generated map (`docs/maps/*`), do not hand-edit it: for each conflicted file run `git checkout --ours docs/maps/<file>`, then `node scripts/system-map.ts generate`, then (only when files were added or removed) `bash scripts/generate-manifest.sh`, then `git add docs/maps .claude/manifest.json`. When `.claude/manifest.json` itself conflicts, resolve it the same way: `git checkout --ours .claude/manifest.json`, then `bash scripts/generate-manifest.sh`, then `git add .claude/manifest.json`. Conclude with `git commit -F <msgfile>` — never `--no-edit`, which keeps the `# Conflicts:` lines in the message. Worktree lifecycle is otherwise native: worktrees are cleaned up automatically and kept as a branch when changes were made. No manual session-preservation step.
 3. Check for uncommitted changes: `git status`
 4. Any work a worker left uncommitted is already gone — re-dispatch that task rather than reconstructing it. For work you cherry-picked or created yourself, keep atomic commits (one per task): `feat($ARGUMENTS): <task title> (TN)`
 5. Update ROADMAP.md — verify all completed tasks are marked `[~]` (ready for review). Do NOT mark them `[x]` — that transition happens only after `/workflows:review` passes.
@@ -244,7 +248,7 @@ If a task is blocked:
 - Report blockers to the user at the end
 
 If rate-limited or agent spawn fails:
-- Apply backoff from `project_os.parallel.backoff` config
+- Wait for a running agent to finish before retrying; the native `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` cap bounds fan-out, so there is no separate backoff config
 - Retry up to 2 times (per escalation protocol), then halt dispatching
 
 ## Completion

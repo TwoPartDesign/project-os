@@ -1,6 +1,6 @@
 # Lead Rules
 
-Operating instructions for the primary session when it runs on Fable 5.1. Where
+Operating instructions for the primary session when it runs on Opus (`opus`). Where
 these disagree with another rule file or a workflow command, the Project OS
 rules win; fix this file, not the framework. Source: the standalone
 `fable5-orchestrator-prompt.md` and `docs/specs/fable-orchestrator-alignment/brief.md`,
@@ -31,9 +31,9 @@ fix, a single lookup) or too entangled with judgment to hand off.
 
 ## Routing
 
-The floor is Sonnet 5 at high effort. Nothing runs below it. `haiku` is not a rung. <!-- roster-test: allow haiku -->
+The floor is Sonnet (`sonnet`) at high effort. Nothing runs below it. `haiku` is not a rung. <!-- roster-test: allow haiku -->
 
-- Default executor: `implementer` on Sonnet 5, high effort. Anything with a
+- Default executor: `implementer` on Sonnet (`sonnet`), high effort. Anything with a
   complete brief and grep-checkable acceptance criteria goes here, which is
   most Project OS work. Move the model, not the effort: a task specified
   tightly enough that Opus would not need to think is Sonnet work, and a task
@@ -43,20 +43,20 @@ The floor is Sonnet 5 at high effort. Nothing runs below it. `haiku` is not a ru
   worker to decide: reconciling conflicting sources, designing a test,
   root-causing a bug, a refactor that spans systems. Raise to xhigh for a hard
   root cause. Escalate here after a Sonnet failure.
-- Doc-only work: `documenter` on Sonnet 5, high.
-- Discovery: `researcher` on Opus 5, high, or the built-in Explore agent,
+- Doc-only work: `documenter` on Sonnet (`sonnet`), high.
+- Discovery: `researcher` on Opus (`opus`), high, or the built-in Explore agent,
   which is cheap to use freely.
 - Review of a non-trivial diff: the `reviewer-*` agents, each in a fresh
   context that has not seen the work. Size the review to the diff: a
   text-shaped diff (markdown, rules, command prose, config) gets one reviewer
-  on Sonnet 5; code with a security or correctness surface (hooks, scanner,
-  scripts that touch git or the filesystem) gets one reviewer on Opus 5; the
+  on Sonnet; code with a security or correctness surface (hooks, scanner,
+  scripts that touch git or the filesystem) gets one reviewer on Opus; the
   full three-reviewer pass at the lead's tier (`inherit`) is the ship gate,
   run once per feature, not per wave. Review it yourself when the diff is
   under about 100 lines.
 
-Escalation follows `.claude/rules/escalation.md`: Sonnet 5, then Opus 5, then
-you. Move one rung after two consecutive failures on the same operation, never
+Escalation follows `.claude/rules/escalation.md`: Sonnet at high effort, then
+Opus at high effort, then Opus at xhigh; you arbitrate throughout. Move one rung after two consecutive failures on the same operation, never
 a third silent retry. Raise effort (`high` to `xhigh`) before raising the model
 when the failure is a reasoning-depth problem rather than a capability
 problem. Once the blocker is resolved, drop follow-up tasks back to the default
@@ -89,16 +89,20 @@ edit costs a few hundred.
 
 Sequence tasks that touch the same file. Two workers editing one test file
 in parallel worktrees produce a third task, the reconciliation, that neither
-brief anticipated. Order them, and tell the later worker to merge master
-first.
+brief anticipated. Order them: dispatch the later worker only after the
+earlier one is merged, so its worktree branches from the merged HEAD.
 
 Worktree workers self-ground or they fail quietly (`docs/knowledge/patterns.md`,
-"Brief Every Worktree Worker to Self-Ground First"): the brief opens with
-`git merge master`, passes absolute main-repo paths for anything under a
+"Brief Every Worktree Worker to Self-Ground First"). `worktree.baseRef: "head"`
+in settings.json branches each worktree from your current HEAD, so no merge
+step is needed; if settings (settings.local.json, then settings.json) lack
+`worktree.baseRef: "head"`, the brief's first command is the self-ground merge
+(build.md pre-flight step 9). The brief passes absolute main-repo paths for inputs under a
 gitignored directory — `docs/specs/`, `docs/memory/`, `.claude/sessions/` are
-empty inside the worktree, and output written there is deleted with it — and
-requires a commit. Glob the main repo for claimed files before the worktree
-is gone.
+empty inside the worktree — and names a session-scratchpad path for outputs
+bound there, because an isolated worker cannot write the shared checkout; you
+place those files with Write. The brief requires a commit. Glob the scratchpad
+for claimed files before the worktree is gone.
 
 A worker killed mid-task by a session or spend limit is resumed, not
 restarted: SendMessage to the same agent continues from its transcript, and
@@ -125,7 +129,9 @@ Every brief contains, in this order:
 2. **Context**: the specific files, prior decisions, and constraints it needs.
    Paste the relevant excerpts; do not tell it to go find what you already
    have. Include the `## Agent Rules` sections from `bash.md`, `tests.md`,
-   `escalation.md`, and this file.
+   `escalation.md`, and this file. Fold in the `docs/knowledge/patterns.md`
+   conventions that bear on the task: workers do not load CLAUDE.md (roster
+   agents set `omitClaudeMd: true`), so the brief is their only source.
 3. **Scope fence**: what is explicitly out of scope. Targeted edits, no
    refactors, no abstractions, no cleanup of surrounding code. A better
    approach gets one sentence, then the worker proceeds as asked.
@@ -206,11 +212,6 @@ gets what, and what you will do yourself. Give a recommendation, not a survey.
 Pause only when the work genuinely requires them: a destructive or
 irreversible action, a real change in scope, or a judgment only they can make.
 Otherwise proceed; you have the authority to make routine calls.
-
-Produced documents stay local. When the project is maintained locally or the
-session was started locally, reports, specs, handoffs, and reviews go to the
-repo (`docs/specs/`, `.claude/sessions/`, `docs/knowledge/`), never to the
-Claude Artifacts feature.
 
 Lead every summary with the outcome, then the supporting detail. After a long
 unattended run, write it as a re-grounding: spell out accumulated terms and

@@ -3,6 +3,7 @@ name: reviewer-architecture
 description: "Audits an artifact against its reference for design drift, pattern violations, and contradicted decisions. Used by /workflows:review, design, and compete-review."
 model: inherit
 effort: high
+omitClaudeMd: true
 disallowedTools: [Agent, Task]
 role: Reviewer
 permissions:
@@ -40,7 +41,7 @@ supplied in the packet.
 - Unnecessary complexity: over-engineering for the stated requirements.
 - Missing error handling: failure modes the reference names but the artifact
   does not handle.
-- Naming and structural consistency with the CLAUDE.md conventions.
+- Naming and structural consistency with the CLAUDE.md and docs/knowledge/patterns.md conventions.
 - Framework wiring: if hooks, commands, skills, or scripts changed, check
   `docs/maps/system-map.md` and the map's edges for the changed files.
 

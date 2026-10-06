@@ -75,12 +75,12 @@ documentation, not routing. Resolution order: per-invocation `(model: ...)`
 annotation > agent-file `model:` > `CLAUDE_CODE_SUBAGENT_MODEL` > main model.
 Bare aliases only, never dated IDs.
 
-### Lead: `fable`
+### Lead: `opus`, high effort
 
 - Scoping, decomposition, routing, brief-writing, arbitration, integration, final judgment
 - Context: full access to project state, decisions, patterns
 - Frequency: continuous — it is the primary session
-- Cost/benefit: the most expensive model in the session, so it spends tokens on thinking rather than typing. It does not implement, read large files, or grind through mechanical work. Set via `"model"` in settings.json.
+- Cost/benefit: the lead spends tokens on thinking rather than typing. It does not implement, read large files, or grind through mechanical work. Set via `"model"` in settings.json. `fable` is not a rung; it is available only as an Approver-confirmed choice through `/tools:set-models` (ADR 2026-10-05 in `decisions.md`).
 
 ### Default Executor: `sonnet`, high effort
 
@@ -104,11 +104,12 @@ Bare aliases only, never dated IDs.
 
 ### Escalation
 
-Ladder: `sonnet` → `opus` → `fable`. Move one rung after two consecutive
-failures on the same operation, never a third silent retry, and raise effort
-before raising the model when the failure is reasoning depth rather than
-capability. Drop follow-up tasks back to the default tier once the blocker
-clears. A worker that blew its budget is usually a brief problem, not a model
+Ladder: `sonnet` (high) → `opus` (high) → `opus` (xhigh). Move one rung after
+two consecutive failures on the same operation, never a third silent retry. The
+`opus` (xhigh) rung is lead-arbitrated: the Agent tool takes no effort
+parameter, so the lead raises effort by re-running the decision itself or by an
+Approver-confirmed `/tools:set-models` change. Drop follow-up tasks back to the
+default tier once the blocker clears. A worker that blew its budget is usually a brief problem, not a model
 problem — fix the brief first.
 
 ---

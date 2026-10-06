@@ -33,31 +33,33 @@ User (Approver) ──→ Workflow Commands ──→ Lead ──→ Sub-agents 
 | Module | Path | Purpose |
 |--------|------|---------|
 | Workflow commands | `.claude/commands/workflows/` | Spec-driven dev lifecycle (idea→design→plan→build→review→ship, mvp, compete, rebuild) |
-| Tool commands | `.claude/commands/tools/` | Utility tools (dashboard, commit, handoff, catchup, research, metrics, kv, init, set-models, update, new-project) |
+| Tool commands | `.claude/commands/tools/` | Utility tools (dashboard, commit, handoff, catchup, research, metrics, init, set-models, update, new-project) |
 | PM commands | `.claude/commands/pm/` | Governance (prd, epic, approve, status) |
 | Agent adapters | `.claude/agents/adapters/` | External-agent dispatch only — `codex.sh` (+ `INTERFACE.md`, `_prompt-template.sh`); default path is native Task-tool dispatch |
 | Hooks | `.claude/hooks/` | Event-driven automation (11 files, see below) |
 | Scripts | `scripts/` | Standalone utilities (see below) |
-| Knowledge base | `docs/knowledge/` | Patterns, decisions, bugs, architecture, metrics, design-principles, roadmap-format, windows-bash-scanner, kv |
+| Knowledge base | `docs/knowledge/` | Patterns, decisions, bugs, architecture, metrics, design-principles, roadmap-format, windows-bash-scanner |
 | Specs | `docs/specs/<feature>/` | Per-feature lifecycle docs (design, tasks, review) |
 
 ### Hooks (`.claude/hooks/`)
+
+Hook commands in `settings.json` use `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/<x>.sh"` rather than a cwd-relative path, because hooks run in the session's current directory (after the Bash tool runs `cd sub`, a relative path fails or runs a subtree's own hook scripts; probed in v3.1 #T238); Windows behaviour of the variable form is unverified.
 
 | Hook | Purpose |
 |------|---------|
 | `_common.sh` | Shared utilities: path resolution, validation, JSON extraction |
 | `compact-suggest.sh` | PostToolUse — when the transcript's newest `usage` record, plus a byte-proxy estimate of the tool result that just landed, puts context past `NUDGE_PCT` of the window (default 60%), inject `additionalContext` telling Claude to run `/tools:handoff` with a `compact_instruction`; one nudge per compaction cycle. Records are read structurally, not textually: each is reduced to a brace/bracket skeleton, so `type:assistant` counts only at the record's own depth and only a `message.usage` object is measured — a `usage` buried in a tool payload cannot be mistaken for the session's context. Deferred entirely when the payload's `agent_id` differs from its `session_id` (a sub-agent firing), because `additionalContext` lands in the *calling* agent's context and a sub-agent can neither write a handoff nor be compacted; a payload with no `agent_id` at all falls back to deferring on a sidechain transcript tail. **Also registered on PreToolUse** for `Write\|Edit\|MultiEdit\|NotebookEdit`, where it records handoff authorship and stops — never emitting, since PreToolUse is the one event where a hook can deny the tool call. A write to `.claude/sessions/handoff-*.yaml` is appended to `.compact-handoff-<session_id>` (one path per line, so a session that writes several in a cycle claims all of them) so `pre-compact.sh` can tell this session's handoffs from a concurrent session's; claiming before the write means the claim can never trail the artifact it describes, and the PostToolUse pass repeats the claim as a backstop, collapsing against the last line. The PreToolUse claim is **conditional on the path not already existing** — an unconditional pre-claim would let any session steal an existing handoff by opening an editor on it, so occupancy (`-e` or `-L`, the second closing dangling symlinks) defers to the PostToolUse pass, which runs after the write and therefore knows it succeeded |
-| `log-activity.sh` | Append structured JSONL events to the activity log |
+| `log-activity.sh` | Append structured JSONL events to the activity log; also the PostModelSwitch hook (`model-switched --stdin` logs `from`/`to`/`source` from the payload). Firing on a `fallbackModel` fallback is **unverified** (not provokable headlessly; confirmed only for `/model`) |
 | `notify-phase-change.sh` | Phase transition notification — terminal-only (stderr) on Windows, `notify-send` desktop notification on Linux |
 | `output-index.sh` | PostToolUse advisory — index large tool outputs, hint via additionalContext |
 | `post-mcp-validate.sh` | PostToolUse — validate Context7 MCP output (exit 2 / additionalContext contract) |
-| `post-tool-use.sh` | Auto-format files after Write/Edit |
-| `post-write-session.sh` | Scrub secrets from `.claude/sessions/` files after write |
+| `post-tool-use.sh` | Auto-format files after Write/Edit, and after Bash for files named in `tool_response.bashEditDiff.changedFiles` (#T202; same containment and extension set; Windows-native backslash paths are converted with `cygpath -u` — resolved once, absolute path only — and rejected fail-closed without it; generated artifacts `docs/maps/*`, `.claude/manifest.json`, `docs/specs/<feature>/review-triage.json` are skipped on the Bash branch only; `skipped:true` is treated as an unknown change set) |
+| `post-write-session.sh` | Scrub secrets from `.claude/sessions/` files after Write/Edit, and after Bash for files named in `bashEditDiff.changedFiles` (#T202; Windows-native backslash paths are converted with `cygpath -u` and rejected fail-closed without it — a rejected path, like `skipped:true`, `moreFiles` or truncation, triggers the sweep of `.claude/sessions/` files modified in the last 10 minutes) |
 | `pre-compact.sh` | PreCompact (`*` — auto and manual) — print the `compact_instruction` of the newest handoff **this session claimed** since the last compaction on stdout, which the runtime forwards to the compaction summarizer; also writes a filesystem-derived checkpoint YAML (10-min debounce), opens the next compaction cycle and re-arms the nudge. Candidates come only from `.compact-handoff-<session_id>`: there is no glob fallback and no environment override, so an unclaimed handoff is named in the checkpoint and never opened. Advisory: never blocks |
 | `session-start-setup.sh` | SessionStart — idempotent activation fallback: runs `setup.sh --check` so a cloned project installs its git hooks on first session |
 | `session-start-maintain.sh` | SessionStart — auto-runs the maintenance loop once per `auto_run_hours` (policy, default 24h); drafts-only, debounced on ledger age, skips worktrees |
 | `session-end-cleanup.sh` | SessionEnd — remove per-session counters and the session-private compaction markers (`.compact-base-*`, `.compact-nudged-*`, `.compact-cycle-*`); deliberately **keeps** `.compact-handoff-*`, the one marker concurrent sessions read, and lets the 7-day prune collect it; rotate append-only logs |
-| `tool-failure-log.sh` | Log tool failures (timestamp + tool name only) |
+| `tool-failure-log.sh` | PostToolUseFailure — log tool failures (timestamp + tool name only); the native event is the failure signal, no payload `is_error` grep |
 
 ### Scripts (`scripts/`)
 
@@ -65,7 +67,6 @@ User (Approver) ──→ Workflow Commands ──→ Lead ──→ Sub-agents 
 |--------|---------|
 | `audit-context.sh` | Estimate token cost of always-loaded context |
 | `codex-review.sh` | Run a Codex code review via stdin piping |
-| `context-filter.sh` | Intent-based filtering/indexing for large content |
 | `create-pr.sh` | Generate a PR with AI-assisted description (gh CLI) |
 | `dashboard.sh` / `dashboard-server.ts` | Cross-project status table / live SSE dashboard (port 3400) |
 | `detect-stack.ts` | Deterministic stack detection (language/package manager/framework/test runner/formatter/database) from manifest + lockfile signals; JSON out, read-only, no repo code executed |
@@ -74,8 +75,6 @@ User (Approver) ──→ Workflow Commands ──→ Lead ──→ Sub-agents 
 | `install-global-commands.sh` | Install `/tools:new-project` globally |
 | `install-hooks.sh` | Install git pre-commit/pre-push security-scanner hooks |
 | `knowledge-index.ts` | FTS5 knowledge indexing and search (`node:sqlite`) |
-| `lib/decide.ts` | Typed decision interface (`decide(state, questions, deps)`) — deterministic heuristic backend always answers; optional Jev (TypeSafe) backend gated on `project_os.jev.enabled` + `TYPESAFE_API_KEY`, never throws, every fallback carries a `DeclineReason`; sole outbound HTTP caller in the repo |
-| `lib/egress-guard.ts` | Three content guards over every outbound text field before serialization — scrub subprocess + positive re-scan, key-name denylist redaction, Shannon-entropy floor; staged in `.claude/logs/jev` (0700, realpath-contained); fail-closed for egress |
 | `lib/json.sh` / `lib/scan-rules.js` | Shared JSON helpers / scanner rule database (234 rules) |
 | `lib/policy.ts` | Shared reader for `.claude/maintenance-policy.yaml` — flat `key: value` parsing kept in lockstep with `maintain.sh`'s `policy_raw_value` and `system-map.ts`'s `loadBloatThreshold` (no YAML library, linear-parse mandate) |
 | `lib/skill-apply-lib.ts` | Pure proposal parser + anchored-op core for the skill-optimization loop — parses `## Run:`/`### Proposal N:` sections out of a skill-edit proposal doc and applies an anchored add/delete/replace to target-file content; no fs/git access |
@@ -88,7 +87,7 @@ User (Approver) ──→ Workflow Commands ──→ Lead ──→ Sub-agents 
 | `lib/project-root.ts` | Shared project-root resolution (imported by knowledge-index/system-map/maintain-draft) |
 | `new-project.sh` | Bootstrap a new Project OS project, or adopt Project OS in place into a pre-existing repo via `--adopt <target-dir>` (two-class collision policy, orphan quarantine, `--dry-run` plan preview) |
 | `observation-parser.ts` | Extract 5 typed observations from tool output (sensitive-key denylist) |
-| `review-triage.ts` | Advisory triage of the three reviewers' raw reports — heuristic duplicate/scope detection plus optional Jev-scored questions; writes scrubbed `review-triage.json`; run by `/workflows:review` Synthesis step 0; decides nothing |
+| `review-triage.ts` | Advisory triage of the three reviewers' raw reports — heuristic duplicate/scope detection; writes scrubbed `review-triage.json`; run by `/workflows:review` Synthesis step 0; decides nothing |
 | `scrub-secrets.sh` | Scrub secret patterns from a file (delegates to scanner) |
 | `security-scanner.ts` | Zero-dep secrets/PII scanner (8 subcommands) |
 | `skill-apply.ts` | Anchored apply engine for skill-edit proposals — standard tier via `/pm:approve`, plus a narrow `--auto` tier gated by six deterministic conditions (policy flag, delete/replace only, `.claude/commands/`/`.claude/skills/` containment, non-increasing size, live `system-map.ts` dangling-ref evidence, edit-content correspondence) |
@@ -136,16 +135,16 @@ Project OS includes an FTS5-based knowledge index for efficient context manageme
 - **Index engine**: `scripts/knowledge-index.ts` — uses `node:sqlite` FTS5 (Node 22.16+, zero deps)
 - **Subcommands**: `index`, `index-vault`, `index-observations`, `search`, `rebuild`, `stats`, `stale`, `config`
 - **Observation parser**: `scripts/observation-parser.ts` — extracts 5 typed facts (error-pattern, file-relationship, config-key, function-sig, dependency-chain) with sensitive key denylist; unit-tested in `tests/observation-parser.test.ts` (31 tests), including a dedicated secret-denylist guard test
-- **Filter script**: `scripts/context-filter.sh` — routes large outputs through intent-based filtering
+- **Large output**: handled by the platform's native output spill and the `bashOutputMaxChars` setting
 - **Advisory hook**: `.claude/hooks/output-index.sh` — indexes large tool outputs and persists extracted observations to `observation_meta` table
 - **Auto-checkpoint hook**: `.claude/hooks/pre-compact.sh` — PreCompact hook auto-saves session state before context compaction (10-min debounce)
-- **SKILL**: `.claude/skills/context-filter/SKILL.md` — teaches proactive routing for large content
+- **SKILL**: `.claude/skills/context-filter/SKILL.md` — teaches freshness-scored knowledge search
 
 ### Compaction Handoff Chain
 
 Auto-compaction fires at 80% of the context window (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=80`;
 the threshold is inert unless `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is also set, which
-activates the proactive trigger path). Compaction is not something a hook can usefully
+activates the proactive trigger path). The variable overrides a per-model window saved with `/autocompact` (2.1.288), even when it comes from a settings `env` block (#T207 probe (c), 2026-10-06), so change the window in settings, not through `/autocompact`. Compaction is not something a hook can usefully
 stop, so the chain steers it instead — three stages, two of them hooks:
 
 1. **`compact-suggest.sh` (PostToolUse)** — measures the current context size from
@@ -216,6 +215,12 @@ stop, so the chain steers it instead — three stages, two of them hooks:
    nothing on the PreToolUse path is deliberate: it is the one event where a hook
    can deny a tool call, and an advisory hook must never be able to block a
    write.
+
+   Note (2.1.288): a PreToolUse or PermissionRequest hook that is skipped
+   because matching it failed, or because the tool's input could not be
+   serialized to JSON, now **blocks the call** instead of letting it through.
+   A malformed matcher in `settings.json` or an unserializable payload therefore
+   stops the tool, and this is true of every PreToolUse hook, not only this one.
 
    The pre-claim fires **only when nothing exists at the path yet** (`-e` fails
    *and* `-L` fails — the second catches a dangling symlink, which `-e` reports
@@ -311,8 +316,7 @@ Defense-in-depth secret detection with three enforcement layers:
 - **Hook chain**: pre-commit (scan-staged) → pre-push (scan-diff) → ship workflow step 1.5 (scan-diff against base)
 - **Scrub mode**: `scrub-secrets.sh` delegates to scanner's `scrub` subcommand (atomic temp+rename), with inline bash fallback when Node unavailable
 - **Hook installer**: `scripts/install-hooks.sh` — validates rules, writes pre-commit and pre-push hooks to `.git/hooks/`
-- **Egress allowlist**: `.claude/security/egress-allowlist.json` — the only approved outbound HTTP caller (`scripts/lib/decide.ts` → `api.typesafe.ai`), its data classes and guards; reviewed monthly
-- **Egress guard**: `scripts/lib/egress-guard.ts` — scrub-then-positive-rescan subprocess, key-name denylist, entropy floor over every outbound text field; refusal is fail-closed for egress
+- **Egress allowlist**: `.claude/security/egress-allowlist.json` — allowlist of hosts project scripts may call directly over HTTPS; `approved_egress` is empty (no script makes an outbound HTTP call); reviewed monthly
 
 Shell safety: all git operations use `execFileSync("git", [args])` (no string templates). Path traversal guard on all user-supplied paths.
 

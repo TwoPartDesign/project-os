@@ -1,5 +1,5 @@
 ---
-globs: ["**/*.test.*", "**/*.spec.*", "**/test_*", "**/tests/**"]
+paths: ["**/*.test.*", "**/*.spec.*", "**/test_*", "**/tests/**"]
 description: "Rules applied when working with test files"
 ---
 

@@ -23,6 +23,8 @@ Track per-feature implementation metrics. Updated by `/workflows:ship` and query
 
 ### Feature: jev-integration
 
+> Jev retired 2026-10-06 (#T225). Record kept as history: the shipped-feature metrics and the worktree merge-base lesson below still apply.
+
 - **Duration**: 2026-09-19 → 2026-09-20 (one remote session: idea → design → plan → approve → build → review → ship; one overnight pause, one context compaction with a claimed handoff)
 - **Tasks**: 11 total (#T178-#T188), 11 completed, 0 blocked; rider #T189 (compaction-gate) approved, built and integrated on the same branch, left `[~]` for its own review
 - **Waves**: 5 dispatch batches (B1: T178|T179|T180|T181|T182; B2: T183|T184; B3: T185; B4: T186; B5: T187→T188), up to 4 concurrent worktree agents
@@ -38,7 +40,7 @@ Track per-feature implementation metrics. Updated by `/workflows:ship` and query
 
 ### Feature: compaction-gate (#T189 rider)
 
-- **Duration**: 2026-09-20 13:00Z (task-spawned) → 2026-09-21 (shipped); built as a rider on the jev-integration branch, reviewed and shipped on its own after PR #2 merged
+- **Duration**: 2026-09-20 13:00Z (task-spawned) → 2026-09-21 (shipped); built as a rider on the preceding feature branch, reviewed and shipped on its own after PR #2 merged
 - **Tasks**: 1 total (#T189), 1 completed, 0 blocked
 - **Waves**: 1 dispatch (one `implementer` on Opus per the `(model: opus)` annotation)
 - **Revisions**: 1 review cycle (PASSED WITH NOTES); two verified HIGH correctness bugs found by reviewer-security and fixed by the lead in review (replay stacked re-seed context across cycles; `process.exit(0)` truncated piped `--json`), plus six SHOULD FIX closed in the same commit
@@ -213,3 +215,29 @@ Track per-feature implementation metrics. Updated by `/workflows:ship` and query
 - **Lines changed**: +531 / -38 across 8 files (d5bad24..HEAD)
 - **Tests**: 15 dashboard (4 ReDoS regression) + 15 hook + 4 scanner — all passing
 - **Key findings**: (1) adversarial review earned its cost — three quadratic parse vectors found, two pre-existing in shipped code; (2) index-based parsing with anchored small-slice validation beats regex cleverness for attacker-influenceable text; (3) reviewer claims must be cross-validated — a codex review's 2 findings were empirically refuted earlier the same day, while the opus reviewer's ReDoS finding was empirically confirmed
+
+### Feature: changelog-alignment-2026-10 (v3.0 Lean Context)
+- **Duration**: 2026-10-05 → 2026-10-06 (approval to ship gate; first `task-spawned` 2026-10-06T00:07Z), one lead session across one compaction
+- **Tasks**: 29 built (#T202–#T228, #T231–#T232), 0 blocked at ship; 3 were classifier-blocked mid-build (#T208, #T211, #T223) and lead-applied after Approver permission; 10 follow-ups filed as drafts (#T229, #T233–#T240)
+- **Waves**: 3 build waves + 1 ship-gate fix wave (F1–F4)
+- **Revisions**: 1 worker send-back (C11 / #T225 dropped the triage scrub); the three-reviewer ship gate produced one 4-item fix wave; one architecture HIGH refuted by probe
+- **First-pass review rate**: 97% at worker level (28/29); ship gate not passed first time
+- **Harness fingerprint**: `d8a62cacbd3548c58c60e92d79f45f8465671035` (`git rev-parse HEAD:.claude` at ship)
+- **Model split**: Opus lead; `implementer`/`documenter` on Sonnet, judgment tasks and reviewers on Opus
+- **Sub-agent tokens**: ship-gate reviewers 480,723; fix wave 525,374 (F1 139,941, F2 127,513, F3 121,855, F4 135,665); build-wave totals reported per wave in-session
+- **Lines changed**: +3,797 / -5,942 across 98 files (`master...HEAD`, includes the unreleased v2.4-dev and changelog-alignment-2026-09 work on the branch)
+- **Tests**: `bash tests/run-all.sh` 10/10 suites PASS (259s)
+- **Key findings**: (1) agent-definition edits do not reach the session that made them, so a reviewer reading the cached definition reported `omitClaudeMd` as unhonoured; only a fresh-process probe settles it; (2) `cmd | grep -q` under `pipefail` is a latent SIGPIPE race (bugs.md, 2026-10-06), and ~20 more sites remain (#T240); (3) the auto-mode classifier blocks edits to agents, skills and rebuild steps even with in-chat permission; switching the session to Accept edits was the working path
+
+### Feature: changelog-alignment-2026-10 (v3.1 follow-ups)
+- **Duration**: 2026-10-06 (single day, same lead session as v3.0)
+- **Tasks**: 12 built (#T229, #T233–#T243), 0 blocked; 1 follow-up filed as a draft (#T244)
+- **Waves**: 1 platform probe + 2 build waves + 1 ship-gate fix wave (W1–W4) + 1 fresh security re-verify
+- **Revisions**: 1 worker send-back (#T229 count-free fingerprint would collide under substring dedupe → per-ISO-week fingerprint); ship gate passed with fixes (no CRITICAL, one pre-existing HIGH confirmed by probe before fixing)
+- **First-pass review rate**: 92% at worker level (11/12); ship gate not passed first time
+- **Harness fingerprint**: `b3c14669b1f990ad4f25b7a0254f1d6b0375c855` (`git rev-parse HEAD:.claude` at ship)
+- **Model split**: Opus lead; `implementer`/`documenter` on Sonnet, judgment tasks, probe and reviewers on Opus
+- **Sub-agent tokens**: probe + build 622,149 (probe 91,991; A2 105,467; A3 84,003; A4 99,928; A5 78,093; B1 82,531; T236 80,136); ship-gate reviewers 435,563; fix wave 408,395 (W1 154,380, W2 71,004, W3 117,695, W4 65,316); security re-verify 95,226 (one MEDIUM + three LOW, lead-fixed); total 1,561,333
+- **Lines changed**: +1,476 / -284 across 45 files (`1d13aa8..HEAD`)
+- **Tests**: `bash tests/run-all.sh` 10/10 suites PASS (255s)
+- **Key findings**: (1) hooks are not permission-gated, so `permissions.allow` entries for hook-only scripts were dead weight; (2) the `cmd | grep -q` SIGPIPE race was live in shipped code: the MCP prompt-injection alert missed 20/20 on a 2.2 MB response; (3) a substring-deduped fingerprint must change over time or it suppresses its subject forever

@@ -10,6 +10,9 @@
 import { describe, it } from "node:test";
 import { strictEqual, deepStrictEqual, notStrictEqual, ok } from "node:assert";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   normalizeContent,
   sha256,
@@ -27,6 +30,9 @@ import {
   idFor,
   pathToId,
   collectBloatFiles,
+  findAlwaysLoadedOverBudget,
+  findRelativeHookCommands,
+  ALWAYS_LOADED_BUDGET_TOKENS,
 } from "../scripts/lib/system-map-lib.ts";
 import type {
   MapNode,
@@ -138,6 +144,39 @@ describe("extractHookWiring", () => {
     ]);
   });
 
+  it("extractHookWiring_claudeProjectDirForm_returnsRelativeHookPaths", () => {
+    const settings = JSON.stringify({
+      hooks: {
+        SessionEnd: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command:
+                  'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/session-end-cleanup.sh"',
+              },
+            ],
+          },
+        ],
+        PostModelSwitch: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command:
+                  'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/log-activity.sh" model-switched --stdin',
+              },
+            ],
+          },
+        ],
+      },
+    });
+    deepStrictEqual(extractHookWiring(settings), [
+      ".claude/hooks/log-activity.sh",
+      ".claude/hooks/session-end-cleanup.sh",
+    ]);
+  });
+
   it("extractHookWiring_noHooksKey_emptyArray", () => {
     const result = extractHookWiring(JSON.stringify({ permissions: {} }));
     deepStrictEqual(result, []);
@@ -213,13 +252,13 @@ describe("extractImports", () => {
       "import {",
       "  decide,",
       "  type DecideDeps,",
-      '} from "./lib/decide.ts";',
+      '} from "./lib/sample.ts";',
       'import { esc } from "../dashboard-render.ts";',
     ].join("\n");
     const result = extractImports(ts, "scripts/sub/foo.ts");
     deepStrictEqual(result, [
       { target: "scripts/dashboard-render.ts" },
-      { target: "scripts/sub/lib/decide.ts" },
+      { target: "scripts/sub/lib/sample.ts" },
     ]);
   });
 
@@ -570,5 +609,340 @@ describe("collectBloatFiles", () => {
     ]);
     const findings = findBloat(files, warnTokens);
     deepStrictEqual(findings, []);
+  });
+});
+
+// ==========================================================================
+// findAlwaysLoadedOverBudget (#T221)
+// ==========================================================================
+
+describe("findAlwaysLoadedOverBudget", () => {
+  // 4 bytes per token: 4 * budget + 4 bytes -> budget + 1 tokens (over).
+  const overContent = "x".repeat(4 * ALWAYS_LOADED_BUDGET_TOKENS + 4);
+
+  it("findAlwaysLoadedOverBudget_budgetConstant_is4000", () => {
+    // #T242: the approved budget, pinned so a revert to 2500 is caught.
+    strictEqual(ALWAYS_LOADED_BUDGET_TOKENS, 4000);
+  });
+
+  it("findAlwaysLoadedOverBudget_literal3999Tokens_noFinding", () => {
+    // 15,996 bytes = 3999 tokens, a literal independent of the constant.
+    deepStrictEqual(
+      findAlwaysLoadedOverBudget([
+        { path: "CLAUDE.md", content: " ".repeat(15996) },
+      ]),
+      [],
+    );
+  });
+
+  it("findAlwaysLoadedOverBudget_reflectMdSizeMath_namesSameBudget", () => {
+    const reflect = readFileSync(
+      resolve(
+        dirname(fileURLToPath(import.meta.url)),
+        "../.claude/commands/tools/reflect.md",
+      ),
+      "utf8",
+    );
+    const sizeMath = reflect.slice(reflect.indexOf("**Size math**"));
+    const named = [
+      ...sizeMath.slice(0, 700).matchAll(/(\d[\d,]*) tokens/g),
+    ].map((m) => Number(m[1].replace(/,/g, "")));
+
+    strictEqual(sizeMath.length > 0, true);
+    deepStrictEqual(named, [
+      ALWAYS_LOADED_BUDGET_TOKENS,
+      ALWAYS_LOADED_BUDGET_TOKENS,
+    ]);
+  });
+
+  it("findAlwaysLoadedOverBudget_unscopedRuleOverBudget_flaggedLowWithFileAndTokens", () => {
+    const findings = findAlwaysLoadedOverBudget([
+      { path: ".claude/rules/big.md", content: overContent },
+    ]);
+    deepStrictEqual(findings, [
+      {
+        severity: "LOW",
+        kind: "always-loaded-over-budget",
+        subject: ".claude/rules/big.md",
+        detail: `.claude/rules/big.md is always loaded and is approximately ${ALWAYS_LOADED_BUDGET_TOKENS + 1} tokens, exceeding the ${ALWAYS_LOADED_BUDGET_TOKENS}-token always-loaded budget.`,
+      },
+    ]);
+  });
+
+  it("findAlwaysLoadedOverBudget_unscopedRuleUnderBudget_noFinding", () => {
+    deepStrictEqual(
+      findAlwaysLoadedOverBudget([
+        { path: ".claude/rules/small.md", content: "x".repeat(400) },
+        {
+          path: "CLAUDE.md",
+          content: "x".repeat(4 * ALWAYS_LOADED_BUDGET_TOKENS),
+        },
+      ]),
+      [],
+    );
+  });
+
+  it("findAlwaysLoadedOverBudget_pathsScopedRuleOverBudget_excluded", () => {
+    const scoped = `---\npaths: ["**/*.test.*"]\n---\n${overContent}`;
+    deepStrictEqual(
+      findAlwaysLoadedOverBudget([
+        { path: ".claude/rules/scoped.md", content: scoped },
+      ]),
+      [],
+    );
+  });
+
+  it("findAlwaysLoadedOverBudget_frontmatterWithoutPaths_stillCounted", () => {
+    const unscoped = `---\ndescription: "no paths key"\n---\n${overContent}`;
+    const findings = findAlwaysLoadedOverBudget([
+      { path: ".claude/rules/described.md", content: unscoped },
+    ]);
+    const estimate = Math.floor(Buffer.byteLength(unscoped, "utf8") / 4);
+    deepStrictEqual(findings, [
+      {
+        severity: "LOW",
+        kind: "always-loaded-over-budget",
+        subject: ".claude/rules/described.md",
+        detail: `.claude/rules/described.md is always loaded and is approximately ${estimate} tokens, exceeding the ${ALWAYS_LOADED_BUDGET_TOKENS}-token always-loaded budget.`,
+      },
+    ]);
+    // The 36-byte frontmatter adds 9 tokens on top of the body's budget + 1.
+    strictEqual(estimate, ALWAYS_LOADED_BUDGET_TOKENS + 1 + 9);
+  });
+
+  it("findAlwaysLoadedOverBudget_crlfPathsFrontmatter_excluded", () => {
+    const scoped = `---\r\npaths: ["**/*.test.*"]\r\n---\r\n${overContent}`;
+    deepStrictEqual(
+      findAlwaysLoadedOverBudget([
+        { path: ".claude/rules/crlf.md", content: scoped },
+      ]),
+      [],
+    );
+  });
+
+  it("findAlwaysLoadedOverBudget_pathsLineInBody_stillCounted", () => {
+    const content = `# T\npaths: x\n${overContent}`;
+    const estimate = Math.floor(Buffer.byteLength(content, "utf8") / 4);
+    deepStrictEqual(
+      findAlwaysLoadedOverBudget([{ path: ".claude/rules/body.md", content }]),
+      [
+        {
+          severity: "LOW",
+          kind: "always-loaded-over-budget",
+          subject: ".claude/rules/body.md",
+          detail: `.claude/rules/body.md is always loaded and is approximately ${estimate} tokens, exceeding the ${ALWAYS_LOADED_BUDGET_TOKENS}-token always-loaded budget.`,
+        },
+      ],
+    );
+  });
+
+  it("findAlwaysLoadedOverBudget_multibyteBody_estimatesFromByteLength", () => {
+    // 8002 two-byte characters: 16004 bytes (4001 tokens) but only 8002
+    // UTF-16 units (2001 tokens), so only a byte count flags it.
+    const content = "é".repeat(8002);
+    strictEqual(content.length, 8002);
+    strictEqual(Buffer.byteLength(content, "utf8"), 16004);
+    deepStrictEqual(
+      findAlwaysLoadedOverBudget([{ path: "CLAUDE.md", content }]),
+      [
+        {
+          severity: "LOW",
+          kind: "always-loaded-over-budget",
+          subject: "CLAUDE.md",
+          detail: `CLAUDE.md is always loaded and is approximately 4001 tokens, exceeding the ${ALWAYS_LOADED_BUDGET_TOKENS}-token always-loaded budget.`,
+        },
+      ],
+    );
+  });
+
+  it("findAlwaysLoadedOverBudget_nonMarkdownRulesFile_ignored", () => {
+    deepStrictEqual(
+      findAlwaysLoadedOverBudget([
+        { path: ".claude/rules/big.txt", content: overContent },
+      ]),
+      [],
+    );
+  });
+
+  it("findAlwaysLoadedOverBudget_knowledgeFileOverBudget_notAlwaysLoaded", () => {
+    deepStrictEqual(
+      findAlwaysLoadedOverBudget([
+        { path: "docs/knowledge/big.md", content: overContent },
+      ]),
+      [],
+    );
+  });
+
+  it("findAlwaysLoadedOverBudget_claudeMdOverBudget_flagged", () => {
+    const findings = findAlwaysLoadedOverBudget([
+      { path: "CLAUDE.md", content: overContent },
+    ]);
+    deepStrictEqual(findings, [
+      {
+        severity: "LOW",
+        kind: "always-loaded-over-budget",
+        subject: "CLAUDE.md",
+        detail: `CLAUDE.md is always loaded and is approximately ${ALWAYS_LOADED_BUDGET_TOKENS + 1} tokens, exceeding the ${ALWAYS_LOADED_BUDGET_TOKENS}-token always-loaded budget.`,
+      },
+    ]);
+  });
+});
+
+// ==========================================================================
+// findRelativeHookCommands (#T244)
+// ==========================================================================
+
+describe("findRelativeHookCommands", () => {
+  /** settings.json text with one PostToolUse hook running `command`. */
+  const settingsWith = (command: string): string =>
+    JSON.stringify({
+      hooks: {
+        PostToolUse: [{ hooks: [{ type: "command", command }] }],
+      },
+    });
+
+  it("findRelativeHookCommands_bothAbsoluteForms_noFindings", () => {
+    deepStrictEqual(
+      findRelativeHookCommands(
+        settingsWith('bash "$CLAUDE_PROJECT_DIR/.claude/hooks/a.sh"'),
+      ),
+      [],
+    );
+    deepStrictEqual(
+      findRelativeHookCommands(
+        settingsWith('bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/a.sh"'),
+      ),
+      [],
+    );
+  });
+
+  it("findRelativeHookCommands_bareRelative_oneFindingNamingEvent", () => {
+    const findings = findRelativeHookCommands(
+      settingsWith("bash .claude/hooks/a.sh"),
+    );
+    strictEqual(findings.length, 1);
+    strictEqual(findings[0].severity, "MEDIUM");
+    strictEqual(findings[0].kind, "relative-hook-command");
+    strictEqual(findings[0].subject, ".claude/hooks/a.sh");
+    ok(findings[0].detail.includes("PostToolUse"), findings[0].detail);
+    ok(
+      findings[0].detail.includes(
+        'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/a.sh"',
+      ),
+      findings[0].detail,
+    );
+  });
+
+  it("findRelativeHookCommands_quotedRelative_oneFindingNamingEvent", () => {
+    const findings = findRelativeHookCommands(
+      settingsWith('bash ".claude/hooks/a.sh"'),
+    );
+    strictEqual(findings.length, 1);
+    strictEqual(findings[0].subject, ".claude/hooks/a.sh");
+    ok(findings[0].detail.includes("PostToolUse"), findings[0].detail);
+  });
+
+  it("findRelativeHookCommands_dotSlashRelative_oneFindingNamingEvent", () => {
+    const findings = findRelativeHookCommands(
+      settingsWith("bash ./.claude/hooks/a.sh"),
+    );
+    strictEqual(findings.length, 1);
+    strictEqual(findings[0].subject, ".claude/hooks/a.sh");
+    ok(findings[0].detail.includes("PostToolUse"), findings[0].detail);
+  });
+
+  it("findRelativeHookCommands_hardCodedAbsolutePath_oneFinding", () => {
+    const findings = findRelativeHookCommands(
+      settingsWith("bash /opt/proj/.claude/hooks/a.sh"),
+    );
+    strictEqual(findings.length, 1);
+    strictEqual(findings[0].subject, ".claude/hooks/a.sh");
+  });
+
+  it("findRelativeHookCommands_oldPrefixCollision_oneFinding", () => {
+    const findings = findRelativeHookCommands(
+      settingsWith('bash "$CLAUDE_PROJECT_DIR_OLD/.claude/hooks/x.sh"'),
+    );
+    strictEqual(findings.length, 1);
+    strictEqual(findings[0].subject, ".claude/hooks/x.sh");
+  });
+
+  it("findRelativeHookCommands_mixedPrefixedAndRelative_exactlyOneFinding", () => {
+    const findings = findRelativeHookCommands(
+      settingsWith(
+        'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/a.sh" && bash .claude/hooks/b.sh',
+      ),
+    );
+    strictEqual(findings.length, 1);
+    strictEqual(findings[0].subject, ".claude/hooks/b.sh");
+  });
+
+  it("findRelativeHookCommands_permissionsAllowString_noFindings", () => {
+    const text = JSON.stringify({
+      permissions: { allow: ["Bash(bash .claude/hooks/a.sh)"] },
+      env: { HOOK: ".claude/hooks/a.sh" },
+    });
+    deepStrictEqual(findRelativeHookCommands(text), []);
+  });
+
+  it("findRelativeHookCommands_commandWithoutHook_noFindings", () => {
+    deepStrictEqual(findRelativeHookCommands(settingsWith("echo hello")), []);
+  });
+
+  it("findRelativeHookCommands_duplicateSameEvent_dedupedToOne", () => {
+    const findings = findRelativeHookCommands(
+      settingsWith("bash .claude/hooks/a.sh; bash .claude/hooks/a.sh"),
+    );
+    strictEqual(findings.length, 1);
+  });
+
+  it("findRelativeHookCommands_quotedVariableForms_noFindings", () => {
+    deepStrictEqual(
+      findRelativeHookCommands(
+        settingsWith('bash "$CLAUDE_PROJECT_DIR"/.claude/hooks/a.sh'),
+      ),
+      [],
+    );
+    deepStrictEqual(
+      findRelativeHookCommands(
+        settingsWith('bash "${CLAUDE_PROJECT_DIR}"/.claude/hooks/a.sh'),
+      ),
+      [],
+    );
+  });
+
+  it("findRelativeHookCommands_nestedPathAndOtherExtension_oneFindingEach", () => {
+    const findings = findRelativeHookCommands(
+      settingsWith("bash .claude/hooks/lib/x.sh; node .claude/hooks/y.js"),
+    );
+    deepStrictEqual(
+      findings.map((f) => f.subject),
+      [".claude/hooks/lib/x.sh", ".claude/hooks/y.js"],
+    );
+  });
+
+  it("findRelativeHookCommands_wrongRootBeforeVariable_oneFinding", () => {
+    const findings = findRelativeHookCommands(
+      settingsWith("bash /tmp/evil$CLAUDE_PROJECT_DIR/.claude/hooks/r.sh"),
+    );
+    strictEqual(findings.length, 1);
+    strictEqual(findings[0].subject, ".claude/hooks/r.sh");
+  });
+
+  it("findRelativeHookCommands_singleQuotedVariable_oneFinding", () => {
+    const findings = findRelativeHookCommands(
+      settingsWith("bash '$CLAUDE_PROJECT_DIR/.claude/hooks/s.sh'"),
+    );
+    strictEqual(findings.length, 1);
+    strictEqual(findings[0].subject, ".claude/hooks/s.sh");
+  });
+
+  it("findRelativeHookCommands_realRepoSettings_zeroFindings", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const text = readFileSync(
+      resolve(here, "..", ".claude", "settings.json"),
+      "utf8",
+    );
+    deepStrictEqual(findRelativeHookCommands(text), []);
   });
 });
