@@ -572,3 +572,20 @@ Generate with: `node scripts/review-triage.ts docs/specs/<feature> --changed-fil
 - **Make `/code-review high` a mandatory extra sweep on every code wave** — not adopted: its unique finds were LOW–MEDIUM; revisit if a correctness bug escapes a per-wave review.
 
 **Rationale**: The per-wave pass exists to catch what the worker missed; a cheaper reviewer that misses most of what the current one catches trades that away, and its measured strength (correctness bugs) is a subset of what `reviewer-*` already covers.
+
+---
+
+## 2026-10-06 — Jev Triage Path Retired; Heuristic Triage Table Kept (#T225)
+
+**Decision** (Approver, 2026-10-06):
+- (a) Retire the Jev calibration path: `scripts/lib/decide.ts`, `scripts/lib/egress-guard.ts`, the Jev code and `--calibrate` mode in `scripts/review-triage.ts`, the settings `project_os.jev` block, the `api.typesafe.ai` egress-allowlist entry and the Jev docs. `review-triage.ts`'s heuristic table stays, with unchanged output.
+- (b) `skill-apply --auto` stays off by policy; no change.
+- (c) `compaction-metrics.ts` stays as the named instrument for the pending 70% revisit.
+
+**Context**: Jev had been disabled in settings since it shipped, its calibration was never run, and the triage table "decides nothing" (review.md). The 2026-09-20 entry kept Jev as an optional backend; nothing used it in the meantime. The path was about 1.2k lines of library code plus the Jev branches of review-triage.ts. It was also the only caller of the one approved egress host.
+
+**Alternatives Considered**:
+- **Retire review-triage.ts entirely** — rejected: the heuristic table is cheap advisory input to every review, and #T206 had just fixed its parser.
+- **Keep Jev dormant** — rejected: unexercised code with an outbound data path is a liability with no measured benefit (principle: "Code is a liability").
+
+**Rationale**: The egress surface and its guard existed only to serve a backend that never ran. Removing it shrinks the security review surface and the triage code. The calibration question can come back as a new proposal if a backend is ever worth measuring.
