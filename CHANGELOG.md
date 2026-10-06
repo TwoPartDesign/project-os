@@ -11,6 +11,12 @@
   anything is extracted. A closed allowlist, not a check of where links point. The repo
   ships no symlinks, so real releases are unaffected. New `tests/update-project-smoke.sh`
   (needs `python3`; skips without it) (#T245).
+- **Security verify** — a fresh reviewer found no way past the #T245 allowlist (symlinks
+  with control characters, GNU longlink, pax overrides, FIFO, devices and unknown types were
+  all refused; corrupt archives fail closed). It found that the first #T244 cut missed
+  nested and non-`.sh` hook paths, a wrong root before the variable and a single-quoted
+  variable, and flagged the valid `"$CLAUDE_PROJECT_DIR"/…` form. The finder is now a
+  closed allowlist. A malformed settings.json no longer aborts `report` (pre-existing).
 
 ### Migration
 - Run `node scripts/system-map.ts report`; a `relative-hook-command` finding names each
