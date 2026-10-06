@@ -235,9 +235,9 @@ Track per-feature implementation metrics. Updated by `/workflows:ship` and query
 - **Waves**: 1 platform probe + 2 build waves + 1 ship-gate fix wave (W1–W4) + 1 fresh security re-verify
 - **Revisions**: 1 worker send-back (#T229 count-free fingerprint would collide under substring dedupe → per-ISO-week fingerprint); ship gate passed with fixes (no CRITICAL, one pre-existing HIGH confirmed by probe before fixing)
 - **First-pass review rate**: 92% at worker level (11/12); ship gate not passed first time
-- **Harness fingerprint**: `639573f5929ab58a8b92f876e52b2e4f1a11ce74` (`git rev-parse HEAD:.claude` at ship)
+- **Harness fingerprint**: `b3c14669b1f990ad4f25b7a0254f1d6b0375c855` (`git rev-parse HEAD:.claude` at ship)
 - **Model split**: Opus lead; `implementer`/`documenter` on Sonnet, judgment tasks, probe and reviewers on Opus
-- **Sub-agent tokens**: probe + build 622,149 (probe 91,991; A2 105,467; A3 84,003; A4 99,928; A5 78,093; B1 82,531; T236 80,136); ship-gate reviewers 435,563; fix wave 408,395 (W1 154,380, W2 71,004, W3 117,695, W4 65,316)
-- **Lines changed**: +1,376 / -254 across 44 files (`1d13aa8..HEAD`)
-- **Tests**: `bash tests/run-all.sh` 10/10 suites PASS (252s)
+- **Sub-agent tokens**: probe + build 622,149 (probe 91,991; A2 105,467; A3 84,003; A4 99,928; A5 78,093; B1 82,531; T236 80,136); ship-gate reviewers 435,563; fix wave 408,395 (W1 154,380, W2 71,004, W3 117,695, W4 65,316); security re-verify 95,226 (one MEDIUM + three LOW, lead-fixed); total 1,561,333
+- **Lines changed**: +1,476 / -284 across 45 files (`1d13aa8..HEAD`)
+- **Tests**: `bash tests/run-all.sh` 10/10 suites PASS (255s)
 - **Key findings**: (1) hooks are not permission-gated, so `permissions.allow` entries for hook-only scripts were dead weight; (2) the `cmd | grep -q` SIGPIPE race was live in shipped code: the MCP prompt-injection alert missed 20/20 on a 2.2 MB response; (3) a substring-deduped fingerprint must change over time or it suppresses its subject forever
