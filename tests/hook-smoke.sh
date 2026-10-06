@@ -908,6 +908,89 @@ assert_contains "postToolUse_bashEditDiffRawControlChar_rejectedOnStderr" \
 assert_eq "postToolUse_bashEditDiffRawControlChar_noSideEffect" \
     "const a=1|" "$(cat "$SB/in.ts")|$(npx_calls "$SB")"
 
+# Windows-native paths (#T233). The payload carries `C:\\proj\\src\\a.ts` (each
+# separator a JSON-escaped `\\`); `cygpath -u` is stubbed to map the C:\proj
+# prefix onto the sandbox root ($CYG_ROOT), as Git Bash's real one would map the
+# drive. The stub sits first on PATH inside the sandbox only.
+cygpath_stub() {
+    mkdir -p "$1/bin"
+    cat > "$1/bin/cygpath" <<'STUB'
+#!/bin/bash
+p="${@: -1}"
+p="${p//\\//}"
+printf '%s\n' "$CYG_ROOT/${p#C:/proj/}"
+STUB
+    chmod +x "$1/bin/cygpath"
+}
+
+# Converted path: formatted at its canonical in-repo spelling.
+SB=$(new_sandbox); npx_stub "$SB"; cygpath_stub "$SB"; SBP=$(cd "$SB" && pwd -P)
+mkdir -p "$SB/src"
+printf 'const a=1\n' > "$SB/src/a.ts"
+run_hook "$SB" post-tool-use.sh "$(bash_payload '"C:\\proj\\src\\a.ts"')" \
+    PATH="$SB/bin:$PATH" CYG_ROOT="$SB"
+assert_eq "postToolUse_bashEditDiffWindowsPathWithCygpath_exitsZero" 0 "$HOOK_EXIT"
+assert_eq "postToolUse_bashEditDiffWindowsPathWithCygpath_formatted" \
+    "prettier --write $SBP/src/a.ts" "$(npx_calls "$SB")"
+
+# Converted path that uses `..` but stays inside the root: still formatted.
+SB=$(new_sandbox); npx_stub "$SB"; cygpath_stub "$SB"; SBP=$(cd "$SB" && pwd -P)
+mkdir -p "$SB/sub"
+printf 'const a=1\n' > "$SB/in.ts"
+run_hook "$SB" post-tool-use.sh "$(bash_payload '"C:\\proj\\sub\\..\\in.ts"')" \
+    PATH="$SB/bin:$PATH" CYG_ROOT="$SB"
+assert_eq "postToolUse_bashEditDiffWindowsPathDotDotInRoot_formatted" \
+    "prettier --write $SBP/in.ts" "$(npx_calls "$SB")"
+
+# Converted session file: scrubbed by post-write-session.sh.
+SB=$(new_sandbox); cygpath_stub "$SB"
+printf '%s\n' "$SECRET_LINE" > "$SB/.claude/sessions/win.yaml"
+run_hook "$SB" post-write-session.sh "$(bash_payload '"C:\\proj\\.claude\\sessions\\win.yaml"')" \
+    PATH="$SB/bin:$PATH" CYG_ROOT="$SB"
+assert_eq "postWriteSession_bashEditDiffWindowsPathWithCygpath_exitsZero" 0 "$HOOK_EXIT"
+assert_contains "postWriteSession_bashEditDiffWindowsPathWithCygpath_secretScrubbed" \
+    "$(cat "$SB/.claude/sessions/win.yaml" 2>/dev/null || true)" "REDACTED:OPENAI_KEY"
+
+# No cygpath on PATH: rejected with the stderr line, nothing formatted. Skipped
+# on a host that has a real cygpath (Git Bash), which cannot be hidden here.
+if command -v cygpath >/dev/null 2>&1; then
+    echo "  SKIP: postToolUse_bashEditDiffWindowsPathNoCygpath_noSideEffect (host has a real cygpath)"
+else
+    SB=$(new_sandbox); npx_stub "$SB"
+    mkdir -p "$SB/src"
+    printf 'const a=1\n' > "$SB/src/a.ts"
+    run_hook "$SB" post-tool-use.sh "$(bash_payload '"C:\\proj\\src\\a.ts"')" \
+        PATH="$SB/bin:$PATH" CYG_ROOT="$SB"
+    assert_eq "postToolUse_bashEditDiffWindowsPathNoCygpath_exitsZero" 0 "$HOOK_EXIT"
+    assert_contains "postToolUse_bashEditDiffWindowsPathNoCygpath_rejectedOnStderr" \
+        "$HOOK_ERR" "rejected a bashEditDiff path containing a quote, backslash or control character"
+    assert_eq "postToolUse_bashEditDiffWindowsPathNoCygpath_noSideEffect" \
+        "const a=1|" "$(cat "$SB/src/a.ts")|$(npx_calls "$SB")"
+fi
+
+# An escaped quote inside a Windows-looking path: still rejected, never
+# unescaped — even with cygpath present and a file at the unescaped spelling.
+SB=$(new_sandbox); npx_stub "$SB"; cygpath_stub "$SB"
+printf 'const a=1\n' > "$SB/q\"x.ts"
+run_hook "$SB" post-tool-use.sh "$(bash_payload '"C:\\proj\\q\"x.ts"')" \
+    PATH="$SB/bin:$PATH" CYG_ROOT="$SB"
+assert_eq "postToolUse_bashEditDiffWindowsPathEscapedQuote_exitsZero" 0 "$HOOK_EXIT"
+assert_contains "postToolUse_bashEditDiffWindowsPathEscapedQuote_rejectedOnStderr" \
+    "$HOOK_ERR" "rejected a bashEditDiff path"
+assert_eq "postToolUse_bashEditDiffWindowsPathEscapedQuote_noSideEffect" \
+    "const a=1|" "$(cat "$SB/q\"x.ts")|$(npx_calls "$SB")"
+
+# A converted path that resolves outside the project root: containment rejects
+# it after conversion; the outside file is untouched.
+SB=$(new_sandbox); npx_stub "$SB"; cygpath_stub "$SB"
+OUTSIDE=$(mktemp -d)
+SANDBOXES+=("$OUTSIDE")
+printf 'const a=1\n' > "$OUTSIDE/out.ts"
+run_hook "$SB" post-tool-use.sh "$(bash_payload "\"C:\\\\proj\\\\..\\\\${OUTSIDE##*/}\\\\out.ts\"")" \
+    PATH="$SB/bin:$PATH" CYG_ROOT="$SB"
+assert_eq "postToolUse_bashEditDiffWindowsPathOutsideRoot_noSideEffect" \
+    "const a=1|" "$(cat "$OUTSIDE/out.ts")|$(npx_calls "$SB")"
+
 # A large stdout with no bashEditDiff anywhere: the tail scan finds no key, so
 # both hooks stay silent — the warning must not fire on every big command.
 SB=$(new_sandbox)

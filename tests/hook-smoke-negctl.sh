@@ -313,7 +313,8 @@ run_mutant "mutant 6: resolve_project_path does not check containment" \
     "postToolUse_bashEditDiffPrefixCollision_noSideEffect" \
     "postToolUse_bashEditDiffSymlinkToOutside_noSideEffect" \
     "postToolUse_bashEditDiffParentDirSymlink_noSideEffect" \
-    "postToolUse_bashEditDiffDotDotEscape_noSideEffect"
+    "postToolUse_bashEditDiffDotDotEscape_noSideEffect" \
+    "postToolUse_bashEditDiffWindowsPathOutsideRoot_noSideEffect"
 
 # ── Mutant 7: scrub without containment on the Bash branch (#T202) ─────────
 SCRUBRAW="$WORK/scrub-no-containment"
