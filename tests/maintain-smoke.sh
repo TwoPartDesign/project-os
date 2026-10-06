@@ -655,12 +655,14 @@ scenario_12() {
 
 # ==========================================================================
 # Scenario 13: two runs with DIFFERENT failure counts for the same tool file
-# exactly one draft (T229 — the fingerprint is count-free, so a changing
-# count must not re-file a duplicate).
+# exactly one draft in the same ISO week (T229 — the fingerprint is
+# failures:<tool>:YYYY-Www, so a changing count must not re-file a duplicate,
+# an old failures:<tool>:<count> line must not suppress the draft, and the
+# next week refiles). The week is pinned via PROJECT_OS_WEEK.
 # ==========================================================================
 
 scenario_13() {
-    local name="scenario13-failures-count-free-fingerprint"
+    local name="scenario13-failures-weekly-fingerprint"
     local fx
     fx="$(new_fixture)"
     local i
@@ -668,9 +670,14 @@ scenario_13() {
         printf '2026-01-01T00:00:0%sZ FAIL tool=Bash\n' "$i" >>"$fx/.claude/logs/tool-failures.log"
     done
     printf '%s\n' "checks: failures" >"$fx/.claude/maintenance-policy.yaml"
+    # A pre-existing closed draft from the old count-keyed scheme.
+    printf '%s\n' \
+        "- [x] Old recurring-failures draft #T1" \
+        "  <!-- maint-fp: failures:Bash:5 -->" \
+        >>"$fx/ROADMAP.md"
 
     local out ec
-    out=$(PROJECT_OS_ROOT="$fx" bash "$MAINTAIN_SH" 2>&1)
+    out=$(PROJECT_OS_ROOT="$fx" PROJECT_OS_WEEK="2026-W41" bash "$MAINTAIN_SH" 2>&1)
     ec=$?
     if [ "$ec" -ne 0 ]; then
         fail "$name: first run exited $ec: $out"
@@ -682,7 +689,7 @@ scenario_13() {
     for i in 1 2 3 4 5 6 7; do
         printf '2099-01-01T00:00:0%sZ FAIL tool=Bash\n' "$i" >>"$fx/.claude/logs/tool-failures.log"
     done
-    out=$(PROJECT_OS_ROOT="$fx" bash "$MAINTAIN_SH" 2>&1)
+    out=$(PROJECT_OS_ROOT="$fx" PROJECT_OS_WEEK="2026-W41" bash "$MAINTAIN_SH" 2>&1)
     ec=$?
     if [ "$ec" -ne 0 ]; then
         fail "$name: second run exited $ec: $out"
@@ -692,22 +699,39 @@ scenario_13() {
     local drafts
     drafts="$(grep -c -- "recurring Bash failures" "$fx/ROADMAP.md")"
     if [ "$drafts" = "1" ]; then
-        pass "$name: two runs with counts 5 then 7 filed exactly one Bash failures draft"
+        pass "$name: pre-existing failures:Bash:5 line did not suppress, and counts 5 then 7 in one week filed exactly one draft"
     else
         fail "$name: expected exactly 1 Bash failures draft, got '$drafts'"
     fi
 
     local roadmap
     roadmap="$(cat "$fx/ROADMAP.md")"
-    if [[ "$roadmap" == *"maint-fp: failures:Bash -->"* ]]; then
-        pass "$name: fingerprint is the count-free failures:Bash"
+    if [[ "$roadmap" == *"maint-fp: failures:Bash:2026-W41 -->"* ]]; then
+        pass "$name: fingerprint is failures:<tool>:<ISO week>"
     else
-        fail "$name: expected 'maint-fp: failures:Bash -->' in ROADMAP"
+        fail "$name: expected 'maint-fp: failures:Bash:2026-W41 -->' in ROADMAP"
     fi
     if [[ "$roadmap" == *"(5 since"* ]]; then
         pass "$name: first-run count kept in the draft title"
     else
         fail "$name: expected the count '(5 since' in the draft title"
+    fi
+
+    # Third window, next ISO week: the tool still failing refiles.
+    for i in 1 2 3 4 5; do
+        printf '2099-02-01T00:00:0%sZ FAIL tool=Bash\n' "$i" >>"$fx/.claude/logs/tool-failures.log"
+    done
+    out=$(PROJECT_OS_ROOT="$fx" PROJECT_OS_WEEK="2026-W42" bash "$MAINTAIN_SH" 2>&1)
+    ec=$?
+    if [ "$ec" -ne 0 ]; then
+        fail "$name: third run exited $ec: $out"
+        return
+    fi
+    drafts="$(grep -c -- "recurring Bash failures" "$fx/ROADMAP.md")"
+    if [ "$drafts" = "2" ]; then
+        pass "$name: next ISO week refiles a Bash failures draft"
+    else
+        fail "$name: expected 2 Bash failures drafts after the week rolled, got '$drafts'"
     fi
 }
 
