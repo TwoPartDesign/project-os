@@ -39,6 +39,10 @@ All three reviewers run with `isolation: worktree` for filesystem isolation (pre
 
 Before spawning any reviewer, read `.claude/rules/bash.md` and `.claude/rules/lead.md` and extract the full content of each one's `## Agent Rules` section (everything after that heading). Store the bash rules as `BASH_AGENT_RULES` and the lead rules as `LEAD_AGENT_RULES` — substitute them into each reviewer prompt where indicated below.
 
+Every finding is tagged with the layer to fix, inside the ISSUE prefix — `DRIFT[design]:`, `VULN[implementation]:`, `ISSUE[rule]:`. Store the following as `LAYER_TAGS` and substitute it into each reviewer prompt where indicated (reviewers are isolated and see only their own prompt):
+
+> Tag each finding with the layer that must change to fix it, in square brackets directly after the category word (no space): `brief` (the brief's goal or criteria were wrong or missing), `design` (design.md decided wrongly or left something out), `tasks` (tasks.md decomposition or acceptance criteria were wrong), `worker-brief` (the implementer's brief lacked what it needed), `rule` (a rule, skill, or command file is ambiguous or missing), `implementation` (the spec was right and the code does not match it). When unsure, use `implementation`. The tag stays inside the ISSUE field — never add a fifth ` / ` field; the last ` / ` separates ISSUE from FIX.
+
 **Spawn contract:** each reviewer is a **registered roster agent dispatched by name**. If a named agent type is unknown, halt with the escalation message "Retry cap reached on dispatch. Blocker: agent <name> not registered. Suggested next: run tests/agent-roster.test.ts." Never fall back to `general-purpose` or any agent not in the roster — the reviewer would silently land on the env-var model tier instead of the roster tier.
 
 ## Reviewer 1: Drift Detection (Plan vs Implementation)
@@ -76,7 +80,7 @@ YOUR TASK:
 
 Output format — one line per finding:
 `SEVERITY / FILE:LINES / ISSUE / FIX`
-Severity is one of CRITICAL, HIGH, MEDIUM, LOW. The ISSUE field starts with the word `DRIFT:` — e.g. `HIGH / scripts/foo.ts:40-58 / DRIFT: task T12 required X, the code does Y / restore X`. Report everything; the coordinator filters.
+Severity is one of CRITICAL, HIGH, MEDIUM, LOW. The ISSUE field starts with the word `DRIFT` plus a layer tag, `DRIFT[layer]:` — e.g. `HIGH / scripts/foo.ts:40-58 / DRIFT[implementation]: task T12 required X, the code does Y / restore X`. [LAYER_TAGS] Report everything; the coordinator filters.
 
 After the findings, add these content lines:
 - UNPLANNED: [description of scope creep] | Risk: [assessment]
@@ -122,7 +126,7 @@ Check for:
 
 Output format — one line per finding:
 `SEVERITY / FILE:LINES / ISSUE / FIX`
-Severity is one of CRITICAL, HIGH, MEDIUM, LOW. The ISSUE field starts with the word `VULN:` — e.g. `CRITICAL / scripts/run.sh:12 / VULN: command injection via unquoted $INPUT / quote the expansion`. Report everything; the coordinator filters.
+Severity is one of CRITICAL, HIGH, MEDIUM, LOW. The ISSUE field starts with the word `VULN` plus a layer tag, `VULN[layer]:` — e.g. `CRITICAL / scripts/run.sh:12 / VULN[implementation]: command injection via unquoted $INPUT / quote the expansion`. [LAYER_TAGS] Report everything; the coordinator filters.
 
 After the findings, add these content lines:
 - CONCERN: [potential issue needing investigation] | File: [path:line]
@@ -171,7 +175,7 @@ Check for:
 
 Output format — one line per finding:
 `SEVERITY / FILE:LINES / ISSUE / FIX`
-Severity is one of CRITICAL, HIGH, MEDIUM, LOW. The ISSUE field starts with the word `ISSUE:` — e.g. `MEDIUM / scripts/parse.ts:80-140 / ISSUE: getPage() is 61 lines and mixes parse with render / split the render half out`. Report everything; the coordinator filters.
+Severity is one of CRITICAL, HIGH, MEDIUM, LOW. The ISSUE field starts with the word `ISSUE` plus a layer tag, `ISSUE[layer]:` — e.g. `MEDIUM / scripts/parse.ts:80-140 / ISSUE[implementation]: getPage() is 61 lines and mixes parse with render / split the render half out`. [LAYER_TAGS] Report everything; the coordinator filters.
 
 After the findings, add these content lines:
 - SUGGESTION: [optional improvement] | File: [path:line]
@@ -223,7 +227,7 @@ Create `docs/specs/$ARGUMENTS/review.md` with the full synthesized report.
 
 - If ANY 🚫 MUST FIX items exist → GATE FAILED.
   - Mark only the **specific tasks cited in the findings** as `[!]` in ROADMAP.md — do NOT mark unrelated tasks
-  - Create `docs/specs/$ARGUMENTS/revision-request.md` listing required changes with task IDs
+  - Create `docs/specs/$ARGUMENTS/revision-request.md` listing required changes with task IDs, keeping each finding's layer tag (`[brief|design|tasks|worker-brief|rule|implementation]`) so rebuild fixes the named layer
   - Notify: `bash .claude/hooks/notify-phase-change.sh review-failed "$ARGUMENTS"`
   - Run `/tools:reflect $ARGUMENTS --trigger review-fail` — reflects on the fresh failure evidence; files at most 3 bounded skill-edit drafts
   - List required fixes and tell the user, including the reflection's summary line (`Skill reflection: ...`) in the FAIL output message.

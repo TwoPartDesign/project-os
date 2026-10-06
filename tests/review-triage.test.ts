@@ -330,6 +330,37 @@ describe("parseFindings", () => {
     strictEqual(findings[1].file, "b.ts");
   });
 
+  it("parseFindings_layerTaggedIssue_keepsTagInIssueAndFixIsLastField", () => {
+    const text = [
+      "HIGH / a.ts:1-2 / DRIFT[design]: design omits the retry cap / amend design.md",
+      "MEDIUM / b.ts:3 / VULN[worker-brief]: brief lacked the path rule / add it to the brief",
+      "LOW / c.ts / ISSUE[rule]: bash.md is ambiguous / tighten the rule",
+    ].join("\n");
+    const findings = parseFindings(text, "rev");
+    strictEqual(findings.length, 3);
+    strictEqual(findings[0].issue, "DRIFT[design]: design omits the retry cap");
+    strictEqual(findings[0].fix, "amend design.md");
+    strictEqual(
+      findings[1].issue,
+      "VULN[worker-brief]: brief lacked the path rule",
+    );
+    strictEqual(findings[1].fix, "add it to the brief");
+    strictEqual(findings[2].issue, "ISSUE[rule]: bash.md is ambiguous");
+    strictEqual(findings[2].fix, "tighten the rule");
+  });
+
+  it("parseFindings_taggedAndUntaggedMixed_bothParse", () => {
+    const text = [
+      "HIGH / a.ts:1 / DRIFT[implementation]: code does Y / restore X",
+      "HIGH / a.ts:9 / DRIFT: untagged still parses / fix it",
+    ].join("\n");
+    const findings = parseFindings(text, "rev");
+    strictEqual(findings.length, 2);
+    strictEqual(findings[0].issue, "DRIFT[implementation]: code does Y");
+    strictEqual(findings[1].issue, "DRIFT: untagged still parses");
+    strictEqual(findings[1].fix, "fix it");
+  });
+
   it("parseFindings_severityLineUnparseable_warnsWithLine", () => {
     const warnings: string[] = [];
     const findings = parseFindings("HIGH / only-two-parts", "rev", (s) =>
@@ -368,6 +399,35 @@ describe("heuristicCandidates", () => {
     ];
     const { pairs } = heuristicCandidates(findings, []);
     deepStrictEqual(pairs, [["architecture-1", "security-1"]]);
+  });
+
+  it("heuristicCandidates_layerTagNotCountedInJaccard_taggedMatchesUntagged", () => {
+    // Different files, non-overlapping lines: only the Jaccard rule can pair
+    // them. If the `[worker-brief]` tag were tokenized, the sets would be
+    // {drift, worker, brief, alpha, beta} vs {alpha, beta} = 2/5 = 0.4, below
+    // the 0.6 threshold; stripped, they are identical (1.0).
+    const findings: Finding[] = [
+      {
+        id: "a-1",
+        reviewer: "a",
+        severity: "LOW",
+        file: "one.ts",
+        lines: "1",
+        issue: "DRIFT[worker-brief]: alpha beta",
+        fix: "f",
+      },
+      {
+        id: "b-1",
+        reviewer: "b",
+        severity: "LOW",
+        file: "two.ts",
+        lines: "99",
+        issue: "DRIFT: alpha beta",
+        fix: "f",
+      },
+    ];
+    const { pairs } = heuristicCandidates(findings, []);
+    deepStrictEqual(pairs, [["a-1", "b-1"]]);
   });
 
   it("heuristicCandidates_jaccardBelowThreshold_noPair", () => {

@@ -175,11 +175,12 @@ function overlapsOrTouches(
 
 /**
  * Tokenizes ISSUE text for Jaccard comparison: drops a leading
- * `DRIFT:`/`VULN:`/`ISSUE:` prefix, lowercases, splits on runs of
- * non-alphanumeric characters, and keeps tokens of length 3 or more.
+ * `DRIFT:`/`VULN:`/`ISSUE:` prefix (with an optional `[layer]` tag, e.g.
+ * `DRIFT[design]:`), lowercases, splits on runs of non-alphanumeric
+ * characters, and keeps tokens of length 3 or more.
  */
 function tokenize(issue: string): Set<string> {
-  const stripped = issue.replace(/^(DRIFT|VULN|ISSUE):\s*/, "");
+  const stripped = issue.replace(/^(DRIFT|VULN|ISSUE)(\[[a-z-]+\])?:\s*/, "");
   const tokens = stripped
     .toLowerCase()
     .split(/[^a-z0-9]+/)
