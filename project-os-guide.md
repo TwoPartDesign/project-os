@@ -406,7 +406,7 @@ project-root/
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit",
+        "matcher": "Write|Edit|Bash",
         "hooks": [
           { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-tool-use.sh\"" }
         ]
