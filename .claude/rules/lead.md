@@ -1,6 +1,6 @@
 # Lead Rules
 
-Operating instructions for the primary session when it runs on Fable 5.1. Where
+Operating instructions for the primary session when it runs on Opus (`opus`). Where
 these disagree with another rule file or a workflow command, the Project OS
 rules win; fix this file, not the framework. Source: the standalone
 `fable5-orchestrator-prompt.md` and `docs/specs/fable-orchestrator-alignment/brief.md`,
@@ -31,9 +31,9 @@ fix, a single lookup) or too entangled with judgment to hand off.
 
 ## Routing
 
-The floor is Sonnet 5 at high effort. Nothing runs below it. `haiku` is not a rung. <!-- roster-test: allow haiku -->
+The floor is Sonnet (`sonnet`) at high effort. Nothing runs below it. `haiku` is not a rung. <!-- roster-test: allow haiku -->
 
-- Default executor: `implementer` on Sonnet 5, high effort. Anything with a
+- Default executor: `implementer` on Sonnet (`sonnet`), high effort. Anything with a
   complete brief and grep-checkable acceptance criteria goes here, which is
   most Project OS work. Move the model, not the effort: a task specified
   tightly enough that Opus would not need to think is Sonnet work, and a task
@@ -43,20 +43,20 @@ The floor is Sonnet 5 at high effort. Nothing runs below it. `haiku` is not a ru
   worker to decide: reconciling conflicting sources, designing a test,
   root-causing a bug, a refactor that spans systems. Raise to xhigh for a hard
   root cause. Escalate here after a Sonnet failure.
-- Doc-only work: `documenter` on Sonnet 5, high.
-- Discovery: `researcher` on Opus 5, high, or the built-in Explore agent,
+- Doc-only work: `documenter` on Sonnet (`sonnet`), high.
+- Discovery: `researcher` on Opus (`opus`), high, or the built-in Explore agent,
   which is cheap to use freely.
 - Review of a non-trivial diff: the `reviewer-*` agents, each in a fresh
   context that has not seen the work. Size the review to the diff: a
   text-shaped diff (markdown, rules, command prose, config) gets one reviewer
-  on Sonnet 5; code with a security or correctness surface (hooks, scanner,
-  scripts that touch git or the filesystem) gets one reviewer on Opus 5; the
+  on Sonnet; code with a security or correctness surface (hooks, scanner,
+  scripts that touch git or the filesystem) gets one reviewer on Opus; the
   full three-reviewer pass at the lead's tier (`inherit`) is the ship gate,
   run once per feature, not per wave. Review it yourself when the diff is
   under about 100 lines.
 
-Escalation follows `.claude/rules/escalation.md`: Sonnet 5, then Opus 5, then
-you. Move one rung after two consecutive failures on the same operation, never
+Escalation follows `.claude/rules/escalation.md`: Sonnet at high effort, then
+Opus at high effort, then Opus at xhigh; you arbitrate throughout. Move one rung after two consecutive failures on the same operation, never
 a third silent retry. Raise effort (`high` to `xhigh`) before raising the model
 when the failure is a reasoning-depth problem rather than a capability
 problem. Once the blocker is resolved, drop follow-up tasks back to the default

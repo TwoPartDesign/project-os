@@ -576,7 +576,7 @@ describe("model-routing guidance", () => {
     ok(
       offenders.length === 0,
       "live guidance still names a retired tier or a dated model id. " +
-        'The ladder is sonnet -> opus -> fable on bare aliases. Add "<!-- roster-test: allow <tag> -->" ' +
+        'The ladder is sonnet (high) -> opus (high) -> opus (xhigh) on bare aliases. Add "<!-- roster-test: allow <tag> -->" ' +
         'naming the pattern tag it excuses (e.g. "haiku" or "dated-id") ' +
         "to a line that legitimately names one (e.g. prose about the retirement itself).\n" +
         offenders.join("\n"),

@@ -538,3 +538,17 @@ Generate with: `node scripts/review-triage.ts docs/specs/<feature> --changed-fil
 - **Trust the changelog lines alone.** Rejected: they omit the relative-path rejection, the trusted-source gate on `bashEditDiffEnabled`, and `omitClaudeMd` dropping rules. Each of these changes a wave-2 design.
 
 **Rationale**: "Verify the Channel Before Designing the Gate." Setup, commands, raw payload excerpts and per-probe verdicts are in `docs/specs/changelog-alignment-2026-10/probe-results.md`; the audit report is `prompt-audit.md` in the same directory.
+
+---
+
+## 2026-10-05 — Lead Model Moves to Opus (#T228)
+
+**Decision**: The lead runs Opus (`opus`) at high effort via the settings.json `model` key, with `"fallbackModel": ["sonnet"]`. Workers are unchanged: `implementer`/`documenter` run `sonnet` at high effort; judgment tasks use a per-invocation `(model: opus)`; `researcher` runs `opus`; reviewers `inherit`; `CLAUDE_CODE_SUBAGENT_MODEL` stays `opus`. The escalation ladder is `sonnet` (high) → `opus` (high) → `opus` (xhigh); `fable` is no longer a rung and stays available only as an explicit, Approver-confirmed choice through `/tools:set-models`' cost confirmation. Prose uses version-free family names with the alias, so a new model release no longer leaves stale version numbers behind (#T209). Approver: Jacob Nickel, 2026-10-05: "use opus 5.5 as the lead with opus and sonnet 5.5 agents".
+
+**Context**: Opus 5.5 became the default Opus (Claude Code 2.1.280) and Sonnet 5.5 the default Sonnet (2.1.284), so the bare aliases already resolve to the intended models. The 350k compact window (`CLAUDE_CODE_AUTO_COMPACT_WINDOW`) still sits below every window in the chain (all 1M), so the compaction constraint is unchanged.
+
+**Alternatives Considered**:
+- **Keep `fable` as the lead and top rung** — rejected: the Approver chose Opus as the lead on 2026-10-05.
+- **Keep a version-pinned prose per model** — rejected: it drifted within weeks (Fable 5.1, Opus 5, Sonnet 5 across lead.md, set-models.md and init.md).
+
+**Rationale**: Claude Code 2.1.280 honours `effortLevel` on a Fable fallback; that is moot for the default chain now (Opus falls back to Sonnet) and matters only if a project opts into `fable` through `/tools:set-models`.
