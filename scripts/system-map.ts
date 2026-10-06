@@ -352,7 +352,13 @@ function buildEdges(
   const settingsContent = contents.get(".claude/settings.json");
   const settingsId = pathToId.get(".claude/settings.json");
   if (settingsContent !== undefined && settingsId) {
-    for (const hookPath of extractHookWiring(settingsContent)) {
+    let wired: string[] = [];
+    try {
+      wired = extractHookWiring(settingsContent);
+    } catch {
+      // Malformed settings.json — no wiring edges rather than aborting the build.
+    }
+    for (const hookPath of wired) {
       edges.push({
         from: settingsId,
         to: pathToId.get(hookPath) ?? hookPath,

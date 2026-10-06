@@ -723,16 +723,29 @@ export function findAlwaysLoadedOverBudget(
   return findings;
 }
 
+const HOOK_DIR = ".claude/hooks/";
+const PROJECT_DIR_PREFIXES = [
+  "$CLAUDE_PROJECT_DIR/",
+  "${CLAUDE_PROJECT_DIR}/",
+  '$CLAUDE_PROJECT_DIR"/',
+  '${CLAUDE_PROJECT_DIR}"/',
+];
+
 /**
- * Flags every `.claude/hooks/<name>.sh` occurrence inside a `hooks` command
- * string of `.claude/settings.json` that is not immediately preceded by
- * `$CLAUDE_PROJECT_DIR/` or `${CLAUDE_PROJECT_DIR}/` (#T244). A cwd-relative
- * hook path runs a different project's hooks after a Bash `cd` into a subtree;
- * a project whose settings.json conflicted on update keeps that form silently.
- * Only string values under the top-level `hooks` object are inspected (any
- * depth); `permissions`, `env` and other keys are ignored. Emits one MEDIUM
- * finding per distinct (hook path, event) pair. Throws on malformed JSON —
- * callers skip the check in that case.
+ * Flags every `.claude/hooks/` occurrence inside a `hooks` command string of
+ * `.claude/settings.json` that is not anchored to the project root (#T244). A
+ * cwd-relative hook path runs a different project's hooks after a Bash `cd`
+ * into a subtree; a project whose settings.json conflicted on update keeps
+ * that form silently. Closed allowlist: the occurrence must directly follow
+ * one of {@link PROJECT_DIR_PREFIXES} (`$CLAUDE_PROJECT_DIR/`,
+ * `${CLAUDE_PROJECT_DIR}/`, or either with the variable quoted), and that
+ * prefix must start a word (string start, whitespace or `"`) — so a
+ * wrong-root `/x$CLAUDE_PROJECT_DIR/…` or an unexpanded single-quoted
+ * `'$CLAUDE_PROJECT_DIR/…'` is flagged. Any file under the directory counts,
+ * whatever its depth or extension. Only string values under the top-level
+ * `hooks` object are inspected (any depth); `permissions`, `env` and other
+ * keys are ignored. Emits one MEDIUM finding per distinct (hook path, event)
+ * pair. Throws on malformed JSON — callers skip the check in that case.
  */
 export function findRelativeHookCommands(settingsJsonText: string): Finding[] {
   const data: unknown = JSON.parse(settingsJsonText);
@@ -746,20 +759,33 @@ export function findRelativeHookCommands(settingsJsonText: string): Finding[] {
 
   const findings: Finding[] = [];
   const seen = new Set<string>();
-  const prefixes = ["$CLAUDE_PROJECT_DIR/", "${CLAUDE_PROJECT_DIR}/"];
+
+  const anchored = (command: string, at: number): boolean =>
+    PROJECT_DIR_PREFIXES.some((p) => {
+      const start = at - p.length;
+      if (start < 0 || !command.startsWith(p, start)) return false;
+      return start === 0 || /[\s"]/.test(command[start - 1]);
+    });
 
   const scan = (command: string, event: string): void => {
-    for (const m of command.matchAll(HOOK_PATH_RE)) {
-      const before = command.slice(0, m.index);
-      if (prefixes.some((p) => before.endsWith(p))) continue;
-      const key = `${m[0]}\u0000${event}`;
+    for (
+      let at = command.indexOf(HOOK_DIR);
+      at !== -1;
+      at = command.indexOf(HOOK_DIR, at + HOOK_DIR.length)
+    ) {
+      if (anchored(command, at)) continue;
+      const rest = /^[A-Za-z0-9_.\/-]*/.exec(
+        command.slice(at + HOOK_DIR.length),
+      );
+      const subject = HOOK_DIR + (rest ? rest[0] : "");
+      const key = `${subject}\u0000${event}`;
       if (seen.has(key)) continue;
       seen.add(key);
       findings.push({
         severity: "MEDIUM",
         kind: "relative-hook-command",
-        subject: m[0],
-        detail: `Hook command under ${event} in .claude/settings.json runs ${m[0]} without the $CLAUDE_PROJECT_DIR prefix, so a Bash cd into a subtree runs another project's hooks. Use: bash "$CLAUDE_PROJECT_DIR/${m[0]}".`,
+        subject,
+        detail: `Hook command under ${event} in .claude/settings.json runs ${subject} without the $CLAUDE_PROJECT_DIR prefix, so a Bash cd into a subtree runs another project's hooks. Use: bash "$CLAUDE_PROJECT_DIR/${subject}".`,
       });
     }
   };

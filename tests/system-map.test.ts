@@ -896,6 +896,47 @@ describe("findRelativeHookCommands", () => {
     strictEqual(findings.length, 1);
   });
 
+  it("findRelativeHookCommands_quotedVariableForms_noFindings", () => {
+    deepStrictEqual(
+      findRelativeHookCommands(
+        settingsWith('bash "$CLAUDE_PROJECT_DIR"/.claude/hooks/a.sh'),
+      ),
+      [],
+    );
+    deepStrictEqual(
+      findRelativeHookCommands(
+        settingsWith('bash "${CLAUDE_PROJECT_DIR}"/.claude/hooks/a.sh'),
+      ),
+      [],
+    );
+  });
+
+  it("findRelativeHookCommands_nestedPathAndOtherExtension_oneFindingEach", () => {
+    const findings = findRelativeHookCommands(
+      settingsWith("bash .claude/hooks/lib/x.sh; node .claude/hooks/y.js"),
+    );
+    deepStrictEqual(
+      findings.map((f) => f.subject),
+      [".claude/hooks/lib/x.sh", ".claude/hooks/y.js"],
+    );
+  });
+
+  it("findRelativeHookCommands_wrongRootBeforeVariable_oneFinding", () => {
+    const findings = findRelativeHookCommands(
+      settingsWith("bash /tmp/evil$CLAUDE_PROJECT_DIR/.claude/hooks/r.sh"),
+    );
+    strictEqual(findings.length, 1);
+    strictEqual(findings[0].subject, ".claude/hooks/r.sh");
+  });
+
+  it("findRelativeHookCommands_singleQuotedVariable_oneFinding", () => {
+    const findings = findRelativeHookCommands(
+      settingsWith("bash '$CLAUDE_PROJECT_DIR/.claude/hooks/s.sh'"),
+    );
+    strictEqual(findings.length, 1);
+    strictEqual(findings[0].subject, ".claude/hooks/s.sh");
+  });
+
   it("findRelativeHookCommands_realRepoSettings_zeroFindings", () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const text = readFileSync(

@@ -353,6 +353,23 @@ fi
 rm -rf "$FIXTURE_7"
 echo ""
 
+# --- Scenario 8: malformed settings.json does not abort report ----------------
+echo "Scenario 8: truncated settings.json -> report still exits 0"
+
+FIXTURE_8="$(mktemp -d)"
+make_fixture "$FIXTURE_8"
+printf '%s\n' '{"hooks": ' > "$FIXTURE_8/.claude/settings.json"
+(cd "$FIXTURE_8" && git add -A && git commit -q -m "fixture: malformed settings")
+
+set +e
+OUT_8="$(cd "$FIXTURE_8" && node "$SYSTEM_MAP" report 2>&1)"
+EXIT_8=$?
+set -e
+assert_eq "report_malformedSettings_exitsZero" "0" "$EXIT_8" "$OUT_8"
+
+rm -rf "$FIXTURE_8"
+echo ""
+
 # --- Summary ------------------------------------------------------------------
 echo "=== Results ==="
 TOTAL=$((PASS + FAIL))
