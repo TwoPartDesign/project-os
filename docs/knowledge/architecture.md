@@ -51,8 +51,8 @@ User (Approver) ──→ Workflow Commands ──→ Lead ──→ Sub-agents 
 | `notify-phase-change.sh` | Phase transition notification — terminal-only (stderr) on Windows, `notify-send` desktop notification on Linux |
 | `output-index.sh` | PostToolUse advisory — index large tool outputs, hint via additionalContext |
 | `post-mcp-validate.sh` | PostToolUse — validate Context7 MCP output (exit 2 / additionalContext contract) |
-| `post-tool-use.sh` | Auto-format files after Write/Edit |
-| `post-write-session.sh` | Scrub secrets from `.claude/sessions/` files after write |
+| `post-tool-use.sh` | Auto-format files after Write/Edit, and after Bash for files named in `tool_response.bashEditDiff.changedFiles` (#T202; same containment and extension set; Windows-native backslash paths are skipped, fail-closed) |
+| `post-write-session.sh` | Scrub secrets from `.claude/sessions/` files after Write/Edit, and after Bash for files named in `bashEditDiff.changedFiles` (#T202; Windows-native backslash paths are skipped, fail-closed) |
 | `pre-compact.sh` | PreCompact (`*` — auto and manual) — print the `compact_instruction` of the newest handoff **this session claimed** since the last compaction on stdout, which the runtime forwards to the compaction summarizer; also writes a filesystem-derived checkpoint YAML (10-min debounce), opens the next compaction cycle and re-arms the nudge. Candidates come only from `.compact-handoff-<session_id>`: there is no glob fallback and no environment override, so an unclaimed handoff is named in the checkpoint and never opened. Advisory: never blocks |
 | `session-start-setup.sh` | SessionStart — idempotent activation fallback: runs `setup.sh --check` so a cloned project installs its git hooks on first session |
 | `session-start-maintain.sh` | SessionStart — auto-runs the maintenance loop once per `auto_run_hours` (policy, default 24h); drafts-only, debounced on ledger age, skips worktrees |

@@ -43,6 +43,18 @@
 #      the window removed. The bound's blind spot is defensible only while it is
 #      audible; this proves the assertion that keeps it so. Must kill
 #      postToolUse_filePathBeyondBound_saysSoOnStderr.
+#
+#   6. NO-CONTAINMENT — resolve_project_path's root comparison disabled
+#      (#T202). Every path that exists is then "ours". Must kill exactly the
+#      out-of-repo assertions on post-tool-use.sh: the Write one and the
+#      bashEditDiff outside, prefix-collision, symlink-to-outside, parent-dir
+#      symlink and `..`-escape ones. The session scrub keeps its own
+#      .claude/sessions/ prefix check, so no post-write-session assertion dies.
+#
+#   7. SCRUB-NO-CONTAINMENT — post-write-session.sh's Bash branch scrubs the
+#      raw payload path with no canonicalization, no containment and no
+#      session-scope check. Must kill exactly the three scrub-scope
+#      assertions: outside, prefix-collision and in-repo non-session file.
 
 # THIS SCRIPT'S OWN PASS CONDITION. A negative control that cannot fail is the
 # same vacuous test it exists to prevent, and until #T170 this was one: it ran
@@ -132,6 +144,7 @@ STUB_STATIC_SURVIVORS="payloadSchema_fixturesInThisFile_nameToolInputAndToolResp
 payloadSchema_hookScripts_readToolInputAndToolResponse
 toolFailureLog_settingsWiring_registeredOnlyOnPostToolUseFailure
 activityLog_settingsWiring_modelSwitchedOnPostModelSwitch
+bashEditDiff_settingsWiring_bothHooksOnBashMatcher
 notifyPhaseChange_windowsTerminalOnly_exit0StderrLineNoStdout"
 
 echo "=== mutant 1: all hooks stubbed to \`exit 0\` ==="
@@ -268,6 +281,34 @@ fi
 run_mutant "mutant 5: truncated file_path degrades silently" \
     "$SILENT" "postToolUse_filePathBeyondBound_saysSoOnStderr"
 
+# ── Mutant 6: containment removed (#T202) ───────────────────────────────────
+NOCONTAIN="$WORK/no-containment"
+build_mutant "$NOCONTAIN"
+sed -i 's|^    if \[\[ "$resolved" != "$project_root"/\* \]\]; then$|    if false; then|' "$NOCONTAIN/_common.sh"
+if ! grep -q '^    if false; then$' "$NOCONTAIN/_common.sh"; then
+    fatal "mutant 6" "NOT APPLIED — the containment comparison is still there"
+fi
+run_mutant "mutant 6: resolve_project_path does not check containment" \
+    "$NOCONTAIN" "postToolUse_outOfProjectFile_noSideEffect" \
+    "postToolUse_bashEditDiffOutsideRepo_noSideEffect" \
+    "postToolUse_bashEditDiffPrefixCollision_noSideEffect" \
+    "postToolUse_bashEditDiffSymlinkToOutside_noSideEffect" \
+    "postToolUse_bashEditDiffParentDirSymlink_noSideEffect" \
+    "postToolUse_bashEditDiffDotDotEscape_noSideEffect"
+
+# ── Mutant 7: scrub without containment on the Bash branch (#T202) ─────────
+SCRUBRAW="$WORK/scrub-no-containment"
+build_mutant "$SCRUBRAW"
+sed -i 's#^        RESOLVED=$(resolve_project_path "$(canonicalize_payload_path "$BASH_EDITED")") || continue$#        bash "$PROJECT_ROOT/scripts/scrub-secrets.sh" "$BASH_EDITED"; continue#' \
+    "$SCRUBRAW/post-write-session.sh"
+if ! grep -q 'scrub-secrets.sh" "$BASH_EDITED"; continue$' "$SCRUBRAW/post-write-session.sh"; then
+    fatal "mutant 7" "NOT APPLIED — the Bash branch still resolves its paths"
+fi
+run_mutant "mutant 7: post-write-session.sh Bash branch scrubs uncontained paths" \
+    "$SCRUBRAW" "postWriteSession_bashEditDiffNonSessionFile_noSideEffect" \
+    "postWriteSession_bashEditDiffOutsideRepo_noSideEffect" \
+    "postWriteSession_bashEditDiffPrefixCollision_noSideEffect"
+
 # ── Verdict ─────────────────────────────────────────────────────────────────
 echo "=== negative control ==="
 if [ "$CTL_FAIL" -gt 0 ]; then
@@ -275,5 +316,5 @@ if [ "$CTL_FAIL" -gt 0 ]; then
     echo "  Either hook-smoke.sh lost an assertion, or a mutant no longer applies."
     exit 1
 fi
-echo "  all 5 mutants behaved as documented — hook-smoke.sh detects broken hooks"
+echo "  all 7 mutants behaved as documented — hook-smoke.sh detects broken hooks"
 exit 0

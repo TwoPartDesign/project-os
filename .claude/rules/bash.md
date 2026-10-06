@@ -62,9 +62,11 @@ calls) bind in every mode.
    (`post-write-session.sh`), and the PreToolUse handoff claim in
    `compact-suggest.sh`. A file changed by a Bash command bypasses all three
    with no error anywhere — unformatted code, an unscrubbed handoff, or an
-   unclaimed handoff that `pre-compact.sh` will never forward. Claude Code
-   2.1.269's `bashEditDiffEnabled` adds a diff of Bash-changed files to the
-   tool result but does not fire those hooks (extending them is #T202).
+   unclaimed handoff that `pre-compact.sh` will never forward. Since #T202
+   the formatter and the session scrub also run on the files a Bash result
+   names in `bashEditDiff`, which is on by default in auto and
+   bypassPermissions modes; in default mode the channel stays off unless user
+   settings enable it, and the handoff claim still fires only on Write|Edit.
 
 ## Where the Rest Went
 
