@@ -383,20 +383,13 @@ project-root/
     ]
   },
   "env": {
-    "CLAUDE_CODE_SUBAGENT_MODEL": "opus"
+    "CLAUDE_CODE_SUBAGENT_MODEL": "opus",
+    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "4"
+  },
+  "worktree": {
+    "baseRef": "head"
   },
   "project_os": {
-    "parallel": {
-      "max_concurrent_agents": 4,
-      "worktree_base": ".claude/worktrees",
-      "auto_cleanup": true,
-      "session_handoff_location": ".claude/sessions",
-      "backoff": {
-        "initial_delay_ms": 1000,
-        "max_delay_ms": 30000,
-        "multiplier": 2
-      }
-    },
     "compete": {
       "default_approaches": 3,
       "strategies": ["literal", "minimal", "extensible"]
@@ -1214,7 +1207,7 @@ Don't build everything at once. Highest-leverage sequence for bootstrapping a ne
 
 **Week 4 — PM & Governance**: Implement the product management layer: `/pm:prd`, `/pm:epic`, `/pm:status`. Start using `[?]` draft tasks and `/pm:approve` as your governance gate. Never let unapproved work enter the build queue.
 
-**Week 5 — Parallel Builds**: Enable wave-based parallel builds in `settings.json` (`project_os.parallel.enabled: true`). Set `max_concurrent_agents` based on your machine's capacity. Run `scripts/validate-roadmap.sh` before every build to catch dependency errors early.
+**Week 5 — Parallel Builds**: Set `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` in `settings.json` `env` based on your machine's capacity (the runtime default is 20). Run `scripts/validate-roadmap.sh` before every build to catch dependency errors early.
 
 **Week 6 — Observability**: Enable activity logging (`log-activity.sh`). Use `/tools:metrics` to view feature velocity, slow tasks, and agent performance. Set up `notify-phase-change.sh` for desktop notifications. Run `/tools:dashboard` to see cross-project status.
 

@@ -97,10 +97,11 @@ rationale, examples, and anti-patterns.
 - **Registered Roster, Not Pasted Prose** — an agent's identity, tier, and
   scope live once in `.claude/agents/<name>.md`; dispatch by name, never fall
   back to `general-purpose`.
-- **Brief Every Worktree Worker to Self-Ground First** — a worktree brief
-  opens with `git merge master`, passes absolute main-repo paths for
-  anything under a gitignored directory (inputs and outputs), and requires
-  a commit; the lead Globs the main repo for claimed files before the
+- **Brief Every Worktree Worker to Self-Ground First** — worktrees branch
+  from HEAD (`worktree.baseRef: "head"`); a worktree brief passes absolute
+  main-repo paths for gitignored inputs, sends gitignored outputs to the
+  session scratchpad for the lead to place with Write, and requires a
+  commit; the lead Globs the scratchpad for claimed files before the
   worktree is gone.
 
 See `docs/knowledge/patterns.md` for full rationale, examples, and

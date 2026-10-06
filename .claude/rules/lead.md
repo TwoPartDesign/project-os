@@ -93,12 +93,14 @@ brief anticipated. Order them, and tell the later worker to merge master
 first.
 
 Worktree workers self-ground or they fail quietly (`docs/knowledge/patterns.md`,
-"Brief Every Worktree Worker to Self-Ground First"): the brief opens with
-`git merge master`, passes absolute main-repo paths for anything under a
+"Brief Every Worktree Worker to Self-Ground First"). `worktree.baseRef: "head"`
+in settings.json branches each worktree from your current HEAD, so no merge
+step is needed. The brief passes absolute main-repo paths for inputs under a
 gitignored directory — `docs/specs/`, `docs/memory/`, `.claude/sessions/` are
-empty inside the worktree, and output written there is deleted with it — and
-requires a commit. Glob the main repo for claimed files before the worktree
-is gone.
+empty inside the worktree — and names a session-scratchpad path for outputs
+bound there, because an isolated worker cannot write the shared checkout; you
+place those files with Write. The brief requires a commit. Glob the scratchpad
+for claimed files before the worktree is gone.
 
 A worker killed mid-task by a session or spend limit is resumed, not
 restarted: SendMessage to the same agent continues from its transcript, and

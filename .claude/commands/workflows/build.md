@@ -9,7 +9,7 @@ You are the Lead for this build. You coordinate sub-agents but NEVER write imple
 ## Input
 Read `docs/specs/$ARGUMENTS/tasks.md`. Verify all tasks have status markers.
 Read `CLAUDE.md` for project conventions (this is the ONLY shared context for agents).
-Read `.claude/settings.json` for `project_os.parallel` config (max_concurrent_agents, backoff).
+Read `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` from `.claude/settings.json` `env` (the native cap on concurrently running sub-agents; the runtime default is 20 when unset).
 
 **Runtime state:** Native Tasks (TaskCreate/TaskUpdate/TaskList) drive dependency scheduling during build execution. ROADMAP.md remains the authoritative source of truth. See "Task Scheduling (Native Tasks)" below.
 
@@ -124,14 +124,14 @@ For each task in the batch, assemble ONLY:
 - Agent rules: extract the `## Agent Rules` section from `.claude/rules/tests.md`, `.claude/rules/escalation.md`, and `.claude/rules/lead.md` and include them in the conventions block. Do NOT include the full rule files — only the `## Agent Rules` section from each. Bash rules go in the dedicated CRITICAL section below, not here.
 - The specific files the task mentions (read them for current state)
 
-**Paths:** every path the packet hands the agent that lives under `docs/specs/`, `docs/research/`, `docs/memory/`, or `.claude/sessions/` must be written as a **main-repo absolute path** (e.g. `<main-repo-root>/docs/specs/$ARGUMENTS/design.md`), never a repo-relative one. Those directories are gitignored, so a worktree cannot see them — a relative path resolves inside the worktree and silently finds nothing.
+**Paths:** every input the packet hands the agent that lives under `docs/specs/`, `docs/research/`, `docs/memory/`, or `.claude/sessions/` must be written as a **main-repo absolute path** (e.g. `<main-repo-root>/docs/specs/$ARGUMENTS/design.md`), never a repo-relative one. Those directories are gitignored, so a worktree cannot see them — a relative path resolves inside the worktree and silently finds nothing. Outputs bound for those directories go to the session scratchpad: a worktree-isolated agent cannot write the shared checkout, so the brief names a scratchpad path and the lead places the file with Write.
 
 DO NOT give agents: full spec history, other tasks, the brief, research findings, or review comments. Context isolation is critical.
 
-**Worktree base:** an Agent-tool worktree branches from the merge-base with the default branch, not from the current HEAD. When the build runs on a feature branch, the brief's first command must be `git -C "<worktree>" merge <current-branch> --no-edit` (the branch `git branch --show-current` prints), not `git merge master` — otherwise the worker builds against a tree missing every prior batch's integration.
+**Worktree base:** `.claude/settings.json` sets `worktree.baseRef: "head"`, so an Agent-tool worktree branches from the lead's current HEAD, including unpushed commits and every prior batch's integration. No self-ground merge is needed. If that setting is removed, worktrees fall back to `origin/<default>` (`fresh`), and the brief's first command must again be `git -C "<worktree>" merge <current-branch> --no-edit`.
 
 **3. Dispatch sub-agents (parallel)**
-Dispatch up to `max_concurrent_agents` (default: 4) sub-agents simultaneously.
+Dispatch up to `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` (this repo sets 4) sub-agents simultaneously.
 Each agent is dispatched via the Agent tool with `isolation: "worktree"`, which automatically creates an isolated git worktree in `.claude/worktrees/` and cleans it up after the agent completes (kept with a branch name if changes were made).
 
 **Native path (default):** dispatch a **registered roster agent by name** via the Agent tool with the context packet from step 2:
@@ -187,7 +187,7 @@ Instructions:
 2. Do NOT modify any files not listed in this task
 3. If you encounter an ambiguity, make the simplest choice and document it as a code comment"
 
-If more tasks exist than `max_concurrent_agents`, queue the overflow and dispatch as slots free up. Never dispatch a task whose dependencies are not yet `completed` — native Task `addBlockedBy` enforces this; the ROADMAP `(depends:)` clauses are the fallback check.
+If more tasks exist than `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`, queue the overflow and dispatch as slots free up. Never dispatch a task whose dependencies are not yet `completed` — native Task `addBlockedBy` enforces this; the ROADMAP `(depends:)` clauses are the fallback check.
 
 **4. On agent completion**
 For each agent that finishes:
@@ -245,7 +245,7 @@ If a task is blocked:
 - Report blockers to the user at the end
 
 If rate-limited or agent spawn fails:
-- Apply backoff from `project_os.parallel.backoff` config
+- Wait for a running agent to finish before retrying; the native `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` cap bounds fan-out, so there is no separate backoff config
 - Retry up to 2 times (per escalation protocol), then halt dispatching
 
 ## Completion
