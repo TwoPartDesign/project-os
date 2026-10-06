@@ -549,17 +549,16 @@ describe("runTriage (secret scrub)", () => {
       const { json, table } = await runTriage(specDir, changedFiles);
 
       const raw = readFileSync(resolve(specDir, "review-triage.json"), "utf-8");
-      ok(
-        raw.includes("[REDACTED:"),
-        `expected a redaction marker in the written JSON, got:\n${raw}`,
-      );
       ok(!raw.includes(key), "the AWS key must not appear in the written JSON");
       ok(!table.includes(key), "the AWS key must not appear in the table");
-      const parsed = json as { redactions: number };
-      ok(
-        parsed.redactions >= 1,
-        `expected redactions >= 1, got ${parsed.redactions}`,
+      const parsed = json as { redactions: number; findings: TriagedFinding[] };
+      strictEqual(parsed.redactions, 1);
+      strictEqual(parsed.findings.length, 1);
+      strictEqual(
+        parsed.findings[0].issue,
+        'VULN: leaked aws_key = "[REDACTED:aws-access-token]" in config',
       );
+      strictEqual(parsed.findings[0].fix, "rotate it");
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
@@ -597,6 +596,398 @@ describe("runTriage (secret scrub)", () => {
         parsed.findings.every((f) => !f.issue.includes("[WITHHELD")),
         "a clean fixture must not be withheld",
       );
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+/** Writes `<tmp>/docs/specs/fx/review-raw/security.md` with `lines` and a one-file changed list. */
+function setupSecuritySpec(
+  tmp: string,
+  lines: string[],
+): { specDir: string; changedFiles: string } {
+  const specDir = resolve(tmp, "docs/specs/fx");
+  mkdirSync(resolve(specDir, "review-raw"), { recursive: true });
+  writeFileSync(
+    resolve(specDir, "review-raw/security.md"),
+    lines.join("\n") + "\n",
+    "utf-8",
+  );
+  const changedFiles = resolve(tmp, "changed-files.txt");
+  writeFileSync(changedFiles, "x.ts\n", "utf-8");
+  return { specDir, changedFiles };
+}
+
+/** Same sample key as the AWS test above, split so no scannable literal sits in this file. */
+const AWS_KEY = "AKIA" + "QYLPMN5HG3WKZ7TQ";
+
+type TriageJson = { findings: TriagedFinding[]; redactions: number };
+
+describe("runTriage (scan:allow defusal)", () => {
+  it("runTriage_scanAllowMarkerInIssue_stillRedacted", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupSecuritySpec(tmp, [
+        `HIGH / x.ts:1 / VULN: aws_key = "${AWS_KEY}" # scan:allow / rotate`,
+      ]);
+
+      const { json, table } = await runTriage(specDir, changedFiles);
+
+      const raw = readFileSync(resolve(specDir, "review-triage.json"), "utf-8");
+      ok(!raw.includes(AWS_KEY), "the key must not appear in the JSON");
+      ok(!table.includes(AWS_KEY), "the key must not appear in the table");
+      const parsed = json as TriageJson;
+      strictEqual(
+        parsed.findings[0].issue,
+        'VULN: aws_key = "[REDACTED:aws-access-token]" # scan-allow',
+      );
+      strictEqual(parsed.findings[0].fix, "rotate");
+      strictEqual(parsed.redactions, 1);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runTriage_upperCaseScanAllowMarkerInFix_stillRedacted", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupSecuritySpec(tmp, [
+        `HIGH / x.ts:1 / VULN: plain issue text / rotate aws_key = "${AWS_KEY}" # SCAN:ALLOW`,
+      ]);
+
+      const { json, table } = await runTriage(specDir, changedFiles);
+
+      const raw = readFileSync(resolve(specDir, "review-triage.json"), "utf-8");
+      ok(!raw.includes(AWS_KEY), "the key must not appear in the JSON");
+      ok(!table.includes(AWS_KEY), "the key must not appear in the table");
+      const parsed = json as TriageJson;
+      strictEqual(parsed.findings[0].issue, "VULN: plain issue text");
+      strictEqual(
+        parsed.findings[0].fix,
+        'rotate aws_key = "[REDACTED:aws-access-token]" # scan-allow',
+      );
+      strictEqual(parsed.redactions, 1);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("runTriage (fail closed)", () => {
+  it("runTriage_scrubDropsALine_withholdsEveryField", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupCliFixture(tmp);
+      const { json } = await runTriage(specDir, changedFiles, {
+        scrubCmd: (file) => {
+          const kept = readFileSync(file, "utf-8").split("\n").slice(1);
+          writeFileSync(file, kept.join("\n"), "utf-8");
+          return { status: 0 };
+        },
+        scanCmd: () => ({ status: 0 }),
+      });
+
+      const parsed = json as TriageJson;
+      strictEqual(parsed.findings.length, 7);
+      for (const f of parsed.findings) {
+        strictEqual(f.issue, "[WITHHELD:scrub-failed]");
+        strictEqual(f.fix, "[WITHHELD:scrub-failed]");
+      }
+      strictEqual(parsed.redactions, 2 * parsed.findings.length);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runTriage_scrubCmdThrows_withholdsEveryField", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupCliFixture(tmp);
+      const { json } = await runTriage(specDir, changedFiles, {
+        scrubCmd: () => {
+          throw new Error("spawn failed");
+        },
+        scanCmd: () => ({ status: 0 }),
+      });
+
+      const parsed = json as TriageJson;
+      strictEqual(parsed.findings.length, 7);
+      for (const f of parsed.findings) {
+        strictEqual(f.issue, "[WITHHELD:scrub-failed]");
+        strictEqual(f.fix, "[WITHHELD:scrub-failed]");
+      }
+      strictEqual(parsed.redactions, 14);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runTriage_rescanExitsNonzero_withholdsEveryField", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupCliFixture(tmp);
+      let scrubbedFile = "";
+      let scanned: { file: string; content: string } | undefined;
+      const { json } = await runTriage(specDir, changedFiles, {
+        scrubCmd: (file) => {
+          scrubbedFile = file;
+          return { status: 0 };
+        },
+        scanCmd: (file) => {
+          scanned = { file, content: readFileSync(file, "utf-8") };
+          return { status: 1 };
+        },
+      });
+
+      const parsed = json as TriageJson;
+      strictEqual(parsed.findings.length, 7);
+      for (const f of parsed.findings) {
+        strictEqual(f.issue, "[WITHHELD:scrub-failed]");
+        strictEqual(f.fix, "[WITHHELD:scrub-failed]");
+      }
+      strictEqual(parsed.redactions, 14);
+      strictEqual(
+        scanned?.file,
+        scrubbedFile,
+        "re-scan must target the scrubbed file",
+      );
+      strictEqual(
+        scanned?.content.split("\n").length,
+        15,
+        "14 fields plus the trailing newline",
+      );
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runTriage_scrubReportsCleanButKeyRemains_realRescanWithholds", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupSecuritySpec(tmp, [
+        `HIGH / x.ts:1 / VULN: aws_key = "${AWS_KEY}" / rotate`,
+      ]);
+      // A scrub that claims success without touching the file: only the
+      // real `scan-files --quiet` re-scan can catch it.
+      const { json } = await runTriage(specDir, changedFiles, {
+        scrubCmd: () => ({ status: 0 }),
+      });
+
+      const raw = readFileSync(resolve(specDir, "review-triage.json"), "utf-8");
+      ok(!raw.includes(AWS_KEY), "the key must not reach the JSON");
+      const parsed = json as TriageJson;
+      strictEqual(parsed.findings[0].issue, "[WITHHELD:scrub-failed]");
+      strictEqual(parsed.findings[0].fix, "[WITHHELD:scrub-failed]");
+      strictEqual(parsed.redactions, 2);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("runTriage (staging file and escaping)", () => {
+  it("runTriage_scrubStaging_removedAfterSuccessAndFailure", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupCliFixture(tmp);
+      const seen: string[] = [];
+
+      await runTriage(specDir, changedFiles, {
+        scrubCmd: (file) => {
+          seen.push(file);
+          return { status: 0 };
+        },
+        scanCmd: () => ({ status: 0 }),
+      });
+      await runTriage(specDir, changedFiles, {
+        scrubCmd: (file) => {
+          seen.push(file);
+          return { status: 1 };
+        },
+      });
+
+      strictEqual(seen.length, 2);
+      for (const file of seen) {
+        strictEqual(
+          existsSync(dirname(file)),
+          false,
+          `staging dir must be gone: ${dirname(file)}`,
+        );
+      }
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runTriage_backslashesInFields_roundTripUnchanged", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupSecuritySpec(tmp, [
+        "HIGH / x.ts:1 / ISSUE: opens C:\\new\\dir and a\\\\nb / use C:\\temp\\r",
+      ]);
+
+      const { json } = await runTriage(specDir, changedFiles, {
+        scrubCmd: () => ({ status: 0 }),
+        scanCmd: () => ({ status: 0 }),
+      });
+
+      const parsed = json as TriageJson;
+      strictEqual(
+        parsed.findings[0].issue,
+        "ISSUE: opens C:\\new\\dir and a\\\\nb",
+      );
+      strictEqual(parsed.findings[0].fix, "use C:\\temp\\r");
+      strictEqual(parsed.redactions, 0);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("runTriage (sensitive key=value redaction)", () => {
+  // Assembled at runtime; none of these is a token shape the scanner knows.
+  const PW = "Tr0ub4dor" + "-9x";
+  const DB_PW = "s3cr3t" + "-7q";
+
+  it("runTriage_passwordEqualsValue_valueRedacted", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupSecuritySpec(tmp, [
+        `HIGH / x.ts:1 / VULN: config has password=${PW} committed / rotate`,
+      ]);
+
+      const { json } = await runTriage(specDir, changedFiles, {
+        scrubCmd: () => ({ status: 0 }),
+        scanCmd: () => ({ status: 0 }),
+      });
+
+      const parsed = json as TriageJson;
+      strictEqual(
+        parsed.findings[0].issue,
+        "VULN: config has password=[REDACTED:sensitive-key] committed",
+      );
+      strictEqual(parsed.findings[0].fix, "rotate");
+      strictEqual(parsed.redactions, 1);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runTriage_passwordColonValue_valueRedacted", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupSecuritySpec(tmp, [
+        `HIGH / x.ts:1 / VULN: config has password: ${PW} committed / rotate`,
+      ]);
+
+      const { json } = await runTriage(specDir, changedFiles, {
+        scrubCmd: () => ({ status: 0 }),
+        scanCmd: () => ({ status: 0 }),
+      });
+
+      const parsed = json as TriageJson;
+      strictEqual(
+        parsed.findings[0].issue,
+        "VULN: config has password: [REDACTED:sensitive-key] committed",
+      );
+      strictEqual(parsed.redactions, 1);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runTriage_quotedDbPasswordInFix_valueRedactedAndCountedOnce", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupSecuritySpec(tmp, [
+        `HIGH / x.ts:1 / VULN: env leaks credentials / drop DB_PASSWORD: "${DB_PW}" and password=${PW}`,
+      ]);
+
+      const { json, table } = await runTriage(specDir, changedFiles, {
+        scrubCmd: () => ({ status: 0 }),
+        scanCmd: () => ({ status: 0 }),
+      });
+
+      const raw = readFileSync(resolve(specDir, "review-triage.json"), "utf-8");
+      ok(
+        !raw.includes(DB_PW) && !raw.includes(PW),
+        "values must not reach the JSON",
+      );
+      ok(!table.includes(DB_PW), "values must not reach the table");
+      const parsed = json as TriageJson;
+      strictEqual(parsed.findings[0].issue, "VULN: env leaks credentials");
+      strictEqual(
+        parsed.findings[0].fix,
+        "drop DB_PASSWORD: [REDACTED:sensitive-key] and password=[REDACTED:sensitive-key]",
+      );
+      strictEqual(parsed.redactions, 1, "one changed field, two pairs");
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runTriage_dbPasswordRightAfterVulnPrefix_valueRedacted", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupSecuritySpec(tmp, [
+        `HIGH / x.ts:2 / VULN: DB_PASSWORD: "${DB_PW}" in env / rotate`,
+      ]);
+
+      const { json } = await runTriage(specDir, changedFiles, {
+        scrubCmd: () => ({ status: 0 }),
+        scanCmd: () => ({ status: 0 }),
+      });
+
+      const parsed = json as TriageJson;
+      strictEqual(
+        parsed.findings[0].issue,
+        "VULN: DB_PASSWORD: [REDACTED:sensitive-key] in env",
+      );
+      strictEqual(parsed.redactions, 1);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runTriage_nonSensitiveKeyValue_leftAlone", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupSecuritySpec(tmp, [
+        "HIGH / x.ts:1 / ISSUE: timeout=30 and mode: strict are fine / keep",
+      ]);
+
+      const { json } = await runTriage(specDir, changedFiles, {
+        scrubCmd: () => ({ status: 0 }),
+        scanCmd: () => ({ status: 0 }),
+      });
+
+      const parsed = json as TriageJson;
+      strictEqual(
+        parsed.findings[0].issue,
+        "ISSUE: timeout=30 and mode: strict are fine",
+      );
+      strictEqual(parsed.redactions, 0);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("runTriage_passwordShapesWithRealScanner_valuesAbsentFromJson", async () => {
+    const tmp = freshTempDir();
+    try {
+      const { specDir, changedFiles } = setupSecuritySpec(tmp, [
+        `HIGH / x.ts:1 / VULN: config has password=${PW} committed / rotate`,
+        `HIGH / x.ts:2 / VULN: DB_PASSWORD: "${DB_PW}" in env / rotate`,
+      ]);
+
+      const { json } = await runTriage(specDir, changedFiles);
+
+      const raw = readFileSync(resolve(specDir, "review-triage.json"), "utf-8");
+      ok(!raw.includes(PW), "password value must not reach the JSON");
+      ok(!raw.includes(DB_PW), "DB_PASSWORD value must not reach the JSON");
+      const parsed = json as TriageJson;
+      strictEqual(parsed.redactions, 2);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
