@@ -886,6 +886,14 @@ function cmdScanDiff(
 // Subcommand: scrub
 // ============================================================================
 
+/** Upper bound on replace-and-re-scan passes per file in scrub mode. */
+const MAX_SCRUB_PASSES = 5;
+
+/**
+ * Redacts every finding in the given files in place. Exits 1 when any file
+ * could not be read or written, or still has findings after
+ * {@link MAX_SCRUB_PASSES} passes; 0 otherwise.
+ */
 function cmdScrub(
   filePaths: string[],
   projectRoot: string,
@@ -898,6 +906,9 @@ function cmdScrub(
   }
 
   let totalRedacted = 0;
+  // Any read, write, rename or leftover-finding failure makes the whole run
+  // exit 1: callers treat status 0 as "every file is clean".
+  let failed = false;
   // Use a low-severity options clone to catch everything
   const scrubOptions: ScanOptions = { ...options, severity: "LOW" };
 
@@ -910,34 +921,53 @@ function cmdScrub(
       process.stderr.write(
         `Warning: could not read ${absPath}: ${(err as Error).message}\n`,
       );
+      failed = true;
       continue;
     }
 
     const relPath = relative(projectRoot, absPath).replace(/\\/g, "/");
-    const findings = scanContent(
-      content,
-      relPath,
-      _rules,
-      allowlist,
-      scrubOptions,
-    );
 
-    if (findings.length === 0) continue;
+    // scanContent keeps one match per rule per line, so a second distinct
+    // secret of the same rule on the same line only shows up on a re-scan.
+    // Replace, re-scan and repeat, bounded at MAX_SCRUB_PASSES.
+    let scrubbed = content;
+    for (let pass = 0; pass < MAX_SCRUB_PASSES; pass++) {
+      const findings = scanContent(
+        scrubbed,
+        relPath,
+        _rules,
+        allowlist,
+        scrubOptions,
+      );
+      if (findings.length === 0) break;
 
-    // Replace findings line-by-line to avoid corruption from overlapping matches
-    const lines = content.split("\n");
-    for (const f of findings) {
-      const replacement = `[REDACTED:${f.ruleId}]`;
-      const lineIdx = f.line - 1;
-      if (lineIdx >= 0 && lineIdx < lines.length) {
-        lines[lineIdx] = lines[lineIdx].replaceAll(f.match, replacement);
+      // Replace findings line-by-line to avoid corruption from overlapping matches
+      const lines = scrubbed.split("\n");
+      for (const f of findings) {
+        const replacement = `[REDACTED:${f.ruleId}]`;
+        const lineIdx = f.line - 1;
+        if (lineIdx >= 0 && lineIdx < lines.length) {
+          lines[lineIdx] = lines[lineIdx].replaceAll(f.match, replacement);
+        }
+        totalRedacted++;
       }
-      totalRedacted++;
+      scrubbed = lines.join("\n");
     }
-    const scrubbed = lines.join("\n");
 
-    // Random name + exclusive create (O_EXCL): a symlink planted at a
-    // predictable temp name cannot redirect the write (#T232).
+    if (
+      scanContent(scrubbed, relPath, _rules, allowlist, scrubOptions).length > 0
+    ) {
+      process.stderr.write(
+        `Error: findings remain in ${absPath} after ${MAX_SCRUB_PASSES} scrub passes\n`,
+      );
+      failed = true;
+    }
+
+    if (scrubbed === content) continue;
+
+    // Random temp-file name: a symlink planted at the predictable `<file>.tmp`
+    // name cannot redirect the write (#T232). The `wx` flag also refuses an
+    // existing file; only the random-name half is pinned by a test.
     const tmpPath = `${absPath}.${randomBytes(6).toString("hex")}.tmp`;
     try {
       writeFileSync(tmpPath, scrubbed, { encoding: "utf-8", flag: "wx" });
@@ -946,6 +976,7 @@ function cmdScrub(
       process.stderr.write(
         `Error: could not write ${absPath}: ${(err as Error).message}\n`,
       );
+      failed = true;
       // Clean up tmp if possible
       try {
         unlinkSync(tmpPath);
@@ -956,7 +987,7 @@ function cmdScrub(
   }
 
   process.stderr.write(`Scrubbed ${totalRedacted} finding(s).\n`);
-  process.exit(0);
+  process.exit(failed ? 1 : 0);
 }
 
 // ============================================================================

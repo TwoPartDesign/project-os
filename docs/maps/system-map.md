@@ -79,7 +79,7 @@
 - `s_maintain` — `scripts/maintain.sh` (1 dependent)
 - `s_memory_search` — `scripts/memory-search.sh` (0 dependents)
 - `s_new_project` — `scripts/new-project.sh` (0 dependents)
-- `s_observation_parser` — `scripts/observation-parser.ts` (1 dependent)
+- `s_observation_parser` — `scripts/observation-parser.ts` (4 dependents)
 - `s_review_triage` — `scripts/review-triage.ts` (2 dependents)
 - `s_scrub_secrets` — `scripts/scrub-secrets.sh` (0 dependents)
 - `s_security_scanner` — `scripts/security-scanner.ts` (1 dependent)
@@ -209,6 +209,7 @@
 - `s_maintain_draft` --imports--> `l_project_root`
 - `s_observation_parser_test` --imports--> `s_observation_parser`
 - `s_policy_test` --imports--> `l_policy`
+- `s_review_triage` --imports--> `s_observation_parser`
 - `s_review_triage_test` --imports--> `s_review_triage`
 - `s_skill_apply` --imports--> `l_policy`
 - `s_skill_apply` --imports--> `l_project_root`

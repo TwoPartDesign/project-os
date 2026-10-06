@@ -1,6 +1,6 @@
 {
   "project_os_version": "unknown",
-  "generated": "2026-10-06T14:48:32Z",
+  "generated": "2026-10-06T14:50:11Z",
   "upstream": "TwoPartDesign/project-os",
   "seed_hashes": {
     "docs/knowledge/architecture.md": "6326d1b223be2c0143c4a1d4553a2d4f335d96606e5514628fc069b52d061b11",
@@ -99,8 +99,8 @@
     "scripts/sync-hooks.sh": "019f37e2def4e22755112aaf327408f332ff04a5ca43cc9262c2ae6d2750404d",
     "scripts/knowledge-index.ts": "d7c68c389774278caec3554a77cde7601df6e70ef16aff3f6a550d032789dd6c",
     "scripts/dashboard-server.ts": "3ec9896b8d54a80b8d95ac9a189f3363cf86c96c9c6d76e5b883ec707aed810e",
-    "scripts/observation-parser.ts": "5fda44a76e8c9cd863e6ceccac0e4e36809ff922d076bb52c9fd2fd76d864e98",
-    "scripts/security-scanner.ts": "f63dccb8b17ee3a26483ff18f613d69ca5bef2c9b47d66693e2101ca05321ed2",
+    "scripts/observation-parser.ts": "f20a682cefae27dc301cf70569bc5f090be40733e252c42b43a89dad434bdeed",
+    "scripts/security-scanner.ts": "db9a0a4e7c0e68ca6fea06b91a917e55e7777a1c2304d9dda51996b334a3c32d",
     "scripts/system-map.ts": "863b56529b4fe85b46434b1f9b40700c447aa53151c0b09fe5356896ef553aa9",
     "scripts/maintain-draft.ts": "ceb0092afa2f720e9fc0b7910fe4dd68a04931b5dc8cd8d6ac95cee71f6dd379",
     "scripts/maintain.sh": "0b0feee68a391281a1083092dea44120ab543461ee0be1765fc1d69cb5745fee",
@@ -112,7 +112,7 @@
     "scripts/detect-stack.ts": "17c4d5b19790bc21cd6bfe4f990aec042464f253880cdc24540f2b20961a181b",
     "scripts/skill-apply.ts": "30296b76451d386abb0e4588339dfd632b65fb10eefff461b3271181ce8c4a02",
     "scripts/skill-ledger.ts": "23b4ce2890215ac0025422e9eea357ce73d467b1014b5bcfb2520aa5d52bdd22",
-    "scripts/review-triage.ts": "4f397e68081dc379db69b6657879a82bb1baa378e09ab0ea0ab847e4b33dd4e0",
+    "scripts/review-triage.ts": "6c9cb35c56994750ff22070a6279b07a1bbc5abfb7416f6c23fb7a4fdf38c282",
     "scripts/compaction-metrics.ts": "89c09bf20162c00b51d151ba9bf1d69eef800bd97339cf33e78183b819618416",
     "scripts/lib/dashboard-render.ts": "5bff04ec5ca293699041d5d3a744ab9ff6c42ae51abced8fc0a078c238bbb0a6",
     "scripts/lib/json.sh": "db6cc9dc80a3d8f58c722934974dac808c1028eb88a32fd1537fdc198bd72bbb",

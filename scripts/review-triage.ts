@@ -19,6 +19,7 @@ import {
 import { tmpdir } from "node:os";
 import { resolve, basename, dirname, join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isSensitiveKey } from "./observation-parser.ts";
 
 /** The four severities a finding line may carry. */
 export type Severity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
@@ -293,11 +294,14 @@ export function renderTable(rows: TriagedFinding[]): string {
 /**
  * The options bag {@link runTriage} takes. `scrubCmd` replaces the real
  * scanner scrub subprocess (tests inject it); it receives the staged file
- * path and returns the scrub's exit status.
+ * path and returns the scrub's exit status. `scanCmd` likewise replaces the
+ * positive re-scan that runs after a status-0 scrub; a nonzero status
+ * withholds every row.
  */
 type TriageOpts = {
   jsonOnly?: boolean;
   scrubCmd?: (file: string) => { status: number };
+  scanCmd?: (file: string) => { status: number };
 };
 
 /** The placeholder both fields of every row carry when the scrub fails. */
@@ -311,12 +315,26 @@ const WITHHELD = "[WITHHELD:scrub-failed]";
  * its project root, and outside a git repo it takes its cwd as the root.
  */
 function runScannerScrub(file: string): { status: number } {
+  return runScanner(["scrub"], file);
+}
+
+/**
+ * Runs `node scripts/security-scanner.ts scan-files --quiet <file>`, which
+ * exits 1 when the file still holds a finding. Same no-throw status mapping
+ * and cwd as {@link runScannerScrub}.
+ */
+function runScannerScan(file: string): { status: number } {
+  return runScanner(["scan-files", "--quiet"], file);
+}
+
+/** Runs the scanner CLI with `args` then `file`; nonzero or spawn failure yields a nonzero status. */
+function runScanner(args: string[], file: string): { status: number } {
   try {
     execFileSync(
       process.execPath,
       [
         resolve(dirname(fileURLToPath(import.meta.url)), "security-scanner.ts"),
-        "scrub",
+        ...args,
         file,
       ],
       { cwd: dirname(file), stdio: "pipe" },
@@ -326,6 +344,42 @@ function runScannerScrub(file: string): { status: number } {
     const status = (err as { status?: number | null } | undefined)?.status;
     return { status: typeof status === "number" ? status : 1 };
   }
+}
+
+/** The placeholder a sensitive key's value is replaced with. */
+const SENSITIVE_VALUE = "[REDACTED:sensitive-key]";
+
+/**
+ * Matches a key and its separator in `key=value`, `key: value` and
+ * `"key": "value"` shapes (the separator carries an optional closing quote
+ * on the key). The value is read separately so a non-sensitive key never
+ * swallows the sensitive pair that follows it (`VULN: DB_PASSWORD: "x"`).
+ */
+const KEY_SEP_RE = /([A-Za-z_][A-Za-z0-9_-]*)(["']?[ \t]*[=:][ \t]*)/g;
+
+/** Matches a value at the start of the remainder: double-quoted, single-quoted, or a bare run up to whitespace or a delimiter. */
+const VALUE_RE = /^("[^"\n]*"|'[^'\n]*'|[^\s,;"'}]+)/;
+
+/**
+ * Replaces the value of every sensitive-key pair in `s` (per
+ * {@link isSensitiveKey}) with `[REDACTED:sensitive-key]`. A value the
+ * scanner already redacted keeps its more specific label.
+ */
+function redactSensitivePairs(s: string): string {
+  let out = "";
+  let pos = 0;
+  KEY_SEP_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = KEY_SEP_RE.exec(s)) !== null) {
+    if (!isSensitiveKey(m[1])) continue;
+    const valStart = m.index + m[0].length;
+    const val = VALUE_RE.exec(s.slice(valStart))?.[1];
+    if (val === undefined || val.startsWith("[REDACTED:")) continue;
+    out += s.slice(pos, valStart) + SENSITIVE_VALUE;
+    pos = valStart + val.length;
+    KEY_SEP_RE.lastIndex = pos;
+  }
+  return out + s.slice(pos);
 }
 
 /** Escapes a field for one-per-line staging (backslash, newline, CR) so line count equals field count. */
@@ -346,14 +400,18 @@ function unescapeField(s: string): string {
  * single file under a fresh `mkdtemp` directory, removed in `finally`. The
  * scanner honours an inline `scan:allow` marker, which would let a field skip
  * its own scrub, so the marker is defused to `scan-allow` first (not counted
- * as a redaction). Fails closed: a nonzero exit, a throw, or a line-count
- * mismatch after the scrub sets both fields on every row to
- * `"[WITHHELD:scrub-failed]"` and counts every field as redacted. Otherwise
- * `redactions` is the number of fields the scrub changed.
+ * as a redaction). After a status-0 scrub and a matching line count, a
+ * positive re-scan (`scanCmd`) must also exit 0. Fails closed: a nonzero
+ * scrub or re-scan exit, a throw, or a line-count mismatch sets both fields
+ * on every row to `"[WITHHELD:scrub-failed]"` and counts every field as
+ * redacted. Otherwise the values of sensitive keys (`password=x`,
+ * `DB_PASSWORD: "x"`) are redacted in each field, and `redactions` is the
+ * number of fields that differ from the input (each counted once).
  */
 function scrubRows(
   rows: TriagedFinding[],
   scrubCmd: (file: string) => { status: number },
+  scanCmd: (file: string) => { status: number },
 ): { rows: TriagedFinding[]; redactions: number } {
   if (rows.length === 0) return { rows, redactions: 0 };
 
@@ -380,7 +438,11 @@ function scrubRows(
     const lines = (raw.endsWith("\n") ? raw.slice(0, -1) : raw).split("\n");
     if (lines.length !== fields.length) return withheld;
 
-    const scrubbed = lines.map(unescapeField);
+    // Never trust the scrub's exit status alone: a positive re-scan of the
+    // scrubbed file must come back clean too.
+    if (scanCmd(file).status !== 0) return withheld;
+
+    const scrubbed = lines.map(unescapeField).map(redactSensitivePairs);
     let redactions = 0;
     for (let i = 0; i < fields.length; i++) {
       if (scrubbed[i] !== fields[i]) redactions++;
@@ -452,6 +514,7 @@ export async function runTriage(
   const { rows, redactions } = scrubRows(
     applyHeuristic(findings, candidates),
     opts.scrubCmd ?? runScannerScrub,
+    opts.scanCmd ?? runScannerScan,
   );
 
   const json = {
