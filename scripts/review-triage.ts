@@ -71,8 +71,11 @@ const REVIEWERS = ["architecture", "security", "tests"] as const;
 /** The literal separator a finding line's fields are split on. */
 const SEP = " / ";
 
-/** Matches a finding line's leading `SEVERITY / ` prefix. */
-const SEVERITY_RE = /^(CRITICAL|HIGH|MEDIUM|LOW) \/ /;
+/**
+ * Matches a finding line's leading `SEVERITY / ` prefix. Leading spaces and
+ * tabs are tolerated: sub-agent results arrive indented (Claude Code 2.1.277+).
+ */
+const SEVERITY_RE = /^[ \t]*(CRITICAL|HIGH|MEDIUM|LOW) \/ /;
 
 /**
  * Splits a `file` or `file:lines` token into its `file` and `lines` parts.
@@ -91,8 +94,8 @@ function splitFileLines(token: string): { file: string; lines: string } {
 
 /**
  * Parses `text` (one reviewer's raw report) into `Finding`s. A line counts
- * as a finding only when it starts with `CRITICAL`, `HIGH`, `MEDIUM`, or
- * `LOW` followed by ` / `. Fields one (severity) and two (`file:lines`) are
+ * as a finding only when it starts (after optional leading spaces/tabs) with
+ * `CRITICAL`, `HIGH`, `MEDIUM`, or `LOW` followed by ` / `. Fields one (severity) and two (`file:lines`) are
  * taken at the first two ` / ` separators; the remainder is split at its
  * LAST ` / ` into ISSUE and FIX, so a ` / ` inside ISSUE is preserved and a
  * ` / ` inside FIX is mis-split (the accepted ambiguity of the format). A
@@ -130,7 +133,7 @@ export function parseFindings(
     const issue = remainder.slice(0, lastSepIdx);
     const fix = remainder.slice(lastSepIdx + SEP.length);
     const { file, lines: lineRange } = splitFileLines(fileLinesToken);
-    const severity = line.slice(0, firstSepIdx) as Severity;
+    const severity = line.slice(0, firstSepIdx).trim() as Severity;
 
     findings.push({
       id: `${reviewer}-${findings.length + 1}`,

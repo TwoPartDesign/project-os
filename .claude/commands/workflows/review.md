@@ -188,7 +188,9 @@ After gate decision:
 
 After all three reviewers complete:
 
-0. **Triage**: Write each reviewer's raw report verbatim to
+0. **Triage**: Sub-agent results arrive indented (Claude Code 2.1.277+). Dedent each
+   report first — strip the common leading whitespace from every line — so
+   findings start at column 0 in the file. Then write each reviewer's raw report to
    `docs/specs/$ARGUMENTS/review-raw/architecture.md`,
    `docs/specs/$ARGUMENTS/review-raw/security.md`, and
    `docs/specs/$ARGUMENTS/review-raw/tests.md`. Write

@@ -301,6 +301,35 @@ describe("parseFindings", () => {
     strictEqual(findings.length, 0);
   });
 
+  it("parseFindings_indentedReports_matchColumnZeroFindings", () => {
+    const body = [
+      "HIGH / a.ts:1-2 / DRIFT: things drifted / fix the drift",
+      "MEDIUM / b.ts:3 / VULN: things are vulnerable / fix the vuln",
+      "LOW / c.ts / ISSUE: things are wrong / fix the issue",
+    ];
+    const expected = parseFindings(body.join("\n"), "rev");
+    strictEqual(expected.length, 3);
+
+    for (const indent of ["  ", "    ", "\t"]) {
+      const indented = body.map((l) => indent + l).join("\n");
+      deepStrictEqual(parseFindings(indented, "rev"), expected);
+    }
+  });
+
+  it("parseFindings_fullyIndentedReportWithProse_findsAllFindings", () => {
+    const text = [
+      "  Review of the change:",
+      "  HIGH / a.ts:1 / DRIFT: x / fix x",
+      "  CRITICAL / b.ts:2 / VULN: y / fix y",
+      "  PASS: everything else",
+    ].join("\n");
+    const findings = parseFindings(text, "rev");
+    strictEqual(findings.length, 2);
+    strictEqual(findings[0].severity, "HIGH");
+    strictEqual(findings[1].severity, "CRITICAL");
+    strictEqual(findings[1].file, "b.ts");
+  });
+
   it("parseFindings_severityLineUnparseable_warnsWithLine", () => {
     const warnings: string[] = [];
     const findings = parseFindings("HIGH / only-two-parts", "rev", (s) =>
