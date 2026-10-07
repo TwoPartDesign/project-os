@@ -206,6 +206,10 @@ Small quality items surfaced during self-maintenance / #T9 reviews (2026-07-17).
 - [x] skill-edit: review.md — cross-validate a circular self-validation CONCERN like a HIGH (applied d02419f) #T193
   <!-- maint-fp: skill-edit:.claude/commands/workflows/review.md:circular-self-validation -->
   <!-- proposal: docs/specs/compaction-gate/skill-edits.md Proposal 2 -->
+- [?] Review stale knowledge: 3 files past 90d (docs/knowledge/design-principles.md,docs/knowledge/metrics.md,docs/knowledge/roadmap-format.md) #T246
+  <!-- maint-fp: stale:docs/knowledge/design-principles.md,docs/knowledge/metrics.md,docs/knowledge/roadmap-format.md -->
+- [?] Run /tools:dream — 11 memory files / 55 session files, consolidation due #T247
+  <!-- maint-fp: dream:11:55 -->
 
 ### Todo
 
@@ -432,6 +436,8 @@ Round 2 (2026-10-05): ICM paper (arXiv 2603.16021, "Folder Structure as Agent Ar
 ### In Progress
 ### Review
 ### Done
+<!-- Approved 2026-10-07 (Approver: "Fix now"): found on the first Windows run of the v3.1.1 fast suite; lead-fixed, uncommitted. hook-smoke 208/208 on Windows after the fix. -->
+- [x] tests/hook-smoke.sh creates a fixture file named `a\b.ts`; Git Bash on NTFS cannot create it, so `postToolUse_bashEditDiffPosixPathEscapedBackslash_noSideEffect` failed at baseline on Windows and added one extra kill to every hook-smoke-negctl mutant. Keep the rejection assertion on every host and SKIP the untouched-file check when the fixture cannot be created (test added by #T233) #T248
 <!-- Shipped in v3.1.1 (2026-10-06): fresh security verify found no bypass of the #T245 allowlist; its #T244 false negatives/positive and a pre-existing malformed-settings crash were lead-fixed (b33b10e); full gate 11/11 PASS. -->
 <!-- Approved 2026-10-06 (Approver: "Implement the two remaining tasks"). Lead recs: #T244 is a MEDIUM `relative-hook-command` finding over the `hooks` block only; #T245 refuses every archive entry that is not a regular file or directory (closed allowlist — the repo tracks no symlinks), so no tar-behaviour probe is needed. -->
 - [x] Downstream projects whose settings.json conflicted on update keep cwd-relative hook commands with no signal (#T238 changed only the shipped file; update-project.sh and sync-hooks.sh save `settings.json.upstream` on conflict). Add a `system-map.ts report` finding for any settings.json hook `command` that lacks `$CLAUDE_PROJECT_DIR/.claude/hooks/`, mirroring #T237's baseRef detector. Found by the v3.1 ship-gate architecture review (A16) (depends: #T238) (model: sonnet) #T244

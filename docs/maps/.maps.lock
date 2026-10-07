@@ -95,7 +95,7 @@
     "tests/dream-accept-smoke.sh": "5c5e44401a24ad891919969be3361e91aadb4336922225e599fa67202aff405f",
     "tests/entropy-threshold.test.ts": "cf3e5e90a0c0b55eca682a4fb44ee1213c6e560be9fe940090b5d776e9d7d009",
     "tests/hook-smoke-negctl.sh": "211ef7055c4a2426e72c38d9fabdcae9dc6a68442c30d736d3157df76c41e68a",
-    "tests/hook-smoke.sh": "b0939181f41f34fd8b25ef0a6bf74e91380fa4e785603062e68ac29a1dfa98b9",
+    "tests/hook-smoke.sh": "d35e99f3f0b4d145a2ebcadabd8078cbd979c85939c42a07bf44fd7939391a61",
     "tests/knowledge-index.test.ts": "cf9c82f083da35decfe18ca00a4d0a73677cc38a7bc3b6f3f37b410f7adfc476",
     "tests/maintain-draft.test.ts": "74b0cb62f26903773bc6a44a8f1f2552cc9ba3d601512bb63d9129c8bd209731",
     "tests/maintain-smoke.sh": "c16d516d8c0916c75d1a910af0e15c7092279e3d1b3d21aadfc112bcd379c785",
