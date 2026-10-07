@@ -67,7 +67,9 @@ while [ $# -gt 0 ]; do
             echo "  --project         Update the Project OS project at DIR instead of this checkout. For a"
             echo "                    project you own: on --apply its own generate-manifest.sh and"
             echo "                    system-map.ts run. A project with no manifest is refused. Run it"
-            echo "                    from a checkout at the release tag being installed."
+            echo "                    from a checkout at the release tag being installed. With --apply it also"
+            echo "                    needs the cross-project ask rules in this checkout's settings.json; a"
+            echo "                    dry run does not."
             echo ""
             echo "Without --apply, shows what would change."
             exit 0
@@ -107,6 +109,19 @@ if [ "$PROJECT_GIVEN" = true ]; then
         echo "ERROR: $PROJECT_ROOT is not a Project OS project with a manifest (.claude/manifest.json with a project_os_version is required)." >&2
         echo "For a repository without one, see: bash scripts/new-project.sh --adopt <dir>" >&2
         exit 1
+    fi
+    # A cross-project apply writes about a hundred files and runs two of the
+    # target's scripts, so it must prompt: this checkout's settings.json has to
+    # carry both ask rules. A dry run executes nothing from the target and is exempt.
+    if [ "$APPLY" = true ]; then
+        OWN_SETTINGS="$OWN_ROOT/.claude/settings.json"
+        if [ ! -f "$OWN_SETTINGS" ] \
+            || ! grep -qF '"Bash(*update-project.sh*--project*--apply*)"' "$OWN_SETTINGS" \
+            || ! grep -qF '"Bash(*update-project.sh*--apply*--project*)"' "$OWN_SETTINGS"; then
+            echo "ERROR: --project with --apply needs the ask rules for a cross-project apply in $OWN_ROOT/.claude/settings.json." >&2
+            echo "Merge the \"ask\" block from this release's .claude/settings.json (after an update it is saved as .claude/settings.json.upstream), then re-run." >&2
+            exit 1
+        fi
     fi
 fi
 MANIFEST="$PROJECT_ROOT/.claude/manifest.json"

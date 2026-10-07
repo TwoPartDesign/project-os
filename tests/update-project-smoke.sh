@@ -557,6 +557,21 @@ test_project_diff_upstream_hint() {
     fi
 }
 
+ASK_RULE_A='Bash(*update-project.sh*--project*--apply*)'
+ASK_RULE_B='Bash(*update-project.sh*--apply*--project*)'
+
+# write_ask_rules ROOT [RULE...] -- write ROOT/.claude/settings.json as minimal
+# JSON holding the given ask rules (default: both cross-project rules). Not a
+# copy of the repository's settings, which this suite must not depend on.
+write_ask_rules() {
+    local root="$1" rules="" r
+    shift
+    if [ $# -eq 0 ]; then set -- "$ASK_RULE_A" "$ASK_RULE_B"; fi
+    for r in "$@"; do rules="${rules:+$rules, }\"$r\""; done
+    mkdir -p "$root/.claude"
+    printf '{\n  "permissions": {\n    "ask": [%s]\n  }\n}\n' "$rules" > "$root/.claude/settings.json"
+}
+
 # make_apply_fixture LOCAL_CONTENT [TARGET_NAME] -- set FX_ROOT (framework
 # root), FX_WORK, FX_TARGET (named TARGET_NAME, default "my project", so its
 # path holds a space; with a .gitignore), FX_UPSTREAM, FX_THIRD (a directory
@@ -568,6 +583,8 @@ make_apply_fixture() {
     local local_content="$1" old_hash
     FX_ROOT=$(new_root); FX_WORK=$(new_scratch); FX_THIRD=$(new_scratch); FX_CAP=$(new_scratch)
     FX_TARGET="$FX_WORK/${2:-my project}"; FX_UPSTREAM="$FX_WORK/upstream"
+    # --project with --apply is refused unless the framework root carries the ask rules.
+    write_ask_rules "$FX_ROOT"
     new_target v0.9 "$FX_TARGET" > /dev/null
     new_upstream "$FX_UPSTREAM" > /dev/null
     # Upstream carries the updater itself, so the target's copy is unchanged.
@@ -815,6 +832,67 @@ test_relative_tmpdir_cleanup() {
     fi
 }
 
+# ask_rules_case NAME SETTINGS_MODE ORDER -- refusal of --project with --apply
+# when the framework root's settings.json lacks the ask rules. SETTINGS_MODE:
+# none (no file), empty ({}), onlyA, onlyB. ORDER: apply-first or project-first.
+ask_rules_case() {
+    local name="$1" mode="$2" order="$3" root target upstream phys msg
+    root=$(new_root); target=$(new_target); upstream=$(new_upstream)
+    case "$mode" in
+        none) ;;
+        empty) printf '{}\n' > "$root/.claude/settings.json" ;;
+        onlyA) write_ask_rules "$root" "$ASK_RULE_A" ;;
+        onlyB) write_ask_rules "$root" "$ASK_RULE_B" ;;
+    esac
+    phys=$(cd "$root" && pwd -P)
+    msg=$(printf '%s\n%s' \
+        "ERROR: --project with --apply needs the ask rules for a cross-project apply in $phys/.claude/settings.json." \
+        'Merge the "ask" block from this release'"'"'s .claude/settings.json (after an update it is saved as .claude/settings.json.upstream), then re-run.')
+    if [ "$order" = apply-first ]; then
+        refusal_case "$name" "$msg" "$root" "$target" --apply --project "$target" --local-upstream "$upstream"
+    else
+        refusal_case "$name" "$msg" "$root" "$target" --project "$target" --local-upstream "$upstream" --apply
+    fi
+}
+
+# --- updateProject_projectFlagApplyEmptySettings_refused ---
+test_apply_rules_empty_settings() {
+    ask_rules_case "updateProject_projectFlagApplyEmptySettings_refused" empty apply-first
+}
+
+# --- updateProject_projectFlagApplyNoSettingsFile_refused ---
+test_apply_rules_no_settings() {
+    ask_rules_case "updateProject_projectFlagApplyNoSettingsFile_refused" none project-first
+}
+
+# --- updateProject_projectFlagApplyOnlyFirstRule_refused ---
+test_apply_rules_only_first() {
+    ask_rules_case "updateProject_projectFlagApplyOnlyFirstRule_refused" onlyA apply-first
+}
+
+# --- updateProject_projectFlagApplyOnlySecondRule_refused ---
+test_apply_rules_only_second() {
+    ask_rules_case "updateProject_projectFlagApplyOnlySecondRule_refused" onlyB project-first
+}
+
+# --- updateProject_projectFlagDryRunWithoutAskRules_exitsZero ---
+# A dry run executes nothing from the target and writes nothing, so it needs no rules.
+test_dry_run_without_rules() {
+    local name="updateProject_projectFlagDryRunWithoutAskRules_exitsZero"
+    local root target upstream cap rc=0
+    root=$(new_root); target=$(new_target); upstream=$(new_upstream); cap=$(new_scratch)
+    (
+        cd "$root" || exit 99
+        bash scripts/update-project.sh --project "$target" --local-upstream "$upstream"
+    ) > "$cap/stdout.txt" 2> "$cap/stderr.txt" || rc=$?
+    if [ "$rc" -eq 0 ] && [ ! -e "$root/.claude/settings.json" ] \
+        && grep -q '^Dry run complete\.' "$cap/stdout.txt"; then
+        pass "$name"
+    else
+        fail "$name (rc=$rc; stdout: $(cat "$cap/stdout.txt"); stderr: $(cat "$cap/stderr.txt"))"
+    fi
+}
+
 if [ "$HAVE_PYTHON3" = true ]; then
     test_clean
     test_symlink_escape
@@ -848,6 +926,11 @@ test_project_manifest_token_as_value
 test_project_manifest_empty_version
 test_project_special_char_path
 test_relative_tmpdir_cleanup
+test_apply_rules_empty_settings
+test_apply_rules_no_settings
+test_apply_rules_only_first
+test_apply_rules_only_second
+test_dry_run_without_rules
 
 echo ""
 if [ "$FAIL_COUNT" -eq 0 ]; then
