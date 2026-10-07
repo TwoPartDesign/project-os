@@ -12,7 +12,7 @@ Check the upstream Project OS repository for compatible updates and apply them s
    - **Unchanged**: Already current or user-customized with no upstream changes
 3. If the user approves, run `bash scripts/update-project.sh --apply`
 4. For conflicts, help the user diff and merge `.upstream` files
-5. After resolving, regenerate the manifest with the version the updater printed in its "Next steps": `bash scripts/generate-manifest.sh <version>`. Without the version the manifest takes the project's own latest git tag, or "unknown"
+5. After resolving, regenerate the manifest with the version the updater printed in its "Next steps": `bash scripts/generate-manifest.sh <version>`. Without the version the manifest keeps an existing `-dev` marker, else takes the project's own latest git tag, or "unknown". After a `--local-upstream` run the printed version is `local:<dirname>`; pass the real version instead (#T268)
 
 ## Flags (pass via $ARGUMENTS)
 
@@ -61,13 +61,14 @@ When `--diff-upstream` is passed via $ARGUMENTS:
 - It is for a project you own. On `--apply` with no conflicts, the target's own `scripts/generate-manifest.sh` and `scripts/system-map.ts` run. It is not a way to vet an unknown repository.
 - Run it from a checkout at the release tag you are installing. An updater that lists a script the release lacks exits 1.
 - Use the published release. A Windows checkout passed as `--local-upstream` misclassifies files on line endings.
-- `--apply` under the flag always asks for confirmation (an `ask` rule in `.claude/settings.json`). A dry run does not.
+- `--apply` under the flag asks for confirmation (an `ask` rule in `.claude/settings.json`). A dry run does not. The rule matches the command as written, `bash scripts/update-project.sh …` from the checkout root, so always spell it that way. It stops an unreviewed apply and is not a boundary around the script.
 - A project with no `.claude/manifest.json` is refused. Bring it in with `bash scripts/new-project.sh --adopt DIR` instead.
 
 When `--project` is passed via $ARGUMENTS:
 1. Run the dry run first: `bash scripts/update-project.sh --project "DIR"`, with `--target` or `--major` as given
 2. Show the report, including its `Project:` line, and confirm the target with the user
 3. Only then run it again with `--apply`
+4. If the apply reports conflicts, resolve them in DIR, then run the manifest command from the updater's "Next steps" exactly as printed. It names DIR's own `scripts/generate-manifest.sh` by absolute path. The relative form in step 5 of Behavior would restamp this checkout's manifest with the other project's version
 
 ## Important
 

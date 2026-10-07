@@ -10,13 +10,17 @@
   Project OS project, so a project's own stale updater no longer decides what an update may
   change. DIR must hold a manifest with a `project_os_version`. A missing, empty or
   dash-leading value, a path that is not a directory, and the checkout itself are refused
-  before anything is read. The report names the target in a `Project:` line (#T262, #T263).
+  before anything is read. The report names the target in a `Project:` line. It is for a
+  project you own: on `--apply` with no conflicts the target's own `generate-manifest.sh`
+  and `system-map.ts` run (#T262, #T263).
 - **The updater's children run at the project root** — manifest regeneration and the map
   check now run with the project as their working directory, with or without the flag.
   Started from another directory, the map check used to inspect whatever project the
   caller stood in (#T264).
-- **A cross-project apply always asks** — `.claude/settings.json` gains two `ask` rules for
-  `--project` with `--apply`. Dry runs stay pre-approved (#T265).
+- **A cross-project apply asks first** — `.claude/settings.json` gains two `ask` rules for
+  `--project` with `--apply`. They match the command as written (`bash
+  scripts/update-project.sh …` from the checkout root), so they stop an unreviewed apply
+  and are not a boundary around the script. Dry runs stay pre-approved (#T265).
 
 ### Migration
 - To update a project, run `bash scripts/update-project.sh --project <dir>` from a Project
