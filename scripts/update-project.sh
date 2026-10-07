@@ -113,11 +113,28 @@ if [ "$PROJECT_GIVEN" = true ]; then
     # A cross-project apply writes about a hundred files and runs two of the
     # target's scripts, so it must prompt: this checkout's settings.json has to
     # carry both ask rules. A dry run executes nothing from the target and is exempt.
+    # With node, both rules must be elements of the permissions.ask array of a file
+    # that parses as JSON (the stdin redirect avoids a node-side path conversion).
+    # Without node the two fixed-string greps below are the fallback; that is the
+    # weaker check, since the strings may sit under another key or in "allow".
     if [ "$APPLY" = true ]; then
         OWN_SETTINGS="$OWN_ROOT/.claude/settings.json"
-        if [ ! -f "$OWN_SETTINGS" ] \
-            || ! grep -qF '"Bash(*update-project.sh*--project*--apply*)"' "$OWN_SETTINGS" \
-            || ! grep -qF '"Bash(*update-project.sh*--apply*--project*)"' "$OWN_SETTINGS"; then
+        SETTINGS_OK=false
+        if [ -f "$OWN_SETTINGS" ]; then
+            if command -v node &>/dev/null; then
+                if node -e '
+                    const s = JSON.parse(require("fs").readFileSync(0, "utf8"));
+                    const ask = s && s.permissions && s.permissions.ask;
+                    process.exit(Array.isArray(ask) && ask.includes(process.argv[1]) && ask.includes(process.argv[2]) ? 0 : 1);
+                ' 'Bash(*update-project.sh*--project*--apply*)' 'Bash(*update-project.sh*--apply*--project*)' < "$OWN_SETTINGS" 2>/dev/null; then
+                    SETTINGS_OK=true
+                fi
+            elif grep -qF '"Bash(*update-project.sh*--project*--apply*)"' "$OWN_SETTINGS" \
+                && grep -qF '"Bash(*update-project.sh*--apply*--project*)"' "$OWN_SETTINGS"; then
+                SETTINGS_OK=true
+            fi
+        fi
+        if [ "$SETTINGS_OK" != true ]; then
             echo "ERROR: --project with --apply needs the ask rules for a cross-project apply in $OWN_ROOT/.claude/settings.json." >&2
             echo "Merge the \"ask\" block from this release's .claude/settings.json (after an update it is saved as .claude/settings.json.upstream), then re-run." >&2
             exit 1
@@ -126,14 +143,28 @@ if [ "$PROJECT_GIVEN" = true ]; then
 fi
 MANIFEST="$PROJECT_ROOT/.claude/manifest.json"
 
-# quote_for_paste PATH -- print PATH quoted for pasting into a shell. An ordinary
-# path keeps double quotes; one holding $, a backtick, a double quote or a
-# backslash is single-quoted (embedded single quotes escaped) so nothing expands.
-quote_for_paste() {
+# single_quote STR -- print STR single-quoted, embedded single quotes escaped.
+single_quote() {
     local sq="'"
+    printf "'%s'" "${1//$sq/$sq\\$sq$sq}"
+}
+
+# quote_for_paste PATH -- print PATH quoted for pasting into a shell. An ordinary
+# path keeps double quotes; one holding $, a backtick, a double quote, a
+# backslash, ! or a newline is single-quoted so nothing expands.
+quote_for_paste() {
     case "$1" in
-        *[\$\`\"\\]*) printf "'%s'" "${1//$sq/$sq\\$sq$sq}" ;;
+        *[\$\`\"\\!]* | *$'\n'*) single_quote "$1" ;;
         *) printf '"%s"' "$1" ;;
+    esac
+}
+
+# quote_version VERSION -- print VERSION bare when it holds only [A-Za-z0-9._:+-]
+# (so 3.1.2 and local:upstream stay as they were), otherwise single-quoted.
+quote_version() {
+    case "$1" in
+        *[!A-Za-z0-9._:+-]*) single_quote "$1" ;;
+        *) printf '%s' "$1" ;;
     esac
 }
 
@@ -175,7 +206,10 @@ if [ ! -f "$MANIFEST" ]; then
     CURRENT_VERSION="unknown"
     LEGACY_MODE=true
 else
-    CURRENT_VERSION=$(grep '"project_os_version"' "$MANIFEST" | sed 's/.*: *"\([^"]*\)".*/\1/')
+    # Same read as generate-manifest.sh: first line holding the key, then a
+    # key-anchored sed, so a minified manifest or a token-as-value line cannot
+    # make this disagree with the rule 5 check.
+    CURRENT_VERSION=$(grep -m1 '"project_os_version"[[:space:]]*:' "$MANIFEST" | sed -E 's/.*"project_os_version"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/')
     LEGACY_MODE=false
 fi
 
@@ -844,9 +878,9 @@ if [ "$conflicts" -gt 0 ]; then
     echo "  2. Merge changes you want to keep"
     echo "  3. Delete the .upstream files when done"
     if [ "$PROJECT_GIVEN" = true ]; then
-        echo "  4. Run: bash $(quote_for_paste "$PROJECT_ROOT/scripts/generate-manifest.sh") ${CHOSEN#v}"
+        echo "  4. Run: bash $(quote_for_paste "$PROJECT_ROOT/scripts/generate-manifest.sh") $(quote_version "${CHOSEN#v}")"
     else
-        echo "  4. Run: bash scripts/generate-manifest.sh ${CHOSEN#v}"
+        echo "  4. Run: bash scripts/generate-manifest.sh $(quote_version "${CHOSEN#v}")"
     fi
     echo "     (to update manifest after resolving conflicts)"
 fi

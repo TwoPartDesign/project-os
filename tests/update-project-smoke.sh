@@ -607,9 +607,10 @@ write_ask_rules() {
     printf '{\n  "permissions": {\n    "ask": [%s]\n  }\n}\n' "$rules" > "$root/.claude/settings.json"
 }
 
-# make_apply_fixture LOCAL_CONTENT [TARGET_NAME] -- set FX_ROOT (framework
-# root), FX_WORK, FX_TARGET (named TARGET_NAME, default "my project", so its
-# path holds a space; with a .gitignore), FX_UPSTREAM, FX_THIRD (a directory
+# make_apply_fixture LOCAL_CONTENT [TARGET_NAME [UPSTREAM_NAME]] -- set FX_ROOT
+# (framework root), FX_WORK, FX_TARGET (named TARGET_NAME, default "my project",
+# so its path holds a space; with a .gitignore), FX_UPSTREAM (named
+# UPSTREAM_NAME, default "upstream"), FX_THIRD (a directory
 # that is neither root nor target) and FX_CAP (capture files).
 # scripts/memory-search.sh is "old\n" in the manifest and holds LOCAL_CONTENT
 # locally: "old\n" makes it a safe update, anything else a conflict. Plain
@@ -617,7 +618,7 @@ write_ask_rules() {
 make_apply_fixture() {
     local local_content="$1" old_hash
     FX_ROOT=$(new_root); FX_WORK=$(new_scratch); FX_THIRD=$(new_scratch); FX_CAP=$(new_scratch)
-    FX_TARGET="$FX_WORK/${2:-my project}"; FX_UPSTREAM="$FX_WORK/upstream"
+    FX_TARGET="$FX_WORK/${2:-my project}"; FX_UPSTREAM="$FX_WORK/${3:-upstream}"
     # --project with --apply is refused unless the framework root carries the ask rules.
     write_ask_rules "$FX_ROOT"
     new_target v0.9 "$FX_TARGET" > /dev/null
@@ -840,6 +841,73 @@ test_project_special_char_path() {
     fi
 }
 
+# --- updateProject_projectFlagQuotedVersion_upstreamNameWithSemicolonSingleQuoted ---
+# The version printed on step 4 comes from the upstream directory's name; one
+# named up;echo INJ must be single-quoted, not left bare.
+test_project_quoted_version() {
+    local name="updateProject_projectFlagQuotedVersion_upstreamNameWithSemicolonSingleQuoted"
+    local rc=0 problems="" phys
+    make_apply_fixture $'mine\n' "my project" 'up;echo INJ'
+    phys=$(cd "$FX_TARGET" && pwd -P)
+    (
+        cd "$FX_THIRD" || exit 99
+        bash "$FX_ROOT/scripts/update-project.sh" --apply --project "$FX_TARGET" --local-upstream "$FX_UPSTREAM"
+    ) > "$FX_CAP/stdout.txt" 2> "$FX_CAP/stderr.txt" || rc=$?
+    [ "$rc" -eq 0 ] || problems="$problems rc=$rc;"
+    grep -qxF "  4. Run: bash \"$phys/scripts/generate-manifest.sh\" 'local:up;echo INJ'" "$FX_CAP/stdout.txt" \
+        || problems="$problems step 4 version is not single-quoted;"
+    if [ -z "$problems" ]; then
+        pass "$name"
+    else
+        fail "$name ($problems stdout: $(cat "$FX_CAP/stdout.txt"); stderr: $(cat "$FX_CAP/stderr.txt"))"
+    fi
+}
+
+# --- updateProject_projectFlagQuoteAndDollarPath_singleQuoteEscaped ---
+# A project directory named it's $HOME holds both characters that need the
+# single-quoted form and a single quote that must be escaped as '\''.
+test_project_quote_and_dollar_path() {
+    local name="updateProject_projectFlagQuoteAndDollarPath_singleQuoteEscaped"
+    local rc=0 problems="" parent expected
+    make_apply_fixture $'mine\n' "it's \$HOME"
+    parent=$(cd "$FX_WORK" && pwd -P)
+    expected="  4. Run: bash '${parent}/it'\\''s \$HOME/scripts/generate-manifest.sh' local:upstream"
+    (
+        cd "$FX_THIRD" || exit 99
+        bash "$FX_ROOT/scripts/update-project.sh" --apply --project "$FX_TARGET" --local-upstream "$FX_UPSTREAM"
+    ) > "$FX_CAP/stdout.txt" 2> "$FX_CAP/stderr.txt" || rc=$?
+    [ "$rc" -eq 0 ] || problems="$problems rc=$rc;"
+    grep -qxF "$expected" "$FX_CAP/stdout.txt" || problems="$problems escaped step 4 line missing (wanted: $expected);"
+    if [ -z "$problems" ]; then
+        pass "$name"
+    else
+        fail "$name ($problems stdout: $(cat "$FX_CAP/stdout.txt"); stderr: $(cat "$FX_CAP/stderr.txt"))"
+    fi
+}
+
+# --- updateProject_projectFlagMinifiedManifest_currentVersionOnOneLine ---
+# A one-line manifest with other string values after the key must still read
+# the key's own value, once, the way generate-manifest.sh reads it.
+test_project_minified_manifest() {
+    local name="updateProject_projectFlagMinifiedManifest_currentVersionOnOneLine"
+    local root target upstream cap rc=0 problems="" count
+    root=$(new_root); target=$(new_target); upstream=$(new_upstream); cap=$(new_scratch)
+    printf '{"project_os_version":"v0.9","files":{},"note":"zzz","other":"yyy"}\n' > "$target/.claude/manifest.json"
+    (
+        cd "$root" || exit 99
+        bash scripts/update-project.sh --project "$target" --local-upstream "$upstream"
+    ) > "$cap/stdout.txt" 2> "$cap/stderr.txt" || rc=$?
+    count=$(grep -c '^Current version:' "$cap/stdout.txt")
+    [ "$rc" -eq 0 ] || problems="$problems rc=$rc;"
+    [ "$count" -eq 1 ] || problems="$problems $count 'Current version' lines;"
+    grep -qxF "Current version: v0.9" "$cap/stdout.txt" || problems="$problems value is not v0.9;"
+    if [ -z "$problems" ]; then
+        pass "$name"
+    else
+        fail "$name ($problems stdout: $(cat "$cap/stdout.txt"); stderr: $(cat "$cap/stderr.txt"))"
+    fi
+}
+
 # --- updateProject_relativeTmpdirApply_noTempDirLeftBehind ---
 # A relative TMPDIR is resolved against the project root once the updater has
 # cd'd there before Step 9, which orphaned the temp dir. Started from another
@@ -882,6 +950,16 @@ ask_rules_case() {
         empty) printf '{}\n' > "$root/.claude/settings.json" ;;
         onlyA) write_ask_rules "$root" "$ASK_RULE_A" ;;
         onlyB) write_ask_rules "$root" "$ASK_RULE_B" ;;
+        inAllow)
+            printf '{\n  "permissions": {\n    "allow": ["%s", "%s"],\n    "ask": []\n  }\n}\n' \
+                "$ASK_RULE_A" "$ASK_RULE_B" > "$root/.claude/settings.json" ;;
+        otherKey)
+            printf '{\n  "notes": ["%s", "%s"],\n  "permissions": {\n    "ask": []\n  }\n}\n' \
+                "$ASK_RULE_A" "$ASK_RULE_B" > "$root/.claude/settings.json" ;;
+        invalidJson)
+            printf '<<<<<<< HEAD\n{"permissions": {"ask": ["%s", "%s"]}}\n=======\n>>>>>>> other\n' \
+                "$ASK_RULE_A" "$ASK_RULE_B" > "$root/.claude/settings.json" ;;
+        directory) mkdir -p "$root/.claude/settings.json" ;;
     esac
     phys=$(cd "$root" && pwd -P)
     msg=$(printf '%s\n%s' \
@@ -914,6 +992,32 @@ test_apply_rules_only_second() {
     ask_rules_case "updateProject_projectFlagApplyOnlySecondRule_refused" onlyB project-first
 }
 
+# The JSON-aware check needs node; without it the fixed-string fallback accepts
+# a rule under the wrong key, so these two cases skip there.
+# --- updateProject_projectFlagApplyRulesOnlyInAllow_refused ---
+test_apply_rules_in_allow() {
+    local name="updateProject_projectFlagApplyRulesOnlyInAllow_refused"
+    if ! command -v node &>/dev/null; then echo "  SKIP: $name (node not found)"; return 0; fi
+    ask_rules_case "$name" inAllow apply-first
+}
+
+# --- updateProject_projectFlagApplyRulesUnderOtherKey_refused ---
+test_apply_rules_other_key() {
+    local name="updateProject_projectFlagApplyRulesUnderOtherKey_refused"
+    if ! command -v node &>/dev/null; then echo "  SKIP: $name (node not found)"; return 0; fi
+    ask_rules_case "$name" otherKey project-first
+}
+
+# --- updateProject_projectFlagApplySettingsNotJson_refused ---
+test_apply_settings_not_json() {
+    ask_rules_case "updateProject_projectFlagApplySettingsNotJson_refused" invalidJson apply-first
+}
+
+# --- updateProject_projectFlagApplySettingsIsDirectory_refused ---
+test_apply_settings_is_directory() {
+    ask_rules_case "updateProject_projectFlagApplySettingsIsDirectory_refused" directory project-first
+}
+
 # --- updateProject_projectFlagDryRunWithoutAskRules_exitsZero ---
 # A dry run executes nothing from the target and writes nothing, so it needs no rules.
 test_dry_run_without_rules() {
@@ -934,17 +1038,19 @@ test_dry_run_without_rules() {
 
 # --- updateProject_projectFlagUpstreamMissingListedScript_failsWithNewerUpdaterNote ---
 # An updater newer than the release it installs lists a script the release
-# lacks. Under --project the error must name it and say the updater may be
-# newer; nothing is written to the target.
+# lacks. Under --project --apply the error must name it and say the updater may
+# be newer; nothing is written to the target.
 test_project_listed_script_missing_upstream() {
     local name="updateProject_projectFlagUpstreamMissingListedScript_failsWithNewerUpdaterNote"
     local root target upstream cap rc=0 problems="" target_before target_after
     root=$(new_root); target=$(new_target); upstream=$(new_upstream); cap=$(new_scratch)
     rm -f "$upstream/scripts/setup.sh"
+    # --apply, so "target unchanged" can fail; the root needs the ask rules for that.
+    write_ask_rules "$root"
     target_before=$(tree_digest "$target")
     (
         cd "$root" || exit 99
-        bash scripts/update-project.sh --project "$target" --local-upstream "$upstream"
+        bash scripts/update-project.sh --apply --project "$target" --local-upstream "$upstream"
     ) > "$cap/stdout.txt" 2> "$cap/stderr.txt" || rc=$?
     target_after=$(tree_digest "$target")
     [ "$rc" -eq 1 ] || problems="$problems rc=$rc;"
@@ -998,6 +1104,13 @@ test_apply_rules_no_settings
 test_apply_rules_only_first
 test_apply_rules_only_second
 test_dry_run_without_rules
+test_apply_rules_in_allow
+test_apply_rules_other_key
+test_apply_settings_not_json
+test_apply_settings_is_directory
+test_project_quoted_version
+test_project_quote_and_dollar_path
+test_project_minified_manifest
 test_project_listed_script_missing_upstream
 
 echo ""
