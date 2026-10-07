@@ -13,7 +13,6 @@
 # Requires: gh CLI (authenticated), sha256sum
 # --diff-upstream requires neither — it reads a local upstream cache (see --help)
 # --local-upstream requires neither — it substitutes DIR for the release tarball (see --help)
-# Run from project root.
 
 set -euo pipefail
 
@@ -92,7 +91,8 @@ if [ "$PROJECT_GIVEN" = true ]; then
     # Physical path: a symlink to this checkout must not slip past the own-root check.
     PROJECT_ROOT="$(CDPATH= cd -- "$PROJECT_DIR" && pwd -P)"
     OWN_ROOT="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-    if [ "$PROJECT_ROOT" = "$OWN_ROOT" ]; then
+    # -ef also catches a differently-cased spelling on a case-insensitive filesystem.
+    if [ "$PROJECT_ROOT" = "$OWN_ROOT" ] || [ "$PROJECT_ROOT" -ef "$OWN_ROOT" ]; then
         echo "ERROR: --project points at this checkout ($PROJECT_ROOT). Omit --project to update it." >&2
         exit 1
     fi
@@ -576,6 +576,7 @@ verify_template_scripts_list() {
     printf '%s' "$missing_files" >&2
     echo "This usually means a stale upstream cache (\$PROJECT_OS_UPSTREAM_CACHE, default ~/.project-os-upstream-cache) that predates one of these scripts. Refresh it with a git pull in the cache dir (the same pull the pre-push hook runs) and retry before assuming TEMPLATE_SCRIPTS itself is wrong." >&2
     echo "If the cache is current, fix TEMPLATE_SCRIPTS in scripts/update-project.sh (and the sibling list in scripts/generate-manifest.sh)." >&2
+    echo "This also happens when this updater is newer than the release it is installing; with --project, run it from a checkout at that release's tag." >&2
     return 1
 }
 
@@ -773,6 +774,9 @@ if [ "$conflicts" -gt 0 ]; then
     echo "Skipping manifest regeneration — $conflicts conflict(s) need resolution first."
 else
     echo "Regenerating manifest..."
+    # The children below find their project from the working directory
+    # (system-map.ts walks up from process.cwd()), so run them at the project root.
+    cd -- "$PROJECT_ROOT"
     bash "$PROJECT_ROOT/scripts/generate-manifest.sh" "${CHOSEN#v}"
 
     # --- Step 10: Verify system map integrity ---
@@ -806,6 +810,10 @@ if [ "$conflicts" -gt 0 ]; then
     echo "  1. Review each .upstream file against your local version"
     echo "  2. Merge changes you want to keep"
     echo "  3. Delete the .upstream files when done"
-    echo "  4. Run: bash scripts/generate-manifest.sh ${CHOSEN#v}"
+    if [ "$PROJECT_GIVEN" = true ]; then
+        echo "  4. Run: bash \"$PROJECT_ROOT/scripts/generate-manifest.sh\" ${CHOSEN#v}"
+    else
+        echo "  4. Run: bash scripts/generate-manifest.sh ${CHOSEN#v}"
+    fi
     echo "     (to update manifest after resolving conflicts)"
 fi

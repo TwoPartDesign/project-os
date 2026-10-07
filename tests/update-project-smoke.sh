@@ -316,6 +316,11 @@ new_upstream() {
     while IFS= read -r f; do
         printf '# stub\n' > "$up/scripts/$(basename "$f")"
     done < <(find "$REPO_ROOT/scripts" -maxdepth 1 -type f \( -name '*.sh' -o -name '*.ts' \))
+    # The two children the updater runs on --apply leave a marker in their
+    # working directory, so a case can tell where they ran. The map stub is
+    # called twice (check, then check --heal) and exits 0 each time.
+    printf '#!/usr/bin/env bash\n: > manifest-ran.marker\n' > "$up/scripts/generate-manifest.sh"
+    printf 'require("fs").writeFileSync(require("path").join(process.cwd(), "map-ran.marker"), "");\nprocess.exit(0);\n' > "$up/scripts/system-map.ts"
     printf '%s' "$up"
 }
 
@@ -552,6 +557,181 @@ test_project_diff_upstream_hint() {
     fi
 }
 
+# make_apply_fixture LOCAL_CONTENT -- set FX_ROOT (framework root), FX_WORK,
+# FX_TARGET (its path holds a space, with a .gitignore), FX_UPSTREAM, FX_THIRD
+# (a directory that is neither root nor target) and FX_CAP (capture files).
+# scripts/memory-search.sh is "old\n" in the manifest and holds LOCAL_CONTENT
+# locally: "old\n" makes it a safe update, anything else a conflict. Plain
+# assignments, not command substitution, so each case builds its own set.
+make_apply_fixture() {
+    local local_content="$1" old_hash
+    FX_ROOT=$(new_root); FX_WORK=$(new_scratch); FX_THIRD=$(new_scratch); FX_CAP=$(new_scratch)
+    FX_TARGET="$FX_WORK/my project"; FX_UPSTREAM="$FX_WORK/upstream"
+    new_target v0.9 "$FX_TARGET" > /dev/null
+    new_upstream "$FX_UPSTREAM" > /dev/null
+    # Upstream carries the updater itself, so the target's copy is unchanged.
+    cp "$UPDATE_SH" "$FX_UPSTREAM/scripts/update-project.sh"
+    printf 'old\n' > "$FX_WORK/old.txt"
+    old_hash=$(sha256sum "$FX_WORK/old.txt" | cut -d' ' -f1)
+    printf '%s' "$local_content" > "$FX_TARGET/scripts/memory-search.sh"
+    printf 'node_modules/\n' > "$FX_TARGET/.gitignore"
+    printf '{\n  "project_os_version": "v0.9",\n  "files": {\n    "scripts/memory-search.sh": "%s"\n  }\n}\n' \
+        "$old_hash" > "$FX_TARGET/.claude/manifest.json"
+}
+
+# marker_report DIR... -- print which of the two marker files exist under each DIR.
+marker_report() {
+    local d
+    for d in "$@"; do
+        printf '%s: manifest=%s map=%s; ' "$d" \
+            "$([ -e "$d/manifest-ran.marker" ] && echo yes || echo no)" \
+            "$([ -e "$d/map-ran.marker" ] && echo yes || echo no)"
+    done
+}
+
+# --- updateProject_projectFlagApply_writesTargetOnly ---
+test_project_apply_writes_target_only() {
+    local name="updateProject_projectFlagApply_writesTargetOnly"
+    local rc=0 problems="" root_before root_after f rel
+    make_apply_fixture $'old\n'
+    root_before=$(tree_digest "$FX_ROOT")
+    (
+        cd "$FX_THIRD" || exit 99
+        bash "$FX_ROOT/scripts/update-project.sh" --apply --project "$FX_TARGET" --local-upstream "$FX_UPSTREAM"
+    ) > "$FX_CAP/stdout.txt" 2> "$FX_CAP/stderr.txt" || rc=$?
+    root_after=$(tree_digest "$FX_ROOT")
+    [ "$rc" -eq 0 ] || problems="$problems rc=$rc;"
+    # Updated (memory-search.sh) and new files are byte-identical to upstream.
+    while IFS= read -r f; do
+        rel="${f#"$FX_UPSTREAM"/}"
+        cmp -s "$f" "$FX_TARGET/$rel" || problems="$problems $rel differs from upstream;"
+    done < <(find "$FX_UPSTREAM/scripts" -maxdepth 1 -type f)
+    compgen -G "$FX_TARGET/.claude/backups/pre-update-*" > /dev/null || problems="$problems no pre-update backup in the target;"
+    grep -qxF '.claude/backups/' "$FX_TARGET/.gitignore" || problems="$problems .gitignore lacks the backups block;"
+    [ "$root_before" = "$root_after" ] || problems="$problems framework root changed;"
+    if [ -z "$problems" ]; then
+        pass "$name"
+    else
+        fail "$name ($problems stdout: $(cat "$FX_CAP/stdout.txt"); stderr: $(cat "$FX_CAP/stderr.txt"))"
+    fi
+}
+
+# --- updateProject_projectFlagApply_childrenRunInTarget ---
+test_project_apply_children_run_in_target() {
+    local name="updateProject_projectFlagApply_childrenRunInTarget"
+    local rc=0 problems=""
+    if ! command -v node &>/dev/null; then
+        echo "  SKIP: $name (node not found)"
+        return 0
+    fi
+    make_apply_fixture $'old\n'
+    (
+        cd "$FX_THIRD" || exit 99
+        bash "$FX_ROOT/scripts/update-project.sh" --apply --project "$FX_TARGET" --local-upstream "$FX_UPSTREAM"
+    ) > "$FX_CAP/stdout.txt" 2> "$FX_CAP/stderr.txt" || rc=$?
+    [ "$rc" -eq 0 ] || problems="$problems rc=$rc;"
+    [ -e "$FX_TARGET/manifest-ran.marker" ] || problems="$problems manifest child did not run in the target;"
+    [ -e "$FX_TARGET/map-ran.marker" ] || problems="$problems map child did not run in the target;"
+    if [ -e "$FX_ROOT/manifest-ran.marker" ] || [ -e "$FX_ROOT/map-ran.marker" ] \
+        || [ -e "$FX_THIRD/manifest-ran.marker" ] || [ -e "$FX_THIRD/map-ran.marker" ]; then
+        problems="$problems a marker exists outside the target;"
+    fi
+    if [ -z "$problems" ]; then
+        pass "$name"
+    else
+        fail "$name ($problems $(marker_report "$FX_TARGET" "$FX_ROOT" "$FX_THIRD") stderr: $(cat "$FX_CAP/stderr.txt"))"
+    fi
+}
+
+# --- updateProject_projectFlagApplyConflict_upstreamCopyInTargetManifestSkipped ---
+test_project_apply_conflict() {
+    local name="updateProject_projectFlagApplyConflict_upstreamCopyInTargetManifestSkipped"
+    local rc=0 problems="" phys
+    make_apply_fixture $'mine\n'
+    phys=$(cd "$FX_TARGET" && pwd -P)
+    (
+        cd "$FX_THIRD" || exit 99
+        bash "$FX_ROOT/scripts/update-project.sh" --apply --project "$FX_TARGET" --local-upstream "$FX_UPSTREAM"
+    ) > "$FX_CAP/stdout.txt" 2> "$FX_CAP/stderr.txt" || rc=$?
+    [ "$rc" -eq 0 ] || problems="$problems rc=$rc;"
+    cmp -s "$FX_UPSTREAM/scripts/memory-search.sh" "$FX_TARGET/scripts/memory-search.sh.upstream" \
+        || problems="$problems .upstream copy does not hold upstream's content;"
+    [ "$(cat "$FX_TARGET/scripts/memory-search.sh")" = "mine" ] || problems="$problems local file changed;"
+    if [ -e "$FX_TARGET/manifest-ran.marker" ] || [ -e "$FX_TARGET/map-ran.marker" ] \
+        || [ -e "$FX_ROOT/manifest-ran.marker" ] || [ -e "$FX_ROOT/map-ran.marker" ] \
+        || [ -e "$FX_THIRD/manifest-ran.marker" ] || [ -e "$FX_THIRD/map-ran.marker" ]; then
+        problems="$problems a marker exists after a conflict;"
+    fi
+    grep -qF "Skipping manifest regeneration" "$FX_CAP/stdout.txt" || problems="$problems no 'Skipping manifest regeneration';"
+    grep -qxF "  4. Run: bash \"$phys/scripts/generate-manifest.sh\" local:upstream" "$FX_CAP/stdout.txt" \
+        || problems="$problems step 4 line lacks the target's absolute path;"
+    if [ -z "$problems" ]; then
+        pass "$name"
+    else
+        fail "$name ($problems stdout: $(cat "$FX_CAP/stdout.txt"); stderr: $(cat "$FX_CAP/stderr.txt"))"
+    fi
+}
+
+# --- updateProject_noFlagFromOtherCwd_childrenRunInProject ---
+# Without the flag the children still run at the project root, not at the cwd
+# the updater was started from.
+test_no_flag_from_other_cwd() {
+    local name="updateProject_noFlagFromOtherCwd_childrenRunInProject"
+    local rc=0 problems=""
+    if ! command -v node &>/dev/null; then
+        echo "  SKIP: $name (node not found)"
+        return 0
+    fi
+    make_apply_fixture $'old\n'
+    (
+        cd "$FX_THIRD" || exit 99
+        bash "$FX_TARGET/scripts/update-project.sh" --apply --local-upstream "$FX_UPSTREAM"
+    ) > "$FX_CAP/stdout.txt" 2> "$FX_CAP/stderr.txt" || rc=$?
+    [ "$rc" -eq 0 ] || problems="$problems rc=$rc;"
+    [ -e "$FX_TARGET/manifest-ran.marker" ] || problems="$problems manifest child did not run in the project;"
+    [ -e "$FX_TARGET/map-ran.marker" ] || problems="$problems map child did not run in the project;"
+    if [ -e "$FX_THIRD/manifest-ran.marker" ] || [ -e "$FX_THIRD/map-ran.marker" ]; then
+        problems="$problems a marker exists in the starting directory;"
+    fi
+    if [ -z "$problems" ]; then
+        pass "$name"
+    else
+        fail "$name ($problems $(marker_report "$FX_TARGET" "$FX_THIRD") stderr: $(cat "$FX_CAP/stderr.txt"))"
+    fi
+}
+
+# --- updateProject_projectFlagOwnRootCaseVariant_refused ---
+# On a case-insensitive filesystem a differently-cased spelling of this
+# checkout resolves to the same directory but compares unequal as a string;
+# the own-root check must still refuse it.
+test_project_own_root_case_variant() {
+    local name="updateProject_projectFlagOwnRootCaseVariant_refused"
+    local root phys variant cap rc=0 err root_before root_after
+    root=$(new_root); cap=$(new_scratch)
+    phys=$(cd "$root" && pwd -P)
+    variant="$(dirname "$phys")/$(basename "$phys" | tr '[:lower:]' '[:upper:]')"
+    if [ "$variant" = "$phys" ] || [ ! -d "$variant" ]; then
+        echo "  SKIP: $name (case-sensitive filesystem)"
+        return 0
+    fi
+    root_before=$(tree_digest "$root")
+    (
+        cd "$root" || exit 99
+        bash scripts/update-project.sh --project "$variant"
+    ) > "$cap/stdout.txt" 2> "$cap/stderr.txt" || rc=$?
+    err=$(cat "$cap/stderr.txt")
+    root_after=$(tree_digest "$root")
+    # Match the fixed text around the path, not the path's letter case.
+    if [ "$rc" -eq 1 ] \
+        && [[ "$err" == "ERROR: --project points at this checkout ("*"). Omit --project to update it." ]] \
+        && [ ! -s "$cap/stdout.txt" ] \
+        && [ "$root_before" = "$root_after" ]; then
+        pass "$name"
+    else
+        fail "$name (rc=$rc; variant: $variant; stdout: $(cat "$cap/stdout.txt"); stderr: $err)"
+    fi
+}
+
 if [ "$HAVE_PYTHON3" = true ]; then
     test_clean
     test_symlink_escape
@@ -576,6 +756,11 @@ test_project_manifest_without_version
 test_project_symlinked_dir
 test_project_dry_run
 test_project_diff_upstream_hint
+test_project_apply_writes_target_only
+test_project_apply_children_run_in_target
+test_project_apply_conflict
+test_no_flag_from_other_cwd
+test_project_own_root_case_variant
 
 echo ""
 if [ "$FAIL_COUNT" -eq 0 ]; then
