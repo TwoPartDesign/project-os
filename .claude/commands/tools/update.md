@@ -12,7 +12,7 @@ Check the upstream Project OS repository for compatible updates and apply them s
    - **Unchanged**: Already current or user-customized with no upstream changes
 3. If the user approves, run `bash scripts/update-project.sh --apply`
 4. For conflicts, help the user diff and merge `.upstream` files
-5. After resolving, regenerate manifest: `bash scripts/generate-manifest.sh`
+5. After resolving, regenerate the manifest with the version the updater printed in its "Next steps": `bash scripts/generate-manifest.sh <version>`. Without the version the manifest takes the project's own latest git tag, or "unknown"
 
 ## Flags (pass via $ARGUMENTS)
 
@@ -20,6 +20,7 @@ Check the upstream Project OS repository for compatible updates and apply them s
 - `--major` — allow major version upgrades (default: same major only)
 - `--hooks-only` — sync only hooks and settings.json from the template repo (no version check, no gh required)
 - `--diff-upstream` — show upstream commits not yet adopted, grouped by area (no version check, no gh required — see below)
+- `--project DIR` — update another Project OS project from this checkout (see below)
 
 ## --hooks-only Mode
 
@@ -52,6 +53,21 @@ When `--diff-upstream` is passed via $ARGUMENTS:
 1. Run `bash scripts/update-project.sh --diff-upstream`
 2. Present the grouped commit list to the user
 3. This mode is read-only — it never modifies files. Use `--target` + `--apply`, or manual cherry-picking, to actually adopt anything.
+
+## Updating another project (`--project DIR`)
+
+`bash scripts/update-project.sh --project DIR` runs this checkout's updater against the Project OS project at DIR. Use it when a project's own updater is too old to trust: the updater in this checkout decides what the update may change, not the one in the project.
+
+- It is for a project you own. On `--apply` with no conflicts, the target's own `scripts/generate-manifest.sh` and `scripts/system-map.ts` run. It is not a way to vet an unknown repository.
+- Run it from a checkout at the release tag you are installing. An updater that lists a script the release lacks exits 1.
+- Use the published release. A Windows checkout passed as `--local-upstream` misclassifies files on line endings.
+- `--apply` under the flag always asks for confirmation (an `ask` rule in `.claude/settings.json`). A dry run does not.
+- A project with no `.claude/manifest.json` is refused. Bring it in with `bash scripts/new-project.sh --adopt DIR` instead.
+
+When `--project` is passed via $ARGUMENTS:
+1. Run the dry run first: `bash scripts/update-project.sh --project "DIR"`, with `--target` or `--major` as given
+2. Show the report, including its `Project:` line, and confirm the target with the user
+3. Only then run it again with `--apply`
 
 ## Important
 
