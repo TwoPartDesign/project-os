@@ -17,10 +17,23 @@
   check now run with the project as their working directory, with or without the flag.
   Started from another directory, the map check used to inspect whatever project the
   caller stood in (#T264).
-- **A cross-project apply asks first** — `.claude/settings.json` gains two `ask` rules for
-  `--project` with `--apply`. They match the command as written (`bash
-  scripts/update-project.sh …` from the checkout root), so they stop an unreviewed apply
-  and are not a boundary around the script. Dry runs stay pre-approved (#T265).
+- **A cross-project apply asks first** — `.claude/settings.json` gains `ask` rules for
+  `--project` with `--apply`, in either order, also when the script is named by another
+  path (`./scripts/…`, an absolute path). They match the command text of the Bash tool, so
+  they stop an unreviewed apply and are not a boundary around the script. Dry runs stay
+  pre-approved. The updater itself refuses `--project` with `--apply` unless
+  `permissions.ask` in the running checkout's `.claude/settings.json` holds the two
+  path-independent rules, so a project whose settings were never merged cannot use the
+  flag to write (#T265, #T271).
+- **`sync-hooks.sh <target>` asks first** — an `ask` rule prompts before
+  `bash scripts/sync-hooks.sh <target>` writes hooks and settings wiring into another
+  project. A sync of the checkout itself stays pre-approved. The script does not check for
+  the rule, so a project whose `settings.json` conflict is unmerged has no prompt yet
+  (#T271, #T260).
+- **Updater hardening** — the manifest check requires a `project_os_version` key with a
+  value, the temp directory is removed even when `TMPDIR` is relative, a printed command
+  quotes a project path or version that holds shell characters, and the current version
+  is read correctly from a one-line manifest (#T269).
 
 ### Migration
 - To update a project, run `bash scripts/update-project.sh --project <dir>` from a Project
@@ -30,7 +43,8 @@
   files on line endings.
 - A project with no `.claude/manifest.json` is not covered by `--project`. Bring it in with
   `bash scripts/new-project.sh --adopt <dir>`.
-- `.claude/settings.json` changed. Where it conflicts, merge the `ask` block by hand.
+- `.claude/settings.json` changed. Where it conflicts, merge the `ask` block by hand. Until
+  you do, that project's updater refuses `--project` with `--apply`.
 
 ## v3.1.1 — 2026-10-06 — v3.1 known gaps closed
 

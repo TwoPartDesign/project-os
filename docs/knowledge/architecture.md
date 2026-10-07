@@ -94,7 +94,7 @@ Hook commands in `settings.json` use `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/<x
 | `skill-ledger.ts` | Sole sanitizing writer for `docs/knowledge/skill-edit-rejections.md` — one entry per rejected skill-edit proposal (fingerprint, summary, reason), fixed-string dedup, atomic write |
 | `sync-hooks.sh` | Sync hooks from the template to a target project |
 | `system-map.ts` | Generate/check/report the framework wiring map (`docs/maps/`) |
-| `update-project.sh` | Check for and apply Project OS updates from upstream; `--local-upstream <dir>` sources the template from a local directory instead of a `gh` release, for offline updates and offline testing of the classification loop; `--project <dir>` runs this checkout's updater against another Project OS project (a manifest is required, and a cross-project `--apply` asks first) |
+| `update-project.sh` | Check for and apply Project OS updates from upstream; `--local-upstream <dir>` sources the template from a local directory instead of a `gh` release, for offline updates and offline testing of the classification loop; `--project <dir>` runs this checkout's updater against another Project OS project (a manifest is required; a cross-project `--apply` asks first and is refused unless this checkout's settings hold the `ask` rules) |
 | `validate-freshness.sh` | Wrapper for knowledge-index freshness validation |
 | `validate-roadmap.sh` | Validate ROADMAP.md format, deps, cycles, consistency |
 
