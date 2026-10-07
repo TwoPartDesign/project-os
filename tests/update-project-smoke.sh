@@ -557,16 +557,17 @@ test_project_diff_upstream_hint() {
     fi
 }
 
-# make_apply_fixture LOCAL_CONTENT -- set FX_ROOT (framework root), FX_WORK,
-# FX_TARGET (its path holds a space, with a .gitignore), FX_UPSTREAM, FX_THIRD
-# (a directory that is neither root nor target) and FX_CAP (capture files).
+# make_apply_fixture LOCAL_CONTENT [TARGET_NAME] -- set FX_ROOT (framework
+# root), FX_WORK, FX_TARGET (named TARGET_NAME, default "my project", so its
+# path holds a space; with a .gitignore), FX_UPSTREAM, FX_THIRD (a directory
+# that is neither root nor target) and FX_CAP (capture files).
 # scripts/memory-search.sh is "old\n" in the manifest and holds LOCAL_CONTENT
 # locally: "old\n" makes it a safe update, anything else a conflict. Plain
 # assignments, not command substitution, so each case builds its own set.
 make_apply_fixture() {
     local local_content="$1" old_hash
     FX_ROOT=$(new_root); FX_WORK=$(new_scratch); FX_THIRD=$(new_scratch); FX_CAP=$(new_scratch)
-    FX_TARGET="$FX_WORK/my project"; FX_UPSTREAM="$FX_WORK/upstream"
+    FX_TARGET="$FX_WORK/${2:-my project}"; FX_UPSTREAM="$FX_WORK/upstream"
     new_target v0.9 "$FX_TARGET" > /dev/null
     new_upstream "$FX_UPSTREAM" > /dev/null
     # Upstream carries the updater itself, so the target's copy is unchanged.
@@ -732,6 +733,88 @@ test_project_own_root_case_variant() {
     fi
 }
 
+# --- updateProject_projectFlagManifestTokenAsValue_refused ---
+# The token as a value is not the key: {"note": "project_os_version"} is no manifest.
+test_project_manifest_token_as_value() {
+    local target
+    target=$(new_scratch)
+    mkdir -p "$target/.claude"
+    printf '{"note": "project_os_version"}\n' > "$target/.claude/manifest.json"
+    refusal_case "updateProject_projectFlagManifestTokenAsValue_refused" \
+        "$(not_a_project_msg "$target")" "$(new_root)" "$target" --project "$target"
+}
+
+# --- updateProject_projectFlagManifestEmptyVersion_refused ---
+test_project_manifest_empty_version() {
+    local target
+    target=$(new_scratch)
+    mkdir -p "$target/.claude"
+    printf '{"project_os_version": ""}\n' > "$target/.claude/manifest.json"
+    refusal_case "updateProject_projectFlagManifestEmptyVersion_refused" \
+        "$(not_a_project_msg "$target")" "$(new_root)" "$target" --project "$target"
+}
+
+# --- updateProject_projectFlagSpecialCharPath_commandsSingleQuoted ---
+# A project directory named a$(echo INJ)b must come out single-quoted in both
+# printed copy-paste commands, so pasting them expands nothing.
+test_project_special_char_path() {
+    local name="updateProject_projectFlagSpecialCharPath_commandsSingleQuoted"
+    local problems="" phys rc_hint=0 rc_apply=0
+    make_apply_fixture $'mine\n' 'a$(echo INJ)b'
+    phys=$(cd "$FX_TARGET" && pwd -P)
+    (
+        cd "$FX_THIRD" || exit 99
+        PROJECT_OS_UPSTREAM_CACHE="$FX_CAP/no-such-cache" \
+            bash "$FX_ROOT/scripts/update-project.sh" --diff-upstream --project "$FX_TARGET"
+    ) > "$FX_CAP/hint-stdout.txt" 2> "$FX_CAP/hint-stderr.txt" || rc_hint=$?
+    (
+        cd "$FX_THIRD" || exit 99
+        bash "$FX_ROOT/scripts/update-project.sh" --apply --project "$FX_TARGET" --local-upstream "$FX_UPSTREAM"
+    ) > "$FX_CAP/apply-stdout.txt" 2> "$FX_CAP/apply-stderr.txt" || rc_apply=$?
+    [ "$rc_hint" -eq 0 ] || problems="$problems hint rc=$rc_hint;"
+    [ "$rc_apply" -eq 0 ] || problems="$problems apply rc=$rc_apply;"
+    grep -qxF "Then re-run: bash scripts/update-project.sh --diff-upstream --project '$phys'" "$FX_CAP/hint-stdout.txt" \
+        || problems="$problems re-run hint is not single-quoted;"
+    grep -qxF "  4. Run: bash '$phys/scripts/generate-manifest.sh' local:upstream" "$FX_CAP/apply-stdout.txt" \
+        || problems="$problems step 4 is not single-quoted;"
+    if [ -z "$problems" ]; then
+        pass "$name"
+    else
+        fail "$name ($problems hint stdout: $(cat "$FX_CAP/hint-stdout.txt"); apply stdout: $(cat "$FX_CAP/apply-stdout.txt"))"
+    fi
+}
+
+# --- updateProject_relativeTmpdirApply_noTempDirLeftBehind ---
+# A relative TMPDIR is resolved against the project root once the updater has
+# cd'd there before Step 9, which orphaned the temp dir. Started from another
+# directory with a relative TMPDIR, nothing may be left behind.
+test_relative_tmpdir_cleanup() {
+    local name="updateProject_relativeTmpdirApply_noTempDirLeftBehind"
+    local root start repo rc=0 problems=""
+    root=$(new_root); start=$(new_scratch); repo=$(new_scratch)
+    mkdir -p "$repo/.claude" "$start/reltmp"
+    printf 'name: x\n' > "$repo/.claude/maintenance-policy.yaml"
+    git -C "$repo" init -q
+    git -C "$repo" add -A
+    git -C "$repo" -c user.name=t -c user.email=t@example.com commit -q -m init
+    git -C "$repo" archive --format=tar.gz --prefix=proj-1.1/ HEAD -o "$start/a.tar.gz"
+    # Step 9 needs a manifest generator in the project.
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$root/scripts/generate-manifest.sh"
+    (
+        cd "$start" || exit 99
+        PATH="$root/bin:$PATH" TMPDIR=reltmp GH_STUB_ARCHIVE="$start/a.tar.gz" \
+            bash "$root/scripts/update-project.sh" --apply
+    ) > "$start/stdout.txt" 2> "$start/stderr.txt" || rc=$?
+    [ "$rc" -eq 0 ] || problems="$problems rc=$rc;"
+    [ -f "$root/.claude/maintenance-policy.yaml" ] || problems="$problems apply did not reach the project;"
+    [ -z "$(ls -A "$start/reltmp")" ] || problems="$problems left behind: $(ls -A "$start/reltmp");"
+    if [ -z "$problems" ]; then
+        pass "$name"
+    else
+        fail "$name ($problems stdout: $(cat "$start/stdout.txt"); stderr: $(cat "$start/stderr.txt"))"
+    fi
+}
+
 if [ "$HAVE_PYTHON3" = true ]; then
     test_clean
     test_symlink_escape
@@ -761,6 +844,10 @@ test_project_apply_children_run_in_target
 test_project_apply_conflict
 test_no_flag_from_other_cwd
 test_project_own_root_case_variant
+test_project_manifest_token_as_value
+test_project_manifest_empty_version
+test_project_special_char_path
+test_relative_tmpdir_cleanup
 
 echo ""
 if [ "$FAIL_COUNT" -eq 0 ]; then

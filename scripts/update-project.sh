@@ -89,7 +89,10 @@ if [ "$PROJECT_GIVEN" = true ]; then
         exit 1
     fi
     # Physical path: a symlink to this checkout must not slip past the own-root check.
-    PROJECT_ROOT="$(CDPATH= cd -- "$PROJECT_DIR" && pwd -P)"
+    if ! PROJECT_ROOT="$(CDPATH= cd -- "$PROJECT_DIR" 2>/dev/null && pwd -P)"; then
+        echo "ERROR: --project cannot be entered: $PROJECT_DIR" >&2
+        exit 1
+    fi
     OWN_ROOT="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
     # -ef also catches a differently-cased spelling on a case-insensitive filesystem.
     if [ "$PROJECT_ROOT" = "$OWN_ROOT" ] || [ "$PROJECT_ROOT" -ef "$OWN_ROOT" ]; then
@@ -98,14 +101,26 @@ if [ "$PROJECT_GIVEN" = true ]; then
     fi
     # project_os_version is written only by generate-manifest.sh, so it marks a
     # project that already runs Project OS (a bare .claude/ directory does not).
+    # The key must carry a non-empty string value; the token as a value does not count.
     if [ ! -f "$PROJECT_ROOT/.claude/manifest.json" ] \
-        || ! grep -q '"project_os_version"' "$PROJECT_ROOT/.claude/manifest.json"; then
+        || ! grep -Eq '"project_os_version"[[:space:]]*:[[:space:]]*"[^"]+"' "$PROJECT_ROOT/.claude/manifest.json"; then
         echo "ERROR: $PROJECT_ROOT is not a Project OS project with a manifest (.claude/manifest.json with a project_os_version is required)." >&2
         echo "For a repository without one, see: bash scripts/new-project.sh --adopt <dir>" >&2
         exit 1
     fi
 fi
 MANIFEST="$PROJECT_ROOT/.claude/manifest.json"
+
+# quote_for_paste PATH -- print PATH quoted for pasting into a shell. An ordinary
+# path keeps double quotes; one holding $, a backtick, a double quote or a
+# backslash is single-quoted (embedded single quotes escaped) so nothing expands.
+quote_for_paste() {
+    local sq="'"
+    case "$1" in
+        *[\$\`\"\\]*) printf "'%s'" "${1//$sq/$sq\\$sq$sq}" ;;
+        *) printf '"%s"' "$1" ;;
+    esac
+}
 
 # --- Version parsing helpers ---
 
@@ -176,7 +191,7 @@ if [ "$DIFF_UPSTREAM" = true ]; then
         echo "  git clone https://github.com/$UPSTREAM.git \"$UPSTREAM_CACHE\""
         echo "Refresh it later with: git -C \"$UPSTREAM_CACHE\" pull"
         if [ "$PROJECT_GIVEN" = true ]; then
-            echo "Then re-run: bash scripts/update-project.sh --diff-upstream --project \"$PROJECT_ROOT\""
+            echo "Then re-run: bash scripts/update-project.sh --diff-upstream --project $(quote_for_paste "$PROJECT_ROOT")"
         else
             echo "Then re-run: bash scripts/update-project.sh --diff-upstream"
         fi
@@ -367,6 +382,9 @@ else
     # --- Step 4: Download release archive ---
 
     TMPDIR=$(mktemp -d)
+    # A relative TMPDIR yields a relative path; make it absolute before the cd
+    # before Step 9 can resolve it against the project root and orphan the directory.
+    TMPDIR=$(CDPATH= cd -- "$TMPDIR" && pwd)
     trap 'rm -rf "$TMPDIR"' EXIT
 
     echo "Downloading $CHOSEN..."
@@ -811,7 +829,7 @@ if [ "$conflicts" -gt 0 ]; then
     echo "  2. Merge changes you want to keep"
     echo "  3. Delete the .upstream files when done"
     if [ "$PROJECT_GIVEN" = true ]; then
-        echo "  4. Run: bash \"$PROJECT_ROOT/scripts/generate-manifest.sh\" ${CHOSEN#v}"
+        echo "  4. Run: bash $(quote_for_paste "$PROJECT_ROOT/scripts/generate-manifest.sh") ${CHOSEN#v}"
     else
         echo "  4. Run: bash scripts/generate-manifest.sh ${CHOSEN#v}"
     fi
