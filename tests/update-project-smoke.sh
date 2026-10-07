@@ -21,7 +21,9 @@ UPDATE_SH="$REPO_ROOT/scripts/update-project.sh"
 FAIL_COUNT=0
 # One suite temp parent, created here and not inside $(...), so the EXIT trap
 # removes every directory the helpers make beneath it.
-SUITE_TMP=$(mktemp -d)
+# Normalised with cd/pwd so a drive-letter TMPDIR cannot put a colon into the
+# PATH entry that carries the gh stub.
+SUITE_TMP=$(cd "$(mktemp -d)" && pwd)
 
 pass() { printf 'PASS: %s\n' "$1"; }
 fail() {
@@ -119,10 +121,17 @@ PY
 
 # run_update ROOT ARCHIVE -- run the copied script; sets RUN_OUT / RUN_ERR / RUN_RC.
 run_update() {
-    local root="$1" archive="$2"
+    local root="$1" archive="$2" resolved
     RUN_OUT="$root/stdout.txt"
     RUN_ERR="$root/stderr.txt"
     RUN_RC=0
+    # The archive cases are only meaningful when the stub is the gh that runs.
+    resolved=$(PATH="$root/bin:$PATH" command -v gh)
+    if [ "$resolved" != "$root/bin/gh" ]; then
+        fail "run_update: gh resolves to '$resolved', not the stub under $root/bin"
+        : > "$RUN_OUT"; : > "$RUN_ERR"; RUN_RC=99
+        return 0
+    fi
     # TMPDIR is pinned inside the root so the script's own mktemp is contained.
     mkdir -p "$root/tmp"
     (
@@ -320,13 +329,20 @@ new_upstream() {
     # working directory, so a case can tell where they ran. The map stub is
     # called twice (check, then check --heal) and exits 0 each time.
     printf '#!/usr/bin/env bash\n: > manifest-ran.marker\n' > "$up/scripts/generate-manifest.sh"
-    printf 'require("fs").writeFileSync(require("path").join(process.cwd(), "map-ran.marker"), "");\nprocess.exit(0);\n' > "$up/scripts/system-map.ts"
+    # getBuiltinModule, not require: a .ts file breaks under a "type": "module" package.
+    printf 'const fs = process.getBuiltinModule("fs");\nfs.writeFileSync(process.cwd() + "/map-ran.marker", "");\nprocess.exit(0);\n' > "$up/scripts/system-map.ts"
     printf '%s' "$up"
 }
 
-# tree_digest DIR -- the sorted sha256sum of every file under DIR.
+# tree_digest DIR -- the sorted sha256sum of every file under DIR, plus a line
+# for every directory and symlink, so a tree of directories alone is not "".
+# When it cannot hash, it prints a unique failure token (two failed digests
+# never compare equal) and returns non-zero.
 tree_digest() {
-    (cd "$1" && find . -type f -exec sha256sum {} + | sort)
+    (
+        cd "$1" || exit 1
+        { find . -type f -exec sha256sum {} + && find . \( -type d -o -type l \) -exec printf 'entry %s\n' {} + ; } | sort
+    ) || { printf 'DIGEST-FAILED %s%s\n' "$RANDOM" "$RANDOM"; return 1; }
 }
 
 # refusal_case NAME MESSAGE ROOT TARGET ARG... -- run ROOT's copied updater with
@@ -346,9 +362,12 @@ refusal_case() {
     ) > "$cap/stdout.txt" 2> "$cap/stderr.txt" || rc=$?
     root_after=$(tree_digest "$root")
     if [ -n "$target" ]; then target_after=$(tree_digest "$target"); fi
+    # An empty before-digest would make "unchanged" vacuous.
     if [ "$rc" -eq 1 ] \
         && [ "$(cat "$cap/stderr.txt")" = "$msg" ] \
         && [ ! -s "$cap/stdout.txt" ] \
+        && [ -n "$root_before" ] \
+        && { [ -z "$target" ] || [ -n "$target_before" ]; } \
         && [ "$root_before" = "$root_after" ] \
         && [ "$target_before" = "$target_after" ]; then
         pass "$name"
@@ -468,6 +487,11 @@ test_project_symlinked_dir() {
         fail "$name (symlink to a valid target: rc=$rc; stderr: $(cat "$cap/ok-stderr.txt"))"
         return 0
     fi
+    # Passing validation is not enough: the run must report the resolved target.
+    if ! grep -qxF "Project: $(cd "$target" && pwd -P)" "$cap/ok-stdout.txt"; then
+        fail "$name (symlink to a valid target: no 'Project: <physical target>' line; stdout: $(cat "$cap/ok-stdout.txt"))"
+        return 0
+    fi
     phys=$(cd "$root" && pwd -P)
     refusal_case "$name" \
         "ERROR: --project points at this checkout ($phys). Omit --project to update it." \
@@ -495,6 +519,13 @@ test_project_dry_run() {
     cp "$upstream/scripts/audit-context.sh" "$target/scripts/audit-context.sh"
     printf '{\n  "project_os_version": "v0.9",\n  "files": {\n    "scripts/memory-search.sh": "%s"\n  }\n}\n' \
         "$old_hash" > "$target/.claude/manifest.json"
+    # Booby traps: the target's own generate-manifest.sh, system-map.ts and a
+    # hook each write a marker into their working directory if they ever run.
+    # A dry run must execute nothing from the target.
+    printf '#!/usr/bin/env bash\n: > booby-manifest.marker\n' > "$target/scripts/generate-manifest.sh"
+    printf 'const fs = process.getBuiltinModule("fs");\nfs.writeFileSync(process.cwd() + "/booby-map.marker", "");\nprocess.exit(0);\n' > "$target/scripts/system-map.ts"
+    mkdir -p "$target/.claude/hooks"
+    printf '#!/usr/bin/env bash\n: > booby-hook.marker\n' > "$target/.claude/hooks/booby.sh"
     cp -R "$target" "$twin"
     phys=$(cd "$target" && pwd -P)
     root_before=$(tree_digest "$root"); target_before=$(tree_digest "$target")
@@ -517,8 +548,12 @@ test_project_dry_run() {
     grep -qxF "  + scripts/setup.sh" "$cap/stdout.txt" || problems="$problems setup.sh not under New files;"
     grep -qxF "Unchanged: 2 files (already current or user-customized)" "$cap/stdout.txt" || problems="$problems unchanged count is not 2;"
     cmp -s "$cap/stdout-no-project.txt" "$cap/twin-stdout.txt" || problems="$problems report differs from the twin's own run;"
+    [ -n "$root_before" ] && [ -n "$target_before" ] || problems="$problems empty digest;"
     [ "$root_before" = "$root_after" ] || problems="$problems framework root changed;"
     [ "$target_before" = "$target_after" ] || problems="$problems target changed;"
+    if [ -n "$(find "$work" "$root" -name 'booby-*.marker' 2>/dev/null)" ]; then
+        problems="$problems a booby-trapped script ran: $(find "$work" "$root" -name 'booby-*.marker' | tr '\n' ' ');"
+    fi
     if [ -z "$problems" ]; then
         pass "$name"
     else
@@ -637,10 +672,10 @@ test_project_apply_writes_target_only() {
 # --- updateProject_projectFlagApply_childrenRunInTarget ---
 test_project_apply_children_run_in_target() {
     local name="updateProject_projectFlagApply_childrenRunInTarget"
-    local rc=0 problems=""
+    local rc=0 problems="" have_node=true
     if ! command -v node &>/dev/null; then
-        echo "  SKIP: $name (node not found)"
-        return 0
+        have_node=false
+        echo "  SKIP: $name map-marker assertions (node not found)"
     fi
     make_apply_fixture $'old\n'
     (
@@ -649,7 +684,9 @@ test_project_apply_children_run_in_target() {
     ) > "$FX_CAP/stdout.txt" 2> "$FX_CAP/stderr.txt" || rc=$?
     [ "$rc" -eq 0 ] || problems="$problems rc=$rc;"
     [ -e "$FX_TARGET/manifest-ran.marker" ] || problems="$problems manifest child did not run in the target;"
-    [ -e "$FX_TARGET/map-ran.marker" ] || problems="$problems map child did not run in the target;"
+    if [ "$have_node" = true ]; then
+        [ -e "$FX_TARGET/map-ran.marker" ] || problems="$problems map child did not run in the target;"
+    fi
     if [ -e "$FX_ROOT/manifest-ran.marker" ] || [ -e "$FX_ROOT/map-ran.marker" ] \
         || [ -e "$FX_THIRD/manifest-ran.marker" ] || [ -e "$FX_THIRD/map-ran.marker" ]; then
         problems="$problems a marker exists outside the target;"
@@ -695,10 +732,10 @@ test_project_apply_conflict() {
 # the updater was started from.
 test_no_flag_from_other_cwd() {
     local name="updateProject_noFlagFromOtherCwd_childrenRunInProject"
-    local rc=0 problems=""
+    local rc=0 problems="" have_node=true
     if ! command -v node &>/dev/null; then
-        echo "  SKIP: $name (node not found)"
-        return 0
+        have_node=false
+        echo "  SKIP: $name map-marker assertions (node not found)"
     fi
     make_apply_fixture $'old\n'
     (
@@ -707,7 +744,9 @@ test_no_flag_from_other_cwd() {
     ) > "$FX_CAP/stdout.txt" 2> "$FX_CAP/stderr.txt" || rc=$?
     [ "$rc" -eq 0 ] || problems="$problems rc=$rc;"
     [ -e "$FX_TARGET/manifest-ran.marker" ] || problems="$problems manifest child did not run in the project;"
-    [ -e "$FX_TARGET/map-ran.marker" ] || problems="$problems map child did not run in the project;"
+    if [ "$have_node" = true ]; then
+        [ -e "$FX_TARGET/map-ran.marker" ] || problems="$problems map child did not run in the project;"
+    fi
     if [ -e "$FX_THIRD/manifest-ran.marker" ] || [ -e "$FX_THIRD/map-ran.marker" ]; then
         problems="$problems a marker exists in the starting directory;"
     fi
@@ -893,6 +932,34 @@ test_dry_run_without_rules() {
     fi
 }
 
+# --- updateProject_projectFlagUpstreamMissingListedScript_failsWithNewerUpdaterNote ---
+# An updater newer than the release it installs lists a script the release
+# lacks. Under --project the error must name it and say the updater may be
+# newer; nothing is written to the target.
+test_project_listed_script_missing_upstream() {
+    local name="updateProject_projectFlagUpstreamMissingListedScript_failsWithNewerUpdaterNote"
+    local root target upstream cap rc=0 problems="" target_before target_after
+    root=$(new_root); target=$(new_target); upstream=$(new_upstream); cap=$(new_scratch)
+    rm -f "$upstream/scripts/setup.sh"
+    target_before=$(tree_digest "$target")
+    (
+        cd "$root" || exit 99
+        bash scripts/update-project.sh --project "$target" --local-upstream "$upstream"
+    ) > "$cap/stdout.txt" 2> "$cap/stderr.txt" || rc=$?
+    target_after=$(tree_digest "$target")
+    [ "$rc" -eq 1 ] || problems="$problems rc=$rc;"
+    grep -qF "lists scripts not present" "$cap/stderr.txt" || problems="$problems no 'lists scripts not present';"
+    grep -qxF "  scripts/setup.sh" "$cap/stderr.txt" || problems="$problems setup.sh not named;"
+    grep -qF "newer than the release" "$cap/stderr.txt" || problems="$problems no 'newer than the release' note;"
+    [ -n "$target_before" ] || problems="$problems empty digest;"
+    [ "$target_before" = "$target_after" ] || problems="$problems target changed;"
+    if [ -z "$problems" ]; then
+        pass "$name"
+    else
+        fail "$name ($problems stderr: $(cat "$cap/stderr.txt"))"
+    fi
+}
+
 if [ "$HAVE_PYTHON3" = true ]; then
     test_clean
     test_symlink_escape
@@ -931,6 +998,7 @@ test_apply_rules_no_settings
 test_apply_rules_only_first
 test_apply_rules_only_second
 test_dry_run_without_rules
+test_project_listed_script_missing_upstream
 
 echo ""
 if [ "$FAIL_COUNT" -eq 0 ]; then

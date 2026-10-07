@@ -118,6 +118,6 @@
     "tests/template-residue.test.ts": "47d1f39cfa06db7f4cc9891696598679d7d41419d2b1e77bffe27eed7f4e43eb",
     "tests/template-seeds.test.ts": "3a8b510f1e81cb4258550dfe55d224896f71a8cf5d5139739ff981e57b34040a",
     "tests/test-hygiene.test.ts": "121058e57cf3448826ec4766f06c0271c911a95afbeec25f13ccde013033adaf",
-    "tests/update-project-smoke.sh": "7b2ca9d1bb136d7e08171ea7a4b13a2ff6cd467ccc9dee16b2658f6e8fd4a942"
+    "tests/update-project-smoke.sh": "99dd4f228621492bb363caf2fa4d19f3af95232712fcd01a6699b1c0982b8228"
   }
 }
