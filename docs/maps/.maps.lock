@@ -42,7 +42,7 @@
     ".claude/hooks/session-start-maintain.sh": "d4f41add6a178d4342fd1114f78142e1cd43c895dd8e444eb62a69f266fe61d2",
     ".claude/hooks/session-start-setup.sh": "93d643bb465844257bf6f3c399f2537a16b740b838b1441a249c3cf442a02c8e",
     ".claude/hooks/tool-failure-log.sh": "2143ab9f5f445e048846c1e1f6137e601ac9dec1022c11466e7ea18e27a11a38",
-    ".claude/manifest.json": "294643a6dcfef23350cc45c833f0b13dc3363f50ea84a0777820768ca027566f",
+    ".claude/manifest.json": "5d3ef827416c751fa7d6e321650997f13fa1592b3918e37f432e1cdc8dff4244",
     ".claude/settings.json": "910d23faf5423668930b2884d338cee92d65b7146701edfed68e338fe3762651",
     ".claude/skills/context-filter/SKILL.md": "949f55cdd440bc12dee415b62a41215055d19207ab8613ef55029692278f6f86",
     ".claude/skills/session-management/SKILL.md": "4ec5a5312a27bcca83142fec0e869ff1c3295d19aebd9457a5bbed1fc63dc626",
