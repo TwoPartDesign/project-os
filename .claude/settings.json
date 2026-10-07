@@ -65,7 +65,10 @@
     ],
     "ask": [
       "Bash(bash scripts/update-project.sh*--project*--apply*)",
-      "Bash(bash scripts/update-project.sh*--apply*--project*)"
+      "Bash(bash scripts/update-project.sh*--apply*--project*)",
+      "Bash(*update-project.sh*--project*--apply*)",
+      "Bash(*update-project.sh*--apply*--project*)",
+      "Bash(bash *sync-hooks.sh* *)"
     ],
     "deny": []
   },
