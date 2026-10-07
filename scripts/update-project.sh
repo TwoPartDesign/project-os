@@ -462,6 +462,8 @@ TEMPLATE_SCRIPTS=(
     "scripts/setup.sh"
     "scripts/skill-apply.ts"
     "scripts/skill-ledger.ts"
+    "scripts/review-triage.ts"
+    "scripts/compaction-metrics.ts"
 )
 
 # verify_template_scripts_list -- TEMPLATE_SCRIPTS is checked against the
@@ -477,8 +479,9 @@ TEMPLATE_SCRIPTS=(
 #     that has since added a script -- failing that run would break every
 #     project that hasn't updated yet, which is worse than the silent drift
 #     this check exists to catch. The template repo's own gate against that
-#     drift is tests/new-project-smoke.sh scenario 13, not this script's exit
-#     code.
+#     drift is updateProject_repoAsUpstream_noListWarning in
+#     tests/update-project-smoke.sh, which reads this function's stderr, not
+#     this script's exit code.
 #
 # skill-apply.ts and skill-ledger.ts drifted via the "present but not listed"
 # path (#T171) -- they were added to generate-manifest.sh's copy of this list

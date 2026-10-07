@@ -35,9 +35,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# python3 crafts the hostile tar archives; without it only the six archive
+# cases are skipped. The script-list cases below never need it.
+HAVE_PYTHON3=true
 if ! command -v python3 &>/dev/null; then
-    echo "SKIP: python3 not found (needed to craft hostile tar archives)"
-    exit 0
+    HAVE_PYTHON3=false
 fi
 
 # new_root -- print a fresh copied project root (script + manifest + gh stub).
@@ -235,12 +237,68 @@ test_git_archive() {
     fi
 }
 
-test_clean
-test_symlink_escape
-test_symlink_inbounds
-test_hardlink
-test_dotdot
-test_git_archive
+# --- updateProject_repoAsUpstream_noListWarning ---
+# The template repo's own gate for TEMPLATE_SCRIPTS drift: a dry run of the
+# copied updater against this repo as --local-upstream must not warn about a
+# script on disk that the list omits, nor fail on a listed script that is
+# missing. Fails on a developer's untracked script under scripts/ (intended).
+test_repo_as_upstream() {
+    local name="updateProject_repoAsUpstream_noListWarning"
+    local root rc=0
+    root=$(new_root)
+    mkdir -p "$root/tmp"
+    (
+        cd "$root" || exit 99
+        TMPDIR="$root/tmp" bash scripts/update-project.sh --local-upstream "$REPO_ROOT"
+    ) > "$root/stdout.txt" 2> "$root/stderr.txt" || rc=$?
+    if [ "$rc" -eq 0 ] \
+        && ! grep -qF "not listed in TEMPLATE_SCRIPTS" "$root/stderr.txt" \
+        && ! grep -qF "lists scripts not present" "$root/stderr.txt"; then
+        pass "$name"
+    else
+        fail "$name (rc=$rc; stderr: $(cat "$root/stderr.txt"))"
+    fi
+}
+
+# template_script_entries FILE -- print the sorted "scripts/..." entries inside
+# the TEMPLATE_SCRIPTS=( ... ) block of FILE.
+template_script_entries() {
+    sed -n '/^TEMPLATE_SCRIPTS=(/,/^)/p' "$1" | grep -o '"scripts/[^"]*"' | sort
+}
+
+# --- updateProject_scriptLists_updaterMatchesManifestGenerator ---
+# A script listed in the updater but missing from generate-manifest.sh never
+# gets a manifest hash and is then a permanent CONFLICT downstream, so the two
+# lists must name the same scripts.
+test_script_lists_match() {
+    local name="updateProject_scriptLists_updaterMatchesManifestGenerator"
+    local root updater generator only_updater only_generator
+    root=$(new_root)
+    updater="$root/updater-entries.txt"
+    generator="$root/generator-entries.txt"
+    template_script_entries "$UPDATE_SH" > "$updater"
+    template_script_entries "$REPO_ROOT/scripts/generate-manifest.sh" > "$generator"
+    if [ -s "$updater" ] && cmp -s "$updater" "$generator"; then
+        pass "$name"
+    else
+        only_updater=$(comm -23 "$updater" "$generator" | tr '\n' ' ')
+        only_generator=$(comm -13 "$updater" "$generator" | tr '\n' ' ')
+        fail "$name (only in update-project.sh: ${only_updater:-none}; only in generate-manifest.sh: ${only_generator:-none})"
+    fi
+}
+
+if [ "$HAVE_PYTHON3" = true ]; then
+    test_clean
+    test_symlink_escape
+    test_symlink_inbounds
+    test_hardlink
+    test_dotdot
+    test_git_archive
+else
+    echo "SKIP: python3 not found (needed to craft hostile tar archives); 6 archive cases not run"
+fi
+test_repo_as_upstream
+test_script_lists_match
 
 echo ""
 if [ "$FAIL_COUNT" -eq 0 ]; then
