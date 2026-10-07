@@ -21,8 +21,9 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const settings = JSON.parse(
   readFileSync(resolve(ROOT, ".claude/settings.json"), "utf-8"),
-) as { permissions?: { allow?: string[] } };
+) as { permissions?: { allow?: string[]; ask?: string[] } };
 const ALLOW = settings.permissions?.allow ?? [];
+const ASK = settings.permissions?.ask ?? [];
 
 const newProjectSrc = readFileSync(
   resolve(ROOT, "scripts/new-project.sh"),
@@ -89,6 +90,26 @@ describe("shipped settings.json carries no framework-only permissions", () => {
     deepStrictEqual(
       ALLOW.filter((e) => e.includes(".claude/hooks/")),
       manual,
+    );
+  });
+
+  it("shippedSettings_crossProjectUpdaterApply_asksInBothFlagOrders", () => {
+    // #T265: `Bash(bash scripts/update-project.sh*)` is pre-approved, and with
+    // --project that prefix would cover writing into another project. An ask
+    // rule outranks an allow rule, so --project with --apply always prompts.
+    const required = [
+      "Bash(bash scripts/update-project.sh*--project*--apply*)",
+      "Bash(bash scripts/update-project.sh*--apply*--project*)",
+    ];
+    deepStrictEqual(
+      required.filter((rule) => !ASK.includes(rule)),
+      [],
+      "settings.json must ask before a cross-project updater apply, in both flag orders",
+    );
+    // The allow entry stays: a dry run writes nothing and remains pre-approved.
+    ok(
+      ALLOW.includes("Bash(bash scripts/update-project.sh*)"),
+      "the updater's allow entry must stay so dry runs remain pre-approved",
     );
   });
 
