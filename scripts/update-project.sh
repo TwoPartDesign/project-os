@@ -8,11 +8,11 @@
 #   bash scripts/update-project.sh --target v2.3      # Target a specific version
 #   bash scripts/update-project.sh --diff-upstream    # Show unadopted upstream commits (no network)
 #   bash scripts/update-project.sh --local-upstream DIR  # Update from a local dir (no gh, no network)
+#   bash scripts/update-project.sh --project DIR      # Update the Project OS project at DIR (needs a manifest)
 #
 # Requires: gh CLI (authenticated), sha256sum
 # --diff-upstream requires neither — it reads a local upstream cache (see --help)
 # --local-upstream requires neither — it substitutes DIR for the release tarball (see --help)
-# Run from project root.
 
 set -euo pipefail
 
@@ -23,7 +23,6 @@ if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
 fi
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MANIFEST="$PROJECT_ROOT/.claude/manifest.json"
 UPSTREAM="TwoPartDesign/project-os"
 
 # Parse arguments
@@ -32,6 +31,8 @@ ALLOW_MAJOR=false
 TARGET_VERSION=""
 DIFF_UPSTREAM=false
 LOCAL_UPSTREAM=""
+PROJECT_GIVEN=false
+PROJECT_DIR=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -44,8 +45,15 @@ while [ $# -gt 0 ]; do
         --local-upstream)
             if [ $# -lt 2 ]; then echo "ERROR: --local-upstream requires a directory argument" >&2; exit 1; fi
             LOCAL_UPSTREAM="$2"; shift ;;
+        --project)
+            # An empty value must not fall through to "no flag", and a value
+            # starting with - must not swallow the next flag (--project --apply).
+            if [ $# -lt 2 ] || [ -z "$2" ] || [ "${2#-}" != "$2" ]; then
+                echo "ERROR: --project requires a directory argument" >&2; exit 1
+            fi
+            PROJECT_GIVEN=true; PROJECT_DIR="$2"; shift ;;
         --help|-h)
-            echo "Usage: update-project.sh [--apply] [--major] [--target VERSION] [--diff-upstream] [--local-upstream DIR]"
+            echo "Usage: update-project.sh [--apply] [--major] [--target VERSION] [--diff-upstream] [--local-upstream DIR] [--project DIR]"
             echo ""
             echo "Flags:"
             echo "  --apply           Apply updates (default is dry-run/check only)"
@@ -56,6 +64,12 @@ while [ $# -gt 0 ]; do
             echo "  --local-upstream  Use DIR as the upstream source instead of a downloaded release."
             echo "                    Skips release listing/selection (Steps 2-4) entirely — zero gh"
             echo "                    calls, fully network-free. Classification and apply run unchanged."
+            echo "  --project         Update the Project OS project at DIR instead of this checkout. For a"
+            echo "                    project you own: on --apply its own generate-manifest.sh and"
+            echo "                    system-map.ts run. A project with no manifest is refused. Run it"
+            echo "                    from a checkout at the release tag being installed. With --apply it also"
+            echo "                    needs the cross-project ask rules in this checkout's settings.json; a"
+            echo "                    dry run does not."
             echo ""
             echo "Without --apply, shows what would change."
             exit 0
@@ -64,6 +78,95 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
+
+# --- --project validation ---
+# Runs before anything is read or written. Each refusal exits 1 on stderr.
+if [ "$PROJECT_GIVEN" = true ]; then
+    if [ ! -e "$PROJECT_DIR" ]; then
+        echo "ERROR: --project directory not found: $PROJECT_DIR" >&2
+        exit 1
+    fi
+    if [ ! -d "$PROJECT_DIR" ]; then
+        echo "ERROR: --project is not a directory: $PROJECT_DIR" >&2
+        exit 1
+    fi
+    # Physical path: a symlink to this checkout must not slip past the own-root check.
+    if ! PROJECT_ROOT="$(CDPATH= cd -- "$PROJECT_DIR" 2>/dev/null && pwd -P)"; then
+        echo "ERROR: --project cannot be entered: $PROJECT_DIR" >&2
+        exit 1
+    fi
+    OWN_ROOT="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+    # -ef also catches a differently-cased spelling on a case-insensitive filesystem.
+    if [ "$PROJECT_ROOT" = "$OWN_ROOT" ] || [ "$PROJECT_ROOT" -ef "$OWN_ROOT" ]; then
+        echo "ERROR: --project points at this checkout ($PROJECT_ROOT). Omit --project to update it." >&2
+        exit 1
+    fi
+    # project_os_version is written only by generate-manifest.sh, so it marks a
+    # project that already runs Project OS (a bare .claude/ directory does not).
+    # The key must carry a non-empty string value; the token as a value does not count.
+    if [ ! -f "$PROJECT_ROOT/.claude/manifest.json" ] \
+        || ! grep -Eq '"project_os_version"[[:space:]]*:[[:space:]]*"[^"]+"' "$PROJECT_ROOT/.claude/manifest.json"; then
+        echo "ERROR: $PROJECT_ROOT is not a Project OS project with a manifest (.claude/manifest.json with a project_os_version is required)." >&2
+        echo "For a repository without one, see: bash scripts/new-project.sh --adopt <dir>" >&2
+        exit 1
+    fi
+    # A cross-project apply writes about a hundred files and runs two of the
+    # target's scripts, so it must prompt: this checkout's settings.json has to
+    # carry both ask rules. A dry run executes nothing from the target and is exempt.
+    # With node, both rules must be elements of the permissions.ask array of a file
+    # that parses as JSON (the stdin redirect avoids a node-side path conversion).
+    # Without node the two fixed-string greps below are the fallback; that is the
+    # weaker check, since the strings may sit under another key or in "allow".
+    if [ "$APPLY" = true ]; then
+        OWN_SETTINGS="$OWN_ROOT/.claude/settings.json"
+        SETTINGS_OK=false
+        if [ -f "$OWN_SETTINGS" ]; then
+            if command -v node &>/dev/null; then
+                if node -e '
+                    const s = JSON.parse(require("fs").readFileSync(0, "utf8"));
+                    const ask = s && s.permissions && s.permissions.ask;
+                    process.exit(Array.isArray(ask) && ask.includes(process.argv[1]) && ask.includes(process.argv[2]) ? 0 : 1);
+                ' 'Bash(*update-project.sh*--project*--apply*)' 'Bash(*update-project.sh*--apply*--project*)' < "$OWN_SETTINGS" 2>/dev/null; then
+                    SETTINGS_OK=true
+                fi
+            elif grep -qF '"Bash(*update-project.sh*--project*--apply*)"' "$OWN_SETTINGS" \
+                && grep -qF '"Bash(*update-project.sh*--apply*--project*)"' "$OWN_SETTINGS"; then
+                SETTINGS_OK=true
+            fi
+        fi
+        if [ "$SETTINGS_OK" != true ]; then
+            echo "ERROR: --project with --apply needs the ask rules for a cross-project apply in $OWN_ROOT/.claude/settings.json." >&2
+            echo "Merge the \"ask\" block from this release's .claude/settings.json (after an update it is saved as .claude/settings.json.upstream), then re-run." >&2
+            exit 1
+        fi
+    fi
+fi
+MANIFEST="$PROJECT_ROOT/.claude/manifest.json"
+
+# single_quote STR -- print STR single-quoted, embedded single quotes escaped.
+single_quote() {
+    local sq="'"
+    printf "'%s'" "${1//$sq/$sq\\$sq$sq}"
+}
+
+# quote_for_paste PATH -- print PATH quoted for pasting into a shell. An ordinary
+# path keeps double quotes; one holding $, a backtick, a double quote, a
+# backslash, ! or a newline is single-quoted so nothing expands.
+quote_for_paste() {
+    case "$1" in
+        *[\$\`\"\\!]* | *$'\n'*) single_quote "$1" ;;
+        *) printf '"%s"' "$1" ;;
+    esac
+}
+
+# quote_version VERSION -- print VERSION bare when it holds only [A-Za-z0-9._:+-]
+# (so 3.1.2 and local:upstream stay as they were), otherwise single-quoted.
+quote_version() {
+    case "$1" in
+        *[!A-Za-z0-9._:+-]*) single_quote "$1" ;;
+        *) printf '%s' "$1" ;;
+    esac
+}
 
 # --- Version parsing helpers ---
 
@@ -103,11 +206,18 @@ if [ ! -f "$MANIFEST" ]; then
     CURRENT_VERSION="unknown"
     LEGACY_MODE=true
 else
-    CURRENT_VERSION=$(grep '"project_os_version"' "$MANIFEST" | sed 's/.*: *"\([^"]*\)".*/\1/')
+    # Same read as generate-manifest.sh: first line holding the key, then a
+    # key-anchored sed, so a minified manifest or a token-as-value line cannot
+    # make this disagree with the rule 5 check.
+    CURRENT_VERSION=$(grep -m1 '"project_os_version"[[:space:]]*:' "$MANIFEST" | sed -E 's/.*"project_os_version"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/')
     LEGACY_MODE=false
 fi
 
 echo "Current version: $CURRENT_VERSION"
+# Under --project only: say which project this run reads and (with --apply) writes.
+if [ "$PROJECT_GIVEN" = true ]; then
+    echo "Project: $PROJECT_ROOT"
+fi
 
 # --- Diff-upstream mode: what's changed upstream that we haven't adopted ---
 # No network mid-run — reads a local clone of the upstream repo (the "upstream
@@ -129,7 +239,11 @@ if [ "$DIFF_UPSTREAM" = true ]; then
         echo "--diff-upstream never fetches over the network mid-run — populate the cache once:"
         echo "  git clone https://github.com/$UPSTREAM.git \"$UPSTREAM_CACHE\""
         echo "Refresh it later with: git -C \"$UPSTREAM_CACHE\" pull"
-        echo "Then re-run: bash scripts/update-project.sh --diff-upstream"
+        if [ "$PROJECT_GIVEN" = true ]; then
+            echo "Then re-run: bash scripts/update-project.sh --diff-upstream --project $(quote_for_paste "$PROJECT_ROOT")"
+        else
+            echo "Then re-run: bash scripts/update-project.sh --diff-upstream"
+        fi
         exit 0
     fi
 
@@ -317,6 +431,9 @@ else
     # --- Step 4: Download release archive ---
 
     TMPDIR=$(mktemp -d)
+    # A relative TMPDIR yields a relative path; make it absolute before the cd
+    # before Step 9 can resolve it against the project root and orphan the directory.
+    TMPDIR=$(CDPATH= cd -- "$TMPDIR" && pwd)
     trap 'rm -rf "$TMPDIR"' EXIT
 
     echo "Downloading $CHOSEN..."
@@ -462,6 +579,8 @@ TEMPLATE_SCRIPTS=(
     "scripts/setup.sh"
     "scripts/skill-apply.ts"
     "scripts/skill-ledger.ts"
+    "scripts/review-triage.ts"
+    "scripts/compaction-metrics.ts"
 )
 
 # verify_template_scripts_list -- TEMPLATE_SCRIPTS is checked against the
@@ -477,8 +596,9 @@ TEMPLATE_SCRIPTS=(
 #     that has since added a script -- failing that run would break every
 #     project that hasn't updated yet, which is worse than the silent drift
 #     this check exists to catch. The template repo's own gate against that
-#     drift is tests/new-project-smoke.sh scenario 13, not this script's exit
-#     code.
+#     drift is updateProject_repoAsUpstream_noListWarning in
+#     tests/update-project-smoke.sh, which reads this function's stderr, not
+#     this script's exit code.
 #
 # skill-apply.ts and skill-ledger.ts drifted via the "present but not listed"
 # path (#T171) -- they were added to generate-manifest.sh's copy of this list
@@ -523,6 +643,7 @@ verify_template_scripts_list() {
     printf '%s' "$missing_files" >&2
     echo "This usually means a stale upstream cache (\$PROJECT_OS_UPSTREAM_CACHE, default ~/.project-os-upstream-cache) that predates one of these scripts. Refresh it with a git pull in the cache dir (the same pull the pre-push hook runs) and retry before assuming TEMPLATE_SCRIPTS itself is wrong." >&2
     echo "If the cache is current, fix TEMPLATE_SCRIPTS in scripts/update-project.sh (and the sibling list in scripts/generate-manifest.sh)." >&2
+    echo "This also happens when this updater is newer than the release it is installing; with --project, run it from a checkout at that release's tag." >&2
     return 1
 }
 
@@ -720,6 +841,9 @@ if [ "$conflicts" -gt 0 ]; then
     echo "Skipping manifest regeneration — $conflicts conflict(s) need resolution first."
 else
     echo "Regenerating manifest..."
+    # The children below find their project from the working directory
+    # (system-map.ts walks up from process.cwd()), so run them at the project root.
+    cd -- "$PROJECT_ROOT"
     bash "$PROJECT_ROOT/scripts/generate-manifest.sh" "${CHOSEN#v}"
 
     # --- Step 10: Verify system map integrity ---
@@ -753,6 +877,10 @@ if [ "$conflicts" -gt 0 ]; then
     echo "  1. Review each .upstream file against your local version"
     echo "  2. Merge changes you want to keep"
     echo "  3. Delete the .upstream files when done"
-    echo "  4. Run: bash scripts/generate-manifest.sh ${CHOSEN#v}"
+    if [ "$PROJECT_GIVEN" = true ]; then
+        echo "  4. Run: bash $(quote_for_paste "$PROJECT_ROOT/scripts/generate-manifest.sh") $(quote_version "${CHOSEN#v}")"
+    else
+        echo "  4. Run: bash scripts/generate-manifest.sh $(quote_version "${CHOSEN#v}")"
+    fi
     echo "     (to update manifest after resolving conflicts)"
 fi

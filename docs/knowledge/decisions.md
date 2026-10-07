@@ -654,3 +654,23 @@ Generate with: `node scripts/review-triage.ts docs/specs/<feature> --changed-fil
 **Also recorded — #T229 shipped as a per-ISO-week fingerprint, not count-free.** The lead's recommendation was a count-free `failures:<tool>` fingerprint. It collided by substring (`Bash` vs `Bashful`, and old `failures:Bash:N` lines) and one closed draft would have suppressed that tool forever. The shipped fingerprint is `failures:<tool>:<ISO week>`: at most one draft per tool per week, refiled the next week if the tool keeps failing, and a changed count inside a week does not re-file. `PROJECT_OS_WEEK` pins the week for tests.
 
 **Rationale**: these are platform behaviours, not repo choices; recording the evidence keeps a later CLI release from silently invalidating a hook rule. Re-run the probes when the CLI version moves past 2.1.291.
+
+---
+
+## 2026-10-07 — Updater `--project`: Manifest Required, Target's Children Run, Cross-Project Apply Asks (#T262, #T264, #T265)
+
+**Decision**: `scripts/update-project.sh --project DIR` runs the framework checkout's updater against another project, under three rules:
+
+1. **A manifest is required.** DIR must hold `.claude/manifest.json` as a regular file with a `project_os_version` key, which only `generate-manifest.sh` writes. A project with no manifest is refused and pointed at `new-project.sh --adopt`. Legacy mode without the flag is unchanged.
+2. **On `--apply` with no conflicts, the target's own `generate-manifest.sh` and `system-map.ts` run.** This departs from the 2026-07-17 adoption ADR, which rejected invoking a target's own scripts. The departure is bounded: rule 1 limits targets to projects that already run Project OS, where those scripts and that project's hooks already execute with the operator's authority; a dry run executes nothing from DIR; and the flag is documented as being for a project the operator owns. No symlink pre-flight is added.
+3. **A cross-project apply always asks.** `.claude/settings.json` gains two `ask` rules matching `--project` with `--apply` in either order. The allow entry for the script stays, so dry runs remain pre-approved. Amended at the ship gate the same day (#T271): two unanchored rules cover other spellings of the script path, the updater refuses `--project` with `--apply` unless the running checkout's `settings.json` holds them, and `sync-hooks.sh <target>` gets its own `ask` rule. The refusal exists because the guard and the flag ship in different files: a customised `settings.json` conflicts and lands as `.upstream`, while the script updates cleanly.
+
+**Context**: The first downstream rollout of v3.1.1 found that a project's own updater is the wrong tool: ten projects held five updater versions, one exits 1, and four would overwrite untouched knowledge files. The design's first draft accepted legacy targets by the `.claude/commands/workflows/` directory and claimed the trust boundary did not move. Adversarial review showed that the directory is not a marker only Project OS writes, and that the existing `Bash(bash scripts/update-project.sh*)` allow entry would cover a prompt-free write into any project.
+
+**Alternatives Considered**:
+- **`PROJECT_OS_ROOT` environment variable** — rejected: an exported value would silently retarget a command that writes about a hundred files.
+- **Run the framework's copies of the two children against DIR** — rejected for this release: it needs a root override in `generate-manifest.sh` and bypasses a project's customised generator. It would honour the 07-17 rule fully and remains open.
+- **A `--legacy` acknowledgement for no-manifest targets** — rejected: legacy apply marks every existing file a conflict and writes no manifest. Adopt mode is the tool built for a repository with no manifest.
+- **Ask on every `--project` call** — rejected: a dry run writes and executes nothing.
+
+**Rationale**: The validation is not containment. It stops operator mistakes: an unset variable, a swallowed flag, a mistyped path, scaffolding into a repository that should be adopted. The `ask` rules remove a silent pre-approval and are not a boundary around the program, because the platform matches a Bash rule against the command text as written. A spelling that keeps the allowed prefix and hides the literal `--apply` (quote splicing, brace expansion) may still be pre-approved; that was not tested against the permission engine, so the rules are relied on to stop an accidental apply, not an evasive one. The command file and the changelog entry state both limits; `--help` states the ownership one. The own-root refusal also tests file identity (`-ef`), which catches a differently-cased spelling of the checkout on a case-insensitive filesystem.

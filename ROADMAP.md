@@ -206,6 +206,10 @@ Small quality items surfaced during self-maintenance / #T9 reviews (2026-07-17).
 - [x] skill-edit: review.md — cross-validate a circular self-validation CONCERN like a HIGH (applied d02419f) #T193
   <!-- maint-fp: skill-edit:.claude/commands/workflows/review.md:circular-self-validation -->
   <!-- proposal: docs/specs/compaction-gate/skill-edits.md Proposal 2 -->
+- [?] Review stale knowledge: 3 files past 90d (docs/knowledge/design-principles.md,docs/knowledge/metrics.md,docs/knowledge/roadmap-format.md) #T246
+  <!-- maint-fp: stale:docs/knowledge/design-principles.md,docs/knowledge/metrics.md,docs/knowledge/roadmap-format.md -->
+- [?] Run /tools:dream — 11 memory files / 55 session files, consolidation due #T247
+  <!-- maint-fp: dream:11:55 -->
 
 ### Todo
 
@@ -432,6 +436,8 @@ Round 2 (2026-10-05): ICM paper (arXiv 2603.16021, "Folder Structure as Agent Ar
 ### In Progress
 ### Review
 ### Done
+<!-- Approved 2026-10-07 (Approver: "Fix now"): found on the first Windows run of the v3.1.1 fast suite; lead-fixed, uncommitted. hook-smoke 208/208 on Windows after the fix. -->
+- [x] tests/hook-smoke.sh creates a fixture file named `a\b.ts`; Git Bash on NTFS cannot create it, so `postToolUse_bashEditDiffPosixPathEscapedBackslash_noSideEffect` failed at baseline on Windows and added one extra kill to every hook-smoke-negctl mutant. Keep the rejection assertion on every host and SKIP the untouched-file check when the fixture cannot be created (test added by #T233) #T248
 <!-- Shipped in v3.1.1 (2026-10-06): fresh security verify found no bypass of the #T245 allowlist; its #T244 false negatives/positive and a pre-existing malformed-settings crash were lead-fixed (b33b10e); full gate 11/11 PASS. -->
 <!-- Approved 2026-10-06 (Approver: "Implement the two remaining tasks"). Lead recs: #T244 is a MEDIUM `relative-hook-command` finding over the `hooks` block only; #T245 refuses every archive entry that is not a regular file or directory (closed allowlist — the repo tracks no symlinks), so no tar-behaviour probe is needed. -->
 - [x] Downstream projects whose settings.json conflicted on update keep cwd-relative hook commands with no signal (#T238 changed only the shipped file; update-project.sh and sync-hooks.sh save `settings.json.upstream` on conflict). Add a `system-map.ts report` finding for any settings.json hook `command` that lacks `$CLAUDE_PROJECT_DIR/.claude/hooks/`, mirroring #T237's baseRef detector. Found by the v3.1 ship-gate architecture review (A16) (depends: #T238) (model: sonnet) #T244
@@ -505,6 +511,48 @@ Jev (TypeSafe AI) as an optional, off-by-default typed-decision backend for the 
 ## Feature: phase-boundary-session-boundary
 ### Draft
 - [?] Phase boundary = session boundary (non-build phases) — Brief created, awaiting design #T230
+
+## Feature: updater-project-flag
+v3.1.2. Brief: `docs/specs/updater-project-flag/brief.md`. Two changes the downstream rollout needs: `TEMPLATE_SCRIPTS` gains the two scripts v3.1.1 never shipped (with a fast-suite gate on the list), and `update-project.sh --project DIR` lets the framework checkout's updater run against another project, so a project's own stale updater no longer decides what an update may change.
+Design APPROVED 2026-10-07 (Approver: "Go forward with your recommendations"); tasks approved the same day under the `/workflows:mvp` gate policy. Tasks: `docs/specs/updater-project-flag/tasks.md`. Hardening round approved at the ship gate the same day: #T269, #T270, #T271 (listed under `updater-hardening`).
+### Draft
+### Todo
+### In Progress
+### Review
+### Done
+- [x] List the two unshipped scripts in `TEMPLATE_SCRIPTS` and gate the list in the fast suite (D1) #T261
+- [x] `update-project.sh --project DIR`: parsing and target validation (D2, D3) (depends: #T261) #T262
+- [x] `--project` dry run: `Project:` report line and the re-run hint, with directory fixtures (depends: #T262) #T263
+- [x] `--project` apply: the updater's children run at the project root, conflict next-steps path (D5) (depends: #T263) #T264
+- [x] Cross-project updater apply always asks: two `ask` rules in the shipped settings, with a test (D6) #T265
+- [x] Docs: `update.md` "Updating another project" and the `architecture.md` row (depends: #T264, #T265) #T266
+- [x] Close-out: CHANGELOG v3.1.2 with a Migration note, `bugs.md` entry, `decisions.md` ADR (depends: #T266) #T267
+- [x] Updater `--project` flag and the two unshipped scripts — Brief created, awaiting design (retired 2026-10-07: superseded by #T261-#T267 after design APPROVED) #T259
+
+## Feature: updater-hardening
+Faults in `scripts/update-project.sh` found on 2026-10-07 by dry-running the v3.1.1 update over the ten downstream projects that carry a manifest (no project was written to). The ten held five distinct updater versions; one could not run, four would have overwritten project knowledge docs, and v3.1.1's own updater leaves two scripts unshipped. The two fixes the rollout needs ship in v3.1.2 (feature `updater-project-flag`); everything here changes the updater's design and awaits `/workflows:idea`. All drafts, none approved.
+### Draft
+- [?] One script list. `TEMPLATE_SCRIPTS` is hand-kept in three files (update-project.sh, generate-manifest.sh, new-project.sh) and has drifted twice: #T171, and v3.1.1, where review-triage.ts and compaction-metrics.ts are in the other two lists but not in update-project.sh. new-project.sh's list also lacks `scripts/new-project.sh`, which the other two carry, so a new project gets it only on its first update; nothing says whether that is intended. Ship one list file in the release and have all three read it; update-project.sh reads the upstream copy, so the target release defines the file set, not the installed updater #T249
+- [?] A `TEMPLATE_SCRIPTS` entry with no file upstream is a hard failure in `verify_template_scripts_list`, so deleting a script strands every project on that updater generation: v3.0 deleted context-filter.sh, and fantasy-football-optimizer's updater exits 1 against v3.1.1. Warn and skip the entry, keeping the stale-cache hint in the warning. Under `--project` (#T262) the same failure fires whenever the framework checkout lists a script the release being installed lacks. Subsumed if #T249 lands first #T250
+- [?] Apply upstream deletions. The updater never removes a file a release deleted, so v3.0's seven deleted paths are a manual CHANGELOG step in every project. For a path in the old manifest's `files` block that is absent upstream: back it up and remove it when the local hash still matches the manifest, report it as a conflict when it was modified #T251
+- [?] Hash classification is line-ending sensitive. The same ten projects classified differently against `~/.project-os-upstream-cache` (working tree CRLF under autocrlf) and the v3.1.1 tarball (LF): `.claude/security/allowlist.json` flipped between conflict and unchanged on two of them. Either hash LF-normalised content in update-project.sh and generate-manifest.sh, or pin `eol=lf` in `.gitattributes`. Normalising invalidates manifest hashes recorded from CRLF files, so the design needs a migration rule #T252
+- [?] `.claude/settings.json` is classified by whole-file hash, so a local permission entry plus an upstream hook change is a conflict: 9 of the 10 projects, each a hand-merge, and a skipped merge keeps the old hook wiring with no signal beyond #T244's report finding. Merge by key instead; which keys the framework owns (`hooks`, the `env` keys it ships) and which stay with the project is the design question #T253
+- [?] The manifest records a release label, not what was installed: ten projects labelled v2.2 or v2.3 carried five different update-project.sh files, so the label does not predict what the updater will do. Record the upstream commit (or archive digest) the files came from #T254
+- [?] No upgrade-path test. Nothing builds a project from the previous release and updates it to HEAD with that release's own updater. Assert exit 0, and that after `--apply` every top-level `scripts/*.sh` and `scripts/*.ts` file the release ships is byte-identical in the project. That fails on both v3.1.1 faults above; the existing check only warns on an unlisted script, and v3.1.1 shipped with the warning printing on every run #T255
+- [?] `scripts/sync-hooks.sh:22` reads its target as `${1:-$TEMPLATE_ROOT}`, so an empty argument (`sync-hooks.sh "$UNSET"`) silently syncs the template onto itself, and nothing checks that the target is a Project OS project before hooks and `settings.json` wiring are written into it. The script is pre-approved by prefix (`settings.json:43`). Refuse an empty or non-project target the way `update-project.sh --project` does (#T262). Also decide whether a run with a target should require the `Bash(bash *sync-hooks.sh* *)` ask rule in the running checkout's settings, as the updater does since #T271: in a customised project the rule lands as `.upstream` and the old allow entry still pre-approves the write #T260
+- [?] `--local-upstream` with `--apply` and no conflicts stamps the manifest with `local:<dirname>`: `CHOSEN` is marked display-only at `update-project.sh:217`, yet Step 9 passes `${CHOSEN#v}` to `generate-manifest.sh`, which writes any explicit argument as `project_os_version` (`generate-manifest.sh:23`, `:219`). An offline update then records a version no later run can compare. Take the version from the upstream's own manifest, or require `--target` with `--local-upstream --apply` #T268
+- [x] `update-project.sh --project` script hardening from the v3.1.2 review: anchor guard rule 5 to a `project_os_version` key with a non-empty string value (a manifest holding the token as a value or a nested key is accepted today, `:101-102`), with a refusal case for each; make the temp dir absolute so the EXIT trap still removes it after the Step 9 `cd` (`:369-370`, `:779`); print the two copy-paste commands so a `$` in the project path is not expanded (`:179`, `:814`); a clear error when DIR cannot be entered (`:92`) #T269
+- [x] `tests/update-project-smoke.sh` hardening from the v3.1.2 review: `tree_digest` returns "" for a directory-only tree, so two refusal cases compare empty to empty; no positive case for the "lists scripts not present" failure under `--project`; the gh stub's PATH entry splits on the colon of a drive-letter `TMPDIR`, so the archive cases can call the real `gh`; the symlink case never asserts the `Project:` line; the map stub's `require` breaks when `TMPDIR` sits under a `"type": "module"` package; no case shows that a dry run executes nothing from DIR (depends: #T271) #T270
+- [x] The guard travels with the flag (decided by the Approver at the ship gate, 2026-10-07). The `ask` rules for a cross-project apply live in `.claude/settings.json`, which conflicts in a customised project and lands as `.upstream`, while `update-project.sh` updates cleanly, so the flag can arrive without its guard. So: the script refuses `--project` with `--apply` unless the running checkout's settings hold both broader rules; `ask` gains `Bash(*update-project.sh*--project*--apply*)`, the reverse order, and `Bash(bash *sync-hooks.sh* *)` for `sync-hooks.sh <target>`; design D6 is amended. The lead makes the settings edits (depends: #T269) #T271
+- [?] `tests/hook-smoke.sh:1053-1058` skips a whole case on Windows where only the `cat` of `a\b.ts` is impossible; the cygpath-not-called and npx-not-called assertions can still run there #T272
+- [?] The `ask` rules for a cross-project apply and for `sync-hooks.sh <target>` are `Bash(...)` rules, so a call made through the PowerShell tool is not covered by them (it is not pre-approved by the Bash allow entries either). Decide whether `.claude/settings.json` should carry PowerShell twins; a settings change, so the Approver's call #T273
+
+## Feature: windows-test-parity
+v3.1 and v3.1.1 were built and verified in a Linux cloud session, and the repo has no CI. The first Windows run of the fast suite (2026-10-07, Windows 10, Git Bash) was red in `hook-smoke` and `hook-smoke-negctl`. #T248 fixed the `a\b.ts` fixture; the items below are what is still red or what would have caught it. All drafts, none approved.
+### Draft
+- [?] hook-smoke-negctl mutants 6, 7 and 8 name symlink assertions in their expect-exactly sets (`…SymlinkToOutside`, `…ParentDirSymlink`, `…WindowsPathSymlinkToOutside`, `…SessionSymlinkToOutside`). hook-smoke SKIPs those where symlink creation is unsupported, so on Windows each mutant kills fewer than expected and the exact-kill check fails. Subtract the assertions the unmutated run reported as SKIP from each expected set #T256
+- [?] hook-smoke-negctl runs the whole hook suite once per mutant (8 mutants) and hit run-all.sh's 600s `SUITE_TIMEOUT` during mutant 5 on Windows; one hook-smoke run took 164s in that same run. The machine was running other jobs at the time, so measure on a quiet one first, then give the suite its own timeout or run only the mutated hook's assertions per mutant #T257
+- [?] Ship gate: one Windows fast-suite run before a release is tagged (ship.md, and mvp.md's gate policy). Three Windows-only test defects shipped across v3.1 and v3.1.1 unseen (#T248, #T256, #T257) #T258
 
 ## Backlog
 <!-- Ideas that have been captured but not yet designed -->

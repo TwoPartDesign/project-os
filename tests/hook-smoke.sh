@@ -1037,15 +1037,25 @@ done
 
 # A POSIX path whose element holds an escaped backslash (`/…/a\\b.ts`) is not
 # Windows-shaped (no drive letter, and it has a `/`): it never reaches cygpath
-# and is rejected, although a file of that exact name exists.
+# and is rejected, although a file of that exact name exists. NTFS cannot hold
+# a file named `a\b.ts` (Git Bash reads the backslash as a separator), so on
+# that host the rejection is still asserted and the untouched-file check is
+# skipped (#T248).
 SB=$(new_sandbox); npx_stub "$SB"; cygpath_stub "$SB"
-printf 'const a=1\n' > "$SB/a\\b.ts"
+BS_FIXTURE=false
+if { printf 'const a=1\n' > "$SB/a\\b.ts"; } 2>/dev/null && [ -f "$SB/a\\b.ts" ]; then
+    BS_FIXTURE=true
+fi
 run_hook "$SB" post-tool-use.sh "$(bash_payload "\"$SB/a\\\\b.ts\"")" \
     PATH="$SB/bin:$PATH" CYG_ROOT="$SB"
 assert_contains "postToolUse_bashEditDiffPosixPathEscapedBackslash_rejectedOnStderr" \
     "$HOOK_ERR" "rejected a bashEditDiff path"
-assert_eq "postToolUse_bashEditDiffPosixPathEscapedBackslash_noSideEffect" \
-    "const a=1||" "$(cat "$SB/a\\b.ts")|$(cygpath_calls "$SB")|$(npx_calls "$SB")"
+if [ "$BS_FIXTURE" = true ]; then
+    assert_eq "postToolUse_bashEditDiffPosixPathEscapedBackslash_noSideEffect" \
+        "const a=1||" "$(cat "$SB/a\\b.ts")|$(cygpath_calls "$SB")|$(npx_calls "$SB")"
+else
+    echo "  SKIP: postToolUse_bashEditDiffPosixPathEscapedBackslash_noSideEffect (host cannot create a file named a\\b.ts)"
+fi
 
 # cygpath is accepted only as an absolute path (#S3). A shell function named
 # cygpath (BASH_ENV defines it in the hook's shell) resolves under `command -v`

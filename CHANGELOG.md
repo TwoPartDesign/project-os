@@ -1,5 +1,51 @@
 # Changelog
 
+## v3.1.2 — 2026-10-07 — Updater reaches other projects
+
+- **Two scripts v3.1.1 never shipped** — `scripts/review-triage.ts` and
+  `scripts/compaction-metrics.ts` are now in the updater's list, so an update delivers
+  them. The fast suite fails when the list and `scripts/` disagree, or when the updater's
+  list and `generate-manifest.sh`'s differ (#T261).
+- **`update-project.sh --project DIR`** — run this checkout's updater against another
+  Project OS project, so a project's own stale updater no longer decides what an update may
+  change. DIR must hold a manifest with a `project_os_version`. A missing, empty or
+  dash-leading value, a path that is not a directory, and the checkout itself are refused
+  before anything is read. The report names the target in a `Project:` line. It is for a
+  project you own: on `--apply` with no conflicts the target's own `generate-manifest.sh`
+  and `system-map.ts` run (#T262, #T263).
+- **The updater's children run at the project root** — manifest regeneration and the map
+  check now run with the project as their working directory, with or without the flag.
+  Started from another directory, the map check used to inspect whatever project the
+  caller stood in (#T264).
+- **A cross-project apply asks first** — `.claude/settings.json` gains `ask` rules for
+  `--project` with `--apply`, in either order, also when the script is named by another
+  path (`./scripts/…`, an absolute path). They match the command text of the Bash tool, so
+  they stop an unreviewed apply and are not a boundary around the script. Dry runs stay
+  pre-approved. The updater itself refuses `--project` with `--apply` unless
+  `permissions.ask` in the running checkout's `.claude/settings.json` holds the two
+  path-independent rules, so a project whose settings were never merged cannot use the
+  flag to write (#T265, #T271).
+- **`sync-hooks.sh <target>` asks first** — an `ask` rule prompts before
+  `bash scripts/sync-hooks.sh <target>` writes hooks and settings wiring into another
+  project. A sync of the checkout itself stays pre-approved. The script does not check for
+  the rule, so a project whose `settings.json` conflict is unmerged has no prompt yet
+  (#T271, #T260).
+- **Updater hardening** — the manifest check requires a `project_os_version` key with a
+  value, the temp directory is removed even when `TMPDIR` is relative, a printed command
+  quotes a project path or version that holds shell characters, and the current version
+  is read correctly from a one-line manifest (#T269).
+
+### Migration
+- To update a project, run `bash scripts/update-project.sh --project <dir>` from a Project
+  OS checkout at the v3.1.2 tag, review the report, then repeat with `--apply`. Add
+  `--major` for a project still on 2.x. Do not use the project's own updater for this step.
+- Use the published release. A Windows checkout passed as `--local-upstream` misclassifies
+  files on line endings.
+- A project with no `.claude/manifest.json` is not covered by `--project`. Bring it in with
+  `bash scripts/new-project.sh --adopt <dir>`.
+- `.claude/settings.json` changed. Where it conflicts, merge the `ask` block by hand. Until
+  you do, that project's updater refuses `--project` with `--apply`.
+
 ## v3.1.1 — 2026-10-06 — v3.1 known gaps closed
 
 - **Relative hook commands are reported** — `system-map.ts report` raises a MEDIUM

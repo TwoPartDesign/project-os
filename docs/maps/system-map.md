@@ -78,7 +78,7 @@
 - `s_maintain_draft` — `scripts/maintain-draft.ts` (1 dependent)
 - `s_maintain` — `scripts/maintain.sh` (1 dependent)
 - `s_memory_search` — `scripts/memory-search.sh` (0 dependents)
-- `s_new_project` — `scripts/new-project.sh` (0 dependents)
+- `s_new_project` — `scripts/new-project.sh` (1 dependent)
 - `s_observation_parser` — `scripts/observation-parser.ts` (4 dependents)
 - `s_review_triage` — `scripts/review-triage.ts` (2 dependents)
 - `s_scrub_secrets` — `scripts/scrub-secrets.sh` (0 dependents)
@@ -158,6 +158,7 @@
 - `c_tools_reflect` --references--> `s_maintain_draft`
 - `c_tools_reflect` --references--> `s_skill_apply`
 - `c_tools_update` --references--> `s_generate_manifest`
+- `c_tools_update` --references--> `s_new_project`
 - `c_tools_update` --references--> `s_sync_hooks`
 - `c_tools_update` --references--> `s_update_project`
 - `c_workflows_build` --references--> `h_log_activity`
@@ -230,9 +231,9 @@
 ## Findings
 
 - LOW bloat .claude/rules/lead.md — .claude/rules/lead.md is approximately 3405 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 7671 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/bugs.md — docs/knowledge/bugs.md is approximately 3583 tokens, exceeding the 2500-token warn threshold.
-- LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 21339 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 7724 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/bugs.md — docs/knowledge/bugs.md is approximately 3971 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 22306 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/design-principles.md — docs/knowledge/design-principles.md is approximately 2698 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/metrics.md — docs/knowledge/metrics.md is approximately 5912 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/patterns.md — docs/knowledge/patterns.md is approximately 5889 tokens, exceeding the 2500-token warn threshold.
