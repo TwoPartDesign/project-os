@@ -8,6 +8,7 @@
 #   bash scripts/update-project.sh --target v2.3      # Target a specific version
 #   bash scripts/update-project.sh --diff-upstream    # Show unadopted upstream commits (no network)
 #   bash scripts/update-project.sh --local-upstream DIR  # Update from a local dir (no gh, no network)
+#   bash scripts/update-project.sh --project DIR      # Update the Project OS project at DIR (needs a manifest)
 #
 # Requires: gh CLI (authenticated), sha256sum
 # --diff-upstream requires neither — it reads a local upstream cache (see --help)
@@ -23,7 +24,6 @@ if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
 fi
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MANIFEST="$PROJECT_ROOT/.claude/manifest.json"
 UPSTREAM="TwoPartDesign/project-os"
 
 # Parse arguments
@@ -32,6 +32,8 @@ ALLOW_MAJOR=false
 TARGET_VERSION=""
 DIFF_UPSTREAM=false
 LOCAL_UPSTREAM=""
+PROJECT_GIVEN=false
+PROJECT_DIR=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -44,8 +46,15 @@ while [ $# -gt 0 ]; do
         --local-upstream)
             if [ $# -lt 2 ]; then echo "ERROR: --local-upstream requires a directory argument" >&2; exit 1; fi
             LOCAL_UPSTREAM="$2"; shift ;;
+        --project)
+            # An empty value must not fall through to "no flag", and a value
+            # starting with - must not swallow the next flag (--project --apply).
+            if [ $# -lt 2 ] || [ -z "$2" ] || [ "${2#-}" != "$2" ]; then
+                echo "ERROR: --project requires a directory argument" >&2; exit 1
+            fi
+            PROJECT_GIVEN=true; PROJECT_DIR="$2"; shift ;;
         --help|-h)
-            echo "Usage: update-project.sh [--apply] [--major] [--target VERSION] [--diff-upstream] [--local-upstream DIR]"
+            echo "Usage: update-project.sh [--apply] [--major] [--target VERSION] [--diff-upstream] [--local-upstream DIR] [--project DIR]"
             echo ""
             echo "Flags:"
             echo "  --apply           Apply updates (default is dry-run/check only)"
@@ -56,6 +65,10 @@ while [ $# -gt 0 ]; do
             echo "  --local-upstream  Use DIR as the upstream source instead of a downloaded release."
             echo "                    Skips release listing/selection (Steps 2-4) entirely — zero gh"
             echo "                    calls, fully network-free. Classification and apply run unchanged."
+            echo "  --project         Update the Project OS project at DIR instead of this checkout. For a"
+            echo "                    project you own: on --apply its own generate-manifest.sh and"
+            echo "                    system-map.ts run. A project with no manifest is refused. Run it"
+            echo "                    from a checkout at the release tag being installed."
             echo ""
             echo "Without --apply, shows what would change."
             exit 0
@@ -64,6 +77,35 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
+
+# --- --project validation ---
+# Runs before anything is read or written. Each refusal exits 1 on stderr.
+if [ "$PROJECT_GIVEN" = true ]; then
+    if [ ! -e "$PROJECT_DIR" ]; then
+        echo "ERROR: --project directory not found: $PROJECT_DIR" >&2
+        exit 1
+    fi
+    if [ ! -d "$PROJECT_DIR" ]; then
+        echo "ERROR: --project is not a directory: $PROJECT_DIR" >&2
+        exit 1
+    fi
+    # Physical path: a symlink to this checkout must not slip past the own-root check.
+    PROJECT_ROOT="$(CDPATH= cd -- "$PROJECT_DIR" && pwd -P)"
+    OWN_ROOT="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+    if [ "$PROJECT_ROOT" = "$OWN_ROOT" ]; then
+        echo "ERROR: --project points at this checkout ($PROJECT_ROOT). Omit --project to update it." >&2
+        exit 1
+    fi
+    # project_os_version is written only by generate-manifest.sh, so it marks a
+    # project that already runs Project OS (a bare .claude/ directory does not).
+    if [ ! -f "$PROJECT_ROOT/.claude/manifest.json" ] \
+        || ! grep -q '"project_os_version"' "$PROJECT_ROOT/.claude/manifest.json"; then
+        echo "ERROR: $PROJECT_ROOT is not a Project OS project with a manifest (.claude/manifest.json with a project_os_version is required)." >&2
+        echo "For a repository without one, see: bash scripts/new-project.sh --adopt <dir>" >&2
+        exit 1
+    fi
+fi
+MANIFEST="$PROJECT_ROOT/.claude/manifest.json"
 
 # --- Version parsing helpers ---
 

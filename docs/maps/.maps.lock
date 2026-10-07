@@ -81,7 +81,7 @@
     "scripts/skill-ledger.ts": "23b4ce2890215ac0025422e9eea357ce73d467b1014b5bcfb2520aa5d52bdd22",
     "scripts/sync-hooks.sh": "019f37e2def4e22755112aaf327408f332ff04a5ca43cc9262c2ae6d2750404d",
     "scripts/system-map.ts": "40cdde48173ab1c3bd71ee534e8f6c2c5fe5a5934865958a0621730dd0216aa6",
-    "scripts/update-project.sh": "6f0b8f1fa531b926c6a11b209221e66f6ae5fd738731e1f4acae8bae43bd0a15",
+    "scripts/update-project.sh": "98e84206dacc446112e323bebc910c48ed0d8ec187b985049d04ae5eeface24f",
     "scripts/validate-freshness.sh": "8dc557bd4e85b52858044ea12d9263f78941ef0dac36cc514f822ed425212274",
     "scripts/validate-roadmap.sh": "4bec58920f220f0666fef73557b2b5bb735b373ad38b21a56e4a74c6dc72e08f",
     "tests/agent-roster.test.ts": "55ce107cc85150623e530def8a7592c3a052b2c9dc92b02186ec282acc490ee7",
@@ -118,6 +118,6 @@
     "tests/template-residue.test.ts": "47d1f39cfa06db7f4cc9891696598679d7d41419d2b1e77bffe27eed7f4e43eb",
     "tests/template-seeds.test.ts": "3a8b510f1e81cb4258550dfe55d224896f71a8cf5d5139739ff981e57b34040a",
     "tests/test-hygiene.test.ts": "121058e57cf3448826ec4766f06c0271c911a95afbeec25f13ccde013033adaf",
-    "tests/update-project-smoke.sh": "784b4133765ab83f3d69756029224f18c28da7a8d561859f7839d56f851215cd"
+    "tests/update-project-smoke.sh": "681f7792df6a88e104bbea27757bdbee81abc8ac57c3ebdb4de1dc674c5740e4"
   }
 }

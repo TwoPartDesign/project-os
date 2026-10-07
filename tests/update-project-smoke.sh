@@ -287,6 +287,190 @@ test_script_lists_match() {
     fi
 }
 
+# new_scratch -- print a fresh empty directory for capture files and fixtures
+# that must live outside any tree whose digest is compared.
+new_scratch() {
+    local d
+    d=$(mktemp -d)
+    TMP_DIRS+=("$d")
+    printf '%s' "$d"
+}
+
+# new_target [VERSION] -- print a fresh project directory: a manifest holding
+# project_os_version (default v0.9, distinct from new_root's v1.0) and its own
+# copy of the updater, as a real project has.
+new_target() {
+    local ver="${1:-v0.9}" t
+    t=$(new_scratch)
+    mkdir -p "$t/.claude" "$t/scripts"
+    printf '{\n  "project_os_version": "%s"\n}\n' "$ver" > "$t/.claude/manifest.json"
+    cp "$UPDATE_SH" "$t/scripts/update-project.sh"
+    printf '%s' "$t"
+}
+
+# new_upstream -- print a fresh upstream directory whose scripts/ holds a
+# one-line stub for every top-level *.sh and *.ts name in the repo's scripts/,
+# so the updater's list check passes in both directions whatever the list holds.
+new_upstream() {
+    local up f
+    up=$(new_scratch)
+    mkdir -p "$up/scripts"
+    while IFS= read -r f; do
+        printf '# stub\n' > "$up/scripts/$(basename "$f")"
+    done < <(find "$REPO_ROOT/scripts" -maxdepth 1 -type f \( -name '*.sh' -o -name '*.ts' \))
+    printf '%s' "$up"
+}
+
+# tree_digest DIR -- the sorted sha256sum of every file under DIR.
+tree_digest() {
+    (cd "$1" && find . -type f -exec sha256sum {} + | sort)
+}
+
+# refusal_case NAME MESSAGE ROOT TARGET ARG... -- run ROOT's copied updater with
+# cwd at ROOT and ARGs; pass when it exits 1, stderr is exactly MESSAGE, stdout
+# is empty, and the digests of ROOT (and of TARGET, when non-empty) are
+# unchanged. Capture files live in a scratch dir outside both trees.
+refusal_case() {
+    local name="$1" msg="$2" root="$3" target="$4"
+    shift 4
+    local cap rc=0 root_before root_after target_before="" target_after=""
+    cap=$(new_scratch)
+    root_before=$(tree_digest "$root")
+    if [ -n "$target" ]; then target_before=$(tree_digest "$target"); fi
+    (
+        cd "$root" || exit 99
+        bash "$root/scripts/update-project.sh" "$@"
+    ) > "$cap/stdout.txt" 2> "$cap/stderr.txt" || rc=$?
+    root_after=$(tree_digest "$root")
+    if [ -n "$target" ]; then target_after=$(tree_digest "$target"); fi
+    if [ "$rc" -eq 1 ] \
+        && [ "$(cat "$cap/stderr.txt")" = "$msg" ] \
+        && [ ! -s "$cap/stdout.txt" ] \
+        && [ "$root_before" = "$root_after" ] \
+        && [ "$target_before" = "$target_after" ]; then
+        pass "$name"
+    else
+        fail "$name (rc=$rc; stdout: $(cat "$cap/stdout.txt"); stderr: $(cat "$cap/stderr.txt"); root unchanged: $([ "$root_before" = "$root_after" ] && echo yes || echo no); target unchanged: $([ "$target_before" = "$target_after" ] && echo yes || echo no))"
+    fi
+}
+
+ARG_MSG="ERROR: --project requires a directory argument"
+
+# --- updateProject_projectFlagMissingArgument_refused ---
+test_project_missing_argument() {
+    refusal_case "updateProject_projectFlagMissingArgument_refused" \
+        "$ARG_MSG" "$(new_root)" "" --project
+}
+
+# --- updateProject_projectFlagFlagAsArgument_refused ---
+test_project_flag_as_argument() {
+    refusal_case "updateProject_projectFlagFlagAsArgument_refused" \
+        "$ARG_MSG" "$(new_root)" "" --project --apply
+}
+
+# --- updateProject_projectFlagEmptyArgument_refused ---
+test_project_empty_argument() {
+    refusal_case "updateProject_projectFlagEmptyArgument_refused" \
+        "$ARG_MSG" "$(new_root)" "" --project ""
+}
+
+# --- updateProject_projectFlagMissingDir_refused ---
+test_project_missing_dir() {
+    local scratch
+    scratch=$(new_scratch)
+    refusal_case "updateProject_projectFlagMissingDir_refused" \
+        "ERROR: --project directory not found: $scratch/nope" "$(new_root)" "" \
+        --project "$scratch/nope"
+}
+
+# --- updateProject_projectFlagNotADirectory_refused ---
+test_project_not_a_directory() {
+    local scratch
+    scratch=$(new_scratch)
+    printf 'x\n' > "$scratch/file.txt"
+    refusal_case "updateProject_projectFlagNotADirectory_refused" \
+        "ERROR: --project is not a directory: $scratch/file.txt" "$(new_root)" "" \
+        --project "$scratch/file.txt"
+}
+
+# --- updateProject_projectFlagOwnRoot_refused ---
+# `--project ./` with cwd at the framework root is what an unset variable in
+# `--project "./$UNSET"` expands to; it would update the framework itself.
+test_project_own_root() {
+    local root phys
+    root=$(new_root)
+    phys=$(cd "$root" && pwd -P)
+    refusal_case "updateProject_projectFlagOwnRoot_refused" \
+        "ERROR: --project points at this checkout ($phys). Omit --project to update it." \
+        "$root" "" --project ./
+}
+
+# not_a_project_msg DIR -- the two-line rule 5 refusal for the project at DIR.
+not_a_project_msg() {
+    local phys
+    phys=$(cd "$1" && pwd -P)
+    printf '%s\n%s' \
+        "ERROR: $phys is not a Project OS project with a manifest (.claude/manifest.json with a project_os_version is required)." \
+        "For a repository without one, see: bash scripts/new-project.sh --adopt <dir>"
+}
+
+# --- updateProject_projectFlagNoManifest_refused ---
+# A bare .claude/commands/workflows/ is not a marker only Project OS writes.
+test_project_no_manifest() {
+    local target
+    target=$(new_scratch)
+    mkdir -p "$target/.claude/commands/workflows"
+    refusal_case "updateProject_projectFlagNoManifest_refused" \
+        "$(not_a_project_msg "$target")" "$(new_root)" "$target" --project "$target"
+}
+
+# --- updateProject_projectFlagManifestIsDirectory_refused ---
+test_project_manifest_is_directory() {
+    local target
+    target=$(new_scratch)
+    mkdir -p "$target/.claude/manifest.json"
+    refusal_case "updateProject_projectFlagManifestIsDirectory_refused" \
+        "$(not_a_project_msg "$target")" "$(new_root)" "$target" --project "$target"
+}
+
+# --- updateProject_projectFlagManifestWithoutVersion_refused ---
+test_project_manifest_without_version() {
+    local target
+    target=$(new_scratch)
+    mkdir -p "$target/.claude"
+    printf '{}\n' > "$target/.claude/manifest.json"
+    refusal_case "updateProject_projectFlagManifestWithoutVersion_refused" \
+        "$(not_a_project_msg "$target")" "$(new_root)" "$target" --project "$target"
+}
+
+# --- updateProject_projectFlagSymlinkedDir_resolvedOwnRootStillRefused ---
+# A symlink to a valid target passes validation; a symlink to the framework
+# root resolves to it and is refused. Skipped where ln -s does not link.
+test_project_symlinked_dir() {
+    local name="updateProject_projectFlagSymlinkedDir_resolvedOwnRootStillRefused"
+    local root target upstream scratch cap rc=0 phys
+    root=$(new_root); target=$(new_target); upstream=$(new_upstream)
+    scratch=$(new_scratch); cap=$(new_scratch)
+    ln -s "$target" "$scratch/to-target" 2>/dev/null || true
+    ln -s "$root" "$scratch/to-root" 2>/dev/null || true
+    if [ ! -L "$scratch/to-target" ] || [ ! -L "$scratch/to-root" ]; then
+        echo "  SKIP: $name (host cannot create a symlink)"
+        return 0
+    fi
+    (
+        cd "$root" || exit 99
+        bash "$root/scripts/update-project.sh" --local-upstream "$upstream" --project "$scratch/to-target"
+    ) > "$cap/ok-stdout.txt" 2> "$cap/ok-stderr.txt" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        fail "$name (symlink to a valid target: rc=$rc; stderr: $(cat "$cap/ok-stderr.txt"))"
+        return 0
+    fi
+    phys=$(cd "$root" && pwd -P)
+    refusal_case "$name" \
+        "ERROR: --project points at this checkout ($phys). Omit --project to update it." \
+        "$root" "$target" --project "$scratch/to-root"
+}
+
 if [ "$HAVE_PYTHON3" = true ]; then
     test_clean
     test_symlink_escape
@@ -299,6 +483,16 @@ else
 fi
 test_repo_as_upstream
 test_script_lists_match
+test_project_missing_argument
+test_project_flag_as_argument
+test_project_empty_argument
+test_project_missing_dir
+test_project_not_a_directory
+test_project_own_root
+test_project_no_manifest
+test_project_manifest_is_directory
+test_project_manifest_without_version
+test_project_symlinked_dir
 
 echo ""
 if [ "$FAIL_COUNT" -eq 0 ]; then
