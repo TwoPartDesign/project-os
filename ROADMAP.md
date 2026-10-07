@@ -517,13 +517,13 @@ v3.1.2. Brief: `docs/specs/updater-project-flag/brief.md`. Two changes the downs
 Design APPROVED 2026-10-07 (Approver: "Go forward with your recommendations"); tasks approved the same day under the `/workflows:mvp` gate policy. Tasks: `docs/specs/updater-project-flag/tasks.md`.
 ### Draft
 ### Todo
-- [ ] List the two unshipped scripts in `TEMPLATE_SCRIPTS` and gate the list in the fast suite (D1) #T261
-- [ ] `update-project.sh --project DIR`: parsing and target validation (D2, D3) (depends: #T261) #T262
-- [ ] `--project` dry run: `Project:` report line and the re-run hint, with directory fixtures (depends: #T262) #T263
-- [ ] `--project` apply: the updater's children run at the project root, conflict next-steps path (D5) (depends: #T263) #T264
-- [ ] Cross-project updater apply always asks: two `ask` rules in the shipped settings, with a test (D6) #T265
-- [ ] Docs: `update.md` "Updating another project" and the `architecture.md` row (depends: #T264, #T265) #T266
-- [ ] Close-out: CHANGELOG v3.1.2 with a Migration note, `bugs.md` entry, `decisions.md` ADR (depends: #T266) #T267
+- [~] List the two unshipped scripts in `TEMPLATE_SCRIPTS` and gate the list in the fast suite (D1) #T261
+- [~] `update-project.sh --project DIR`: parsing and target validation (D2, D3) (depends: #T261) #T262
+- [~] `--project` dry run: `Project:` report line and the re-run hint, with directory fixtures (depends: #T262) #T263
+- [~] `--project` apply: the updater's children run at the project root, conflict next-steps path (D5) (depends: #T263) #T264
+- [~] Cross-project updater apply always asks: two `ask` rules in the shipped settings, with a test (D6) #T265
+- [~] Docs: `update.md` "Updating another project" and the `architecture.md` row (depends: #T264, #T265) #T266
+- [~] Close-out: CHANGELOG v3.1.2 with a Migration note, `bugs.md` entry, `decisions.md` ADR (depends: #T266) #T267
 ### In Progress
 ### Review
 ### Done
@@ -540,6 +540,7 @@ Faults in `scripts/update-project.sh` found on 2026-10-07 by dry-running the v3.
 - [?] The manifest records a release label, not what was installed: ten projects labelled v2.2 or v2.3 carried five different update-project.sh files, so the label does not predict what the updater will do. Record the upstream commit (or archive digest) the files came from #T254
 - [?] No upgrade-path test. Nothing builds a project from the previous release and updates it to HEAD with that release's own updater. Assert exit 0, and that after `--apply` every top-level `scripts/*.sh` and `scripts/*.ts` file the release ships is byte-identical in the project. That fails on both v3.1.1 faults above; the existing check only warns on an unlisted script, and v3.1.1 shipped with the warning printing on every run #T255
 - [?] `scripts/sync-hooks.sh:22` reads its target as `${1:-$TEMPLATE_ROOT}`, so an empty argument (`sync-hooks.sh "$UNSET"`) silently syncs the template onto itself, and nothing checks that the target is a Project OS project before hooks and `settings.json` wiring are written into it. The script is pre-approved by prefix (`settings.json:43`). Refuse an empty or non-project target the way `update-project.sh --project` does (#T259) #T260
+- [?] `--local-upstream` with `--apply` and no conflicts stamps the manifest with `local:<dirname>`: `CHOSEN` is marked display-only at `update-project.sh:217`, yet Step 9 passes `${CHOSEN#v}` to `generate-manifest.sh`, which writes any explicit argument as `project_os_version` (`generate-manifest.sh:23`, `:219`). An offline update then records a version no later run can compare. Take the version from the upstream's own manifest, or require `--target` with `--local-upstream --apply` #T268
 
 ## Feature: windows-test-parity
 v3.1 and v3.1.1 were built and verified in a Linux cloud session, and the repo has no CI. The first Windows run of the fast suite (2026-10-07, Windows 10, Git Bash) was red in `hook-smoke` and `hook-smoke-negctl`. #T248 fixed the `a\b.ts` fixture; the items below are what is still red or what would have caught it. All drafts, none approved.

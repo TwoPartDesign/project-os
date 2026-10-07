@@ -139,3 +139,13 @@ Each entry: Date, Symptom, Root Cause, Fix, Prevention Rule
 **Fix**: The three such assertions (:253, :790, :805) now test `[ -n "$(git log --oneline --fixed-strings --grep=...)" ]`, which has no pipe.
 
 **Prevention Rule**: Under `pipefail`, never pipe a producer into `grep -q` (or `head`) in a condition. Filter in the producer (`git log --grep`) or capture into a variable first.
+
+### 2026-10-07 — v3.1.1 shipped without `review-triage.ts` and `compaction-metrics.ts` (#T261)
+
+**Symptom**: A project updated to v3.1.1 has `/workflows:review` and `/tools:metrics` calling `scripts/review-triage.ts` and `scripts/compaction-metrics.ts`, which the update never delivered. Every updater run printed "scripts present … but not listed in TEMPLATE_SCRIPTS" and exited 0.
+
+**Root Cause**: The script list is kept by hand in three places (`update-project.sh`, `generate-manifest.sh`, `new-project.sh`). The two scripts were added to the other two and not to the updater's. The updater detects an unlisted script, but only as a stderr warning, by design, so that an older updater can still run against a newer release. The one test that exercised it (`tests/new-project-smoke.sh` scenario 13) asserted the exit code and never read stderr, and it runs only in the slow suite.
+
+**Fix**: Both entries added. `tests/update-project-smoke.sh` gained `updateProject_repoAsUpstream_noListWarning`, which runs the updater against the repo itself and fails on either list warning, and `updateProject_scriptLists_updaterMatchesManifestGenerator`, which compares the two lists. Both run in the fast suite and need no python3.
+
+**Prevention Rule**: A check that only warns needs a test that reads the warning. When a list is duplicated by hand, gate the copies against each other until there is one list (#T249).

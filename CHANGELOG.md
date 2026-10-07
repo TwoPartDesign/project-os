@@ -1,5 +1,33 @@
 # Changelog
 
+## v3.1.2 — 2026-10-07 — Updater reaches other projects
+
+- **Two scripts v3.1.1 never shipped** — `scripts/review-triage.ts` and
+  `scripts/compaction-metrics.ts` are now in the updater's list, so an update delivers
+  them. The fast suite fails when the list and `scripts/` disagree, or when the updater's
+  list and `generate-manifest.sh`'s differ (#T261).
+- **`update-project.sh --project DIR`** — run this checkout's updater against another
+  Project OS project, so a project's own stale updater no longer decides what an update may
+  change. DIR must hold a manifest with a `project_os_version`. A missing, empty or
+  dash-leading value, a path that is not a directory, and the checkout itself are refused
+  before anything is read. The report names the target in a `Project:` line (#T262, #T263).
+- **The updater's children run at the project root** — manifest regeneration and the map
+  check now run with the project as their working directory, with or without the flag.
+  Started from another directory, the map check used to inspect whatever project the
+  caller stood in (#T264).
+- **A cross-project apply always asks** — `.claude/settings.json` gains two `ask` rules for
+  `--project` with `--apply`. Dry runs stay pre-approved (#T265).
+
+### Migration
+- To update a project, run `bash scripts/update-project.sh --project <dir>` from a Project
+  OS checkout at the v3.1.2 tag, review the report, then repeat with `--apply`. Add
+  `--major` for a project still on 2.x. Do not use the project's own updater for this step.
+- Use the published release. A Windows checkout passed as `--local-upstream` misclassifies
+  files on line endings.
+- A project with no `.claude/manifest.json` is not covered by `--project`. Bring it in with
+  `bash scripts/new-project.sh --adopt <dir>`.
+- `.claude/settings.json` changed. Where it conflicts, merge the `ask` block by hand.
+
 ## v3.1.1 — 2026-10-06 — v3.1 known gaps closed
 
 - **Relative hook commands are reported** — `system-map.ts report` raises a MEDIUM
