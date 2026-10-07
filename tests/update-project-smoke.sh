@@ -19,7 +19,9 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 UPDATE_SH="$REPO_ROOT/scripts/update-project.sh"
 
 FAIL_COUNT=0
-TMP_DIRS=()
+# One suite temp parent, created here and not inside $(...), so the EXIT trap
+# removes every directory the helpers make beneath it.
+SUITE_TMP=$(mktemp -d)
 
 pass() { printf 'PASS: %s\n' "$1"; }
 fail() {
@@ -28,10 +30,7 @@ fail() {
 }
 
 cleanup() {
-    local d
-    for d in "${TMP_DIRS[@]}"; do
-        rm -rf "$d" 2>/dev/null || true
-    done
+    rm -rf "$SUITE_TMP" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -46,8 +45,7 @@ fi
 # The stub's archive is taken from $GH_STUB_ARCHIVE at run time.
 new_root() {
     local root
-    root=$(mktemp -d)
-    TMP_DIRS+=("$root")
+    root=$(mktemp -d "$SUITE_TMP/root.XXXXXX")
     mkdir -p "$root/scripts" "$root/.claude" "$root/bin"
     cp "$UPDATE_SH" "$root/scripts/update-project.sh"
     printf '{\n  "project_os_version": "v1.0"\n}\n' > "$root/.claude/manifest.json"
@@ -291,29 +289,29 @@ test_script_lists_match() {
 # that must live outside any tree whose digest is compared.
 new_scratch() {
     local d
-    d=$(mktemp -d)
-    TMP_DIRS+=("$d")
+    d=$(mktemp -d "$SUITE_TMP/scratch.XXXXXX")
     printf '%s' "$d"
 }
 
-# new_target [VERSION] -- print a fresh project directory: a manifest holding
-# project_os_version (default v0.9, distinct from new_root's v1.0) and its own
-# copy of the updater, as a real project has.
+# new_target [VERSION [DIR]] -- print a project directory (DIR when given, else
+# a fresh one): a manifest holding project_os_version (default v0.9, distinct
+# from new_root's v1.0) and its own copy of the updater, as a real project has.
 new_target() {
-    local ver="${1:-v0.9}" t
-    t=$(new_scratch)
+    local ver="${1:-v0.9}" t="${2:-}"
+    if [ -z "$t" ]; then t=$(new_scratch); fi
     mkdir -p "$t/.claude" "$t/scripts"
     printf '{\n  "project_os_version": "%s"\n}\n' "$ver" > "$t/.claude/manifest.json"
     cp "$UPDATE_SH" "$t/scripts/update-project.sh"
     printf '%s' "$t"
 }
 
-# new_upstream -- print a fresh upstream directory whose scripts/ holds a
-# one-line stub for every top-level *.sh and *.ts name in the repo's scripts/,
-# so the updater's list check passes in both directions whatever the list holds.
+# new_upstream [DIR] -- print an upstream directory (DIR when given, else a
+# fresh one) whose scripts/ holds a one-line stub for every top-level *.sh and
+# *.ts name in the repo's scripts/, so the updater's list check passes in both
+# directions whatever the list holds.
 new_upstream() {
-    local up f
-    up=$(new_scratch)
+    local up="${1:-}" f
+    if [ -z "$up" ]; then up=$(new_scratch); fi
     mkdir -p "$up/scripts"
     while IFS= read -r f; do
         printf '# stub\n' > "$up/scripts/$(basename "$f")"
@@ -471,6 +469,89 @@ test_project_symlinked_dir() {
         "$root" "$target" --project "$scratch/to-root"
 }
 
+# --- updateProject_projectFlagDryRun_reportsTargetWritesNothing ---
+# The framework root's updater run with --project TARGET must classify exactly
+# as TARGET's own updater (a twin copy, run with no flag) does, differ only by
+# the `Project:` line, and write nothing in either tree.
+test_project_dry_run() {
+    local name="updateProject_projectFlagDryRun_reportsTargetWritesNothing"
+    local root work target twin upstream cap rc=0 phys problems=""
+    local old_hash root_before root_after target_before target_after
+    root=$(new_root); work=$(new_scratch); cap=$(new_scratch)
+    target="$work/target"; twin="$work/twin"; upstream="$work/upstream"
+    new_target v0.9 "$target" > /dev/null
+    new_upstream "$upstream" > /dev/null
+    # Upstream carries the updater itself, so the target's copy is unchanged.
+    cp "$UPDATE_SH" "$upstream/scripts/update-project.sh"
+    # Safe update: local matches the manifest hash, upstream differs.
+    printf 'old\n' > "$target/scripts/memory-search.sh"
+    old_hash=$(sha256sum "$target/scripts/memory-search.sh" | cut -d' ' -f1)
+    # Unchanged: local already equals upstream. Every other script is new.
+    cp "$upstream/scripts/audit-context.sh" "$target/scripts/audit-context.sh"
+    printf '{\n  "project_os_version": "v0.9",\n  "files": {\n    "scripts/memory-search.sh": "%s"\n  }\n}\n' \
+        "$old_hash" > "$target/.claude/manifest.json"
+    cp -R "$target" "$twin"
+    phys=$(cd "$target" && pwd -P)
+    root_before=$(tree_digest "$root"); target_before=$(tree_digest "$target")
+
+    (
+        cd "$work" || exit 99
+        bash "$root/scripts/update-project.sh" --project target/ --local-upstream upstream
+    ) > "$cap/stdout.txt" 2> "$cap/stderr.txt" || rc=$?
+    (
+        cd "$work" || exit 99
+        bash twin/scripts/update-project.sh --local-upstream upstream
+    ) > "$cap/twin-stdout.txt" 2> "$cap/twin-stderr.txt" || problems="$problems twin exited non-zero;"
+    grep -v '^Project: ' "$cap/stdout.txt" > "$cap/stdout-no-project.txt" || true
+
+    root_after=$(tree_digest "$root"); target_after=$(tree_digest "$target")
+    [ "$rc" -eq 0 ] || problems="$problems rc=$rc;"
+    grep -qxF "Project: $phys" "$cap/stdout.txt" || problems="$problems no 'Project: $phys' line;"
+    grep -qxF "Current version: v0.9" "$cap/stdout.txt" || problems="$problems no 'Current version: v0.9' line;"
+    grep -qxF "  ✓ scripts/memory-search.sh" "$cap/stdout.txt" || problems="$problems memory-search.sh not under Safe to update;"
+    grep -qxF "  + scripts/setup.sh" "$cap/stdout.txt" || problems="$problems setup.sh not under New files;"
+    grep -qxF "Unchanged: 2 files (already current or user-customized)" "$cap/stdout.txt" || problems="$problems unchanged count is not 2;"
+    cmp -s "$cap/stdout-no-project.txt" "$cap/twin-stdout.txt" || problems="$problems report differs from the twin's own run;"
+    [ "$root_before" = "$root_after" ] || problems="$problems framework root changed;"
+    [ "$target_before" = "$target_after" ] || problems="$problems target changed;"
+    if [ -z "$problems" ]; then
+        pass "$name"
+    else
+        fail "$name ($problems stderr: $(cat "$cap/stderr.txt"); diff vs twin: $(diff "$cap/stdout-no-project.txt" "$cap/twin-stdout.txt" | head -n 10))"
+    fi
+}
+
+# --- updateProject_projectFlagDiffUpstreamNoCache_hintCarriesFlag ---
+# With no upstream cache the re-run hint must repeat --project, or the next
+# run would diff the framework checkout; without the flag it is unchanged.
+test_project_diff_upstream_hint() {
+    local name="updateProject_projectFlagDiffUpstreamNoCache_hintCarriesFlag"
+    local root target cap rc=0 rc_plain=0 phys problems=""
+    root=$(new_root); target=$(new_target); cap=$(new_scratch)
+    phys=$(cd "$target" && pwd -P)
+    (
+        cd "$root" || exit 99
+        PROJECT_OS_UPSTREAM_CACHE="$cap/no-such-cache" \
+            bash scripts/update-project.sh --diff-upstream --project "$target"
+    ) > "$cap/stdout.txt" 2> "$cap/stderr.txt" || rc=$?
+    (
+        cd "$target" || exit 99
+        PROJECT_OS_UPSTREAM_CACHE="$cap/no-such-cache" \
+            bash scripts/update-project.sh --diff-upstream
+    ) > "$cap/plain-stdout.txt" 2> "$cap/plain-stderr.txt" || rc_plain=$?
+    [ "$rc" -eq 0 ] || problems="$problems rc=$rc;"
+    [ "$rc_plain" -eq 0 ] || problems="$problems plain rc=$rc_plain;"
+    grep -qxF "Then re-run: bash scripts/update-project.sh --diff-upstream --project \"$phys\"" "$cap/stdout.txt" \
+        || problems="$problems flagged hint missing;"
+    grep -qxF "Then re-run: bash scripts/update-project.sh --diff-upstream" "$cap/plain-stdout.txt" \
+        || problems="$problems plain hint changed;"
+    if [ -z "$problems" ]; then
+        pass "$name"
+    else
+        fail "$name ($problems stdout: $(cat "$cap/stdout.txt"); plain stdout: $(cat "$cap/plain-stdout.txt"))"
+    fi
+}
+
 if [ "$HAVE_PYTHON3" = true ]; then
     test_clean
     test_symlink_escape
@@ -493,6 +574,8 @@ test_project_no_manifest
 test_project_manifest_is_directory
 test_project_manifest_without_version
 test_project_symlinked_dir
+test_project_dry_run
+test_project_diff_upstream_hint
 
 echo ""
 if [ "$FAIL_COUNT" -eq 0 ]; then

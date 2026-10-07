@@ -150,6 +150,10 @@ else
 fi
 
 echo "Current version: $CURRENT_VERSION"
+# Under --project only: say which project this run reads and (with --apply) writes.
+if [ "$PROJECT_GIVEN" = true ]; then
+    echo "Project: $PROJECT_ROOT"
+fi
 
 # --- Diff-upstream mode: what's changed upstream that we haven't adopted ---
 # No network mid-run — reads a local clone of the upstream repo (the "upstream
@@ -171,7 +175,11 @@ if [ "$DIFF_UPSTREAM" = true ]; then
         echo "--diff-upstream never fetches over the network mid-run — populate the cache once:"
         echo "  git clone https://github.com/$UPSTREAM.git \"$UPSTREAM_CACHE\""
         echo "Refresh it later with: git -C \"$UPSTREAM_CACHE\" pull"
-        echo "Then re-run: bash scripts/update-project.sh --diff-upstream"
+        if [ "$PROJECT_GIVEN" = true ]; then
+            echo "Then re-run: bash scripts/update-project.sh --diff-upstream --project \"$PROJECT_ROOT\""
+        else
+            echo "Then re-run: bash scripts/update-project.sh --diff-upstream"
+        fi
         exit 0
     fi
 
