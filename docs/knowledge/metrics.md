@@ -241,3 +241,16 @@ Track per-feature implementation metrics. Updated by `/workflows:ship` and query
 - **Lines changed**: +1,476 / -284 across 45 files (`1d13aa8..HEAD`)
 - **Tests**: `bash tests/run-all.sh` 10/10 suites PASS (255s)
 - **Key findings**: (1) hooks are not permission-gated, so `permissions.allow` entries for hook-only scripts were dead weight; (2) the `cmd | grep -q` SIGPIPE race was live in shipped code: the MCP prompt-injection alert missed 20/20 on a 2.2 MB response; (3) a substring-deduped fingerprint must change over time or it suppresses its subject forever
+
+### Feature: updater-project-flag (v3.1.2)
+- **Duration**: 2026-10-07, 2h 40m from the first `task-spawned` (16:40:25Z) to `feature-shipped` (19:20:46Z), one lead session across several compactions
+- **Tasks**: 10 built (#T261–#T267, #T269–#T271), 0 blocked; 4 follow-ups filed as drafts (#T260, #T268, #T272, #T273)
+- **Waves**: 1 build wave + 1 hardening round after the ship gate
+- **Revisions**: one three-reviewer ship gate, passed with notes (0 CRITICAL, 0 HIGH, 9 MEDIUM, about 35 LOW; fixes in `bf6118d`); the Approver chose a hardening round before tagging; its security review (0 CRITICAL, 0 HIGH, 3 MEDIUM, 9 LOW) led to one more fix commit (`5b9741a`), which only the lead read
+- **First-pass review rate**: ship gate passed on the first attempt, with notes; per-task rate not computed; one worker report corrected (26 tests claimed, 24 observed in the lead's run)
+- **Harness fingerprint**: `25e4c13a5887870ba2588bd6505ee46252cbd4fa` (`git rev-parse HEAD:.claude` at `45e1c7e`)
+- **Model split**: Opus lead; `implementer` on Sonnet; `researcher` and the reviewers on Opus
+- **Sub-agent tokens**: 953,477 (researcher 112,646; design reviewer 111,907; implementer 201,756 across the build wave and the hardening round; ship-gate reviewers 401,010; round-2 security reviewer 126,158)
+- **Lines changed**: +1,434 / -151 across 15 files (`b294414..45e1c7e`)
+- **Tests**: `bash tests/run-all.sh` on Windows 10/11 suites PASS (1701s); `hook-smoke-negctl` times out at 600s (#T256, #T257, accepted by the Approver for this release). That run preceded the last three commits and was not repeated on the merge commit. `update-project-smoke` 41 PASS, 1 SKIP (the symlink case, which has not run on any machine)
+- **Key findings**: (1) a guard that ships in a different file from the capability it guards does not arrive where that file conflicts: the ask rules live in `settings.json`, which conflicted in 9 of 10 projects, so the script now refuses a cross-project apply without them (#T271); (2) a string search for a settings rule passes when the string sits outside `permissions.ask`, so the check parses the JSON; (3) an ask rule outranks allow, and one written too broadly (`Bash(*sync-hooks.sh* *)`) would have stalled sub-agents on ordinary git commands, so the rules are pinned by a command table; (4) `--fast` is not fast on Windows: it still runs `hook-smoke-negctl` (1086s)

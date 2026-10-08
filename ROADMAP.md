@@ -210,6 +210,9 @@ Small quality items surfaced during self-maintenance / #T9 reviews (2026-07-17).
   <!-- maint-fp: stale:docs/knowledge/design-principles.md,docs/knowledge/metrics.md,docs/knowledge/roadmap-format.md -->
 - [?] Run /tools:dream — 11 memory files / 55 session files, consolidation due #T247
   <!-- maint-fp: dream:11:55 -->
+- [?] skill-edit: lead.md — quote the runner summary line for test results #T274
+  <!-- maint-fp: skill-edit:.claude/rules/lead.md:hand-counted-test-totals -->
+  <!-- proposal: docs/specs/updater-project-flag/skill-edits.md Proposal 1 -->
 
 ### Todo
 

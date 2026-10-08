@@ -195,3 +195,15 @@ Corollary — **seed settings in the shape every shipped CLI version accepts**. 
 **Anti-pattern**: A brief that says "read the spec in docs/specs/<feature>/" or "write the report to docs/specs/<feature>/tasks/TN/" with relative paths — the worker finds an empty directory, or writes into one that will not survive. Or trusting a completion report's "files written" without a Glob against the main repo.
 
 **Runtime dependency**: since Claude Code 2.1.222 worktree isolation applies to file edits and Bash in every session type, and 2.1.257/2.1.259 narrowed its refusals to commands that leave the worktree. Writes to absolute main-repo paths under gitignored directories worked in the #T176 build on 2.1.260; on 2.1.290 the harness refuses them ("Edit the worktree copy of this file instead"), so outputs go to the session scratchpad. A worker that hits that refusal must not route around it with `cp` or any other Bash command; the lead places the file.
+
+---
+
+### Ship the Guard With the Capability
+
+**When to Use**: Any capability whose safety rests on something outside the code that grants it (a permission rule, a hook, a settings entry, a doc step), and above all when the two are delivered by different files.
+
+**Pattern**: Ask how the guard reaches every place the capability reaches. If the two travel in different files they can arrive separately, so the code that grants the capability checks for its guard and refuses when it is absent. Parse the guard's home (JSON, not a string search) so a match under the wrong key does not count, and pin both sides to the same strings with a test. Say what the guard is: a rule that matches command text stops an unreviewed run and is not a boundary.
+
+**Example**: v3.1.2 added `update-project.sh --project DIR` in a script the updater replaces cleanly, and guarded a cross-project `--apply` with `ask` rules in `.claude/settings.json`, a file that conflicted in 9 of 10 downstream projects and so would not have arrived with the script. The ship-gate review caught it. The script now refuses `--project` with `--apply` unless `permissions.ask` in its own checkout holds both rules (#T271), and `tests/shipped-settings.test.ts` requires the script and the settings to name the same rules.
+
+**Anti-pattern**: Treating "the rule is in the shipped settings file" as proof the rule is installed. Also a guard checked by searching for its text: the first build of the check passed with the rule strings outside `permissions.ask`.
