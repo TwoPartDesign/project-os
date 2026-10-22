@@ -536,22 +536,54 @@ run_check_failures() {
 # ==========================================================================
 # Check 4: consolidation — docs/memory/*.md count + .claude/sessions/*.yaml
 # count vs pressure thresholds
+#
+# The epoch is the newest dream-accept backup (docs/memory/.archive/<ts>/),
+# or "never". Sessions count only if newer than that backup — a dream pass
+# does not delete session files, so an all-time count would stay over the
+# threshold forever. The fingerprint is dream:since:<epoch>, so one draft
+# stands per epoch however the counts move; the old dream:<mem>:<sess>
+# fingerprint changed on every new session and re-filed a duplicate each run.
 # ==========================================================================
+
+# Prints the newest docs/memory/.archive/<YYYY-MM-DD-HHMM> name, or "never".
+dream_epoch() {
+    local archive_dir="$1/.archive"
+    local newest="never" d name
+    [ -d "$archive_dir" ] || {
+        printf '%s' "$newest"
+        return 0
+    }
+    for d in "$archive_dir"/*/; do
+        [ -d "$d" ] || continue
+        name="$(basename "$d")"
+        [[ "$name" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}$ ]] || continue
+        if [ "$newest" = "never" ] || [[ "$name" > "$newest" ]]; then
+            newest="$name"
+        fi
+    done
+    printf '%s' "$newest"
+}
 
 run_check_consolidation() {
     local mem_dir="$ROOT/docs/memory"
     local sess_dir="$ROOT/.claude/sessions"
     local mem_count=0 sess_count=0
+    local epoch
+    epoch="$(dream_epoch "$mem_dir")"
 
     if [ -d "$mem_dir" ]; then
         mem_count=$(find "$mem_dir" -maxdepth 1 -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
     fi
     if [ -d "$sess_dir" ]; then
-        sess_count=$(find "$sess_dir" -maxdepth 1 -type f -name '*.yaml' 2>/dev/null | wc -l | tr -d ' ')
+        if [ "$epoch" = "never" ]; then
+            sess_count=$(find "$sess_dir" -maxdepth 1 -type f -name '*.yaml' 2>/dev/null | wc -l | tr -d ' ')
+        else
+            sess_count=$(find "$sess_dir" -maxdepth 1 -type f -name '*.yaml' -newer "$mem_dir/.archive/$epoch" 2>/dev/null | wc -l | tr -d ' ')
+        fi
     fi
 
     if [ "$mem_count" -ge "$CONSOLIDATION_PRESSURE_FILES" ] || [ "$sess_count" -ge "$CONSOLIDATION_PRESSURE_SESSIONS" ]; then
-        add_finding "Run /tools:dream — ${mem_count} memory files / ${sess_count} session files, consolidation due" "dream:${mem_count}:${sess_count}"
+        add_finding "Run /tools:dream — ${mem_count} memory files / ${sess_count} session files since the last dream (${epoch}), consolidation due" "dream:since:${epoch}"
     fi
 }
 

@@ -801,6 +801,74 @@ scenario_14() {
 }
 
 # ==========================================================================
+# Scenario 15: consolidation fingerprint is per dream epoch. A growing session
+# count files exactly one draft (the old dream:<mem>:<sess> fingerprint re-filed
+# on every new session), an old count-keyed line does not suppress it, sessions
+# older than the newest dream-accept backup do not count, and a new epoch with
+# fresh pressure files a new draft.
+# ==========================================================================
+
+seed_sessions() {
+    local fx="$1" from="$2" to="$3" i
+    for i in $(seq "$from" "$to"); do
+        printf 'timestamp: "x"\n' >"$fx/.claude/sessions/handoff-s${i}.yaml"
+    done
+}
+
+scenario_15() {
+    local name="scenario15-dream-epoch-fingerprint"
+    local fx out ec drafts
+    fx="$(new_fixture)"
+    printf '%s\n' "checks: consolidation" >"$fx/.claude/maintenance-policy.yaml"
+    printf '%s\n' \
+        "- [x] Old consolidation draft #T1" \
+        "  <!-- maint-fp: dream:0:40 -->" \
+        >>"$fx/ROADMAP.md"
+
+    seed_sessions "$fx" 1 40
+    out=$(PROJECT_OS_ROOT="$fx" bash "$MAINTAIN_SH" 2>&1)
+    ec=$?
+    if [ "$ec" -ne 0 ]; then
+        fail "$name: first run exited $ec: $out"
+        return
+    fi
+    seed_sessions "$fx" 41 45
+    out=$(PROJECT_OS_ROOT="$fx" bash "$MAINTAIN_SH" 2>&1)
+    ec=$?
+    if [ "$ec" -ne 0 ]; then
+        fail "$name: second run exited $ec: $out"
+        return
+    fi
+
+    drafts="$(grep -c -- "maint-fp: dream:since:never -->" "$fx/ROADMAP.md")"
+    if [ "$drafts" = "1" ]; then
+        pass "$name: 40 then 45 sessions with no dream yet filed exactly one dream:since:never draft (old dream:0:40 line did not suppress)"
+    else
+        fail "$name: expected exactly 1 dream:since:never draft, got '$drafts'"
+    fi
+
+    # A dream pass is accepted: all 45 sessions predate its backup dir.
+    touch -d "2020-01-01" "$fx/.claude/sessions/"*.yaml
+    mkdir -p "$fx/docs/memory/.archive/2026-01-01-0000"
+    out=$(PROJECT_OS_ROOT="$fx" bash "$MAINTAIN_SH" 2>&1)
+    if grep -q -- "dream:since:2026-01-01-0000" "$fx/ROADMAP.md"; then
+        fail "$name: sessions older than the dream backup were counted"
+    else
+        pass "$name: sessions older than the newest dream backup do not count"
+    fi
+
+    # Fresh pressure in the new epoch files a new draft.
+    seed_sessions "$fx" 46 85
+    out=$(PROJECT_OS_ROOT="$fx" bash "$MAINTAIN_SH" 2>&1)
+    drafts="$(grep -c -- "maint-fp: dream:since:2026-01-01-0000 -->" "$fx/ROADMAP.md")"
+    if [ "$drafts" = "1" ]; then
+        pass "$name: 40 sessions after the backup file one dream:since:<epoch> draft"
+    else
+        fail "$name: expected 1 dream:since:2026-01-01-0000 draft, got '$drafts'"
+    fi
+}
+
+# ==========================================================================
 # Main
 # ==========================================================================
 
@@ -820,6 +888,7 @@ scenario_11
 scenario_12
 scenario_13
 scenario_14
+scenario_15
 
 REAL_ROADMAP_STATUS_AFTER="$(git -C "$REPO_ROOT" status --porcelain -- ROADMAP.md .claude/logs .claude/maintenance-lock 2>/dev/null)"
 if [ "$REAL_ROADMAP_STATUS_BEFORE" = "$REAL_ROADMAP_STATUS_AFTER" ]; then
