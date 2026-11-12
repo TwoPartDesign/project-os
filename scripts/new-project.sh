@@ -341,6 +341,7 @@ FRAMEWORK_FILES=(
   "scripts/sync-hooks.sh"
   "scripts/maintain.sh"
   "scripts/dream-accept.sh"
+  "scripts/sweep-worktrees.sh"
   "scripts/install-hooks.sh"
   "scripts/install-global-commands.sh"
   "scripts/setup.sh"

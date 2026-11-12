@@ -181,6 +181,7 @@ TEMPLATE_SCRIPTS=(
     "scripts/maintain-draft.ts"
     "scripts/maintain.sh"
     "scripts/dream-accept.sh"
+    "scripts/sweep-worktrees.sh"
     "scripts/install-hooks.sh"
     "scripts/install-global-commands.sh"
     "scripts/new-project.sh"
