@@ -402,6 +402,10 @@ REPORT_PRE="$(cd "$PROJ" && node scripts/system-map.ts report 2>&1)"
 set -e
 assert_contains "$REPORT_PRE" "init-incomplete" "pre-init report flags init-incomplete"
 assert_not_contains "$REPORT_PRE" "unlocalized-template-content" "pre-init report suppresses unlocalized-template-content"
+# Shipped docs must not reference framework-repo-only scripts (e.g. new-project.sh)
+# as `bash scripts/...`: the edge dangles in every downstream project and
+# maintain.sh files a HIGH readiness draft for it.
+assert_not_contains "$REPORT_PRE" "dangling-ref" "fresh project report has zero dangling-ref findings"
 
 # Simulate /tools:init's placeholder fill, then re-report.
 sed -i.bak 's/\[YOUR_ROLE\]/Solo developer/; s/\[YOUR_NAME\]/Test Owner/; s/\[PRIMARY_STACK\]/TypeScript/' "$PROJ/CLAUDE.md"

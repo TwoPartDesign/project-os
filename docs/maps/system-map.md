@@ -78,7 +78,7 @@
 - `s_maintain_draft` — `scripts/maintain-draft.ts` (1 dependent)
 - `s_maintain` — `scripts/maintain.sh` (1 dependent)
 - `s_memory_search` — `scripts/memory-search.sh` (0 dependents)
-- `s_new_project` — `scripts/new-project.sh` (1 dependent)
+- `s_new_project` — `scripts/new-project.sh` (0 dependents)
 - `s_observation_parser` — `scripts/observation-parser.ts` (4 dependents)
 - `s_review_triage` — `scripts/review-triage.ts` (2 dependents)
 - `s_scrub_secrets` — `scripts/scrub-secrets.sh` (0 dependents)
@@ -158,7 +158,6 @@
 - `c_tools_reflect` --references--> `s_maintain_draft`
 - `c_tools_reflect` --references--> `s_skill_apply`
 - `c_tools_update` --references--> `s_generate_manifest`
-- `c_tools_update` --references--> `s_new_project`
 - `c_tools_update` --references--> `s_sync_hooks`
 - `c_tools_update` --references--> `s_update_project`
 - `c_workflows_build` --references--> `h_log_activity`

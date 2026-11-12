@@ -63,7 +63,7 @@ When `--diff-upstream` is passed via $ARGUMENTS:
 - Use the published release. A Windows checkout passed as `--local-upstream` misclassifies files on line endings.
 - `--apply` under the flag asks for confirmation (`ask` rules in `.claude/settings.json`). A dry run does not. The rules match the command text, whatever the path to the script, so they stop an unreviewed apply and are not a boundary around the script. They cover the Bash tool only, and a command that passes the flags through a variable (`"$@"`) is not caught.
 - The updater refuses `--project` with `--apply` unless `permissions.ask` in this checkout's `.claude/settings.json` holds the two path-independent rules (`settings.local.json` and user settings do not count). After an update that left `.claude/settings.json.upstream`, merge its `ask` block first.
-- A project with no `.claude/manifest.json` is refused. Bring it in with `bash scripts/new-project.sh --adopt DIR` instead.
+- A project with no `.claude/manifest.json` is refused. Bring it in from the Project OS repo with `bash <project-os-repo>/scripts/new-project.sh --adopt DIR` instead (`new-project.sh` ships only in the framework repo, not in adopted projects).
 
 When `--project` is passed via $ARGUMENTS:
 1. Run the dry run first: `bash scripts/update-project.sh --project "DIR"`, with `--target` or `--major` as given
