@@ -93,7 +93,7 @@ Log: `bash .claude/hooks/log-activity.sh pr-created feature=$ARGUMENTS`
 
 ## Post-Ship
 
-1. **Verify worktree cleanup**: Worktree lifecycle is native — agent worktrees are removed automatically (kept as branches when changes were made). Run `git worktree list` and `git worktree prune` only if strays remain.
+1. **Sweep worktrees**: Agent worktrees are removed automatically when unchanged, and kept with a `worktree-agent-*` branch when changes were made. Once no sub-agent is running, run `bash scripts/sweep-worktrees.sh --apply` (pre-authorized, no confirmation needed). It removes only worktrees and branches whose work is already in the base, then prunes. List any KEPT entries and their reasons for the user; do not delete them by hand.
 2. **Archive specs**: The spec lifecycle is complete. Leave files in place for reference.
 3. **Update ROADMAP.md**: Move all tasks for this feature to the "Done" section.
    - Check if any tasks are still `[~]` (not yet `[x]`)

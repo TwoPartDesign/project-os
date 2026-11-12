@@ -86,7 +86,7 @@
 - `s_setup` — `scripts/setup.sh` (0 dependents)
 - `s_skill_apply` — `scripts/skill-apply.ts` (2 dependents)
 - `s_skill_ledger` — `scripts/skill-ledger.ts` (1 dependent)
-- `s_sweep_worktrees` — `scripts/sweep-worktrees.sh` (0 dependents)
+- `s_sweep_worktrees` — `scripts/sweep-worktrees.sh` (1 dependent)
 - `s_sync_hooks` — `scripts/sync-hooks.sh` (1 dependent)
 - `s_system_map` — `scripts/system-map.ts` (5 dependents)
 - `s_update_project` — `scripts/update-project.sh` (1 dependent)
@@ -179,6 +179,7 @@
 - `c_workflows_ship` --references--> `h_log_activity`
 - `c_workflows_ship` --references--> `s_create_pr`
 - `c_workflows_ship` --references--> `s_security_scanner`
+- `c_workflows_ship` --references--> `s_sweep_worktrees`
 - `c_workflows_ship` --references--> `s_system_map`
 - `cfg_settings` --wires--> `h_compact_suggest`
 - `cfg_settings` --wires--> `h_log_activity`
@@ -231,7 +232,7 @@
 
 ## Findings
 
-- LOW bloat .claude/rules/lead.md — .claude/rules/lead.md is approximately 3405 tokens, exceeding the 2500-token warn threshold.
+- LOW bloat .claude/rules/lead.md — .claude/rules/lead.md is approximately 3585 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/architecture.md — docs/knowledge/architecture.md is approximately 7724 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/bugs.md — docs/knowledge/bugs.md is approximately 3971 tokens, exceeding the 2500-token warn threshold.
 - LOW bloat docs/knowledge/decisions.md — docs/knowledge/decisions.md is approximately 22306 tokens, exceeding the 2500-token warn threshold.
@@ -245,5 +246,4 @@
 - MEDIUM orphan-script s_memory_search — Script scripts/memory-search.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_scrub_secrets — Script scripts/scrub-secrets.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_setup — Script scripts/setup.sh has no incoming references and is not in the orphan allowlist.
-- MEDIUM orphan-script s_sweep_worktrees — Script scripts/sweep-worktrees.sh has no incoming references and is not in the orphan allowlist.
 - MEDIUM orphan-script s_validate_freshness — Script scripts/validate-freshness.sh has no incoming references and is not in the orphan allowlist.

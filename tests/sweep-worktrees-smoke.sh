@@ -323,17 +323,17 @@ assert_line "sweep_detachedUnintegrated_reportsKept" \
 assert_no_dir "sweep_detachedClean_directoryGone" "$REPO/.claude/worktrees/k"
 assert_dir "sweep_detachedUnintegrated_directoryKept" "$REPO/.claude/worktrees/k2"
 
-# --- Scenario 14: git refuses removal -----------------------------------------
-echo "Scenario 14: locked worktree is kept with git's message"
+# --- Scenario 14: locked worktree ---------------------------------------------
+echo "Scenario 14: locked worktree is kept, in apply and dry run alike"
 new_repo
 add_wt l worktree-agent-lll
 git -C "$REPO" worktree lock --reason "in use" "$REPO/.claude/worktrees/l"
+run_sweep
+assert_line "sweep_lockedWorktreeDryRun_reportsKept" \
+    "KEPT $ROOT/.claude/worktrees/l (locked)" "$OUT"
 run_sweep --apply
-KEPT_LINE="$(printf '%s\n' "$OUT" | grep -F "KEPT $ROOT/.claude/worktrees/l (" || true)"
-case "$KEPT_LINE" in
-    *"locked"*"in use"*) pass "sweep_lockedWorktree_keptWithGitMessage" ;;
-    *) fail "sweep_lockedWorktree_keptWithGitMessage" "got [$KEPT_LINE]\n$OUT" ;;
-esac
+assert_line "sweep_lockedWorktree_reportsKept" \
+    "KEPT $ROOT/.claude/worktrees/l (locked)" "$OUT"
 assert_dir "sweep_lockedWorktree_directoryKept" "$REPO/.claude/worktrees/l"
 assert_eq "sweep_lockedWorktree_branchKept" "yes" "$(branch_exists worktree-agent-lll)" "$OUT"
 git -C "$REPO" worktree unlock "$REPO/.claude/worktrees/l" >/dev/null 2>&1 || true

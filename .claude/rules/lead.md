@@ -104,6 +104,16 @@ bound there, because an isolated worker cannot write the shared checkout; you
 place those files with Write. The brief requires a commit. Glob the scratchpad
 for claimed files before the worktree is gone.
 
+Clean up agent worktrees with `bash scripts/sweep-worktrees.sh --apply`, without
+asking first, once no sub-agent is running (a live agent's fresh worktree looks
+exactly like a finished one). Running it is pre-authorized: it removes a worktree under
+`.claude/worktrees/` (and its `worktree-agent-*` branch) only when the tree is
+clean, holds no ignored files under the gitignored doc directories, and every
+file its branch changed is already identical in the base. Everything else it
+reports as KEPT with the reason, so nothing unmerged is lost. It is not the
+`rm -rf` the confirmation rule is about. Do not hand-audit worktrees it removes,
+and do not delete a KEPT one yourself: report it to the user with its reason.
+
 A worker killed mid-task by a session or spend limit is resumed, not
 restarted: SendMessage to the same agent continues from its transcript, and
 the resumed worker audits its own worktree state before doing anything else.

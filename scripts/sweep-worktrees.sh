@@ -20,8 +20,13 @@
 #      copying files, so the branch is not always an ancestor).
 #
 # Candidates are only worktrees located inside <repo>/.claude/worktrees/. The
-# main worktree and any worktree elsewhere are never touched. A worktree whose
-# directory is already gone is handled by `git worktree prune`.
+# main worktree and any worktree elsewhere are never touched. A locked worktree
+# is always kept. A worktree whose directory is already gone is handled by
+# `git worktree prune`.
+#
+# Run it only when no sub-agent is running. A live agent's worktree starts out
+# clean with its head equal to the base, so it passes every rule above; nothing
+# in git distinguishes it from a finished one.
 #
 # Branch candidates are local `worktree-agent-*` branches not checked out in any
 # remaining worktree, plus the branch of each worktree removed in this run. A
@@ -64,7 +69,7 @@ while [ $# -gt 0 ]; do
             shift
             ;;
         --base=*) BASE="${1#--base=}" ;;
-        -h|--help) sed -n '2,43p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,47p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *)
             echo "sweep-worktrees: unknown argument: $1" >&2
             usage
@@ -194,25 +199,27 @@ WT_COUNT=0
 WT_PATH=()
 WT_HEAD=()
 WT_BRANCH=()
+WT_LOCKED=()
 
-# load_worktrees — parse `git worktree list --porcelain` into WT_PATH/WT_HEAD/WT_BRANCH.
+# load_worktrees — parse `git worktree list --porcelain` into WT_PATH/WT_HEAD/WT_BRANCH/WT_LOCKED.
 load_worktrees() {
-    local line path="" head="" branch="" have=0
+    local line path="" head="" branch="" locked=0 have=0
     while IFS= read -r line || [ -n "$line" ]; do
         case "$line" in
             "worktree "*)
                 if [ "$have" -eq 1 ]; then
-                    WT_PATH+=("$path"); WT_HEAD+=("$head"); WT_BRANCH+=("$branch")
+                    WT_PATH+=("$path"); WT_HEAD+=("$head"); WT_BRANCH+=("$branch"); WT_LOCKED+=("$locked")
                 fi
                 have=1
-                path="${line#worktree }"; head=""; branch=""
+                path="${line#worktree }"; head=""; branch=""; locked=0
                 ;;
             "HEAD "*) head="${line#HEAD }" ;;
             "branch "*) branch="${line#branch refs/heads/}" ;;
+            "locked"|"locked "*) locked=1 ;;
         esac
     done < <(git worktree list --porcelain)
     if [ "$have" -eq 1 ]; then
-        WT_PATH+=("$path"); WT_HEAD+=("$head"); WT_BRANCH+=("$branch")
+        WT_PATH+=("$path"); WT_HEAD+=("$head"); WT_BRANCH+=("$branch"); WT_LOCKED+=("$locked")
     fi
     WT_COUNT=${#WT_PATH[@]}
 }
@@ -251,6 +258,14 @@ sweep_worktrees() {
             echo "$VERB_REMOVED $path (directory missing, stale record pruned)"
             WT_REMOVED=$((WT_REMOVED + 1))
             if [ -n "$branch" ]; then REMOVED_BRANCHES="${REMOVED_BRANCHES:+$REMOVED_BRANCHES$'\n'}$branch"; fi
+            i=$((i + 1))
+            continue
+        fi
+
+        if [ "${WT_LOCKED[$i]}" -eq 1 ]; then
+            echo "KEPT $path (locked)"
+            WT_KEPT=$((WT_KEPT + 1))
+            if [ -n "$branch" ]; then CHECKED_OUT="${CHECKED_OUT:+$CHECKED_OUT$'\n'}$branch"; fi
             i=$((i + 1))
             continue
         fi
