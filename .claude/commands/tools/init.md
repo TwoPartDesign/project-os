@@ -305,32 +305,29 @@ preset would otherwise change the lead model without anyone choosing it.
 
 Ask:
 
-> "Do you use an external code review tool? This adds review instructions to `.claude/rules/code-review.md`."
+> "Reviews run on the Claude reviewer agents (`reviewer-architecture`, `reviewer-security`, `reviewer-tests`) by default. Do you also want an external review tool as an extra pass? This adds `.claude/rules/code-review.md`."
 >
-> 1. **Codex** — OpenAI Codex CLI (invoked via `codex` in PowerShell/terminal)
-> 2. **GitHub Copilot CLI** — `gh copilot` suggestions
-> 3. **Other** — I'll describe it
-> 4. **None / Skip** — Claude handles reviews internally *(default)*
+> 1. **None — Claude reviewers only** *(default, recommended)*
+> 2. **Codex** — OpenAI Codex CLI via `scripts/codex-review.sh`
+> 3. **GitHub Copilot CLI** — `gh copilot` suggestions
+> 4. **Other** — I'll describe it
 
-If **None / Skip**: skip to Step 5. No file is created.
+If **None**: skip to Step 5. No file is created; `/workflows:review` and the sizing rules in `.claude/rules/lead.md` already cover every review.
 
-If **Codex**:
-- Record as `CODE_REVIEW_TOOL=codex`
+An external tool is always **additive**: it never replaces the Claude reviewers and never blocks a gate. Before writing a rule for one, confirm it actually runs on this machine. An installed CLI is not enough, since an account or model mismatch only shows up on a real call:
+- **Codex**: write a one-line prompt (`Reply with OK.`) to `./codex-prompt.txt` with the Write tool, run `bash scripts/codex-review.sh --prompt-file ./codex-prompt.txt`, then delete the prompt file. Record `CODE_REVIEW_TOOL=codex` only if it exits 0 with a reply.
+- **Copilot**: run `gh copilot --help`; record `CODE_REVIEW_TOOL=copilot` only if it exits 0.
+- **Other**: ask "How do you invoke it? (command + any flags)", run it once on a trivial input, and record `CODE_REVIEW_TOOL=other`, `CODE_REVIEW_COMMAND=[command]` only if it works.
 
-If **GitHub Copilot CLI**:
-- Record as `CODE_REVIEW_TOOL=copilot`
+If the probe fails, tell the user what failed (quote the error), write no file, and continue as **None**.
 
-If **Other**:
-- Ask: "How do you invoke it? (command + any flags)"
-- Record as `CODE_REVIEW_TOOL=other`, `CODE_REVIEW_COMMAND=[command]`
-
-Create `.claude/rules/code-review.md` with the appropriate content:
+Create `.claude/rules/code-review.md` with the matching block below, followed by the shared fallback section:
 
 **Codex:**
 ```markdown
 # Code Reviews
 
-Use Codex for code review and checks.
+Codex is an optional extra review pass on top of the Claude reviewers.
 - Always use the wrapper script: `bash scripts/codex-review.sh --prompt-file ./codex-prompt.txt`
 - Write prompts to project root (`./codex-prompt.txt`) using the Write tool — never use `/tmp/` or heredocs
 - Optional flags: `--diff-from BRANCH` (appends git diff), `--mode danger-full-access` (default: read-only)
@@ -342,7 +339,7 @@ Use Codex for code review and checks.
 ```markdown
 # Code Reviews
 
-Use GitHub Copilot CLI for code suggestions.
+GitHub Copilot CLI is an optional extra pass on top of the Claude reviewers.
 - Explain code: `gh copilot explain "..."`
 - Suggest fixes: `gh copilot suggest "..."`
 ```
@@ -351,10 +348,23 @@ Use GitHub Copilot CLI for code suggestions.
 ```markdown
 # Code Reviews
 
-Use <command> for code review.
+<command> is an optional extra review pass on top of the Claude reviewers.
 ```
 
 Replace `<command>` with the actual invocation the user provided before writing the file.
+
+**Shared fallback section** (append to every variant):
+```markdown
+## When the tool is unavailable
+
+The external tool never gates a review. If it is not installed, exits non-zero, or
+rejects the account or model, do not retry it more than once. Run the Claude
+reviewer for the same scope instead, in a fresh context that has not seen the
+work (`reviewer-security` on `opus` for code with a security or correctness
+surface; otherwise the reviewer the diff calls for per `.claude/rules/lead.md`),
+and record the substitution and the tool's error in the review doc. A design
+or plan that names this tool for a review is satisfied by that substitution.
+```
 
 ## Step 5: Fill in all placeholders
 
@@ -675,7 +685,7 @@ Append a new entry to `docs/memory/project-profiles.md` (create it if it doesn't
 - **Test runner**: [test runner]
 - **One-liner**: [one sentence description]
 - **Features**: Obsidian=[yes/no], Context7=[yes/no]
-- **Code review**: [Codex/Copilot/other/none]
+- **Code review**: [Claude reviewers only / + Codex / + Copilot / + other (probe verified)]
 - **Models**: orchestration=[MODEL_ORCHESTRATION], sub-agent=[MODEL_SUBAGENT]
 ```
 
@@ -788,7 +798,7 @@ whether this init actually succeeded:
 > **Features enabled**:
 > - Obsidian vault: [enabled — wikilinks + frontmatter active / disabled]
 > - Context7 MCP: [enabled — `.mcp.json` created / disabled]
-> - Code review: [Codex / GitHub Copilot CLI / other / none — Claude handles reviews internally]
+> - Code review: [Claude reviewers only / Claude reviewers + Codex, Copilot, or other as an extra pass]
 > **Model routing**:
 > - Orchestration: [MODEL_ORCHESTRATION]
 > - Sub-agents: [MODEL_SUBAGENT] (`CLAUDE_CODE_SUBAGENT_MODEL`)
