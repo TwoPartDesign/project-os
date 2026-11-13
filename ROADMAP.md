@@ -213,6 +213,12 @@ Small quality items surfaced during self-maintenance / #T9 reviews (2026-07-17).
 - [?] skill-edit: lead.md — quote the runner summary line for test results #T274
   <!-- maint-fp: skill-edit:.claude/rules/lead.md:hand-counted-test-totals -->
   <!-- proposal: docs/specs/updater-project-flag/skill-edits.md Proposal 1 -->
+- [?] Review stale knowledge: 10 files past 90d (docs/knowledge/architecture.md,docs/knowledge/bugs.md,docs/knowledge/decisions.md,docs/knowledge/design-principles.md,docs/knowledge/metrics.md,docs/knowledg #T276
+  <!-- maint-fp: stale:docs/knowledge/architecture.md,docs/knowledge/bugs.md,docs/knowledge/decisions.md,docs/knowledge/design-principles.md,docs/knowledge/metrics.md,docs/knowledge/multi-agent-judging.md,docs/knowled -->
+- [?] Investigate recurring Bash failures (9 since 2026-10-07T14:35:23Z) #T277
+  <!-- maint-fp: failures:Bash:2026-W46 -->
+- [?] Run /tools:dream — 16 memory files / 68 session files, consolidation due #T278
+  <!-- maint-fp: dream:16:68 -->
 
 ### Todo
 
@@ -531,6 +537,12 @@ Design APPROVED 2026-10-07 (Approver: "Go forward with your recommendations"); t
 - [x] Docs: `update.md` "Updating another project" and the `architecture.md` row (depends: #T264, #T265) #T266
 - [x] Close-out: CHANGELOG v3.1.2 with a Migration note, `bugs.md` entry, `decisions.md` ADR (depends: #T266) #T267
 - [x] Updater `--project` flag and the two unshipped scripts — Brief created, awaiting design (retired 2026-10-07: superseded by #T261-#T267 after design APPROVED) #T259
+
+## Feature: updater-settings-merge
+
+### Draft
+
+- [?] Updater merges `.claude/settings.json` by key, removes files a release deleted, and records upstream baselines on every apply (planned v3.1.3; covers #T253 and #T251). Brief created, awaiting design #T275
 
 ## Feature: updater-hardening
 Faults in `scripts/update-project.sh` found on 2026-10-07 by dry-running the v3.1.1 update over the ten downstream projects that carry a manifest (no project was written to). The ten held five distinct updater versions; one could not run, four would have overwritten project knowledge docs, and v3.1.1's own updater leaves two scripts unshipped. The two fixes the rollout needs ship in v3.1.2 (feature `updater-project-flag`); everything here changes the updater's design and awaits `/workflows:idea`. All drafts, none approved.
