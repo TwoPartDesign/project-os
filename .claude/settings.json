@@ -43,6 +43,7 @@
       "Bash(bash scripts/sync-hooks.sh*)",
       "Bash(bash scripts/maintain.sh*)",
       "Bash(bash scripts/dream-accept.sh*)",
+      "Bash(bash scripts/sweep-worktrees.sh*)",
       "Bash(bash scripts/install-hooks.sh*)",
       "Bash(bash scripts/install-global-commands.sh*)",
       "Bash(bash scripts/setup.sh*)",
